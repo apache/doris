@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 /** Column for String values.
   */
-class ColumnString final : public COWHelper<IColumn, ColumnString> {
+class ColumnString : public COWHelper<IColumn, ColumnString> {
 public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
@@ -73,7 +73,7 @@ public:
         }
     }
 
-private:
+protected:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
     static constexpr size_t MAX_STRING_SIZE = 0xffffffff;
@@ -106,28 +106,28 @@ private:
 
 public:
     void sanity_check() const;
-    bool is_variable_length() const override { return true; }
-    const char* get_family_name() const override { return "String"; }
+    bool is_variable_length() const final { return true; }
+    const char* get_family_name() const final { return "String"; }
 
-    size_t size() const override { return offsets.size(); }
+    virtual size_t size() const override { return offsets.size(); }
 
-    size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
+    size_t byte_size() const final { return chars.size() + offsets.size() * sizeof(offsets[0]); }
 
-    size_t allocated_bytes() const override {
+    size_t allocated_bytes() const final {
         return chars.allocated_bytes() + offsets.allocated_bytes();
     }
 
-    MutableColumnPtr clone_resized(size_t to_size) const override;
+    MutableColumnPtr clone_resized(size_t to_size) const final;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    MutableColumnPtr get_shrinked_column() final;
+    bool could_shrinked_column() final { return true; }
 
-    Field operator[](size_t n) const override {
+    Field operator[](size_t n) const final {
         assert(n < size());
         return Field(&chars[offset_at(n)], size_at(n));
     }
 
-    void get(size_t n, Field& res) const override {
+    void get(size_t n, Field& res) const final {
         assert(n < size());
         if (res.get_type() == Field::Types::JSONB) {
             // Handle JsonbField
@@ -137,12 +137,12 @@ public:
         res.assign_string(&chars[offset_at(n)], size_at(n));
     }
 
-    StringRef get_data_at(size_t n) const override {
+    StringRef get_data_at(size_t n) const final {
         assert(n < size());
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-    void insert(const Field& x) override {
+    void insert(const Field& x) final {
         StringRef s;
         if (x.get_type() == Field::Types::JSONB) {
             // Handle JsonbField
@@ -163,7 +163,7 @@ public:
         offsets.push_back(new_size);
     }
 
-    void insert_from(const IColumn& src_, size_t n) override {
+    void insert_from(const IColumn& src_, size_t n) final {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
@@ -185,7 +185,7 @@ public:
         }
     }
 
-    void insert_data(const char* pos, size_t length) override {
+    void insert_data(const char* pos, size_t length) final {
         const size_t old_size = chars.size();
         const size_t new_size = old_size + length;
 
@@ -243,7 +243,7 @@ public:
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
-                                            const size_t num) override {
+                                            const size_t num) final {
         static_assert(sizeof(offsets_[0]) == sizeof(*offsets.data()));
         if (UNLIKELY(num == 0)) {
             return;
@@ -269,7 +269,7 @@ public:
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+                                 uint32_t* start_offset_array, size_t num) final {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
             new_size += len_array[i];
@@ -291,7 +291,7 @@ public:
         }
     }
 
-    void insert_many_strings(const StringRef* strings, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) final {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
             new_size += strings[i].size;
@@ -342,7 +342,7 @@ public:
     }
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
-                                      size_t max_length) override {
+                                      size_t max_length) final {
         if (max_length <= 8) {
             insert_many_strings_fixed_length<8>(strings, num);
         } else if (max_length <= 16) {
@@ -359,7 +359,7 @@ public:
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
+                               size_t num, uint32_t /*dict_num*/) final {
         size_t offset_size = offsets.size();
         size_t old_size = chars.size();
         size_t new_size = old_size;
@@ -382,7 +382,7 @@ public:
         }
     }
 
-    void pop_back(size_t n) override {
+    void pop_back(size_t n) final {
         size_t nested_n = offsets.back() - offset_at(offsets.size() - n);
         chars.resize(chars.size() - nested_n);
         offsets.resize_assume_reserved(offsets.size() - n);
@@ -390,7 +390,7 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    const char* deserialize_and_insert_from_arena(const char* pos) final;
 
     void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
 
@@ -403,10 +403,10 @@ public:
                                      const uint8_t* null_map) const override;
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
+                                       const uint8_t* null_map) final;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                  const uint8_t* __restrict null_data) const override {
+                                  const uint8_t* __restrict null_data) const final {
         if (null_data) {
             for (size_t i = start; i < end; ++i) {
                 if (null_data[i] == 0) {
@@ -427,7 +427,7 @@ public:
     }
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                               const uint8_t* __restrict null_data) const override {
+                               const uint8_t* __restrict null_data) const final {
         if (null_data) {
             for (size_t i = start; i < end; ++i) {
                 if (null_data[i] == 0) {
@@ -443,7 +443,7 @@ public:
         }
     }
 
-    void update_hash_with_value(size_t n, SipHash& hash) const override {
+    void update_hash_with_value(size_t n, SipHash& hash) const final {
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
 
@@ -453,11 +453,10 @@ public:
     }
 
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
-                                uint32_t offset,
-                                const uint8_t* __restrict null_data) const override;
+                                uint32_t offset, const uint8_t* __restrict null_data) const final;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data) const override {
+                                  const uint8_t* __restrict null_data) const final {
         auto s = size();
         if (null_data) {
             for (int i = 0; i < s; i++) {
@@ -478,62 +477,63 @@ public:
         }
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from(const IColumn& src, size_t start, size_t length) final;
+
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) final;
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override;
+                             const uint32_t* indices_end) final;
 
-    ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
-    size_t filter(const Filter& filter) override;
+    ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const final;
+    size_t filter(const Filter& filter) final;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) final;
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    ColumnPtr permute(const Permutation& perm, size_t limit) const final;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
+                     EqualRange& range, bool last_column) const final;
 
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
-    void insert_default() override { offsets.push_back(chars.size()); }
+    void insert_default() final { offsets.push_back(chars.size()); }
 
-    void insert_many_defaults(size_t length) override {
+    void insert_many_defaults(size_t length) final {
         offsets.resize_fill(offsets.size() + length, chars.size());
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                   int /*nan_direction_hint*/) const override {
+                   int /*nan_direction_hint*/) const final {
         const ColumnString& rhs = assert_cast<const ColumnString&>(rhs_);
         return memcmp_small_allow_overflow15(chars.data() + offset_at(n), size_at(n),
                                              rhs.chars.data() + rhs.offset_at(m), rhs.size_at(m));
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override;
+                         Permutation& res) const final;
 
-    ColumnPtr replicate(const Offsets& replicate_offsets) const override;
+    ColumnPtr replicate(const Offsets& replicate_offsets) const final;
 
     void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
+                                 const IColumn::Selector& selector) const final {
         append_data_by_selector_impl<ColumnString>(res, selector);
     }
 
     void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
+                                 size_t begin, size_t end) const final {
         append_data_by_selector_impl<ColumnString>(res, selector, begin, end);
     }
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
-    void reserve(size_t n) override;
+    void reserve(size_t n) final;
 
-    void resize(size_t n) override;
+    void resize(size_t n) final;
 
-    bool is_column_string() const override { return true; }
+    bool is_column_string() const final { return true; }
 
-    bool structure_equals(const IColumn& rhs) const override {
+    bool structure_equals(const IColumn& rhs) const final {
         return typeid(rhs) == typeid(ColumnString);
     }
 
@@ -543,23 +543,24 @@ public:
     Offsets& get_offsets() { return offsets; }
     const Offsets& get_offsets() const { return offsets; }
 
-    void clear() override {
+    void clear() final {
         chars.clear();
         offsets.clear();
     }
 
-    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) final {
         LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
-    void replace_column_data_default(size_t self_row = 0) override {
+    void replace_column_data_default(size_t self_row = 0) final {
         LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          uint8* __restrict filter) const final;
+
     MutableColumnPtr get_shinked_column() const {
         auto shrinked_column = ColumnString::create();
         for (int i = 0; i < size(); i++) {
@@ -571,15 +572,49 @@ public:
     }
 
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
+                                         size_t limit) const final {
         return get_indices_of_non_default_rows_impl<ColumnString>(indices, from, limit);
     }
 
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+    ColumnPtr index(const IColumn& indexes, size_t limit) const final;
 
-    double get_ratio_of_default_rows(double sample_ratio) const override {
+    double get_ratio_of_default_rows(double sample_ratio) const final {
         return get_ratio_of_default_rows_impl<ColumnString>(sample_ratio);
     }
+
+    ColumnPtr convert_column_if_overflow() final;
+
+    virtual bool is_large_string() const { return false; }
+
+    virtual void* get_offsets_ptr() const { return (void*)offsets.data(); }
 };
 
+// The column only use in Join case in build side. the column iterface use in
+// build side must overrided the function and use `large_offsets`
+// * 1. `get_max_row_byte_size`
+// * 2. `serialize_vec`
+// * 3. `serialize_value_in_into_arena`
+// * 4. `is_large_string`
+// * 5. `size`
+// * 6. `serialize_vec_with_null_map`
+class ColumnLargeStringForJoin final : public ColumnString {
+public:
+    PaddedPODArray<UInt64> large_offsets;
+
+    StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override;
+
+    size_t get_max_row_byte_size() const override;
+
+    bool is_large_string() const override { return true; }
+
+    virtual void* get_offsets_ptr() const override { return (void*)large_offsets.data(); }
+
+    size_t size() const override { return large_offsets.size(); }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map) const override;
+};
 } // namespace doris::vectorized

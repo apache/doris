@@ -70,19 +70,35 @@ public:
         }
     }
 
+    void dispose_large_column_string(size_t size, const uint8_t* __restrict nullmap,
+                                     const auto* __restrict data, const auto* __restrict offsets) {
+        for (size_t i = 0; i < size; i++) {
+            if (nullmap == nullptr || !nullmap[i]) {
+                if constexpr (NeedMin) {
+                    _min = std::min(_min,
+                                    StringRef(data + offsets[i - 1], offsets[i] - offsets[i - 1]));
+                }
+                if constexpr (NeedMax) {
+                    _max = std::max(_max,
+                                    StringRef(data + offsets[i - 1], offsets[i] - offsets[i - 1]));
+                }
+            }
+        }
+        store_string_ref();
+    }
+
     void update_batch(const vectorized::ColumnPtr& column, size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, StringRef>) {
-            const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
-            for (size_t i = start; i < size; i++) {
-                if constexpr (NeedMin) {
-                    _min = std::min(_min, column_string.get_data_at(i));
-                }
-                if constexpr (NeedMax) {
-                    _max = std::max(_max, column_string.get_data_at(i));
-                }
+            const auto& column_string = reinterpret_cast<const vectorized::ColumnString&>(*column);
+            if (column_string.is_large_string()) {
+                dispose_large_column_string(
+                        size, nullptr, column_string.get_chars().data(),
+                        reinterpret_cast<const uint64_t*>(column_string.get_offsets_ptr()));
+            } else {
+                dispose_large_column_string(size, nullptr, column_string.get_chars().data(),
+                                            column_string.get_offsets().data());
             }
-            store_string_ref();
         } else {
             const T* data = (T*)column->get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -100,18 +116,14 @@ public:
                       size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, StringRef>) {
-            const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
-            for (size_t i = start; i < size; i++) {
-                if (!nullmap[i]) {
-                    if constexpr (NeedMin) {
-                        _min = std::min(_min, column_string.get_data_at(i));
-                    }
-                    if constexpr (NeedMax) {
-                        _max = std::max(_max, column_string.get_data_at(i));
-                    }
-                }
+            const auto& column_string = reinterpret_cast<const vectorized::ColumnString&>(*column);
+            if (column_string.is_large_string()) {
+                dispose_large_column_string(size, nullmap.data(), column_string.get_chars().data(),
+                                            (uint64_t*)column_string.get_offsets_ptr());
+            } else {
+                dispose_large_column_string(size, nullmap.data(), column_string.get_chars().data(),
+                                            column_string.get_offsets().data());
             }
-            store_string_ref();
         } else {
             const T* data = (T*)column->get_raw_data().data;
             for (size_t i = start; i < size; i++) {

@@ -251,6 +251,15 @@ void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
+void ColumnStruct::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                     size_t length) {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        columns[i]->insert_range_from_ignore_overflow(
+                *assert_cast<const ColumnStruct&>(src).columns[i], start, length);
+    }
+}
+
 ColumnPtr ColumnStruct::filter(const Filter& filt, ssize_t result_size_hint) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
