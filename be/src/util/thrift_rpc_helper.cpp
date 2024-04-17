@@ -28,6 +28,7 @@
 #include <thread>
 
 #include "common/status.h"
+#include "gutil/asan_circumvention.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h" // IWYU pragma: keep
 #include "util/network_util.h"
@@ -72,30 +73,34 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     try {
         try {
             callback(client);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            std::cerr << "thrift error, reason=" << e.what();
-            LOG(WARNING) << "retrying call frontend service after "
-                         << config::thrift_client_retry_interval_ms << " ms, address=" << address
-                         << ", reason=" << e.what();
+        } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
+            ASAN_CIRCUMVENT(LOG(WARNING)) << "retrying call frontend service after "
+                                          << config::thrift_client_retry_interval_ms
+                                          << " ms, address=" << address << ", reason=" << e.what();
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "client reopen failed. address=" << address
-                             << ", status=" << status;
+                ASAN_CIRCUMVENT(LOG(WARNING))
+                        << "client reopen failed. address=" << address << ", status=" << status;
                 return status;
             }
             callback(client);
         }
-    } catch (apache::thrift::TException& e) {
-        LOG(WARNING) << "call frontend service failed, address=" << address
-                     << ", reason=" << e.what();
+    } catch ([[maybe_unused]] apache::thrift::TException& e) {
+        ASAN_CIRCUMVENT(LOG(WARNING))
+                << "call frontend service failed, address=" << address << ", reason=" << e.what();
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         static_cast<void>(client.reopen(timeout_ms));
+#ifdef ADDRESS_SANITIZER
+        std::cerr << "failed to call frontend service";
+        return Status::RpcError("failed to call frontend service");
+#else
         return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}", ip,
                                 port, e.what());
+#endif
     }
     return Status::OK();
 }

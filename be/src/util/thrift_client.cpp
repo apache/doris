@@ -24,6 +24,7 @@
 #include <string>
 #include <thread>
 
+#include "gutil/asan_circumvention.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
@@ -33,20 +34,25 @@ Status ThriftClientImpl::open() {
         if (!_transport->isOpen()) {
             _transport->open();
         }
-    } catch (const apache::thrift::transport::TTransportException& e) {
+    } catch ([[maybe_unused]] const apache::thrift::transport::TTransportException& e) {
         try {
             _transport->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
-            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port()
-                          << ", ignoring (" << e.what() << ")";
+            ASAN_CIRCUMVENT(VLOG_CRITICAL) << "Error closing socket to: " << ipaddress() << ":"
+                                           << port() << ", ignoring (" << e.what() << ")";
         }
         // In certain cases in which the remote host is overloaded, this failure can
         // happen quite frequently. Let's print this error message without the stack
         // trace as there aren't many callers of this function.
+#ifdef ADDRESS_SANITIZER
+        std::cerr << "Couldn't open transport";
+        return Status::RpcError("Couldn't open transport");
+#else
         const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
                                                          ipaddress(), port(), e.what());
         VLOG_CRITICAL << err_msg;
         return Status::RpcError(err_msg);
+#endif
     }
     return Status::OK();
 }
@@ -64,12 +70,12 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
             return status;
         }
 
-        LOG(INFO) << "Unable to connect to " << _ipaddress << ":" << _port;
+        ASAN_CIRCUMVENT(LOG(INFO)) << "Unable to connect to " << _ipaddress << ":" << _port;
 
         if (num_tries < 0) {
-            LOG(INFO) << "(Attempt " << try_count << ", will retry indefinitely)";
+            ASAN_CIRCUMVENT(LOG(INFO)) << "(Attempt " << try_count << ", will retry indefinitely)";
         } else {
-            LOG(INFO) << "(Attempt " << try_count << " of " << num_tries << ")";
+            ASAN_CIRCUMVENT(LOG(INFO)) << "(Attempt " << try_count << " of " << num_tries << ")";
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
@@ -83,9 +89,9 @@ void ThriftClientImpl::close() {
         if (_transport != nullptr && _transport->isOpen()) {
             _transport->close();
         }
-    } catch (const apache::thrift::transport::TTransportException& e) {
-        LOG(INFO) << "Error closing connection to: " << ipaddress() << ":" << port()
-                  << ", ignoring (" << e.what() << ")";
+    } catch ([[maybe_unused]] const apache::thrift::transport::TTransportException& e) {
+        ASAN_CIRCUMVENT(LOG(INFO)) << "Error closing connection to: " << ipaddress() << ":"
+                                   << port() << ", ignoring (" << e.what() << ")";
         // Forcibly close the socket (since the transport may have failed to get that far
         // during close())
         try {
@@ -93,8 +99,8 @@ void ThriftClientImpl::close() {
                 _socket->close();
             }
         } catch (const apache::thrift::transport::TTransportException& e) {
-            LOG(INFO) << "Error closing socket to: " << ipaddress() << ":" << port()
-                      << ", ignoring (" << e.what() << ")";
+            ASAN_CIRCUMVENT(LOG(INFO)) << "Error closing socket to: " << ipaddress() << ":"
+                                       << port() << ", ignoring (" << e.what() << ")";
         }
     }
 }
