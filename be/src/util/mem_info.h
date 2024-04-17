@@ -195,7 +195,7 @@ public:
 
     static int64_t tg_not_enable_overcommit_group_gc();
     static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                 RuntimeProfile* profile);
+                                                 RuntimeProfile* profile, bool is_minor_gc);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

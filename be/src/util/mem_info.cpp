@@ -147,10 +147,13 @@ bool MemInfo::process_minor_gc() {
         return true;
     }
 
-    RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-    freed_mem += tg_enable_overcommit_group_gc(_s_process_minor_gc_size - freed_mem, tg_profile);
-    if (freed_mem > _s_process_minor_gc_size) {
-        return true;
+    if (config::enable_workload_group_memory_gc) {
+        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
+        freed_mem += tg_enable_overcommit_group_gc(_s_process_minor_gc_size - freed_mem, tg_profile,
+                                                   true);
+        if (freed_mem > _s_process_minor_gc_size) {
+            return true;
+        }
     }
 
     if (config::enable_query_memory_overcommit) {
@@ -198,10 +201,13 @@ bool MemInfo::process_full_gc() {
         return true;
     }
 
-    RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-    freed_mem += tg_enable_overcommit_group_gc(_s_process_full_gc_size - freed_mem, tg_profile);
-    if (freed_mem > _s_process_full_gc_size) {
-        return true;
+    if (config::enable_workload_group_memory_gc) {
+        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
+        freed_mem += tg_enable_overcommit_group_gc(_s_process_full_gc_size - freed_mem, tg_profile,
+                                                   false);
+        if (freed_mem > _s_process_full_gc_size) {
+            return true;
+        }
     }
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
@@ -286,14 +292,14 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
 
     for (const auto& workload_group : task_groups_overcommit) {
         auto used = workload_group->memory_used();
-        total_free_memory +=
-                workload_group->gc_memory(used - workload_group->memory_limit(), tg_profile.get());
+        total_free_memory += workload_group->gc_memory(used - workload_group->memory_limit(),
+                                                       tg_profile.get(), false);
     }
     return total_free_memory;
 }
 
-int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                               RuntimeProfile* profile) {
+int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory, RuntimeProfile* profile,
+                                               bool is_minor_gc) {
     MonotonicStopWatch watch;
     watch.start();
     std::vector<WorkloadGroupPtr> task_groups;
@@ -359,7 +365,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
                                           request_free_memory); // exceeded memory as a weight
         auto workload_group = task_groups[i];
-        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile);
+        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
     }
     return total_free_memory;
 }

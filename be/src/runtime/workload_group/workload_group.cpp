@@ -142,18 +142,42 @@ void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter
     }
 }
 
-int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
     if (need_free_mem <= 0) {
         return 0;
     }
     int64_t used_memory = memory_used();
     int64_t freed_mem = 0;
 
-    std::string cancel_str = fmt::format(
-            "work load group memory exceeded limit, group id:{}, name:{}, used:{}, limit:{}, "
-            "backend:{}.",
-            _id, _name, MemTracker::print_bytes(used_memory),
-            MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+    std::string cancel_str = "";
+    if (is_minor_gc) {
+        cancel_str = fmt::format(
+                "try cancel memory overcommit query in workload group when MinorGC happens, group "
+                "id:{}, "
+                "name:{}, used:{}, limit:{}, "
+                "backend:{}.",
+                _id, _name, MemTracker::print_bytes(used_memory),
+                MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+    } else {
+        if (_enable_memory_overcommit) {
+            cancel_str = fmt::format(
+                    "workload group release overcommit memory when FullGC happens which means sys "
+                    "memory is not enough, group id:{}, "
+                    "name:{}, used:{}, "
+                    "limit:{}, "
+                    "backend:{}.",
+                    _id, _name, MemTracker::print_bytes(used_memory),
+                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+        } else {
+            cancel_str = fmt::format(
+                    "memory hard limit workload group release overcommit memory, group id:{}, "
+                    "name:{}, used:{}, "
+                    "limit:{}, "
+                    "backend:{}.",
+                    _id, _name, MemTracker::print_bytes(used_memory),
+                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+        }
+    }
     auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
                                                   const std::string& label) {
         return fmt::format(
@@ -188,7 +212,8 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
                 _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
                 MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     }
-    if (freed_mem >= need_free_mem) {
+    // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
+    if (is_minor_gc || freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
