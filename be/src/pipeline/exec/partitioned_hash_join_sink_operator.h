@@ -34,7 +34,7 @@ class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::XXHashPartitioner<LocalExchangeChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>;
 
 class PartitionedHashJoinSinkOperatorX;
 
@@ -59,6 +59,8 @@ protected:
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
+
+    Status _revoke_unpartitioned_block(RuntimeState* state);
 
     friend class PartitionedHashJoinSinkOperatorX;
 
