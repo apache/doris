@@ -17,39 +17,30 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.CacheBulkLoader;
-import org.apache.doris.datasource.CacheException;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.hadoop.mapred.JobConf;
 
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.OptionalLong;
 
 public class FileSystemCache {
 
     private LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
 
-    public FileSystemCache(ExecutorService executor) {
-        fileSystemCache = CacheBuilder.newBuilder().maximumSize(Config.max_remote_file_system_cache_num)
-            .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-            .build(new CacheBulkLoader<FileSystemCacheKey, RemoteFileSystem>() {
-                @Override
-                protected ExecutorService getExecutor() {
-                    return executor;
-                }
-
-                @Override
-                public RemoteFileSystem load(FileSystemCacheKey key) {
-                    return loadFileSystem(key);
-                }
-            });
+    public FileSystemCache() {
+        // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
+        CacheFactory fsCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.empty(),
+                Config.max_remote_file_system_cache_num,
+                false,
+                null);
+        fileSystemCache = fsCacheFactory.buildCache(key -> loadFileSystem(key));
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
@@ -57,11 +48,7 @@ public class FileSystemCache {
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
-        try {
-            return fileSystemCache.get(key);
-        } catch (ExecutionException e) {
-            throw new CacheException("failed to get remote filesystem for type[%s]", e, key.type);
-        }
+        return fileSystemCache.get(key);
     }
 
     public static class FileSystemCacheKey {

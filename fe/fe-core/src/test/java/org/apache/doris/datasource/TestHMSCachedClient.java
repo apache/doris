@@ -46,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public class HMSCachedClientTest implements HMSCachedClient {
+public class TestHMSCachedClient implements HMSCachedClient {
 
     public Map<HMSTransaction.DatabaseTableName, List<Partition>> partitions = new ConcurrentHashMap<>();
     public Map<String, List<Table>> tables = new HashMap<>();
