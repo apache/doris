@@ -16,9 +16,11 @@
 // under the License.
 
 suite("test_backup_restore", "backup_restore") {
-    String repoName = "test_backup_restore_repo"
-    String dbName = "backup_restore_db"
-    String tableName = "test_backup_restore_table"
+    String suiteName = "test_backup_restore"
+    String repoName = "${suiteName}_repo"
+    String dbName = "${suiteName}_db"
+    String tableName = "${suiteName}_table"
+    String snapshotName = "${suiteName}_snapshot"
 
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
@@ -45,16 +47,13 @@ suite("test_backup_restore", "backup_restore") {
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
-    String snapshotName = "test_backup_restore_snapshot"
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
         TO `${repoName}`
         ON (${tableName})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -72,9 +71,7 @@ suite("test_backup_restore", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());

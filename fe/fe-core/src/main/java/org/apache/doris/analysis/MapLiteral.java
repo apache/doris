@@ -188,7 +188,7 @@ public class MapLiteral extends LiteralExpr {
                 // map key type do not support complex type
                 throw new UnsupportedOperationException("Unsupport key type for MAP: " + children.get(i).getType());
             }
-            list.add(children.get(i).getStringValueForArray()
+            list.add(getStringLiteralForComplexType(children.get(i))
                     + ":" + getStringLiteralForComplexType(children.get(i + 1)));
         }
         return "{" + StringUtils.join(list, ", ") + "}";

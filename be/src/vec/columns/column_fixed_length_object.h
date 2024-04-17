@@ -238,6 +238,11 @@ public:
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
+    }
+
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }

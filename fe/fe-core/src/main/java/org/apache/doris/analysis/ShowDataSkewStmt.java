@@ -49,9 +49,10 @@ public class ShowDataSkewStmt extends ShowStmt {
         tblRef.getName().analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
-                tblRef.getName().getTbl(),
-                PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tblRef.getName().getCtl(), tblRef.getName().getDb(),
+                        tblRef.getName().getTbl(),
+                        PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA SKEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),

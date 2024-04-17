@@ -73,6 +73,7 @@ public:
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SetSinkOperatorX<is_intersect>;

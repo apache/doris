@@ -137,23 +137,31 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
 template <bool is_intersect>
 Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();
+
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
     }
-
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetProbeSinkLocalState<is_intersect>::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
 
     // Add the if check only for compatible with old optimiser
-    if (child_exprs_lists.size() > 1) {
-        _probe_columns.resize(child_exprs_lists[1].size());
+    if (_shared_state->child_quantity > 1) {
+        _probe_columns.resize(_child_exprs.size());
     }
     return Status::OK();
 }

@@ -110,19 +110,9 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
-
-    _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
-    for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
-        RETURN_IF_ERROR(
-                p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
-    }
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
@@ -149,7 +139,18 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
+    auto& p = _parent->cast<typename Derived::Parent>();
+    _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
+    for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
+        RETURN_IF_ERROR(
+                p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
+    }
     RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
+    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
+    }
     RETURN_IF_ERROR(_process_conjuncts());
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
@@ -748,9 +749,8 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
         } else {
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const vectorized::ColumnConst* const_column =
-                        check_and_get_column<vectorized::ColumnConst>(
-                                const_col_wrapper->column_ptr)) {
+            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
+                        const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {

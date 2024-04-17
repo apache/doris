@@ -51,6 +51,7 @@ import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
+import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
@@ -204,6 +205,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
+                            new EliminateAggCaseWhen(),
                             new ReduceAggregateChildOutputRows(),
                             new EliminateJoinCondition(),
                             new EliminateAssertNumRows(),

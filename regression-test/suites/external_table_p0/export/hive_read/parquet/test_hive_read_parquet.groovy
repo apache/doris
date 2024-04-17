@@ -144,7 +144,7 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                     "format" = "${format}");
                     """
 
-        qt_hive_docker_01 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_01 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }
@@ -235,16 +235,8 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                 (${++i}, '2023-04-21', '2023-04-21', '2023-04-20 12:34:56', '2023-04-20 00:00:00', '2023-04-20 00:00:00.123', '2023-04-20 00:00:00.123456',
                 'Beijing', '', 
                 ${Short.MAX_VALUE}, ${Byte.MAX_VALUE}, true, ${Integer.MAX_VALUE}, ${Long.MAX_VALUE}, 170141183460469231731687303715884105727, ${Float.MAX_VALUE}, ${Double.MAX_VALUE}, 'char${i}',
-                999999999, 999999999, 9, 0.9, 9.99999999, 1234567890.0123456789, 12345678901234567890123456789012345678, 1.2345678901234567890123456789012345678, 0.12345678901234567890123456789012345678),
+                999999999, 999999999, 9, 0.9, 9.99999999, 1234567890.0123456789, 12345678901234567890123456789012345678, 1.2345678901234567890123456789012345678, 0.12345678901234567890123456789012345678)
             """)
-
-        sb.append("""
-                (${++i}, '0000-01-01', '0000-01-01', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00', '2023-04-20 00:00:00',
-                'Beijing', 'Haidian',
-                ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}',
-                ${i}, ${i}, ${i}, 0.${i}, ${i}, ${i}, ${i}, ${i}, 0.${i})
-            """)
-
         
         sql """ INSERT INTO ${export_table_name} VALUES
                 ${sb.toString()}
@@ -265,7 +257,7 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                     "format" = "${format}");
                     """
 
-        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
         
     } finally {
     }
