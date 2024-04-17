@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.common.util;
+
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
 import org.junit.Test;
-import java.util.UUID;
 
-import org.apache.doris.thrift.TUniqueId;
+import java.util.UUID;
 
 public class UtilTest {
     @Test
@@ -37,10 +37,10 @@ public class UtilTest {
         }
 
         // test null
-        Assert.assertEquals(null, Util.parseTUniqueIdFromString(null));
-        Assert.assertEquals(null, Util.parseTUniqueIdFromString(""));
+        Assert.assertNull(Util.parseTUniqueIdFromString(null));
+        Assert.assertNull(Util.parseTUniqueIdFromString(""));
         Assert.assertEquals(new TUniqueId(), Util.parseTUniqueIdFromString("0-0"));
-        Assert.assertEquals(null, Util.parseTUniqueIdFromString("INVALID-STRING"));
-        Assert.assertEquals(null, Util.parseTUniqueIdFromString("INVALID"));
+        Assert.assertNull(Util.parseTUniqueIdFromString("INVALID-STRING"));
+        Assert.assertNull(Util.parseTUniqueIdFromString("INVALID"));
     }
 }

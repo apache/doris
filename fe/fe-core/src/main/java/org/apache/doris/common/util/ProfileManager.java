@@ -260,7 +260,7 @@ public class ProfileManager extends MasterDaemon {
             if (element == null) {
                 return null;
             }
-            
+
             TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(queryID);
             if (thriftQueryId != null) {
                 CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(thriftQueryId);
