@@ -23,6 +23,7 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -1167,6 +1168,31 @@ void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
     LOG(ERROR) << "warm_up_tablets is not implemented";
     response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
+}
+
+void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                                  const TGetRealtimeExecStatusRequest& request) {
+    if (!request.__isset.id) {
+        LOG_WARNING("Invalidate argument, id is empty");
+        response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+    }
+
+    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
+    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+            request.id, report_exec_status_params.get());
+
+    if (!st.ok()) {
+        response.__set_status(st.to_thrift());
+        return;
+    }
+
+    report_exec_status_params->__set_query_id(TUniqueId());
+
+    response.__set_status(Status::OK().to_thrift());
+    response.__set_report_exec_status_params(*report_exec_status_params);
+    return;
 }
 
 } // namespace doris
