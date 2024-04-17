@@ -2177,6 +2177,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
+        if (defaultDistributionInfo instanceof HashDistributionInfo
+                    && ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns()
+                        .stream().anyMatch(column -> column.getType().isVariantType())) {
+            throw new DdlException("Hash distribution info should not contain variant columns");
+        }
+
         // calc short key column count
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         if (LOG.isDebugEnabled()) {
