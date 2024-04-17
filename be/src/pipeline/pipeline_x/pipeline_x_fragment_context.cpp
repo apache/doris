@@ -50,6 +50,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -375,6 +376,11 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
                                                    output_exprs));
         }
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        _sink.reset(
+                new GroupCommitBlockSinkOperatorX(row_desc, next_sink_operator_id(), output_exprs));
         break;
     }
     case TDataSinkType::HIVE_TABLE_SINK: {

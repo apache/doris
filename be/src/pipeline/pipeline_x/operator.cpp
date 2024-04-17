@@ -37,6 +37,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -79,6 +80,7 @@
 #include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::pipeline {
 
@@ -605,6 +607,7 @@ DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
+DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR_X(HiveTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
@@ -702,6 +705,8 @@ template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileS
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
+template class AsyncWriterSink<doris::vectorized::VGroupCommitBlockWriter,
+                               GroupCommitBlockSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 
 } // namespace doris::pipeline
