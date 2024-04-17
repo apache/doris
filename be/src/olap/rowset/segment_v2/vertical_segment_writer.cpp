@@ -497,7 +497,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
-    CHECK(use_default_or_null_flag.size() == data.num_rows);
+    CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
         tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
@@ -575,7 +575,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     // create old value columns
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
-    CHECK(missing_cids.size() == old_value_block.columns());
+    CHECK_EQ(missing_cids.size(), old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
@@ -1047,7 +1047,7 @@ Status VerticalSegmentWriter::_write_short_key_index() {
 }
 
 Status VerticalSegmentWriter::_write_primary_key_index() {
-    CHECK(_primary_key_index_builder->num_rows() == _row_count);
+    CHECK_EQ(_primary_key_index_builder->num_rows(), _row_count);
     return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
 }
 
