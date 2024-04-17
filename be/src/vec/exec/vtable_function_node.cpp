@@ -164,7 +164,6 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     for (int i = 0; i < _fn_num; i++) {
         if (columns[i + _child_slots.size()]->is_nullable()) {
             _fns[i]->set_nullable();
-            LOG(INFO) << "_fns[i]->set_nullable(): " << i + _child_slots.size();
         }
     }
 

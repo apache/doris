@@ -68,14 +68,12 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
                              get_child_names(), _data_type->get_name());
-    LOG(INFO) << "_expr_name: " << _expr_name;
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
             if (_fn.is_udtf_function) {
                 _function = FakeJavaUDTF::create(_fn, argument_template, _data_type);
-                // _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
             } else {
                 _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
             }
