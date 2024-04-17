@@ -389,9 +389,15 @@ public class ColumnDef {
                     + "].");
         }
 
-        if (isKey() && type.getPrimitiveType() == PrimitiveType.JSONB) {
-            throw new AnalysisException("JSONB type should not be used in key column[" + getName()
-                    + "].");
+        if (type.getPrimitiveType() == PrimitiveType.JSONB
+                || type.getPrimitiveType() == PrimitiveType.VARIANT) {
+            if (isKey()) {
+                throw new AnalysisException("JSONB or VARIANT type should not be used in key column[" + getName()
+                        + "].");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("JSONB or VARIANT type column default value just support null");
+            }
         }
 
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
