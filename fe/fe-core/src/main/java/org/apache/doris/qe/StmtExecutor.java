@@ -1661,8 +1661,7 @@ public class StmtExecutor {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
-            throws Exception {
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
         InternalService.PFetchCacheResult cacheResult = null;
         boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
                 && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());

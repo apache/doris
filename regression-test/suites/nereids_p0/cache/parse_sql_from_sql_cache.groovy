@@ -679,6 +679,41 @@ suite("parse_sql_from_sql_cache") {
             def result3 = sql "select * from test_use_plan_cache19 order by 1, 2"
             assertTrue(result3.size() == 1)
             assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
+        }),
+        extraThread("test_sql_cache_in_fe", {
+            createTestTable "test_use_plan_cache20"
+
+            sql "alter table test_use_plan_cache20 add partition p6 values[('999'), ('1000'))"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            assertNoCache "select * from (select 100 as id)a"
+            def result1 = sql "select * from (select 100 as id)a"
+            assertTrue(result1.size() == 1)
+
+            assertHasCache "select * from (select 100 as id)a"
+            def result2 = sql "select * from (select 100 as id)a"
+            assertTrue(result2.size() == 1)
+
+            assertNoCache "select * from test_use_plan_cache20 limit 0"
+            def result3 = sql "select * from test_use_plan_cache20 limit 0"
+            assertTrue(result3.isEmpty())
+
+            assertHasCache "select * from test_use_plan_cache20 limit 0"
+            def result4 = sql "select * from test_use_plan_cache20 limit 0"
+            assertTrue(result4.isEmpty())
+
+            assertNoCache "select * from test_use_plan_cache20 where id=999"
+            def result5 = sql "select * from test_use_plan_cache20 where id=999"
+            assertTrue(result5.isEmpty())
+            assertHasCache "select * from test_use_plan_cache20 where id=999"
+            def result6 = sql "select * from test_use_plan_cache20 where id=999"
+            assertTrue(result6.isEmpty())
         })
     ).get()
 }
