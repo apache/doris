@@ -1837,8 +1837,7 @@ public class StmtExecutor {
                 return;
             }
 
-            boolean isDryRun = ConnectContext.get().getSessionVariable().dryRunQuery;
-
+            boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
