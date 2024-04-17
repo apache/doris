@@ -62,6 +62,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
+import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -998,7 +999,9 @@ public class Coordinator implements CoordInterface {
             // 4. send and wait fragments rpc
             // 4.1 serialize fragment
             // unsetFields() must be called serially.
-            beToPipelineExecCtxs.values().stream().forEach(ctxs -> ctxs.unsetFields());
+            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
+                ctxs.unsetFields();
+            }
             // serializeFragments() can be called in parallel.
             final AtomicLong compressedSize = new AtomicLong(0);
             beToPipelineExecCtxs.values().parallelStream().forEach(ctxs -> {
@@ -3805,10 +3808,15 @@ public class Coordinator implements CoordInterface {
                 int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceExecParams.size());
                 memLimit = queryOptions.getMemLimit() / rate;
             }
-            Set<Integer> topnFilterSources = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
-                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
-                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
+            Set<Integer> topnFilterSources = Sets.newLinkedHashSet();
+            for (ScanNode scanNode : scanNodes) {
+                if (scanNode instanceof OlapScanNode) {
+                    for (SortNode sortNode : ((OlapScanNode) scanNode).getTopnFilterSortNodes()) {
+                        topnFilterSources.add(sortNode.getId().asInt());
+                    }
+                }
+            }
+
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();

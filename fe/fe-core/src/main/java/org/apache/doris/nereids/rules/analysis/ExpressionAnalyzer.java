@@ -154,14 +154,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 @Override
                 public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
                     Expression fold = super.visitBoundFunction(boundFunction, context);
-                    if (fold instanceof Nondeterministic) {
+                    boolean unfold = fold instanceof Nondeterministic;
+                    if (unfold) {
                         sqlCacheContext.setCannotProcessExpression(true);
+                    }
+                    if (boundFunction instanceof Nondeterministic && !unfold) {
+                        sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
                     }
                     return fold;
                 }
             }.rewrite(analyzeResult, context);
 
-            sqlCacheContext.addFoldNondeterministicPair(analyzeResult, foldNondeterministic);
+            sqlCacheContext.addFoldFullNondeterministicPair(analyzeResult, foldNondeterministic);
             return foldNondeterministic;
         }
         return analyzeResult;
