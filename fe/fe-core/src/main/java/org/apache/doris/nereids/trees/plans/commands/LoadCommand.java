@@ -131,7 +131,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         this.profile = new Profile(
                 ctx.getSessionVariable().enableProfile,
                 ctx.getSessionVariable().profileLevel,
-                ctx.getSessionVariable().getEnablePipelineXEngine());
+                ctx.getSessionVariable().getEnablePipelineXEngine(),
+                ctx.getSessionVariable().getAutoProfileThresholdMs());
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),

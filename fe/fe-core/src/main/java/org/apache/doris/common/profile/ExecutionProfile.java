@@ -91,6 +91,8 @@ public class ExecutionProfile {
     private Map<Integer, Integer> fragmentIdBeNum;
     private Map<Integer, Integer> seqNoToFragmentId;
 
+    // Constructor does not need list<PlanFragment>, use List<FragmentId> is enough
+    // and will be convenient for the test.
     public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
         this.queryId = queryId;
         root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
@@ -270,6 +272,7 @@ public class ExecutionProfile {
                     }
 
                     profileNode.update(pipelineProfile.profile);
+                    profileNode.setIsDone();
                     pipelineIdx++;
                     // Duplicate name will be replaced
                     fragmentProfiles.get(fragmentId).addChild(profileNode);

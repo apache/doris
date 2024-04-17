@@ -20,6 +20,8 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TUnit;
 
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
@@ -28,8 +30,11 @@ import java.io.IOException;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class Counter {
+    @SerializedName(value = "value")
     private volatile long value;
+    @SerializedName(value = "type")
     private volatile int type;
+    @SerializedName(value = "level")
     private volatile long level;
 
     public void write(DataOutput output) throws IOException {

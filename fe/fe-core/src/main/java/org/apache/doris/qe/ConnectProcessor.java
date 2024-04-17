@@ -41,6 +41,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -605,6 +606,10 @@ public abstract class ConnectProcessor {
             if (statsErrorEstimator != null) {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
             }
+            // long totalTimeMs = DebugUtil.parseTimeMsFromPrettyString(executor.getSummaryProfile().getTotalTime());
+            // if (totalTimeMs < 100) {
+            //     ProfileManager.getInstance().removeProfile(executor.getProfile().getSummaryProfile().getProfileId());
+            // }
         }
     }
 

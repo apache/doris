@@ -18,10 +18,10 @@
 package org.apache.doris.common.profile;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -33,12 +33,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.com.google.common.collect.Maps;
 
-import java.io.ByteArrayInputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.util.List;
 import java.util.Map;
 
@@ -65,9 +65,8 @@ import java.util.Map;
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
     private static final int MergedProfileLevel = 1;
-    private static final String PROFILE_META_FILE_NAME = "profile_meta";
-    private static final String EXECUTION_PROFILE_FILE_NAME = "execution_profile";
-    public static final String SEPERATOR = "_";
+    // profile file name format: time_id
+    private static final String SEPERATOR = "_";
 
     // For broker load, it has its specific name, for other load/query, the it will be 
     // the same witch profile id in the SummaryProfile.
@@ -77,11 +76,13 @@ public class Profile {
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
+    // executionProfiles will be stored to disk as string, when geting profile content, we will read
+    // from disk directly.
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to disk
     // 2. or profile is loaded from disk
-    private String profileStorageDir = "";
+    private String profileStoragePath = "";
     // isFinished means the coordinator or stmtexecutor is finished.
     // does not mean the profile report has finished, since the report is async.
     private boolean isFinished = false;
@@ -91,19 +92,21 @@ public class Profile {
     // futher report will be ignored.
     // why MIN_VALUE? So that we can use PriorityQueue to sort profile by finish time.
     private long queryFinishTimestamp = Long.MIN_VALUE;
-    private long profileStoreTimestamp = 0;
+    private long profileStoreTimestamp = Long.MIN_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = 3;
+    private long autoProfileDurationMs = 500;
 
     // Need default constructor for read from disk
     public Profile() {}
 
-    public Profile(boolean isEnable, int profileLevel, boolean isPipelineX) {
+    public Profile(boolean isEnable, int profileLevel, boolean isPipelineX, long autoProfileDurationMs) {
         this.isPipelineX = isPipelineX;
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
         this.profileLevel = profileLevel;
+        this.autoProfileDurationMs = autoProfileDurationMs;
     }
 
     // For load task, the profile contains many execution profiles
@@ -123,19 +126,6 @@ public class Profile {
         return this.executionProfiles;
     }
 
-    public long getProfileStoreTimestamp() {
-        return this.profileStoreTimestamp;
-    }
-
-    public long getQueryFinishTimestamp() {
-        return this.queryFinishTimestamp;
-    }
-
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmtexecutor is finished.
     public synchronized void updateSummary(long startTime, Map<String, String> summaryInfo, boolean isFinished,
@@ -146,7 +136,6 @@ public class Profile {
             }
             summaryProfile.update(summaryInfo);
             this.setId(summaryProfile.getProfileId());
-            this.isFinished = isFinished;
 
             for (ExecutionProfile executionProfile : executionProfiles) {
                 // Tell execution profile the start time
@@ -156,16 +145,18 @@ public class Profile {
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
             }
-            ProfileManager.getInstance().pushProfile(this);
+            // TODO: should not change isFinished here, in principle, the modification of isFinished should only
+            // by method markisFinished.
+            // State change should be carefully designed, the absense of unified behaviour is 
+            // a potential risk of bug.
+            this.isFinished = isFinished;
+            if (isFinished) {
+                this.queryFinishTimestamp = System.currentTimeMillis();
+            }
         } catch (Throwable t) {
             LOG.warn("update profile failed", t);
             throw t;
         }
-    }
-
-    // For UT
-    public void setSummaryProfile(SummaryProfile summaryProfile) {
-        this.summaryProfile = summaryProfile;
     }
 
     public SummaryProfile getSummaryProfile() {
@@ -174,16 +165,34 @@ public class Profile {
 
     public String getProfileByLevel() {
         StringBuilder builder = new StringBuilder();
-
+        // add summary to builder
         summaryProfile.prettyPrint(builder);
-
+        // read execution profile from disk or generate it from memory (during query execution)
         getExecutionProfileContent(builder);
 
         return builder.toString();
     }
 
-    // If this Profile has already been stored to disk(by checking profileStoragePath),
-    // then we will read the profile from disk.
+    private RuntimeProfile composeRootProfile() {
+
+        RuntimeProfile rootProfile = new RuntimeProfile(id);
+        rootProfile.setIsPipelineX(isPipelineX);
+        rootProfile.addChild(summaryProfile.getSummary());
+        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            rootProfile.addChild(executionProfile.getRoot());
+        }
+        rootProfile.computeTimeInProfile();
+        return rootProfile;
+    }
+
+    public String getProfileBrief() {
+        RuntimeProfile rootProfile = composeRootProfile();
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(rootProfile.toBrief());
+    }
+
+    // Read file if profile has been stored to disk.
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
             builder = new StringBuilder();
@@ -191,15 +200,35 @@ public class Profile {
 
         if (profileHasBeenStoredToDisk()) {
             LOG.info("Profile of query {} has been stored to disk, reading it from disk",
-                        this.summaryProfile.getProfileId());
+                    this.summaryProfile.getProfileId());
+            
+            FileInputStream fileInputStream = null;
+
             try {
-                File executionFile = new File(profileStorageDir, EXECUTION_PROFILE_FILE_NAME);
-                String executionTxt = FileUtils.readFileToString(executionFile, "UTF-8");
-                builder.append(executionTxt);
+                fileInputStream = createPorfileFileInputStream(profileStoragePath);
+                if (fileInputStream == null) {
+                    builder.append("Failed to read execution profile from " + profileStoragePath);
+                    return;
+                }
+
+                DataInput dataInput = new DataInputStream(fileInputStream);
+                // skip summary profile
+                Text.readString(dataInput);
+                builder.append(Text.readString(dataInput));
+                return;
             } catch (Exception e) {
-                LOG.error("read execution profile failed, profile storage path {}", profileStorageDir, e);
-                builder.append("read execution profile from" + profileStorageDir + " failed");
+                    LOG.error("An error occurred while reading execution profile from disk, profile storage path: {}", profileStoragePath, e);
+                    builder.append("Failed to read execution profile from " + profileStoragePath);
+            } finally {
+                if (fileInputStream != null) {
+                    try {
+                        fileInputStream.close();
+                    } catch (Exception e) {
+                        LOG.warn("close profile file {} failed", profileStoragePath, e);
+                    }
+                }
             }
+
             return;
         }
 
@@ -225,23 +254,53 @@ public class Profile {
         }
     }
 
-    private RuntimeProfile composeRootProfile() {
 
-        RuntimeProfile rootProfile = new RuntimeProfile(id);
-        rootProfile.setIsPipelineX(isPipelineX);
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
+    // check if the profile file is valid and create a file input stream
+    // user need to close the file stream.
+    static private FileInputStream createPorfileFileInputStream(String path) {
+        File profileFile = new File(path);
+        if (!profileFile.isFile()) {
+            LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
+            return null;
         }
-        rootProfile.computeTimeInProfile();
-        return rootProfile;
+
+        String[] parts = path.split(File.separator);
+        if (parts.length < 1) {
+            LOG.warn("Profile storage path {} is invalid", profileFile.getAbsolutePath());
+            return null;
+        }
+        // Profile could be a load task with multiple queries, so we call it id.
+        String [] timeAndId = parseProfileFileName(parts[parts.length - 1]);
+        if (timeAndId == null) {
+            LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
+            return null;
+        }
+
+        FileInputStream profileMetaFileInputStream = null;
+        try {
+            profileMetaFileInputStream = new FileInputStream(path);
+        } catch (Exception e) {
+            LOG.warn("open profile file {} failed", path, e);
+        }
+
+        return profileMetaFileInputStream;
     }
 
-    public String getProfileBrief() {
-        RuntimeProfile rootProfile = composeRootProfile();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(rootProfile.toBrief());
+    public long getProfileStoreTimestamp() {
+        return this.profileStoreTimestamp;
+    }
+
+    public long getQueryFinishTimestamp() {
+        return this.queryFinishTimestamp;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    // For UT
+    public void setSummaryProfile(SummaryProfile summaryProfile) {
+        this.summaryProfile = summaryProfile;
     }
 
     public void releaseExecutionProfile() {
@@ -258,18 +317,28 @@ public class Profile {
         }
 
         // below is the case where query has finished
-
         boolean hasReportingProfile = false;
 
         for (ExecutionProfile executionProfile : executionProfiles) {
             if (!executionProfile.isCompleted()) {
                 hasReportingProfile = true;
+                break;
             }
         }
 
         if (!hasReportingProfile) {
-            // query finished and no flying profile, most ideal case, we can store profile to disk.
-            return true;
+            // query finished and no flying profile
+            // I do want to use TotalTime in summary profile, but it is an encoded string,
+            // it is hard to write a parse function.
+            long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
+            // time cost of this query is large enough.
+            if (durationMs > autoProfileDurationMs) {
+                LOG.info("Query {} costs {} ms, begin {} finishe {}, need store its profile",
+                        id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
+                return true;
+            }
+
+            return false;
         }
 
         if (this.queryFinishTimestamp == Long.MIN_VALUE) {
@@ -288,16 +357,16 @@ public class Profile {
         return false;
     }
 
-    public String getProfileStorageDir() {
-        return this.profileStorageDir;
+    public String getProfileStoragePath() {
+        return this.profileStoragePath;
     }
 
-    public synchronized boolean profileHasBeenStoredToDisk() {
-        return !Strings.isNullOrEmpty(profileStorageDir);
+    public boolean profileHasBeenStoredToDisk() {
+        return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
     // Profile IO threads races with Coordinator threads.
-    public synchronized void markisFinished(long queryFinishTime) {
+    public void markisFinished(long queryFinishTime) {
         try {
             if (this.profileHasBeenStoredToDisk()) {
                 LOG.error("Logical error, profile {} has already been stored to disk", this.id);
@@ -307,7 +376,7 @@ public class Profile {
             this.executionProfiles.forEach(
                 executionProfile -> {
                 executionProfile.setQueryFinishTime(queryFinishTime);
-                } 
+                }
             );
 
             this.isFinished = true;
@@ -315,72 +384,52 @@ public class Profile {
         } catch (Throwable t) {
             LOG.warn("mark query finished failed", t);
             throw t;
-        } finally {
-            LOG.info("Mark query {} finished", this.id);
-        }   
+        }
     }
 
-    static public String[] parseProfileDirName(String profileDirName) {
-        String [] idAndTimestamp = profileDirName.split(SEPERATOR);
-        if (idAndTimestamp.length != 2) {
+    static public String[] parseProfileFileName(String profileFileName) {
+        String [] timeAndID = profileFileName.split(SEPERATOR);
+        if (timeAndID.length != 2) {
             return null;
         }
-        TUniqueId thriftId = Util.parseTUniqueIdFromString(idAndTimestamp[0]);
+        TUniqueId thriftId = Util.parseTUniqueIdFromString(timeAndID[1]);
         if (thriftId == null) {
             return null;
         }
-        return idAndTimestamp;
+        return timeAndID;
     }
 
+    // read method will only read summary profile, and return a Profile object
     public static Profile read(String path) {
-        File profileDir = new File(path);
-        if (!profileDir.exists()) {
-            LOG.warn("profile directory {} does not exist", profileDir.getAbsolutePath());
-            return null;
-        }
-
-        String profileFile = profileDir.getName();
-        // Profile could be a load task with multiple queries, so we call it id.
-        String [] idAndTimestamp = parseProfileDirName(profileFile);
-        if (idAndTimestamp == null) {
-            LOG.warn("profile directory {} is not a valid profile directory", profileDir.getAbsolutePath());
-            return null;
-        }
-
-        LOG.info("Reading profile from {}", path);
-        
-        File profileMetaFile = new File(profileDir, PROFILE_META_FILE_NAME);
-        String metaJson = "";
-
+        FileInputStream profileFileInputStream = null;
         try {
-            metaJson = FileUtils.readFileToString(profileMetaFile, "UTF-8");
-
-            if (Strings.isNullOrEmpty(metaJson)) {
-                LOG.warn("meta profile is empty");
+            profileFileInputStream = createPorfileFileInputStream(path);
+            // Maybe profile path is invalid
+            if (profileFileInputStream == null) {
                 return null;
             }
-        } catch (Exception e) {
-            LOG.error("read profile failed", e);
-            return null;
-        }
+            // read method will move the cursor to the end of the summary profile
+            DataInput dataInput = new DataInputStream(profileFileInputStream);
 
-        Profile res = new Profile();
-        byte[] byteArray = metaJson.getBytes();
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArray);
-        DataInputStream dataInput = new DataInputStream(byteArrayInputStream);
-
-        try {
+            Profile res = new Profile();
             res.summaryProfile = SummaryProfile.read(dataInput);
-        } catch (Exception e) {
-            LOG.error("read summary profile failed", e);
+            res.setId(res.summaryProfile.getProfileId());
+            res.profileStoragePath = path;
+            res.isFinished = true;
+            LOG.info("ReadProfile {}", res.summaryProfile.getProfileId());
+            return res;
+        } catch (Exception exception) {
+            LOG.error("read profile failed", exception);
             return null;
+        } finally {
+            if (profileFileInputStream != null) {
+                try {
+                    profileFileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("close profile file {} failed", path, e);
+                }
+            }
         }
-
-        res.setId(res.summaryProfile.getProfileId());
-        res.profileStorageDir = path;
-        res.isFinished = true;
-
-        return res;
     }
 
     public void store(String systemProfileStorageDir) {
@@ -389,83 +438,75 @@ public class Profile {
             return;
         }
 
-        if (!Strings.isNullOrEmpty(profileStorageDir)) {
+        if (!Strings.isNullOrEmpty(profileStoragePath)) {
             LOG.error("Logical error, profile {} has already been stored to disk", id);
             return;
         }
 
         final String profileId = this.summaryProfile.getProfileId();
-        // List directories, remove if name exists
-        // profile dir name has format like: id_timestamp
-        final long tmpProfileStoreTime = System.currentTimeMillis() / 1000;
+        final long tmpProfileStoreTime = System.currentTimeMillis();
         this.profileStoreTimestamp = tmpProfileStoreTime;
 
-        // queryID_timestamp
-        String tmpProfileStorageDir = systemProfileStorageDir +
-                File.separator + profileId + SEPERATOR + String.valueOf(tmpProfileStoreTime);
+        // time_id
+        final String profileFilePath = systemProfileStorageDir +
+                File.separator + String.valueOf(tmpProfileStoreTime) + SEPERATOR + profileId;
 
-        File profileDir = new File(tmpProfileStorageDir);
-        if (profileDir.exists()) {
-            LOG.warn("profile directory {} already exists, remove it", profileDir.getAbsolutePath());
-            profileDir.delete();
+        File profileFile = new File(profileFilePath);
+        if (profileFile.exists()) {
+            LOG.warn("profile directory {} already exists, remove it", profileFile.getAbsolutePath());
+            profileFile.delete();
         }
 
-        // create query_id directory
-        if (!profileDir.mkdir()) {
-            LOG.warn("create profile directory {} failed", profileDir.getAbsolutePath());
-            return;
-        }
-
-        // store mata of profile as json
-        final String profileMetaFilePath = tmpProfileStorageDir + File.separator + PROFILE_META_FILE_NAME;
-
+        // File structure of profile:
+        /*
+         * Integer: n(size of summary profile)
+         * String: json of summary profile
+         * Integer: m(size of execution profile)
+         * String: raw text of execution profile
+        */
+        FileOutputStream fileOutputStream = null;
         try {
-            FileOutputStream fileWriter = new FileOutputStream(profileMetaFilePath);
-            DataOutputStream dataOutputStream = new DataOutputStream(fileWriter);
+            fileOutputStream = new FileOutputStream(profileFilePath);
+            DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
             this.summaryProfile.write(dataOutputStream);
-            fileWriter.close();
+
+            // store execution profiles as string
+            StringBuilder build = new StringBuilder();
+            getExecutionProfileContent(build);
+            String executionProfileString = build.toString();
+            build = null;
+            Text.writeString(dataOutputStream, executionProfileString);
         } catch (Exception e) {
             LOG.error("write {} summary profile failed", id, e);
             return;
+        } finally {
+            try {
+                fileOutputStream.close();
+            } catch (Exception e) {
+                LOG.warn("close profile file {} failed", profileFilePath, e);
+            }
         }
-        
-        // store execution profiles as string
-        StringBuilder build = new StringBuilder();
-        getExecutionProfileContent(build);
-        String executionProfileString = build.toString();
     
-        final String executionProfileFilePath = tmpProfileStorageDir + File.separator +
-            EXECUTION_PROFILE_FILE_NAME;
-
-        try {
-            FileWriter executionProfileWriter = new FileWriter(executionProfileFilePath);
-            executionProfileWriter.write(executionProfileString);
-            executionProfileWriter.close();
-        } catch (Exception e) {
-            LOG.error("write {} execution profile failed", id, e);
-            return;
-        }
-
-        this.profileStorageDir = tmpProfileStorageDir;
-        LOG.info("Store profile for id: {}, path {}",  this.summaryProfile.getProfileId(), this.profileStorageDir);
+        this.profileStoragePath = profileFilePath;
+        LOG.info("Store profile for id: {}, path {}",  this.summaryProfile.getProfileId(), this.profileStoragePath);
     }
 
     public void remove() {
-        if (Strings.isNullOrEmpty(getProfileStorageDir())) {
-            LOG.warn("remove profile failed, profileStorageDir is empty");
+        if (!profileHasBeenStoredToDisk()) {
             return;
         }
 
-        File profileDir = new File(getProfileStorageDir());
-        if (!profileDir.exists()) {
-            LOG.warn("profile directory {} does not exist", profileDir.getAbsolutePath());
+        File profileFile = new File(getProfileStoragePath());
+        if (!profileFile.exists()) {
+            LOG.warn("profile {} does not exist", profileFile.getAbsolutePath());
             return;
         }
 
-        LOG.info("remove profile: {}", getProfileStorageDir());
+        LOG.info("remove profile: {}", getProfileStoragePath());
 
         try {
-            FileUtils.deleteDirectory(profileDir);
+            // deleteQuietly since it is a file, not a directory
+            FileUtils.deleteQuietly(profileFile);
         } catch (Exception e) {
             LOG.error("remove profile failed", e);
         }

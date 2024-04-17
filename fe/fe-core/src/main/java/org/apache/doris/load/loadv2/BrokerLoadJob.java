@@ -39,6 +39,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -227,7 +228,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             this.jobProfile = new Profile(
                     true,
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    false);
+                    false,
+                    ConnectContext.get().getSessionVariable().getAutoProfileThresholdMs());
             this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
@@ -436,6 +438,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             return;
         }
         jobProfile.updateSummary(createTimestamp, getSummaryInfo(true), true, null);
+        ProfileManager.getInstance().pushProfile(jobProfile);
         // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
         jobProfile = null;
     }

@@ -32,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,31 +61,47 @@ public class RuntimeProfile {
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";
     public static String SUM_TIME_PRE = "sum ";
+    @SerializedName(value = "counterTotalTime")
     private Counter counterTotalTime;
-    private double localTimePercent;
+    @SerializedName(value = "localTimePercent")
+    private double localTimePercent = 0;
+    @SerializedName(value = "infoStrings")
     private Map<String, String> infoStrings = Maps.newHashMap();
+    @SerializedName(value = "infoStringsDisplayOrder")
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
     private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
+    @SerializedName(value = "counterMap")
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    @SerializedName(value = "childCounterMap")
     private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
     private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
+    @SerializedName(value = "childMap")
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
+    @SerializedName(value = "childList")
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
     private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
+    @SerializedName(value = "planNodeInfos")
     private List<String> planNodeInfos = Lists.newArrayList();
 
-    private String name;
+    @SerializedName(value = "name")
+    private String name = "";
+    @SerializedName(value = "timestamp")
     private Long timestamp = -1L;
+    @SerializedName(value = "isDone")
     private Boolean isDone = false;
+    @SerializedName(value = "isCancel")
     private Boolean isCancel = false;
     // In pipelineX, we have explicitly split the Operator into sink and operator,
     // and we can distinguish them using tags.
     // In the old pipeline, we can only differentiate them based on their position
     // in the profile, which is quite tricky and only transitional.
+    @SerializedName(value = "isPipelineX")
     private Boolean isPipelineX = false;
+    @SerializedName(value = "isSinkOperator")
     private Boolean isSinkOperator = false;
+    @SerializedName(value = "nodeid")
     private int nodeid = -1;
 
     public static RuntimeProfile read(DataInput input) throws IOException {
@@ -96,30 +113,34 @@ public class RuntimeProfile {
     }
 
     public RuntimeProfile() {
-        this.infoStringsLock = new ReentrantReadWriteLock();
-        this.childLock = new ReentrantReadWriteLock();
-        this.counterLock = new ReentrantReadWriteLock();        
+        init();
     }
 
     public RuntimeProfile(String name) {
-        this.localTimePercent = 0;
         if (Strings.isNullOrEmpty(name)) {
             throw new RuntimeException("Profile name must not be null");
         }
         this.name = name;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 1);
         this.counterMap.put("TotalTime", counterTotalTime);
+        init();
     }
 
     public RuntimeProfile(String name, int nodeId) {
-        this.localTimePercent = 0;
         if (Strings.isNullOrEmpty(name)) {
             throw new RuntimeException("Profile name must not be null");
         }
         this.name = name;
+        this.nodeid = nodeId;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 3);
         this.counterMap.put("TotalTime", counterTotalTime);
-        this.nodeid = nodeId;
+        init();
+    }
+
+    private void init() {
+        this.infoStringsLock = new ReentrantReadWriteLock();
+        this.childLock = new ReentrantReadWriteLock();
+        this.counterLock = new ReentrantReadWriteLock();   
     }
 
     public void setIsCancel(Boolean isCancel) {
@@ -480,7 +501,6 @@ public class RuntimeProfile {
         return ret;
     }
 
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         prettyPrint(builder, "", isPipelineX);
