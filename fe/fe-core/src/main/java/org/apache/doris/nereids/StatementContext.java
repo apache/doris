@@ -112,7 +112,6 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
-    private Map<TableIf, Set<String>> checkedPrivilegedTableAndUsedColumns = Maps.newLinkedHashMap();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -155,6 +154,9 @@ public class StatementContext implements Closeable {
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
+            if (originStatement != null) {
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+            }
         } else {
             this.sqlCacheContext = null;
         }
@@ -170,6 +172,9 @@ public class StatementContext implements Closeable {
 
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
+        if (originStatement != null && sqlCacheContext != null) {
+            sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+        }
     }
 
     public OriginStatement getOriginStatement() {

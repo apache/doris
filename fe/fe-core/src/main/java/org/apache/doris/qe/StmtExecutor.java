@@ -1692,7 +1692,6 @@ public class StmtExecutor {
             }
         }
 
-
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
