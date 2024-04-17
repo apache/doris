@@ -501,8 +501,6 @@ public class SelectStmt extends QueryStmt {
                 }
             }
         }
-        fromClause.setNeedToSql(needToSql);
-        fromClause.analyze(analyzer);
 
         if (!isForbiddenMVRewrite()) {
             Boolean haveMv = false;
@@ -520,6 +518,9 @@ public class SelectStmt extends QueryStmt {
                 forbiddenMVRewrite();
             }
         }
+
+        fromClause.setNeedToSql(needToSql);
+        fromClause.analyze(analyzer);
 
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
