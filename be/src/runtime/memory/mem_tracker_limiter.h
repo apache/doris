@@ -232,7 +232,7 @@ public:
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
 
-#ifdef DEBUG
+#ifndef NDEBUG
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     std::string print_address_sanitizers();
@@ -281,7 +281,7 @@ private:
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
 
-#ifdef DEBUG
+#ifndef NDEBUG
     struct AddressSanitizer {
         size_t size;
         size_t usable_size;

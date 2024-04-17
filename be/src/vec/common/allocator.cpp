@@ -192,7 +192,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
-#ifdef DEBUG
+#ifndef NDEBUG
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(void* buf,
                                                                                size_t size) const {

@@ -125,17 +125,17 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-#ifdef DEBUG
-            LOG(FATAL) << err_msg << print_address_sanitizers();
-#else
+#ifdef NDEBUG
             LOG(INFO) << err_msg;
+#else
+            LOG(FATAL) << err_msg << print_address_sanitizers();
 #endif
         }
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
         }
         _consumption->set(0);
-#ifdef DEBUG
+#ifndef NDEBUG
     } else if (!_address_sanitizers.empty()) {
         LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
                    << ", mem tracker label: " << _label
@@ -146,12 +146,12 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     g_memtrackerlimiter_cnt << -1;
 }
 
-#ifdef DEBUG
+#ifndef NDEBUG
 static size_t allocator_malloc_usable_size(void* ptr) {
 #ifdef USE_JEMALLOC
     return jemalloc_usable_size(ptr);
 #else
-    return 0 // malloc_usable_size(ptr);
+    return 0; // malloc_usable_size(ptr);
 #endif
 }
 

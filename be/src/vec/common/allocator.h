@@ -90,7 +90,7 @@ public:
     void consume_memory(size_t size) const;
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
-#ifdef DEBUG
+#ifndef NDEBUG
     void add_address_sanitizers(void* buf, size_t size) const;
     void remove_address_sanitizers(void* buf, size_t size) const;
 #endif
@@ -130,7 +130,7 @@ public:
                     release_memory(size);
                     throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
-#ifdef DEBUG
+#ifndef NDEBUG
                 add_address_sanitizers(buf, size);
 #endif
             } else {
@@ -142,7 +142,7 @@ public:
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
-#ifdef DEBUG
+#ifndef NDEBUG
                 add_address_sanitizers(buf, size);
 #endif
 
@@ -159,7 +159,7 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }
         } else {
-#ifdef DEBUG
+#ifndef NDEBUG
             remove_address_sanitizers(buf, size);
 #endif
             ::free(buf);
@@ -190,7 +190,7 @@ public:
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
-#ifdef DEBUG
+#ifndef NDEBUG
             remove_address_sanitizers(buf, old_size); // buf addr = new_buf addr
             add_address_sanitizers(new_buf, new_size);
 #endif
@@ -223,7 +223,7 @@ public:
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
-#ifdef DEBUG
+#ifndef NDEBUG
             add_address_sanitizers(new_buf, new_size);
             remove_address_sanitizers(buf, old_size);
 #endif
