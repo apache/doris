@@ -151,7 +151,7 @@ static size_t allocator_malloc_usable_size(void* ptr) {
 #ifdef USE_JEMALLOC
     return jemalloc_usable_size(ptr);
 #else
-    return 0; // TODO, malloc_usable_size(ptr);
+    return malloc_usable_size(ptr);
 #endif
 }
 
