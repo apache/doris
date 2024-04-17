@@ -33,10 +33,26 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class AuditLogHelper {
 
+    private static final Logger LOG = LogManager.getLogger(AuditLogHelper.class);
+
+    // Add a new method to wrap original logAuditLog to catch all exceptions. Because write audit
+    // log may write to a doris internal table, we may meet errors. We do not want this affect the
+    // query process. Ignore this error and just write warning log.
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        try {
+            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        } catch (Throwable t) {
+            LOG.warn("Failed to write audit log.", t);
+        }
+    }
+
+    private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
