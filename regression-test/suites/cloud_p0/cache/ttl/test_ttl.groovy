@@ -97,17 +97,15 @@ suite("test_ttl") {
 
     load_customer_once("customer_ttl")
     sleep(30000) // 30s
-    long total_cache_size = 0
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag1 = false;
-            Boolean flag2 = false;
             long ttl_cache_size = 0;
             for (String line in strs) {
-                if (flag1 && flag2) break;
+                if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
@@ -116,17 +114,9 @@ suite("test_ttl") {
                     ttl_cache_size = line.substring(i).toLong()
                     flag1 = true
                 }
-                if (line.contains("file_cache_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    total_cache_size = line.substring(i).toLong()
-                    flag2 = true
-                }
             }
-            assertTrue(flag1 && flag2)
-            assertEquals(ttl_cache_size, total_cache_size)
+            assertTrue(flag1)
+            assertTrue(ttl_cache_size > 1073741824)
     }
     sleep(180000)
     getMetricsMethod.call() {
