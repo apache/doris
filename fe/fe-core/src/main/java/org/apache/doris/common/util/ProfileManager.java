@@ -35,16 +35,16 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.LinkedList;
+import java.io.File;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.PriorityQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -58,9 +58,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
  * the purpose is let coordinator can destruct earlier(the fragment profile is in Coordinator)
  *
  */
-public class ProfileManager {
+public class ProfileManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static volatile ProfileManager INSTANCE = null;
+    private static final String PROFILE_STORAGE_PATH = Config.audit_log_dir + File.separator + "profile";
 
     public enum ProfileType {
         QUERY,
@@ -98,6 +99,16 @@ public class ProfileManager {
         public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
             this.statsErrorEstimator = statsErrorEstimator;
         }
+
+        // Store profile to path
+        public void store(String profileStoragePath) {
+            profile.store(profileStoragePath);
+        }
+
+        // Remove profile from disk
+        public void remove() {
+            profile.remove();
+        }
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -105,8 +116,9 @@ public class ProfileManager {
     private ReadLock readLock;
     private WriteLock writeLock;
 
-    // record the order of profiles by queryId
-    private Deque<String> queryIdDeque;
+    // this variable is assgiened to true the first time the profile is loaded from disk
+    // no futher write operaiton, so no data race
+    boolean isProfileLoaded = false;
     private Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
     // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
     // execution profile's query id is not related with Profile's query id.
@@ -117,6 +129,7 @@ public class ProfileManager {
             synchronized (ProfileManager.class) {
                 if (INSTANCE == null) {
                     INSTANCE = new ProfileManager();
+                    INSTANCE.start();
                 }
             }
         }
@@ -127,8 +140,7 @@ public class ProfileManager {
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
-        queryIdDeque = new LinkedList<>();
-        queryIdToProfileMap = new ConcurrentHashMap<>();
+        queryIdToProfileMap = Maps.newHashMap();
         queryIdToExecutionProfiles = Maps.newHashMap();
     }
 
@@ -154,23 +166,6 @@ public class ProfileManager {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Add execution profile {} to profile manager",
                         DebugUtil.printId(executionProfile.getQueryId()));
-            }
-            // Check if there are some query profiles that not finish collecting, should
-            // remove them to release memory.
-            if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
-                List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
-                for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
-                    if (System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
-                            > Config.profile_async_collect_expire_time_secs * 1000) {
-                        finishOrExpireExecutionProfiles.add(tmpProfile);
-                    }
-                }
-                for (ExecutionProfile tmp : finishOrExpireExecutionProfiles) {
-                    queryIdToExecutionProfiles.remove(tmp.getQueryId());
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Remove expired execution profile {}", DebugUtil.printId(tmp.getQueryId()));
-                    }
-                }
             }
         } finally {
             writeLock.unlock();
@@ -199,23 +194,7 @@ public class ProfileManager {
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
         queryIdToProfileMap.put(key, element);
-        try {
-            if (!queryIdDeque.contains(key)) {
-                if (queryIdDeque.size() >= Config.max_query_profile_num) {
-                    ProfileElement profileElementRemoved = queryIdToProfileMap.remove(queryIdDeque.getFirst());
-                    // If the Profile object is removed from manager, then related execution profile is also useless.
-                    if (profileElementRemoved != null) {
-                        for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
-                            this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                        }
-                    }
-                    queryIdDeque.removeFirst();
-                }
-                queryIdDeque.addLast(key);
-            }
-        } finally {
-            writeLock.unlock();
-        }
+        writeLock.unlock();
     }
 
     public void removeProfile(String profileId) {
@@ -237,17 +216,26 @@ public class ProfileManager {
         return getQueryWithType(null);
     }
 
+    // The init value of query finish time of profile is MIN_VALUE
+    // So more recent query will be on the top of heap
+    private PriorityQueue<ProfileElement> getQueryOrderByQueryFinishTime() {
+        PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
+
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
+            queryIdDeque.add(profileElement);
+        });
+
+        return queryIdDeque;
+    }
+
     public List<List<String>> getQueryWithType(ProfileType type) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
-            Iterator reverse = queryIdDeque.descendingIterator();
-            while (reverse.hasNext()) {
-                String queryId = (String) reverse.next();
-                ProfileElement profileElement = queryIdToProfileMap.get(queryId);
-                if (profileElement == null) {
-                    continue;
-                }
+            PriorityQueue<ProfileElement> queueIdDeque = getQueryOrderByQueryFinishTime();
+            while (!queueIdDeque.isEmpty()) {
+                ProfileElement profileElement = queueIdDeque.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
                 if (type != null && !infoStrings.get(SummaryProfile.TASK_TYPE).equalsIgnoreCase(type.name())) {
                     continue;
@@ -431,9 +419,284 @@ public class ProfileManager {
         writeLock.lock();
         try {
             queryIdToProfileMap.clear();
-            queryIdDeque.clear();
+            queryIdToExecutionProfiles.clear();
         } finally {
             writeLock.unlock();
+        }
+    }
+
+    // When the query is finished, the profile should be marked as finished
+    public void markQueryFinished(TUniqueId queryId) {
+        // just to make sure no exception will be thrown
+        try {
+            readLock.lock();
+
+            ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
+            if (element == null) {
+                LOG.warn("Query {} does not exist or has already finished", DebugUtil.printId(queryId));
+                return;
+            }
+
+            element.profile.markisFinished(System.currentTimeMillis());
+        } catch (Exception e) {
+            LOG.error("Failed to mark query {} finished", DebugUtil.printId(queryId), e);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    @Override
+    protected void runAfterCatalogReady() {
+        loadProfilesFromDiskIfFirstTime();
+        persistQueryProfiles();
+        removeBrokenProfiles();
+        removeOutdatedProfilesFromDisk();
+    }
+
+    // List PROFILE_STORAGE_PATH and return all dir names
+    // string will contain profile id and its storage timestamp
+    private List<String> getOnDiskProfileInfos() {
+        List<String> res = Lists.newArrayList();
+        try {
+            File profileDir = new File(PROFILE_STORAGE_PATH);
+            if (!profileDir.exists()) {
+                LOG.warn("Profile storage directory {} does not exist", PROFILE_STORAGE_PATH);
+                return res;
+            }
+
+            File[] files = profileDir.listFiles();
+            for (File file : files) {
+                res.add(file.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to get profile meta from disk", e);
+        }
+
+        return res;
+    }
+
+    // read profile file on disk
+    // deserialize to an object Profile
+    // push them to memory structure of ProfileManager for index
+    private void loadProfilesFromDiskIfFirstTime() {
+        if (this.isProfileLoaded) {
+            return;
+        }
+
+        try {
+            LOG.info("Reading profile from {}", PROFILE_STORAGE_PATH);
+            List<String> profileDirAbsPaths = getOnDiskProfileInfos();
+            // Thread safe list
+            List<Profile> profiles = Lists.newCopyOnWriteArrayList();
+
+            List<Thread> profileReadThreads = Lists.newArrayList();
+
+            for (String profileDirAbsPath : profileDirAbsPaths) {
+                Thread thread = new Thread(() -> {
+                    Profile profile = Profile.read(profileDirAbsPath);
+                    if (profile != null) {
+                        profiles.add(profile);
+                    }
+                });
+                thread.start();
+                profileReadThreads.add(thread);
+            }
+
+            for (Thread thread : profileReadThreads) {
+                thread.join();
+            }
+
+            LOG.info("There are {} profiles loaded into memory", profiles.size());
+
+            // there may already has some queries running before this thread running
+            // so we should not clear current memory structure
+
+            for (Profile profile : profiles) {
+                this.pushProfile(profile);
+            }
+
+            this.isProfileLoaded = true;
+        } catch (Exception e) {
+            LOG.error("Failed to load query profile from disk", e);
+        }
+    }
+
+    // Collect profiles that need to be stored to disk
+    // Store them to disk
+    // Release the memory
+    private void persistQueryProfiles() {
+        try {
+            if (Strings.isNullOrEmpty(PROFILE_STORAGE_PATH)) {
+                LOG.error("Logical error, PROFILE_STORAGE_PATH is empty");
+                return;
+            }
+
+            File profileDir = new File(PROFILE_STORAGE_PATH);
+            if (!profileDir.exists()) {
+                // create query_id directory
+                if (!profileDir.mkdir()) {
+                    LOG.warn("create profile directory {} failed", profileDir.getAbsolutePath());
+                    return;
+                } else {
+                    LOG.info("Create profile storage {} succeed", PROFILE_STORAGE_PATH);
+                }
+            }
+
+            rwlock.readLock().lock();
+
+            List<ProfileElement> profilesToBeStored = Lists.newArrayList();
+
+            queryIdToProfileMap.forEach((queryId, profileElement) -> {
+                if (profileElement.profile.shouldStoreToDisk()) {
+                    profilesToBeStored.add(profileElement);
+                }
+            });
+
+            rwlock.readLock().unlock();
+
+
+            for (ProfileElement profileElement : profilesToBeStored) {
+                profileElement.store(PROFILE_STORAGE_PATH);
+            }
+
+            // After profile is stored to disk, the data must be ejected from memory
+            // or the memory will be exhausted
+            rwlock.writeLock().lock();
+
+            for (ProfileElement profileElement : profilesToBeStored) {
+                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                    this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+                profileElement.profile.releaseExecutionProfile();
+            }
+
+            rwlock.writeLock().unlock();
+        } catch (Exception e) {
+            LOG.error("Failed to remove query profile", e);
+        }
+    }
+
+    // We can not store all profiles on disk, because the disk space is limited
+    // So we need to remove the outdated profiles
+    private void removeOutdatedProfilesFromDisk() {
+        try {
+            final int maxProfilesOnDisk = 5;
+            readLock.lock();
+
+            // By order of profile storage timestamp
+            PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
+                    (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
+
+            // Collect all profiles that has been stored to disk
+            queryIdToProfileMap.forEach((queryId, profileElement) -> {
+                if (profileElement.profile.profileHasBeenStoredToDisk()) {
+                    profileDeque.add(profileElement);
+                }
+            });
+
+            readLock.unlock();
+
+            List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
+
+            while (profileDeque.size() > maxProfilesOnDisk) {
+                queryIdToBeRemoved.add(profileDeque.poll());
+            }
+
+            List<Thread> iothreads = Lists.newArrayList();
+
+            for (ProfileElement profileElement : queryIdToBeRemoved) {
+                Thread thread = new Thread(() -> {
+                    profileElement.remove();
+                });
+                thread.start();
+                iothreads.add(thread);
+            }
+
+            try {
+                for (Thread thread : iothreads) {
+                    thread.join();
+                }
+            } catch (InterruptedException e) {
+                LOG.error("Failed to remove outdated query profile", e);
+            }
+
+            writeLock.lock();
+            try {
+                for (ProfileElement profileElement : queryIdToBeRemoved) {
+                    queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
+                    TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(
+                            profileElement.profile.getSummaryProfile().getProfileId());
+                    queryIdToExecutionProfiles.remove(thriftQueryId);
+                }
+            } finally {
+                writeLock.unlock();
+            }
+
+            if (queryIdToBeRemoved.size() != 0) {
+                StringBuilder builder = new StringBuilder();
+                for (ProfileElement profileElement : queryIdToBeRemoved) {
+                    builder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
+                }
+                LOG.info("Remove outdated profile: {}", builder.toString());
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to remove outdated query profile", e);
+        }
+    }
+
+    private void removeBrokenProfiles() {
+        List<String> profilesOnDisk = getOnDiskProfileInfos();
+
+        List<String> brokenProfiles = Lists.newArrayList();
+
+        for (String profileDirAbsPath : profilesOnDisk) {
+            int separatorIdx = profileDirAbsPath.lastIndexOf(File.separator);
+            if (separatorIdx == -1) {
+                LOG.error("Invalid profile directory path: {}", profileDirAbsPath);
+                brokenProfiles.add(profileDirAbsPath);
+                continue;
+            }
+
+            String profileId = "";
+            try {
+                String profileIdAndTimestamp = profileDirAbsPath.substring(separatorIdx + 1);
+                String[] parsed = Profile.parseProfileDirName(profileIdAndTimestamp);
+                if (parsed == null) {
+                    LOG.error("Invalid profile directory path: {}", profileDirAbsPath);
+                    brokenProfiles.add(profileDirAbsPath);
+                    continue;
+                } else {
+                    profileId = parsed[0];
+                }
+            } catch (Exception e) {
+                LOG.error("Failed to get profile id from path: {}", profileDirAbsPath, e);
+                brokenProfiles.add(profileDirAbsPath);
+                continue;
+            }
+
+            readLock.lock();
+
+            if (!queryIdToProfileMap.containsKey(profileId)) {
+                LOG.info("Profile {} is broken, need to be deleted from disk", profileDirAbsPath);
+                brokenProfiles.add(profileDirAbsPath);
+            }
+
+            readLock.unlock();
+        }
+
+        for (String brokenProfile : brokenProfiles) {
+            try {
+                File profileDir = new File(brokenProfile);
+                if (!profileDir.isDirectory()) {
+                    LOG.warn("Profile path {} is not a directory: {}", brokenProfile);
+                    continue;
+                }
+
+                FileUtils.deleteDirectory(profileDir);
+                LOG.info("Delete broken profile: {}", brokenProfile);
+            } catch (Exception e) {
+                LOG.error("Failed to delete broken profile: {}", brokenProfile, e);
+            }
         }
     }
 }

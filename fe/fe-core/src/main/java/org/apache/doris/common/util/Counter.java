@@ -17,13 +17,32 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TUnit;
+
+import org.apache.doris.persist.gson.GsonUtils;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class Counter {
     private volatile long value;
     private volatile int type;
     private volatile long level;
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public String toString() {
+        return print();
+    }
+
+    public static Counter read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
+    }
 
     public long getValue() {
         return value;
@@ -102,5 +121,18 @@ public class Counter {
     public String print() {
         return RuntimeProfile.printCounter(value, getType());
     }
+
+    public boolean equals(Object rhs) {
+        if (this == rhs) {
+            return true;
+        }
+        if (rhs == null || getClass() != rhs.getClass()) {
+            return false;
+        }
+
+        Counter other = (Counter) rhs;
+        return other.value == value && other.type == type && other.level == level;
+    }
+
 
 }

@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -159,18 +160,9 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(queryId);
-            if (executionProfile != null) {
-                executionProfile.setQueryFinishTime(System.currentTimeMillis());
-                if (queryInfo.connectContext != null) {
-                    long autoProfileThresholdMs = queryInfo.connectContext
-                            .getSessionVariable().getAutoProfileThresholdMs();
-                    if (autoProfileThresholdMs > 0 && System.currentTimeMillis() - queryInfo.getStartExecTime()
-                            < autoProfileThresholdMs) {
-                        ProfileManager.getInstance().removeProfile(executionProfile.getSummaryProfile().getProfileId());
-                    }
-                }
-            }
+
+            ProfileManager.getInstance().markQueryFinished(queryId);
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
@@ -222,7 +214,14 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
-            processQueryProfile(params.getQueryProfile(), beAddr);
+            Status profileProcessStatus = processQueryProfile(params.getQueryProfile(), beAddr);
+            if (!profileProcessStatus.ok()) {
+                TReportExecStatusResult result = new TReportExecStatusResult();
+                TStatus resStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+                resStatus.setErrorMsgs(Lists.newArrayList(resStatus.getErrorMsgs()));
+                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+                return result;
+            }
         }
 
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {

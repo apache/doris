@@ -275,7 +275,8 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
+        this.profile = new Profile(
+                this.context.getSessionVariable().enableProfile,
                 this.context.getSessionVariable().profileLevel,
                 this.context.getSessionVariable().getEnablePipelineXEngine());
     }
@@ -307,8 +308,10 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
-                context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
+        this.profile = new Profile(
+                            context.getSessionVariable().enableProfile(),
+                            context.getSessionVariable().profileLevel,
+                            context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {

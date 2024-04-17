@@ -89,7 +89,7 @@ public class ExecutionProfile {
     private Map<Integer, Integer> fragmentIdBeNum;
     private Map<Integer, Integer> seqNoToFragmentId;
 
-    public ExecutionProfile(TUniqueId queryId, List<PlanFragment> fragments) {
+    public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
         this.queryId = queryId;
         root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
@@ -99,14 +99,14 @@ public class ExecutionProfile {
         fragmentIdBeNum = Maps.newHashMap();
         seqNoToFragmentId = Maps.newHashMap();
         int i = 0;
-        for (PlanFragment planFragment : fragments) {
+        for (int fragmentId : fragmentIds) {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
-            fragmentProfiles.put(planFragment.getFragmentId().asInt(), runtimeProfile);
+            fragmentProfiles.put(fragmentId, runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile);
-            multiBeProfile.put(planFragment.getFragmentId().asInt(),
+            multiBeProfile.put(fragmentId,
                     new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
-            fragmentIdBeNum.put(planFragment.getFragmentId().asInt(), 0);
-            seqNoToFragmentId.put(i, planFragment.getFragmentId().asInt());
+            fragmentIdBeNum.put( fragmentId, 0);
+            seqNoToFragmentId.put(i, fragmentId);
             ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
@@ -269,6 +269,7 @@ public class ExecutionProfile {
 
                     profileNode.update(pipelineProfile.profile);
                     pipelineIdx++;
+                    // Duplicate name will be replaced
                     fragmentProfiles.get(fragmentId).addChild(profileNode);
                 }
                 multiBeProfile.get(fragmentId).put(address, taskProfile);

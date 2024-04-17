@@ -17,9 +17,12 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -29,9 +32,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataOutput;
+import java.io.DataInput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.LinkedList;
@@ -55,26 +62,21 @@ public class RuntimeProfile {
     public static String SUM_TIME_PRE = "sum ";
     private Counter counterTotalTime;
     private double localTimePercent;
-
     private Map<String, String> infoStrings = Maps.newHashMap();
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
-    private ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
+    private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
     private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
-    private ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
-
+    private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
-    private ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
-
+    private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
     private List<String> planNodeInfos = Lists.newArrayList();
-    // name should not changed.
-    private final String name;
 
+    private String name;
     private Long timestamp = -1L;
-
     private Boolean isDone = false;
     private Boolean isCancel = false;
     // In pipelineX, we have explicitly split the Operator into sink and operator,
@@ -83,8 +85,21 @@ public class RuntimeProfile {
     // in the profile, which is quite tricky and only transitional.
     private Boolean isPipelineX = false;
     private Boolean isSinkOperator = false;
-
     private int nodeid = -1;
+
+    public static RuntimeProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public RuntimeProfile() {
+        this.infoStringsLock = new ReentrantReadWriteLock();
+        this.childLock = new ReentrantReadWriteLock();
+        this.counterLock = new ReentrantReadWriteLock();        
+    }
 
     public RuntimeProfile(String name) {
         this.localTimePercent = 0;
@@ -465,6 +480,7 @@ public class RuntimeProfile {
         return ret;
     }
 
+    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         prettyPrint(builder, "", isPipelineX);
