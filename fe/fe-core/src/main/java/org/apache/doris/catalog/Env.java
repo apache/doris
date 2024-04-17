@@ -1551,6 +1551,10 @@ public class Env {
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                         SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
+                if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                }
             }
         }
 
@@ -3528,7 +3532,7 @@ public class Env {
             // Storage Vault
             if (!olapTable.getStorageVaultName().isEmpty()) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
                 sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 

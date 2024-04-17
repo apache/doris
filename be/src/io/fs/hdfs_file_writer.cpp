@@ -34,13 +34,18 @@
 namespace doris::io {
 
 HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file,
-                               std::string fs_name)
+                               std::string fs_name, const FileWriterOptions* opts)
         : _path(std::move(path)),
           _hdfs_handler(handler),
           _hdfs_file(hdfs_file),
-          _fs_name(std::move(fs_name)) {}
+          _fs_name(std::move(fs_name)),
+          _sync_file_data(opts ? opts->sync_file_data : true) {}
 
 HdfsFileWriter::~HdfsFileWriter() {
+    if (_hdfs_file) {
+        hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+    }
+
     if (_hdfs_handler->from_cache) {
         _hdfs_handler->dec_ref();
     } else {
@@ -53,23 +58,25 @@ Status HdfsFileWriter::close() {
         return Status::OK();
     }
     _closed = true;
-    int result = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
-    if (result == -1) {
-        std::stringstream ss;
-        ss << "failed to flush hdfs file. "
-           << "fs_name:" << _fs_name << " path:" << _path << ", err: " << hdfs_error();
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+
+    if (_sync_file_data) {
+        int ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+        if (ret != 0) {
+            return Status::InternalError("failed to sync hdfs file. fs_name={} path={} : {}",
+                                         _fs_name, _path.native(), hdfs_error());
+        }
     }
 
-    result = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+    // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
+    // the HDFS response, but won't guarantee the synchronization of data to HDFS.
+    int ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     _hdfs_file = nullptr;
-    if (result != 0) {
-        std::string err_msg = hdfs_error();
+    if (ret != 0) {
         return Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _fs_name, _path.string(), err_msg);
+                BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error());
     }
+
     return Status::OK();
 }
 
@@ -101,12 +108,20 @@ Status HdfsFileWriter::finalize() {
     if (_closed) [[unlikely]] {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
-    // FIXME(plat1ko): `finalize` method should not be an operation which can be blocked for a long time
-    return close();
+
+    // Flush buffered data to HDFS without waiting for HDFS response
+    int ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
+    if (ret != 0) {
+        return Status::InternalError("failed to flush hdfs file. fs_name={} path={} : {}", _fs_name,
+                                     _path.native(), hdfs_error());
+    }
+
+    return Status::OK();
 }
 
 Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, HdfsHandler* handler,
-                                             const std::string& fs_name) {
+                                             const std::string& fs_name,
+                                             const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
     std::string hdfs_dir = path.parent_path().string();
     int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
@@ -133,7 +148,7 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, HdfsHandler* handle
         return ResultError(Status::InternalError(ss.str()));
     }
     VLOG_NOTICE << "open file. fs_name:" << fs_name << ", path:" << path;
-    return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name);
+    return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
 
 } // namespace doris::io

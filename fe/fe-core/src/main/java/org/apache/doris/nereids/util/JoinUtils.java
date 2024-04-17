@@ -141,11 +141,20 @@ public class JoinUtils {
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<Slot> leftSlots,
             List<Slot> rightSlots, List<Expression> onConditions) {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        Map<Boolean, List<Expression>> mapper = onConditions.stream().collect(Collectors.groupingBy(
-                expr -> (expr instanceof EqualPredicate) && checker.isHashJoinCondition((EqualPredicate) expr)));
+
+        ImmutableList.Builder<Expression> hashConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        ImmutableList.Builder<Expression> otherConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        for (Expression expr : onConditions) {
+            if (expr instanceof EqualPredicate && checker.isHashJoinCondition((EqualPredicate) expr)) {
+                hashConditions.add(expr);
+            } else {
+                otherConditions.add(expr);
+            }
+        }
+
         return Pair.of(
-                mapper.getOrDefault(true, ImmutableList.of()),
-                mapper.getOrDefault(false, ImmutableList.of())
+                hashConditions.build(),
+                otherConditions.build()
         );
     }
 
