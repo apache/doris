@@ -1522,6 +1522,10 @@ public class Env {
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                         SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
+                if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                }
             }
         }
 
