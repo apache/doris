@@ -290,6 +290,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
+    public static final String NEREIDS_TIMEOUT_SECOND = "nereids_timeout_second";
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
@@ -1267,7 +1268,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableNereidsTimeout = true;
 
     @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
-    public int nereidsTimeoutSecond = 5;
+    public int nereidsTimeoutSecond = 30;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
