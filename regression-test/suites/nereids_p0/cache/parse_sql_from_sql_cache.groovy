@@ -69,7 +69,7 @@ suite("parse_sql_from_sql_cache") {
             assertHasCache "select * from test_use_plan_cache2"
 
             // NOTE: in cloud mode, add empty partition can not use cache, because the table version already update,
-            //       but in native mode, add empty partition can not use cache
+            //       but in native mode, add empty partition can use cache
             sql "alter table test_use_plan_cache2 add partition p6 values[('6'),('7'))"
             if (isCloudMode()) {
                 assertNoCache "select * from test_use_plan_cache2"
