@@ -293,7 +293,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
 
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     SCOPED_TIMER(_partition_shuffle_timer);
-    auto* channel_ids = reinterpret_cast<uint32_t*>(_partitioner->get_channel_ids());
+    auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
     std::vector<uint32_t> partition_indexes[p._partition_count];
     DCHECK_LT(begin, end);
     for (size_t i = begin; i != end; ++i) {
