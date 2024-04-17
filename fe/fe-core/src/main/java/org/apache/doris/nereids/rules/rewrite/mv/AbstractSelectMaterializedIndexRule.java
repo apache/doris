@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -580,20 +581,20 @@ public abstract class AbstractSelectMaterializedIndexRule {
         public LogicalRepeat<Plan> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void ctx) {
             Plan child = repeat.child(0).accept(this, ctx);
             List<List<Expression>> groupingSets = repeat.getGroupingSets();
-            ImmutableList.Builder<List<Expression>> newGroupingExprs = ImmutableList.builder();
+            List<List<Expression>> newGroupingExprs = Lists.newArrayList();
             for (List<Expression> expressions : groupingSets) {
-                newGroupingExprs.add(expressions.stream()
-                        .map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
-                        .collect(ImmutableList.toImmutableList())
-                );
+                newGroupingExprs.add(
+                        expressions.stream().map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                                .collect(ImmutableList.toImmutableList()));
             }
 
             List<NamedExpression> outputExpressions = repeat.getOutputExpressions();
-            List<NamedExpression> newOutputExpressions = outputExpressions.stream()
-                    .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
-                    .collect(ImmutableList.toImmutableList());
+            List<NamedExpression> newOutputExpressions = BindExpression.adjustNullableForRepeat(newGroupingExprs,
+                    outputExpressions.stream()
+                            .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                            .collect(ImmutableList.toImmutableList()));
 
-            return repeat.withNormalizedExpr(newGroupingExprs.build(), newOutputExpressions, child);
+            return repeat.withNormalizedExpr(newGroupingExprs, newOutputExpressions, child);
         }
 
         @Override

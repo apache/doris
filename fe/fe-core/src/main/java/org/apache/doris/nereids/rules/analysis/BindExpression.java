@@ -806,7 +806,7 @@ public class BindExpression implements AnalysisRuleFactory {
     /**
      * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
      */
-    private List<NamedExpression> adjustNullableForRepeat(
+    public static List<NamedExpression> adjustNullableForRepeat(
             List<List<Expression>> groupingSets,
             List<NamedExpression> outputs) {
         Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
