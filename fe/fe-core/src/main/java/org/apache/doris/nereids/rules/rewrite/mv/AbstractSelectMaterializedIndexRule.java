@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -58,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.planner.PlanNode;
 
 import com.google.common.collect.ImmutableList;
@@ -589,7 +589,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             }
 
             List<NamedExpression> outputExpressions = repeat.getOutputExpressions();
-            List<NamedExpression> newOutputExpressions = BindExpression.adjustNullableForRepeat(newGroupingExprs,
+            List<NamedExpression> newOutputExpressions = PlanUtils.adjustNullableForRepeat(newGroupingExprs,
                     outputExpressions.stream()
                             .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
                             .collect(ImmutableList.toImmutableList()));

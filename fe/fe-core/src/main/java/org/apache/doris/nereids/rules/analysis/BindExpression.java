@@ -646,7 +646,7 @@ public class BindExpression implements AnalysisRuleFactory {
             boundGroupingSetsBuilder.add(boundGroupingSet);
         }
         List<List<Expression>> boundGroupingSets = boundGroupingSetsBuilder.build();
-        List<NamedExpression> nullableOutput = adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
+        List<NamedExpression> nullableOutput = PlanUtils.adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
         for (List<Expression> groupingSet : boundGroupingSets) {
             checkIfOutputAliasNameDuplicatedForGroupBy(groupingSet, nullableOutput);
         }
@@ -801,30 +801,6 @@ public class BindExpression implements AnalysisRuleFactory {
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
-    }
-
-    /**
-     * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
-     */
-    public static List<NamedExpression> adjustNullableForRepeat(
-            List<List<Expression>> groupingSets,
-            List<NamedExpression> outputs) {
-        Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
-                .flatMap(Collection::stream)
-                .map(Expression::getInputSlots)
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        Builder<NamedExpression> nullableOutputs = ImmutableList.builderWithExpectedSize(outputs.size());
-        for (NamedExpression output : outputs) {
-            Expression nullableOutput = output.rewriteUp(expr -> {
-                if (expr instanceof Slot && groupingSetsUsedSlots.contains(expr)) {
-                    return ((Slot) expr).withNullable(true);
-                }
-                return expr;
-            });
-            nullableOutputs.add((NamedExpression) nullableOutput);
-        }
-        return nullableOutputs.build();
     }
 
     private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {

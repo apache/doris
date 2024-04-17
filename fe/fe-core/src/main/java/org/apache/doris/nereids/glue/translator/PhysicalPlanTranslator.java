@@ -2230,9 +2230,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
 
         // outputSlots's order need same with preRepeatExprs
-        List<Slot> outputSlots = Stream.concat(
-                repeat.getOutputExpressions().stream().filter(output -> flattenGroupingSetExprs.contains(output)),
-                repeat.getOutputExpressions().stream().filter(output -> !flattenGroupingSetExprs.contains(output)))
+        List<Slot> outputSlots = Stream
+                .concat(repeat.getOutputExpressions().stream()
+                        .filter(output -> flattenGroupingSetExprs.contains(output)),
+                        repeat.getOutputExpressions().stream()
+                                .filter(output -> !flattenGroupingSetExprs.contains(output)).distinct())
                 .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
 
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,
