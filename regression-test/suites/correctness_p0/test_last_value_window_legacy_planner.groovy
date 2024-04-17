@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_last_value_window") {
-    sql """ set enable_nereids_planner = true; """
-    sql """ set enable_fallback_to_original_planner = false; """
-    def tableName = "test_last_value_window_state"
+suite("test_last_value_window_legacy_planner") {
+    sql """ set enable_nereids_planner = false; """
+
+    def tableName = "test_last_value_window_state_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -37,7 +37,7 @@ suite("test_last_value_window") {
             );
     """
 
-    sql """ INSERT INTO ${tableName} VALUES 
+    sql """ INSERT INTO ${tableName} VALUES
             (21,"04-21-11",1),
             (22,"04-22-10-21",0),
             (22,"04-22-10-21",1),
@@ -46,7 +46,7 @@ suite("test_last_value_window") {
 
     qt_select_default """ select *,last_value(state) over(partition by myday order by time_col) from ${tableName} order by myday, time_col, state; """
 
-    def tableNameWithNull = "test_last_value_window_state_null"
+    def tableNameWithNull = "test_last_value_window_state_null_legacy_planner"
     sql """ DROP TABLE IF EXISTS ${tableNameWithNull} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableNameWithNull} (
@@ -65,7 +65,7 @@ suite("test_last_value_window") {
             );
     """
 
-    sql """ INSERT INTO ${tableNameWithNull} VALUES 
+    sql """ INSERT INTO ${tableNameWithNull} VALUES
             (1,21,"04-21-11",1),
             (2,21,"04-21-12",null),
             (3,21,"04-21-13",null),
