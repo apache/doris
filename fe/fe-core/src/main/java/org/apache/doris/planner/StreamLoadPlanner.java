@@ -261,15 +261,20 @@ public class StreamLoadPlanner {
             timeout *= 2;
         }
 
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
@@ -326,10 +331,7 @@ public class StreamLoadPlanner {
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
         queryOptions.setEnableProfile(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -493,15 +495,20 @@ public class StreamLoadPlanner {
             timeout *= 2;
         }
 
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
@@ -560,10 +567,7 @@ public class StreamLoadPlanner {
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
         queryOptions.setEnableProfile(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
