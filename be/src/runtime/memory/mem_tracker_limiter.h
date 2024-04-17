@@ -284,7 +284,6 @@ private:
 #ifndef NDEBUG
     struct AddressSanitizer {
         size_t size;
-        size_t usable_size;
         std::string stack_trace;
     };
 

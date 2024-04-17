@@ -183,6 +183,9 @@ public:
         if (!use_mmap ||
             (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
              alignment <= MALLOC_MIN_ALIGNMENT)) {
+#ifndef NDEBUG
+            remove_address_sanitizers(buf, old_size);
+#endif
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
             if (nullptr == new_buf) {
@@ -191,8 +194,8 @@ public:
                                             new_size));
             }
 #ifndef NDEBUG
-            remove_address_sanitizers(buf, old_size); // buf addr = new_buf addr
-            add_address_sanitizers(new_buf, new_size);
+            add_address_sanitizers(
+                    new_buf, new_size); // usually, buf addr = new_buf addr, asan maybe not equal.
 #endif
 
             buf = new_buf;

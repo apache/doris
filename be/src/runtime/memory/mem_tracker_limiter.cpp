@@ -38,11 +38,6 @@
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
-#ifdef USE_JEMALLOC
-#include "jemalloc/jemalloc.h"
-#else
-#include <malloc.h>
-#endif
 #include "util/stack_util.h"
 
 namespace doris {
@@ -147,15 +142,6 @@ MemTrackerLimiter::~MemTrackerLimiter() {
 }
 
 #ifndef NDEBUG
-static size_t allocator_malloc_usable_size(void* ptr) {
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && defined(USE_JEMALLOC)
-    return jemalloc_usable_size(ptr);
-#else
-    return 0; // TODO, ASAN malloc_usable_size(ptr) exist bug, may return 0.
-#endif
-}
-
 void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
     if (_type == Type::QUERY) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
@@ -164,16 +150,16 @@ void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
             LOG(FATAL) << "[Address Sanitizer] memory buf repeat add, mem tracker label: " << _label
                        << ", consumption: " << _consumption->current_value()
                        << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                       << ", size: " << size << ", usable_size "
-                       << ", old buf: " << it->first << ", old size: " << it->second.size
+                       << ", size: " << size << ", old buf: " << it->first
+                       << ", old size: " << it->second.size
                        << ", new stack_trace: " << get_stack_trace()
                        << ", old stack_trace: " << it->second.stack_trace;
         }
 
         // if alignment not equal to 0, maybe usable_size > size.
-        AddressSanitizer as = {
-                size, allocator_malloc_usable_size(buf),
-                doris::config::enable_address_sanitizers_with_stack_trace ? get_stack_trace() : ""};
+        AddressSanitizer as = {size, doris::config::enable_address_sanitizers_with_stack_trace
+                                             ? get_stack_trace()
+                                             : ""};
         _address_sanitizers.emplace(buf, as);
     }
 }
@@ -183,16 +169,13 @@ void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
         std::lock_guard<std::mutex> l(_address_sanitizers_mtx);
         auto it = _address_sanitizers.find(buf);
         if (it != _address_sanitizers.end()) {
-            if (it->second.size != size ||
-                it->second.usable_size != allocator_malloc_usable_size(buf)) {
+            if (it->second.size != size) {
                 LOG(FATAL) << "[Address Sanitizer] free memory buf size inaccurate, mem tracker "
                               "label: "
                            << _label << ", consumption: " << _consumption->current_value()
                            << ", peak consumption: " << _consumption->peak_value()
-                           << ", buf: " << buf << ", size: " << size << ", usable_size "
-                           << allocator_malloc_usable_size(buf) << ", old buf: " << it->first
+                           << ", buf: " << buf << ", size: " << size << ", old buf: " << it->first
                            << ", old size: " << it->second.size
-                           << ", old usable_size: " << it->second.usable_size
                            << ", new stack_trace: " << get_stack_trace()
                            << ", old stack_trace: " << it->second.stack_trace;
             }
