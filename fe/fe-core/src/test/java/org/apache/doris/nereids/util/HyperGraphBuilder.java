@@ -669,9 +669,12 @@ public class HyperGraphBuilder {
             Integer rv;
             if (left.containsKey(slots.get(0))) {
                 lv = left.get(slots.get(0)).get(leftIndex);
-                rv = right.get(slots.get(1)).get(rightIndex);
             } else {
                 lv = right.get(slots.get(0)).get(rightIndex);
+            }
+            if (right.containsKey(slots.get(1))) {
+                rv = right.get(slots.get(1)).get(rightIndex);
+            } else {
                 rv = left.get(slots.get(1)).get(leftIndex);
             }
             Boolean res = (lv == rv) && (lv != null) && (rv != null);
