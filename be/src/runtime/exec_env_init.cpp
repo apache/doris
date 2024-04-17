@@ -308,7 +308,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr->start(this);
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-
+    _runtime_query_statistics_mgr->start_report_thread();
     _s_ready = true;
 
     return Status::OK();
@@ -606,6 +606,9 @@ void ExecEnv::destroy() {
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
+    if (_runtime_query_statistics_mgr) {
+        _runtime_query_statistics_mgr->stop_report_thread();
+    }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);

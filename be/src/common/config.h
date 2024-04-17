@@ -1235,6 +1235,7 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
+DECLARE_mInt32(report_exec_status_thread_num);
 
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DECLARE_mDouble(high_disk_avail_level_diff_usages);

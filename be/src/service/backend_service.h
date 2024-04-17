@@ -137,6 +137,9 @@ public:
     void query_ingest_binlog(TQueryIngestBinlogResult& result,
                              const TQueryIngestBinlogRequest& request) override;
 
+    void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                  const TGetRealtimeExecStatusRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
