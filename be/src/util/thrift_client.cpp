@@ -29,22 +29,32 @@
 namespace doris {
 
 Status ThriftClientImpl::open() {
+    bool catch1 = false, catch2 = false;
+    apache::thrift::transport::TTransportException save_e1, save_e2;
     try {
         if (!_transport->isOpen()) {
             _transport->open();
         }
     } catch (const apache::thrift::transport::TTransportException& e) {
+        catch1 = true;
+        save_e1 = e;
+    }
+    if (catch1) {
         try {
             _transport->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
+            catch2 = true;
+            save_e2 = e;
+        }
+        if (catch2) {
             VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port()
-                          << ", ignoring (" << e.what() << ")";
+                          << ", ignoring (" << save_e2.what() << ")";
         }
         // In certain cases in which the remote host is overloaded, this failure can
         // happen quite frequently. Let's print this error message without the stack
         // trace as there aren't many callers of this function.
         const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
-                                                         ipaddress(), port(), e.what());
+                                                         ipaddress(), port(), save_e1.what());
         VLOG_CRITICAL << err_msg;
         return Status::RpcError(err_msg);
     }
@@ -79,13 +89,19 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
 }
 
 void ThriftClientImpl::close() {
+    bool catch1 = false, catch2 = false;
+    apache::thrift::transport::TTransportException save_e1, save_e2;
     try {
         if (_transport != nullptr && _transport->isOpen()) {
             _transport->close();
         }
     } catch (const apache::thrift::transport::TTransportException& e) {
+        catch1 = true;
+        save_e1 = e;
+    }
+    if (catch1) {
         LOG(INFO) << "Error closing connection to: " << ipaddress() << ":" << port()
-                  << ", ignoring (" << e.what() << ")";
+                  << ", ignoring (" << save_e1.what() << ")";
         // Forcibly close the socket (since the transport may have failed to get that far
         // during close())
         try {
@@ -93,8 +109,12 @@ void ThriftClientImpl::close() {
                 _socket->close();
             }
         } catch (const apache::thrift::transport::TTransportException& e) {
+            catch2 = true;
+            save_e2 = e;
+        }
+        if (catch2) {
             LOG(INFO) << "Error closing socket to: " << ipaddress() << ":" << port()
-                      << ", ignoring (" << e.what() << ")";
+                      << ", ignoring (" << save_e2.what() << ")";
         }
     }
 }
