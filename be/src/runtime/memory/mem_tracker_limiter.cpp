@@ -148,7 +148,8 @@ MemTrackerLimiter::~MemTrackerLimiter() {
 
 #ifndef NDEBUG
 static size_t allocator_malloc_usable_size(void* ptr) {
-#ifdef USE_JEMALLOC
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && defined(USE_JEMALLOC)
     return jemalloc_usable_size(ptr);
 #else
     return malloc_usable_size(ptr);
