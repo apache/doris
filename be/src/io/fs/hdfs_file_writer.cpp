@@ -81,7 +81,7 @@ Status HdfsFileWriter::close() {
     }
     _closed = true;
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
+        RETURN_IF_ERROR(_flush_buffer());
     }
     int ret;
     if (_sync_file_data) {
@@ -177,29 +177,26 @@ void HdfsFileWriter::_write_into_local_file_cache() {
     }
 }
 
-Status HdfsFileWriter::_write_batch_into_underlying_hdfs() {
-    size_t left_bytes = _batch_buffer.capacity();
-    const char* p = _batch_buffer.data();
-    while (left_bytes > 0) {
+Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
+    while (!content.empty()) {
         int64_t written_bytes;
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_write_latency);
-            written_bytes = hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, p, left_bytes);
+            written_bytes =
+                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size());
         }
         if (written_bytes < 0) {
             return Status::InternalError("write hdfs failed. fs_name: {}, path: {}, error: {}",
                                          _fs_name, _path.native(), hdfs_error());
         }
         hdfs_bytes_written_total << written_bytes;
-        left_bytes -= written_bytes;
-        p += written_bytes;
-        _bytes_appended += written_bytes;
+        content.remove_prefix(written_bytes);
     }
     return Status::OK();
 }
 
-Status HdfsFileWriter::_consume_batch_into_hdfs_and_cache() {
-    RETURN_IF_ERROR(_write_batch_into_underlying_hdfs());
+Status HdfsFileWriter::_flush_buffer() {
+    RETURN_IF_ERROR(append_hdfs_file(_batch_buffer._batch_buffer));
     if (_batch_buffer._write_file_cache) {
         _write_into_local_file_cache();
     }
@@ -207,11 +204,25 @@ Status HdfsFileWriter::_consume_batch_into_hdfs_and_cache() {
     return Status::OK();
 }
 
-size_t HdfsFileWriter::CachedBatchBuffer::append(const char* pos, size_t data_size) {
-    size_t append_size = std::min(capacity() - size(), data_size);
-    std::string_view sv(pos, append_size);
-    _batch_buffer.append(sv);
+size_t HdfsFileWriter::CachedBatchBuffer::append(std::string_view content) {
+    size_t append_size = std::min(capacity() - size(), content.size());
+    _batch_buffer.append(content.substr(0, append_size));
     return append_size;
+}
+
+Status HdfsFileWriter::_append(std::string_view content) {
+    while (!content.empty()) {
+        if (_batch_buffer.full()) {
+            DCHECK(false) << "invalid batch buffer status";
+            return Status::InternalError("invalid batch buffer status");
+        }
+        size_t append_size = _batch_buffer.append(content);
+        content.remove_prefix(append_size);
+        if (_batch_buffer.full()) {
+            RETURN_IF_ERROR(_flush_buffer());
+        }
+    }
+    return Status::OK();
 }
 
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
@@ -220,16 +231,8 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
-        size_t size = data[i].get_size();
-        size_t pos = 0;
-        while (size > 0) {
-            size_t append_size = _batch_buffer.append(data[i].get_data() + pos, size);
-            size -= append_size;
-            pos += append_size;
-            if (_batch_buffer.full()) {
-                RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
-            }
-        }
+        RETURN_IF_ERROR(_append({data[i].get_data(), data[i].get_size()}));
+        _bytes_appended += data[i].get_size();
     }
     return Status::OK();
 }
@@ -240,7 +243,7 @@ Status HdfsFileWriter::finalize() {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
+        RETURN_IF_ERROR(_flush_buffer());
     }
 
     // Flush buffered data to HDFS without waiting for HDFS response

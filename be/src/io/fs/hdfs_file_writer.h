@@ -51,9 +51,10 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    Status _consume_batch_into_hdfs_and_cache();
-    Status _write_batch_into_underlying_hdfs();
+    Status _flush_buffer();
+    Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
+    Status _append(std::string_view content);
 
     Path _path;
     HdfsHandler* _hdfs_handler = nullptr;
@@ -70,7 +71,7 @@ private:
         UInt128Wrapper _cache_hash;
         BlockFileCache* _cache;
         std::string _batch_buffer;
-        size_t append(const char* pos, size_t size);
+        size_t append(std::string_view content);
         bool full() const;
         const char* data() const;
         size_t capacity() const;
