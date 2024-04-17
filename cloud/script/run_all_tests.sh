@@ -20,6 +20,10 @@ echo "input params: $*"
 
 function usage() {
     echo "$0 [--fdb <fdb_conf>] [--test <test_binary>] [--filter <gtest_filter>]"
+    echo "    fdb_conf the connection string of an fdb cluster, e.g fdb_cluster0:cluster0@192.168.1.100:4500"
+    echo "             some unit tests rely on a fdb to run"
+    echo "    test_binary the unit test binary name, e.g. txn_kv_test"
+    echo "    gtest_filter the filter for the test_binary unit test, e.g. TxnKvTest.BatchGet"
 }
 if ! OPTS=$(getopt -n "$0" -o a:b:c: -l test:,fdb:,filter:,coverage -- "$@"); then
     usage

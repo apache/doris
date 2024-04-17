@@ -173,9 +173,11 @@ suite("test_index_change_with_compaction") {
         }
 
         // build index
-        sql "build index idx_user_id on ${tableName}"
-        sql "build index idx_date on ${tableName}"
-        sql "build index idx_city on ${tableName}"
+        if (!isCloudMode()) {
+            sql "build index idx_user_id on ${tableName}"
+            sql "build index idx_date on ${tableName}"
+            sql "build index idx_city on ${tableName}"
+        }
 
         // wait for all compactions done
         for (def tablet in tablets) {

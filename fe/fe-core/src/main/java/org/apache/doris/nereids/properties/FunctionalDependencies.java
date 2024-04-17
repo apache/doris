@@ -136,6 +136,10 @@ public class FunctionalDependencies {
             uniqueSet.add(slotSet);
         }
 
+        public void addUniqueSlot(FunctionalDependencies functionalDependencies) {
+            uniqueSet.add(functionalDependencies.uniqueSet);
+        }
+
         public void addFdItems(ImmutableSet<FdItem> items) {
             fdItems = ImmutableSet.copyOf(items);
         }

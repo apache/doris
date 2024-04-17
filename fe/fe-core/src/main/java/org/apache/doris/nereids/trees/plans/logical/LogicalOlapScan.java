@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Pair;
+import org.json.JSONObject;
 
 import java.util.Arrays;
 import java.util.List;
@@ -428,5 +429,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             slots[i] = SlotReference.fromColumn(table, columns.get(i), qualified, this);
         }
         return (List) Arrays.asList(slots);
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject olapScan = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("OlapTable", table.getName());
+        properties.put("SelectedIndexId", Long.toString(selectedIndexId));
+        properties.put("PreAggStatus", preAggStatus.toString());
+        olapScan.put("Properties", properties);
+        return olapScan;
     }
 }

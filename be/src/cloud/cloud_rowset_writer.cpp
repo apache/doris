@@ -46,6 +46,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_segments_overlap(_context.segments_overlap);
     _rowset_meta->set_txn_id(_context.txn_id);
     _rowset_meta->set_txn_expiration(_context.txn_expiration);
+    _rowset_meta->set_compaction_level(_context.compaction_level);
     if (_context.rowset_state == PREPARED || _context.rowset_state == COMMITTED) {
         _is_pending = true;
         _rowset_meta->set_load_id(_context.load_id);

@@ -877,8 +877,17 @@ suite("test_stream_load_move_memtable", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
+    sql "sync"
+    try_sql """DROP USER 'ddd'"""
     sql """create USER ddd IDENTIFIED BY '123456test!'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'ddd'@'%';"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ddd""";
+    }
 
     streamLoad {
         table "${tableName13}"

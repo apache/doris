@@ -152,6 +152,11 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
+    if (has_output_row_desc()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
+
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->prepare(state));
     }
@@ -388,6 +393,24 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
         }
     }
 
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
+    _blocks_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "InitTime", 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
+    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
+    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", 1);
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
+    return Status::OK();
+}
+
+template <typename SharedStateArg>
+Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
     _conjuncts.resize(_parent->_conjuncts.size());
     _projections.resize(_parent->_projections.size());
     for (size_t i = 0; i < _conjuncts.size(); i++) {
@@ -404,19 +427,6 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
                     state, _intermediate_projections[i][j]));
         }
     }
-
-    _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
-    _blocks_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
-    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
-    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", 1);
-    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
-            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
     return Status::OK();
 }
 
@@ -462,6 +472,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         _dependency = nullptr;
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_profile, "InitTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
@@ -532,11 +543,6 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     _async_writer_dependency = AsyncWriterDependency::create_shared(
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
@@ -551,6 +557,11 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
     RETURN_IF_ERROR(_writer->start_writer(state, _profile));
     return Status::OK();
 }

@@ -148,9 +148,6 @@ Status PartitionedAggSinkOperatorX::open(RuntimeState* state) {
     return _agg_sink_operator->open(state);
 }
 
-Status PartitionedAggSinkOperatorX::close(RuntimeState* state) {
-    return _agg_sink_operator->close(state);
-}
 Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                          bool eos) {
     auto& local_state = get_local_state(state);
@@ -227,8 +224,9 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
 }
 
 Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
-    LOG(INFO) << "agg node " << Base::_parent->id() << " revoke_memory"
-              << ", eos: " << _eos;
+    VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node " << Base::_parent->id()
+               << " revoke_memory"
+               << ", eos: " << _eos;
     RETURN_IF_ERROR(Base::_shared_state->sink_status);
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
@@ -251,35 +249,41 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-            [this, &parent, state, execution_context, submit_timer] {
+            [this, &parent, state, query_id, execution_context, submit_timer] {
                 auto execution_context_lock = execution_context.lock();
                 if (!execution_context_lock) {
-                    LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                    LOG(INFO) << "query " << print_id(query_id)
+                              << " execution_context released, maybe query was cancelled.";
                     return Status::Cancelled("Cancelled");
                 }
                 _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                 SCOPED_ATTACH_TASK(state);
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {
-                    if (!Base::_shared_state->sink_status.ok()) {
-                        LOG(WARNING)
-                                << "agg node " << Base::_parent->id()
-                                << " revoke_memory error: " << Base::_shared_state->sink_status;
-                    } else {
-                        LOG(INFO) << " agg node " << Base::_parent->id() << " revoke_memory finish"
-                                  << ", eos: " << _eos;
-                    }
-                    {
-                        if (_eos) {
-                            Base::_dependency->set_ready_to_read();
-                            _finish_dependency->set_ready();
-                        } else {
-                            Base::_dependency->Dependency::set_ready();
+                    if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
+                        if (!_shared_state->sink_status.ok()) {
+                            LOG(WARNING)
+                                    << "query " << print_id(query_id) << " agg node "
+                                    << Base::_parent->id()
+                                    << " revoke_memory error: " << Base::_shared_state->sink_status;
                         }
+                        _shared_state->close();
+                    } else {
+                        VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                                   << Base::_parent->id() << " revoke_memory finish"
+                                   << ", eos: " << _eos;
+                    }
+
+                    if (_eos) {
+                        Base::_dependency->set_ready_to_read();
+                        _finish_dependency->set_ready();
+                    } else {
+                        Base::_dependency->Dependency::set_ready();
                     }
                 }};
                 auto* runtime_state = _runtime_state.get();

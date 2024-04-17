@@ -640,6 +640,10 @@ void PlanFragmentExecutor::close() {
                 load_channel_profile()->pretty_print(&ss);
             }
             LOG(INFO) << ss.str();
+
+            _query_ctx->add_instance_profile(_fragment_instance_id,
+                                             collect_realtime_query_profile(),
+                                             collect_realtime_load_channel_profile());
         }
     }
 

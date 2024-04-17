@@ -82,7 +82,9 @@ public:
     }
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
+
     const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -228,6 +230,11 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         append_data_by_selector_impl<ColumnNullable>(res, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;

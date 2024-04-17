@@ -185,6 +185,8 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
+    public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
@@ -209,8 +211,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
-
-    public static final String ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT = "enable_single_phase_execution_commit_opt";
 
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
@@ -671,7 +671,9 @@ public class SessionVariable implements Serializable, Writable {
     public String resourceGroup = "";
 
     // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = AUTO_COMMIT)
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
@@ -993,6 +995,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true)
     private int runtimeFilterMaxInNum = 1024;
 
+    @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
+    private boolean enableSyncRuntimeFilterSize = true;
+
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
@@ -1206,10 +1211,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_SINGLE_PHASE_EXECUTION_COMMIT_OPT, fuzzy = true,
-            varType = VariableAnnotation.DEPRECATED)
-    private boolean enableSinglePhaseExecutionCommitOpt = true;
 
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
@@ -1706,7 +1707,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用join算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of join operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableJoinSpill = false;
 
     @VariableMgr.VarAttr(
@@ -1714,7 +1715,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用排序算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of sort operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
@@ -1722,14 +1723,14 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "
                             + "The default value is false."},
-            needForward = true)
+            needForward = true, fuzzy = true)
     public boolean enableAggSpill = false;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
-            checker = "checkExternalSortBytesThreshold", fuzzy = true)
+            checker = "checkExternalSortBytesThreshold", varType = VariableAnnotation.DEPRECATED)
     public long externalSortBytesThreshold = 0;
 
     // Set to 0 to disable; min: 128M
@@ -1740,14 +1741,14 @@ public class SessionVariable implements Serializable, Writable {
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
-    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
-    public int externalAggPartitionBits = 8; // means that the hash table will be partitioned into 256 blocks.
+    public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -1770,7 +1771,6 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
-        this.enableSinglePhaseExecutionCommitOpt = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
@@ -1880,6 +1880,38 @@ public class SessionVariable implements Serializable, Writable {
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
+
+        // for spill to disk
+        /*
+        if (Config.pull_request_id > 10000) {
+            if (Config.pull_request_id % 2 == 1) {
+                this.enablePipelineXEngine = true;
+                this.enableJoinSpill = true;
+                this.enableSortSpill = true;
+                this.enableAggSpill = true;
+
+                randomInt = random.nextInt(4);
+                switch (randomInt) {
+                    case 0:
+                        this.minRevocableMem = 0;
+                        break;
+                    case 1:
+                        this.minRevocableMem = 1;
+                        break;
+                    case 2:
+                        this.minRevocableMem = 1024 * 1024;
+                        break;
+                    default:
+                        this.minRevocableMem = 100 * 1024 * 1024 * 1024;
+                        break;
+                }
+            } else {
+                this.enableJoinSpill = false;
+                this.enableSortSpill = false;
+                this.enableAggSpill = false;
+            }
+        }
+        */
     }
 
     public String printFuzzyVariables() {
@@ -2024,10 +2056,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
-    }
-
-    public boolean isAutoCommit() {
-        return autoCommit;
     }
 
     public boolean enableMultiClusterSyncLoad() {
@@ -2865,6 +2893,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
     }
 
+    public boolean isEnableMemtableOnSinkNode() {
+        return enableMemtableOnSinkNode;
+    }
+
+    public void setEnableMemtableOnSinkNode(boolean enableMemtableOnSinkNode) {
+        this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
+    }
+
     public boolean isEnableRuntimeFilterPrune() {
         return enableRuntimeFilterPrune;
     }
@@ -2936,6 +2972,10 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check max_execution_time failed", exception);
             throw exception;
         }
+    }
+
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
     }
 
     public boolean isEnableFileCache() {
@@ -3472,6 +3512,10 @@ public class SessionVariable implements Serializable, Writable {
         return enablePipelineXEngine;
     }
 
+    public boolean enableSyncRuntimeFilterSize() {
+        return enableSyncRuntimeFilterSize;
+    }
+
     public static boolean enablePipelineEngine() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
@@ -3654,9 +3698,5 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
-    }
-
-    public boolean isEnableSinglePhaseExecutionCommitOpt() {
-        return enableSinglePhaseExecutionCommitOpt;
     }
 }

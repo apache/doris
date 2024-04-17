@@ -198,6 +198,8 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
+    std::string to_string();
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);

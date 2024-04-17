@@ -82,9 +82,19 @@ public class MaxComputeExternalTable extends ExternalTable {
         MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMaxComputeMetadataCache(catalog.getId());
         MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
-        return metadataCache.getCachedRowCount(dbName, name, null, () -> mcCatalog.getTableTunnel()
-                .getDownloadSession(dbName, name, null)
-                .getRecordCount());
+        return metadataCache.getCachedRowCount(dbName, name, null, key -> {
+            try {
+                return loadRowCount(mcCatalog, key);
+            } catch (TunnelException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private long loadRowCount(MaxComputeExternalCatalog catalog, MaxComputeCacheKey key) throws TunnelException {
+        return catalog.getTableTunnel()
+                .getDownloadSession(key.getDbName(), key.getTblName(), null)
+                .getRecordCount();
     }
 
     @Override
@@ -106,21 +116,23 @@ public class MaxComputeExternalTable extends ExternalTable {
         MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMaxComputeMetadataCache(catalog.getId());
         return metadataCache.getCachedPartitionValues(
-                new MaxComputeCacheKey(projectName, tableName),
-                () -> {
-                    TablePartitionValues partitionValues = new TablePartitionValues();
-                    partitionValues.addPartitions(partitionSpecs,
-                            partitionSpecs.stream()
-                                    .map(p -> parsePartitionValues(new ArrayList<>(getPartitionNames()), p))
-                                    .collect(Collectors.toList()),
-                            partitionTypes);
-                    return partitionValues;
-                });
+                new MaxComputeCacheKey(projectName, tableName), key -> loadPartitionValues(key));
+    }
+
+    private TablePartitionValues loadPartitionValues(MaxComputeCacheKey key) {
+        TablePartitionValues partitionValues = new TablePartitionValues();
+        partitionValues.addPartitions(partitionSpecs,
+                partitionSpecs.stream()
+                        .map(p -> parsePartitionValues(new ArrayList<>(getPartitionNames()), p))
+                        .collect(Collectors.toList()),
+                partitionTypes);
+        return partitionValues;
     }
 
     /**
      * parse all values from partitionPath to a single list.
-     * @param partitionColumns  partitionColumns can contain the part1,part2,part3...
+     *
+     * @param partitionColumns partitionColumns can contain the part1,part2,part3...
      * @param partitionPath partitionPath format is like the 'part1=123/part2=abc/part3=1bc'
      * @return all values of partitionPath
      */

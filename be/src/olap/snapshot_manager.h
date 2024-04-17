@@ -31,7 +31,7 @@ class RowsetMetaPB;
 class TSnapshotRequest;
 struct RowsetId;
 class StorageEngine;
-class MemTracker;
+class MemTrackerLimiter;
 
 class SnapshotManager {
 public:
@@ -84,7 +84,7 @@ private:
     StorageEngine& _engine;
     std::atomic<uint64_t> _snapshot_base_id {0};
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // SnapshotManager
 
 } // namespace doris

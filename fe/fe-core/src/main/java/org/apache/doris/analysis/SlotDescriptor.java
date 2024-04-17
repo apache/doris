@@ -64,7 +64,7 @@ public class SlotDescriptor {
 
     // physical layout parameters
     private int byteSize;
-    private int byteOffset;  // within tuple
+    private int byteOffset = 0; // within tuple
     private int slotIdx;          // index within tuple struct
     private int slotOffset;       // index within slot array list
 

@@ -158,10 +158,10 @@ THdfsParams to_hdfs_params(const cloud::HdfsVaultInfo& vault) {
         params.__set_user(build_conf.user());
     }
     if (build_conf.has_hdfs_kerberos_principal()) {
-        params.__set_hdfs_kerberos_keytab(build_conf.hdfs_kerberos_principal());
+        params.__set_hdfs_kerberos_principal(build_conf.hdfs_kerberos_principal());
     }
     if (build_conf.has_hdfs_kerberos_keytab()) {
-        params.__set_hdfs_kerberos_principal(build_conf.hdfs_kerberos_keytab());
+        params.__set_hdfs_kerberos_keytab(build_conf.hdfs_kerberos_keytab());
     }
     std::vector<THdfsConf> tconfs;
     for (const auto& confs : vault.build_conf().hdfs_confs()) {

@@ -17,11 +17,13 @@
 
 #include "phrase_query.h"
 
+#include <charconv>
+
 namespace doris::segment_v2 {
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options)
-        : _searcher(searcher) {}
+        : _searcher(searcher), _query(std::make_unique<CL_NS(search)::PhraseQuery>()) {}
 
 PhraseQuery::~PhraseQuery() {
     for (auto& term_doc : _term_docs) {
@@ -33,6 +35,25 @@ PhraseQuery::~PhraseQuery() {
         if (term) {
             _CLDELETE(term);
         }
+    }
+}
+
+void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.terms.empty()) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
+    }
+
+    _slop = query_info.slop;
+    if (_slop <= 0) {
+        add(query_info.field_name, query_info.terms);
+    } else {
+        for (const auto& term : query_info.terms) {
+            std::wstring ws_term = StringUtil::string_to_wstring(term);
+            auto* t = _CLNEW lucene::index::Term(query_info.field_name.c_str(), ws_term.c_str());
+            _query->add(t);
+            _CLDECDELETE(t);
+        }
+        _query->setSlop(_slop);
     }
 }
 
@@ -74,14 +95,20 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
-    if (_lead1.isEmpty()) {
-        return;
+    if (_slop <= 0) {
+        if (_lead1.isEmpty()) {
+            return;
+        }
+        if (_lead2.isEmpty()) {
+            search_by_bitmap(roaring);
+            return;
+        }
+        search_by_skiplist(roaring);
+    } else {
+        _searcher->_search(_query.get(), [&roaring](const int32_t docid, const float_t /*score*/) {
+            roaring.add(docid);
+        });
     }
-    if (_lead2.isEmpty()) {
-        search_by_bitmap(roaring);
-        return;
-    }
-    search_by_skiplist(roaring);
 }
 
 void PhraseQuery::search_by_bitmap(roaring::Roaring& roaring) {
@@ -200,6 +227,30 @@ void PhraseQuery::reset() {
         posting._pos = -1;
         posting._upTo = 0;
     }
+}
+
+Status PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_info) {
+    auto is_digits = [](const std::string_view& str) {
+        return std::all_of(str.begin(), str.end(), [](unsigned char c) { return std::isdigit(c); });
+    };
+
+    size_t last_space_pos = query.find_last_of(' ');
+    if (last_space_pos != std::string::npos) {
+        size_t tilde_pos = last_space_pos + 1;
+        if (tilde_pos < query.size() - 1 && query[tilde_pos] == '~') {
+            size_t slop_pos = tilde_pos + 1;
+            std::string_view slop_str(query.data() + slop_pos, query.size() - slop_pos);
+            if (is_digits(slop_str)) {
+                auto result = std::from_chars(slop_str.begin(), slop_str.end(), query_info.slop);
+                if (result.ec != std::errc()) {
+                    return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                            "PhraseQuery parser failed: {}", query);
+                }
+                query = query.substr(0, last_space_pos);
+            }
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::segment_v2

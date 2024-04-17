@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.ConfigBase.ConfField;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -1461,6 +1459,12 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * whether to ignore table that not support type when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean ignore_backup_not_support_table_type = false;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
@@ -2004,6 +2008,14 @@ public class Config extends ConfigBase {
                     + "the old load statement will be degraded."})
     public static boolean enable_nereids_load = false;
 
+    /**
+     * the plan cache num which can be reused for the next query
+     */
+    @ConfField(mutable = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+            "Now default set to 100, this config is used to control the number of "
+                    + "sql cache managed by NereidsSqlCacheManager"})
+    public static int sql_cache_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2241,6 +2253,16 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
+                    + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
+            "Used to force set the replica allocation of the internal table. If the config is not empty, "
+                    + "the replication_num and replication_allocation specified by the user when creating the table "
+                    + "or partitions will be ignored, and the value set by this parameter will be used."
+                    + "This config effect the operations including create tables, create partitions and create "
+                    + "dynamic partitions. This config is recommended to be used only in the test environment"})
+    public static String force_olap_table_replication_allocation = "";
 
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
@@ -2622,6 +2644,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_light_index_change = true;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2673,8 +2698,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_preheating_enabled = true;
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
+
+    @ConfField(mutable = true)
+    public static int mow_insert_into_commit_retry_times = 10;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

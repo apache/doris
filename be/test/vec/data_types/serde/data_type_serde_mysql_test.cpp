@@ -87,8 +87,7 @@ void serialize_and_deserialize_mysql_test() {
     // make desc and generate block
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     _output_vexpr_ctxs.resize(cols.size());
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr, nullptr);
+    doris::RuntimeState runtime_stat;
     ObjectPool object_pool;
     int col_idx = 0;
     for (auto t : cols) {

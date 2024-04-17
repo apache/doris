@@ -77,7 +77,7 @@ Status MultiCastDataStreamerSourceOperator::open(doris::RuntimeState* state) {
     if (_t_data_stream_sink.__isset.conjuncts) {
         RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
     }
-    return _acquire_runtime_filter();
+    return _acquire_runtime_filter(false);
 }
 
 bool MultiCastDataStreamerSourceOperator::runtime_filters_are_ready_or_timeout() {
@@ -129,26 +129,50 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
           vectorized::RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
                                             parent->runtime_filter_descs(),
                                             static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {
-    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
-            state->get_query_ctx());
-};
+}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
+    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
+    // init profile for runtime filter
+    RuntimeFilterConsumer::_init_profile(profile());
+    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
+                                   p.get_name() + "_FILTER_DEPENDENCY");
+    return Status::OK();
+}
+
+Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    auto& p = _parent->cast<Parent>();
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
     }
-    // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependency.get());
     return Status::OK();
+}
+
+Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_close_timer);
+    SCOPED_TIMER(exec_time_counter());
+    int64_t rf_time = 0;
+    for (auto& dep : _filter_dependencies) {
+        rf_time += dep->watcher_elapse_time();
+    }
+    COUNTER_SET(_wait_for_rf_timer, rf_time);
+
+    return Base::close(state);
 }
 
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,

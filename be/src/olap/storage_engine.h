@@ -170,7 +170,7 @@ public:
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(const std::string& file_path);
+    static int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
@@ -473,6 +473,9 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    std::mutex _cold_compaction_tablet_submitted_mtx;
+    std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;

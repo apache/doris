@@ -267,6 +267,10 @@ public class BrokerFileGroup implements Writable {
         return whereExpr;
     }
 
+    public void setWhereExpr(Expr whereExpr) {
+        this.whereExpr = whereExpr;
+    }
+
     public List<String> getFilePaths() {
         return filePaths;
     }
