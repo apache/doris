@@ -63,6 +63,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_fi
 
 HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
 
@@ -79,20 +80,24 @@ Status HdfsFileWriter::close() {
         return Status::OK();
     }
     _closed = true;
+    int ret;
     if (_sync_file_data) {
-        int ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+        {
+            SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hsync_latency);
+            ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+        }
+
         if (ret != 0) {
             return Status::InternalError("failed to sync hdfs file. fs_name={} path={} : {}",
                                          _fs_name, _path.native(), hdfs_error());
         }
     }
-    
-    int ret;
+
     {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_flush_latency);
         // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
-        result = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
+        ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
     if (ret == -1) {
         std::stringstream ss;
@@ -111,7 +116,7 @@ Status HdfsFileWriter::close() {
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error());
     }
-        hdfs_file_created_total << 1;
+    hdfs_file_created_total << 1;
     return Status::OK();
 }
 
@@ -158,6 +163,7 @@ void HdfsFileWriter::_write_into_local_file_cache() {
         data_remain_size -= append_size;
         pos += append_size;
     }
+    _batch_buffer.clear();
 }
 
 Status HdfsFileWriter::_write_into_batch(Slice data) {
@@ -187,7 +193,6 @@ Status HdfsFileWriter::_write_into_batch(Slice data) {
                 _bytes_appended += written_bytes;
             }
             _write_into_local_file_cache();
-            _batch_buffer.clear();
         }
     }
     return Status::OK();

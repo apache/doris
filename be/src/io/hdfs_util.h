@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <bvar/bvar.h>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -36,6 +35,8 @@ namespace doris {
 class HDFSCommonBuilder;
 class THdfsParams;
 
+namespace io {
+
 namespace hdfs_bvar {
 extern bvar::LatencyRecorder hdfs_read_latency;
 extern bvar::LatencyRecorder hdfs_write_latency;
@@ -43,9 +44,8 @@ extern bvar::LatencyRecorder hdfs_create_dir_latency;
 extern bvar::LatencyRecorder hdfs_open_latency;
 extern bvar::LatencyRecorder hdfs_close_latency;
 extern bvar::LatencyRecorder hdfs_flush_latency;
+extern bvar::LatencyRecorder hdfs_hsync_latency;
 }; // namespace hdfs_bvar
-
-namespace io {
 
 class HdfsHandler {
 public:

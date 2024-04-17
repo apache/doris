@@ -17,6 +17,7 @@
 
 #include "io/hdfs_util.h"
 
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <ostream>
@@ -74,6 +75,7 @@ bvar::LatencyRecorder hdfs_create_dir_latency("hdfs_create_dir");
 bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
 bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
 bvar::LatencyRecorder hdfs_flush_latency("hdfs_flush");
+bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
 }; // namespace hdfs_bvar
 
 void HdfsHandlerCache::_clean_invalid() {
