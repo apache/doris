@@ -71,13 +71,15 @@ public:
             const TUniqueId& q_id,
             const std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
                     fragment_id_to_profile,
-            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+            bool is_done);
 
     static TReportExecStatusParams create_report_exec_status_params_non_pipeline(
             const TUniqueId& q_id,
             const std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>&
                     instance_id_to_profile,
-            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+            bool is_done);
 
     void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
                                    TNetworkAddress fe_addr);

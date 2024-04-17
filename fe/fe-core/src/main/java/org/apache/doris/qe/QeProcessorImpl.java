@@ -74,7 +74,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 "profile-write-pool", true);
     }
 
-    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address) {
+    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
         LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
 
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
@@ -88,7 +88,7 @@ public final class QeProcessorImpl implements QeProcessor {
         writeProfileExecutor.submit(new Runnable() {
             @Override
             public void run() {
-                executionProfile.updateProfile(profile, address);
+                executionProfile.updateProfile(profile, address, isDone);
             }
         });
 
@@ -233,9 +233,13 @@ public final class QeProcessorImpl implements QeProcessor {
         if (params.isSetQueryProfile()) {
             if (params.isSetBackendId()) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
+                boolean isDone = params.isSetDone() ? params.isDone() : false;
                 if (backend != null) {
-                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress());
+                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
                 }
+            } else {
+                LOG.warn("Invalid report profile req, backend id is not set, query id: {}",
+                        DebugUtil.printId(params.query_id));
             }
         }
 

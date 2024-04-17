@@ -249,7 +249,7 @@ public class ExecutionProfile {
         }
     }
 
-    public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress) {
+    public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
         if (isPipelineXProfile) {
             if (!profile.isSetFragmentIdToProfile()) {
                 return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
@@ -270,6 +270,7 @@ public class ExecutionProfile {
                     }
 
                     profileNode.update(pipelineProfile.profile);
+                    profileNode.setIsDone(isDone);
                     pipelineIdx++;
                     fragmentProfiles.get(fragmentId).addChild(profileNode);
                 }
@@ -310,7 +311,7 @@ public class ExecutionProfile {
                     LOG.warn("Could not find related profile {}", DebugUtil.printId(instanceId));
                     return new Status(TStatusCode.INVALID_ARGUMENT, "Could not find related instance");
                 }
-
+                curInstanceProfile.setIsDone(isDone);
                 curInstanceProfile.update(instanceProfile);
             }
         }
