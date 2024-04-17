@@ -231,6 +231,8 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
         cloud_tablet()->set_base_compaction_cnt(cloud_tablet()->base_compaction_cnt() + 1);
+        cloud_tablet()->set_cumulative_compaction_cnt(cloud_tablet()->cumulative_compaction_cnt() +
+                                                      1);
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
             _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
