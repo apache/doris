@@ -24,6 +24,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             sql """ create database if not exists `test_complex_type` """;
             sql """ use `${catalog_name}`.`test_complex_type` """
 
+            sql """ drop table if exists unpart_tbl_${file_format} """
             sql """
                 CREATE TABLE unpart_tbl_${file_format} (
                   `col1` CHAR,
