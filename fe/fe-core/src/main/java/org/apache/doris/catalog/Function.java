@@ -138,6 +138,8 @@ public class Function implements Writable {
 
     // If true, this function is global function
     protected boolean isGlobal = false;
+    // If true, this function is table function, mainly used by java-udtf
+    protected boolean isUDTFunction = false;
 
     // Only used for serialization
     protected Function() {
@@ -563,6 +565,7 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setIsUdtfFunction(isUDTFunction);
         return fn;
     }
 
@@ -671,6 +674,7 @@ public class Function implements Writable {
         IOUtils.writeOptionString(output, libUrl);
         IOUtils.writeOptionString(output, checksum);
         output.writeUTF(nullableMode.toString());
+        output.writeBoolean(isUDTFunction);
     }
 
     @Override
@@ -707,6 +711,9 @@ public class Function implements Writable {
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
             nullableMode = NullableMode.valueOf(input.readUTF());
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
+            isUDTFunction = input.readBoolean();
         }
     }
 
@@ -773,6 +780,14 @@ public class Function implements Writable {
 
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    public void setUDTFunction(boolean isUDTFunction) {
+        this.isUDTFunction = isUDTFunction;
+    }
+
+    public boolean isUDTFunction() {
+        return this.isUDTFunction;
     }
 
     // Try to serialize this function and write to nowhere.
