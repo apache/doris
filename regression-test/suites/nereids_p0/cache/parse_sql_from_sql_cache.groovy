@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.stream.Collectors
+
 suite("parse_sql_from_sql_cache") {
     def assertHasCache = { String sqlStr ->
         explain {
@@ -226,7 +228,7 @@ suite("parse_sql_from_sql_cache") {
             sql "alter view test_use_plan_cache9_view as select id from test_use_plan_cache9"
             assertNoCache "select * from test_use_plan_cache9_view"
         }),
-        extraThread( "testDropView", {
+        extraThread("testDropView", {
             createTestTable "test_use_plan_cache10"
 
             sql "drop view if exists test_use_plan_cache10_view"
@@ -291,6 +293,8 @@ suite("parse_sql_from_sql_cache") {
             sql "select * from test_use_plan_cache12"
             assertHasCache "select * from test_use_plan_cache12"
 
+            sql "sync"
+
 
             extraThread("test_cache_user1_thread", {
                 connect(user = "test_cache_user1", password="DORIS@2024") {
@@ -321,6 +325,8 @@ suite("parse_sql_from_sql_cache") {
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
 
+            sql "sync"
+
             extraThread("test_cache_user2_thread", {
                 connect(user = "test_cache_user2", password="DORIS@2024") {
                     sql "use ${dbName}"
@@ -339,8 +345,10 @@ suite("parse_sql_from_sql_cache") {
                 CREATE ROW POLICY test_cache_row_policy_2
                 ON ${dbName}.test_use_plan_cache13
                 AS RESTRICTIVE TO test_cache_user2
-                USING (id = 'concat(id, "**")')"""
+                USING (id = 4)"""
             sql "set enable_nereids_planner=true"
+
+            sql "sync"
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user2_thread2", {
@@ -374,8 +382,10 @@ suite("parse_sql_from_sql_cache") {
             CREATE ROW POLICY test_cache_row_policy_3
             ON ${dbName}.test_use_plan_cache14
             AS RESTRICTIVE TO test_cache_user3
-            USING (id = 'concat(id, "**")')"""
+            USING (id = 4)"""
             sql "set enable_nereids_planner=true"
+
+            sql "sync"
 
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
@@ -399,6 +409,8 @@ suite("parse_sql_from_sql_cache") {
             ON ${dbName}.test_use_plan_cache14
             FOR test_cache_user3"""
             sql "set enable_nereids_planner=true"
+
+            sql "sync"
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user3_thread2", {
@@ -425,6 +437,8 @@ suite("parse_sql_from_sql_cache") {
             sql "GRANT SELECT_PRIV ON regression_test.* TO test_cache_user4"
             sql "GRANT SELECT_PRIV ON ${dbName}.test_use_plan_cache15 TO test_cache_user4"
 
+            sql "sync"
+
             extraThread("test_cache_user4_thread", {
                 connect(user = "test_cache_user4", password="DORIS@2024") {
                     sql "use ${dbName}"
@@ -439,6 +453,8 @@ suite("parse_sql_from_sql_cache") {
             }).get()
 
             sql "REVOKE SELECT_PRIV ON ${dbName}.test_use_plan_cache15 FROM test_cache_user4"
+
+            sql "sync"
 
             // after privileges changed, the cache is invalidate
             extraThread("test_cache_user4_thread2", {
@@ -484,7 +500,7 @@ suite("parse_sql_from_sql_cache") {
         extraThread("testUserVariable", {
             // make sure if the table has been dropped, the cache should invalidate,
             // so we should retry twice to check
-            for (i in 0..2) {
+            for (def i in 0..2) {
                 createTestTable "test_use_plan_cache17"
 
                 // after partition changed 10s, the sql cache can be used
@@ -545,6 +561,63 @@ suite("parse_sql_from_sql_cache") {
             assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
             sql "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
             assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
+        }),
+        extraThread("testMultiFrontends", {
+            def aliveFrontends = sql_return_maparray("show frontends")
+                    .stream()
+                    .filter { it["Alive"].toString().equalsIgnoreCase("true") }
+                    .collect(Collectors.toList())
+
+            if (aliveFrontends.size() <= 1) {
+                return
+            }
+
+            def fe1 = aliveFrontends[0]["Host"] + ":" + aliveFrontends[0]["QueryPort"]
+            def fe2 = fe1
+            if (aliveFrontends.size() > 1) {
+                fe2 = aliveFrontends[1]["Host"] + ":" + aliveFrontends[1]["QueryPort"]
+            }
+
+            log.info("fe1: ${fe1}")
+            log.info("fe2: ${fe2}")
+
+            def dbName = context.config.getDbNameByFile(context.file)
+
+            log.info("connect to fe: ${fe1}")
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe1}") {
+                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
+
+                sql "use ${dbName}"
+
+                createTestTable "test_use_plan_cache18"
+
+                sql "sync"
+
+                // after partition changed 10s, the sql cache can be used
+                sleep(10000)
+
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from test_use_plan_cache18"
+                sql "select * from test_use_plan_cache18"
+                assertHasCache "select * from test_use_plan_cache18"
+            }
+
+            log.info("connect to fe: ${fe2}")
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe2}") {
+                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
+
+                sql "use ${dbName}"
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from test_use_plan_cache18"
+                sql "select * from test_use_plan_cache18"
+                assertHasCache "select * from test_use_plan_cache18"
+            }
         })
     ).get()
 }

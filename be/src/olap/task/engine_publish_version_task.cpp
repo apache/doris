@@ -82,7 +82,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
           _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {
-    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                     "TabletPublishTxnTask");
 }
 
@@ -357,7 +357,7 @@ TabletPublishTxnTask::TabletPublishTxnTask(StorageEngine& engine,
           _transaction_id(transaction_id),
           _version(version),
           _tablet_info(tablet_info),
-          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                         "TabletPublishTxnTask")) {
     _stats.submit_time_us = MonotonicMicros();
 }

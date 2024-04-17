@@ -25,6 +25,8 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
     def hive_database = "mtmv_test_db"
     def hive_table = "test_hive_refresh_mtmv_t1"
 
+    def autogather_off_str = """ set hive.stats.column.autogather = false; """
+    def autogather_on_str = """ set hive.stats.column.autogather = true; """
     def drop_table_str = """ drop table if exists ${hive_database}.${hive_table} """
     def drop_database_str = """ drop database if exists ${hive_database}"""
     def create_database_str = """ create database ${hive_database}"""
@@ -40,6 +42,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                 partition(year=2020);
                             """
     def insert_str = """ insert into ${hive_database}.${hive_table} PARTITION(year=2020) values(1,1)"""
+
+    logger.info("hive sql: " + autogather_off_str)
+    hive_docker """ ${autogather_off_str} """
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
     logger.info("hive sql: " + drop_database_str)
@@ -172,6 +177,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         """
        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
        order_qt_task_recover "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+
+       logger.info("hive sql: " + autogather_on_str)
+       hive_docker """ ${autogather_on_str} """
 
        sql """drop materialized view if exists ${mvName};"""
 

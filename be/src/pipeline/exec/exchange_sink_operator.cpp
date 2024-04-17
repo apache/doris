@@ -99,10 +99,12 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
+static const std::string timer_name = "WaitForDependencyTime";
+
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
 
     _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
@@ -125,7 +127,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             "");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
-    static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     _wait_queue_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitForRpcBufferQueue", timer_name, 1);
@@ -150,9 +151,24 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
+    // Make sure brpc stub is ready before execution.
+    for (int i = 0; i < channels.size(); ++i) {
+        RETURN_IF_ERROR(channels[i]->init_stub(state));
+    }
+    return Status::OK();
+}
+
+Status ExchangeSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    _part_type = p._part_type;
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+
     int local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->init(state));
+        RETURN_IF_ERROR(channels[i]->open(state));
         if (channels[i]->is_local()) {
             local_size++;
         }
@@ -192,15 +208,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
         size_t dep_id = 0;
-        _local_channels_dependency.resize(local_size);
-        _wait_channel_timer.resize(local_size);
         for (auto* channel : channels) {
             if (channel->is_local()) {
-                _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
+                _local_channels_dependency.push_back(channel->get_local_channel_dependency());
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                _wait_channel_timer[dep_id] = _profile->add_nonzero_counter(
+                _wait_channel_timer.push_back(_profile->add_nonzero_counter(
                         fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                        timer_name, 1);
+                        timer_name, 1));
                 dep_id++;
             }
         }
@@ -282,12 +296,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
 
     _finish_dependency->block();
-
-    return Status::OK();
-}
-
-Status ExchangeSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
         _part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
@@ -685,7 +693,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
-    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->watcher_elapse_time());
+    if (_queue_dependency) {
+        COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->watcher_elapse_time());
+    }
+
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     if (_broadcast_dependency) {
         COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
@@ -694,8 +705,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         COUNTER_UPDATE(_wait_channel_timer[i],
                        _local_channels_dependency[i]->watcher_elapse_time());
     }
-    _sink_buffer->update_profile(profile());
-    _sink_buffer->close();
+    if (_sink_buffer) {
+        _sink_buffer->update_profile(profile());
+        _sink_buffer->close();
+    }
     return Base::close(state, exec_status);
 }
 

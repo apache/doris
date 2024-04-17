@@ -601,6 +601,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (!e.getMessage().contains(errorMessage)) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName
@@ -662,6 +672,11 @@ class Suite implements GroovyInterceptable {
     boolean enableBrokerLoad() {
         String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
+    }
+
+    String getS3Provider() {
+        String s3Provider = context.config.otherConfigs.get("s3Provider");
+        return s3Provider
     }
 
     String getS3Region() {
@@ -1058,6 +1073,10 @@ class Suite implements GroovyInterceptable {
 
     boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
+    }
+
+    boolean enableStoragevault() {
+        return isCloudMode() && context.config.enableStorageVault;
     }
 
     String getFeConfig(String key) {
