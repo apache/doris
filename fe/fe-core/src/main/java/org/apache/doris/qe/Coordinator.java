@@ -73,7 +73,6 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
-import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
@@ -81,7 +80,6 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -4127,7 +4125,8 @@ public class Coordinator implements CoordInterface {
                             DebugUtil.printId(queryId), address.toString());
                     continue;
                 }
-                LOG.info("Get real-time exec status succeed, query {} backend {}", DebugUtil.printId(queryId), address.toString());
+                LOG.info("Get real-time exec status succeed, query {} backend {}",
+                            DebugUtil.printId(queryId), address.toString());
                 QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), address);
             } catch (Exception e) {
                 LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
@@ -4135,7 +4134,7 @@ public class Coordinator implements CoordInterface {
             }
         }
     }
-    
+
     public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
         return fragmentExecParamsMap;
     }
