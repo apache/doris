@@ -33,10 +33,11 @@ public:
     // - fs_name/path_to_file
     // - /path_to_file
     // TODO(plat1ko): Support related path for cloud mode
-    static Result<FileWriterPtr> create(Path path, HdfsHandler* handler,
-                                        const std::string& fs_name);
+    static Result<FileWriterPtr> create(Path path, HdfsHandler* handler, const std::string& fs_name,
+                                        const FileWriterOptions* opts = nullptr);
 
-    HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file, std::string fs_name);
+    HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file, std::string fs_name,
+                   const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
     Status close() override;
@@ -53,6 +54,7 @@ private:
     std::string _fs_name;
     size_t _bytes_appended = 0;
     bool _closed = false;
+    bool _sync_file_data;
 };
 
 } // namespace doris::io
