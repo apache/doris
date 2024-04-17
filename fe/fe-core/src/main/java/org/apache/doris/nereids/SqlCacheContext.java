@@ -42,6 +42,7 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -52,6 +53,7 @@ public class SqlCacheContext {
     private final TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
+    private volatile String originSql;
     private volatile String physicalPlan;
     private volatile long latestPartitionId = -1;
     private volatile long latestPartitionTime = -1;
@@ -65,9 +67,13 @@ public class SqlCacheContext {
     private final Map<FullTableName, List<RowFilterPolicy>> rowPolicies = Maps.newLinkedHashMap();
     private final Map<FullColumnName, Optional<DataMaskPolicy>> dataMaskPolicies = Maps.newLinkedHashMap();
     private final Set<Variable> usedVariables = Sets.newLinkedHashSet();
-    // key: the expression which contains nondeterministic function, e.g. date(now())
-    // value: the expression which already try to fold nondeterministic function, e.g. '2024-01-01'
+    // key: the expression which **contains** nondeterministic function, e.g. date_add(date_column, date(now()))
+    // value: the expression which already try to fold nondeterministic function,
+    // e.g. date_add(date_column, '2024-01-01')
     // note that value maybe contains nondeterministic function too, when fold failed
+    private final List<Pair<Expression, Expression>> foldFullNondeterministicPairs = Lists.newArrayList();
+    // key: the expression which **is** nondeterministic function, e.g. now()
+    // value: the expression which already try to fold nondeterministic function, e.g. '2024-01-01 10:01:03'
     private final List<Pair<Expression, Expression>> foldNondeterministicPairs = Lists.newArrayList();
     private volatile boolean hasUnsupportedTables;
     private final List<ScanTable> scanTables = Lists.newArrayList();
@@ -206,6 +212,14 @@ public class SqlCacheContext {
         return ImmutableList.copyOf(usedVariables);
     }
 
+    public synchronized void addFoldFullNondeterministicPair(Expression unfold, Expression fold) {
+        foldFullNondeterministicPairs.add(Pair.of(unfold, fold));
+    }
+
+    public synchronized List<Pair<Expression, Expression>> getFoldFullNondeterministicPairs() {
+        return ImmutableList.copyOf(foldFullNondeterministicPairs);
+    }
+
     public synchronized void addFoldNondeterministicPair(Expression unfold, Expression fold) {
         foldNondeterministicPairs.add(Pair.of(unfold, fold));
     }
@@ -278,10 +292,6 @@ public class SqlCacheContext {
         return ImmutableMap.copyOf(rowPolicies);
     }
 
-    public boolean isHasUnsupportedTables() {
-        return hasUnsupportedTables;
-    }
-
     public synchronized void addScanTable(ScanTable scanTable) {
         this.scanTables.add(scanTable);
     }
@@ -310,12 +320,62 @@ public class SqlCacheContext {
         return queryId;
     }
 
-    public PUniqueId getCacheKeyMd5() {
+    /** getOrComputeCacheKeyMd5 */
+    public PUniqueId getOrComputeCacheKeyMd5() {
+        if (cacheKeyMd5 == null && originSql != null) {
+            synchronized (this) {
+                if (cacheKeyMd5 != null) {
+                    return cacheKeyMd5;
+                }
+
+                StringBuilder cacheKey = new StringBuilder(originSql);
+                for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue());
+                }
+                for (Variable usedVariable : usedVariables) {
+                    cacheKey.append("|")
+                            .append(usedVariable.getType().name())
+                            .append(":")
+                            .append(usedVariable.getName())
+                            .append("=")
+                            .append(usedVariable.getRealExpression().toSql());
+                }
+                for (Pair<Expression, Expression> pair : foldNondeterministicPairs) {
+                    cacheKey.append("|")
+                            .append(pair.key().toSql())
+                            .append("=")
+                            .append(pair.value().toSql());
+                }
+                for (Entry<FullTableName, List<RowFilterPolicy>> entry : rowPolicies.entrySet()) {
+                    List<RowFilterPolicy> policy = entry.getValue();
+                    if (policy.isEmpty()) {
+                        continue;
+                    }
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(policy);
+                }
+                for (Entry<FullColumnName, Optional<DataMaskPolicy>> entry : dataMaskPolicies.entrySet()) {
+                    if (!entry.getValue().isPresent()) {
+                        continue;
+                    }
+                    cacheKey.append("|")
+                            .append(entry.getKey())
+                            .append("=")
+                            .append(entry.getValue().map(Object::toString).orElse(""));
+                }
+                cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
+            }
+        }
         return cacheKeyMd5;
     }
 
-    public void setCacheKeyMd5(PUniqueId cacheKeyMd5) {
-        this.cacheKeyMd5 = cacheKeyMd5;
+    public void setOriginSql(String originSql) {
+        this.originSql = originSql.trim();
     }
 
     /** FullTableName */
@@ -325,6 +385,11 @@ public class SqlCacheContext {
         public final String catalog;
         public final String db;
         public final String table;
+
+        @Override
+        public String toString() {
+            return catalog + "." + db + "." + table;
+        }
     }
 
     /** FullColumnName */
@@ -335,6 +400,11 @@ public class SqlCacheContext {
         public final String db;
         public final String table;
         public final String column;
+
+        @Override
+        public String toString() {
+            return catalog + "." + db + "." + table + "." + column;
+        }
     }
 
     /** ScanTable */
