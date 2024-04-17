@@ -1082,11 +1082,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
     private static class ExprRewriteMap {
         /**
-         * Replace map for expressions in project.
-         * For example:
-         * the query have avg(v), stddev_samp(v)
-         * projectExprMap will contain v -> [mva_GENERIC__avg_state(`v`), mva_GENERIC__stddev_samp_state(CAST(`v` AS DOUBLE))]
-         * then some LogicalPlan will output [mva_GENERIC__avg_state(`v`), mva_GENERIC__stddev_samp_state(CAST(`v` AS DOUBLE))] to replace column v
+         * Replace map for expressions in project. For example: the query have avg(v),
+         * stddev_samp(v) projectExprMap will contain 
+         * v -> [mva_GENERIC__avg_state(`v`), mva_GENERIC__stddev_samp_state(CAST(`v` AS DOUBLE))]
+         * then some LogicalPlan will output 
+         * [mva_GENERIC__avg_state(`v`), mva_GENERIC__stddev_samp_state(CAST(`v` AS DOUBLE))] 
+         * to replace column v
          */
         public final Map<Expression, List<Expression>> projectExprMap;
         /**
