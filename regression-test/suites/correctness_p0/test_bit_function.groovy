@@ -81,4 +81,13 @@ suite("test_bit_functions") {
 
     qt_select "select bit_count(bit_shift_right(-1, 63)), bit_count(bit_shift_right(-1, 63));"
 
+    qt_bitxor """
+        select 2^127, -2^127;
+    """
+    qt_bitxor """
+        select number, number^127, -number, (-number)^127 from numbers("number"="5") order by number;
+    """
+    qt_bitxor """
+        select number, number^number, -number, (-number)^(-number) from numbers("number"="5") order by number
+    """
 }
