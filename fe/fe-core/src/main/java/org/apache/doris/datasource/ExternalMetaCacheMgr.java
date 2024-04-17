@@ -50,13 +50,35 @@ import java.util.concurrent.ExecutorService;
 public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
 
+    /**
+     * Executors for loading caches
+     * 1. rowCountRefreshExecutor
+     * For row count cache.
+     * Row count cache is an async loading cache, and we can ignore the result
+     * if cache missing or thread pool is full.
+     * So use a separate executor for this cache.
+     * <p>
+     * 2.  commonRefreshExecutor
+     * For other caches. Other caches are sync loading cache.
+     * But commonRefreshExecutor will be used for async refresh.
+     * That is, if cache entry is missing, the cache value will be loaded in caller thread, sychronously.
+     * if cache entry need refresh, it will be reloaded in commonRefreshExecutor.
+     * <p>
+     * 3. fileListingExecutor
+     * File listing is a heavy operation, so use a separate executor for it.
+     * For fileCache, the refresh operation will still use commonRefreshExecutor to trigger refresh.
+     * And fileListingExecutor will be used to list file.
+     */
+    private ExecutorService rowCountRefreshExecutor;
+    private ExecutorService commonRefreshExecutor;
+    private ExecutorService fileListingExecutor;
+
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
     private final HudiPartitionMgr hudiPartitionMgr;
-    private ExecutorService executor;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
@@ -65,16 +87,33 @@ public class ExternalMetaCacheMgr {
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(
+        rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size,
+                "RowCountRefreshExecutor", 0, true);
+
+        commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "ExternalMetaCacheMgr", 120, true);
-        hudiPartitionMgr = HudiPartitionMgr.get(executor);
-        fsCache = new FileSystemCache(executor);
-        rowCountCache = new ExternalRowCountCache(executor,
-                Config.external_cache_expire_time_minutes_after_access * 60, null);
-        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
+                "CommonRefreshExecutor", 10, true);
+
+        // The queue size should be large enough,
+        // because there may be thousands of partitions being queried at the same time.
+        fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "FileListingExecutor", 10, true);
+
+        fsCache = new FileSystemCache();
+        rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
+
+        hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
+        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
+    }
+
+    public ExecutorService getFileListingExecutor() {
+        return fileListingExecutor;
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -82,7 +121,8 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (cacheMap) {
                 if (!cacheMap.containsKey(catalog.getId())) {
-                    cacheMap.put(catalog.getId(), new HiveMetaStoreCache(catalog, executor));
+                    cacheMap.put(catalog.getId(),
+                            new HiveMetaStoreCache(catalog, commonRefreshExecutor, fileListingExecutor));
                 }
                 cache = cacheMap.get(catalog.getId());
             }
@@ -95,7 +135,7 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (schemaCacheMap) {
                 if (!schemaCacheMap.containsKey(catalog.getId())) {
-                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog));
+                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog, commonRefreshExecutor));
                 }
                 cache = schemaCacheMap.get(catalog.getId());
             }
