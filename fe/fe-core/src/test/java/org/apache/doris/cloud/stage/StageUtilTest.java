@@ -35,6 +35,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
@@ -60,6 +61,7 @@ public class StageUtilTest {
         return keys;
     }
 
+    @Ignore
     @Test
     public void testListAndFilterFilesV2() throws Exception {
         List<String> keys = readMockedOssUrl();

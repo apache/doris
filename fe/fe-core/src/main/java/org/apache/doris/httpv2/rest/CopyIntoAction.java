@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
@@ -157,7 +158,7 @@ public class CopyIntoAction extends RestBaseController {
 
             // use userName, fileName to get presigned url from ms EXTERNAL
             // 1. rpc to ms, by unique_id、username
-            List<StagePB> stages = Env.getCurrentInternalCatalog()
+            List<StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .getStage(StageType.INTERNAL, mysqlUserName, null, userId);
             if (stages == null || stages.isEmpty()) {
                 throw new DdlException("Failed to get internal stage for user: " + mysqlUserName);

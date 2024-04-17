@@ -745,7 +745,7 @@ public class LoadManager implements Writable {
         }
         return loadJobList2;
     }
-  
+
     public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
         if (tableNames.isEmpty()) {
             if (!Env.getCurrentEnv().getAccessManager()

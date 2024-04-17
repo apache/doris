@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.GetIamResponse;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.RamUserPB;
@@ -91,7 +92,7 @@ public class CreateStageStmt extends DdlStmt {
             StagePB stagePB = toStageProto();
             if (stagePB.getAccessType() == StageAccessType.IAM
                     || stagePB.getAccessType() == StageAccessType.BUCKET_ACL) {
-                GetIamResponse iamUsers = Env.getCurrentInternalCatalog().getIam();
+                GetIamResponse iamUsers = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getIam();
                 RamUserPB user;
                 if (stagePB.getAccessType() == StageAccessType.BUCKET_ACL) {
                     if (!iamUsers.hasRamUser()) {

@@ -17,8 +17,11 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.CreateStageStmt;
+import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -34,6 +37,7 @@ import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
+import org.apache.doris.load.loadv2.CleanCopyJobScheduler;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
@@ -64,8 +68,12 @@ public class CloudEnv extends Env {
 
     private boolean enableStorageVault;
 
+    private CleanCopyJobScheduler cleanCopyJobScheduler;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
+        this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
+        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
@@ -79,6 +87,7 @@ public class CloudEnv extends Env {
     protected void startMasterOnlyDaemonThreads() {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
+        cleanCopyJobScheduler.start();
         cloudClusterCheck.start();
         cloudTabletRebalancer.start();
     }
@@ -437,5 +446,22 @@ public class CloudEnv extends Env {
 
     public boolean getEnableStorageVault() {
         return this.enableStorageVault;
+    }
+
+    public void createStage(CreateStageStmt stmt) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        if (!stmt.isDryRun()) {
+            ((CloudInternalCatalog) getInternalCatalog()).createStage(stmt.toStageProto(), stmt.isIfNotExists());
+        }
+    }
+
+    public void dropStage(DropStageStmt stmt) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
+                null, null, stmt.getStageName(), null, stmt.isIfExists());
     }
 }

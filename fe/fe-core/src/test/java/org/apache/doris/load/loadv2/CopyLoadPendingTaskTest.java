@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
@@ -30,7 +31,6 @@ import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.utframe.TestWithFeService;
@@ -62,7 +62,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     RemoteBase remote;
     MockInternalCatalog mockInternalCatalog = new MockInternalCatalog();
 
-    private class MockInternalCatalog extends InternalCatalog {
+    private class MockInternalCatalog extends CloudInternalCatalog {
         @Override
         public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
                 throws DdlException {
@@ -228,7 +228,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         List<Cloud.ObjectFilePB> files = new ArrayList<>();
         new Expectations(ctx.getEnv(), ctx.getEnv().getInternalCatalog(), remote) {
             {
-                Env.getCurrentInternalCatalog().getCopyFiles(anyString, 100);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getCopyFiles(anyString, 100);
                 minTimes = 0;
                 result = files;
 

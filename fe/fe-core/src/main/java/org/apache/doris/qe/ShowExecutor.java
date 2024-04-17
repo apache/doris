@@ -149,6 +149,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -474,7 +475,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowStageStmt) {
             handleShowStage();
         } else if (stmt instanceof ShowStorageVaultStmt) {
-            handleShowStorageVault()
+            handleShowStorageVault();
         } else {
             handleEmtpy();
         }
@@ -3107,7 +3108,7 @@ public class ShowExecutor {
     private void handleShowStage() throws AnalysisException {
         ShowStageStmt showStmt = (ShowStageStmt) stmt;
         try {
-            List<Cloud.StagePB> stages = Env.getCurrentInternalCatalog()
+            List<Cloud.StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                                             .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
             if (stages == null) {
                 throw new AnalysisException("get stage err");
@@ -3146,7 +3147,7 @@ public class ShowExecutor {
             throw new AnalysisException(e.getMessage());
         }
     }
-  
+
     private void handleShowStorageVault() throws AnalysisException {
         ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
         List<List<String>> rows;

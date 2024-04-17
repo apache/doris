@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB.JobStatus;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
@@ -172,7 +173,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                     .collect(Collectors.toList());
             // groupId is 0 because the tableId is unique in FileGroupAggKey(copy into can't set partition now)
             List<ObjectFilePB> filteredObjectFiles = copyJob.isForceCopy() ? objectFiles
-                    : Env.getCurrentInternalCatalog()
+                    : ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                             .beginCopy(copyJob.getStageId(), copyJob.getStageType(), fileGroupAggKey.getTableId(),
                                     copyJob.getCopyId(), 0, startTime, timeoutTime, objectFiles, copyJob.getSizeLimit(),
                                     Config.max_file_num_per_copy_into_job, Config.max_meta_size_per_copy_into_job);
@@ -238,7 +239,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
     }
 
     private List<ObjectFilePB> getCopyFiles(String stageId, long tableId, boolean force) throws DdlException {
-        return force ? new ArrayList<>() : Env.getCurrentInternalCatalog().getCopyFiles(stageId, tableId);
+        return force ? new ArrayList<>() :
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getCopyFiles(stageId, tableId);
     }
 
     protected void listAndFilterFiles(ObjectInfo objectInfo, String pattern, String copyId, long sizeLimit, int fileNum,
@@ -318,7 +320,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
 
     private List<Pair<TBrokerFileStatus, ObjectFilePB>> getCopyFilesWhenReplay(String stageId, long tableId,
             String copyId, ObjectInfo objectInfo) throws DdlException {
-        CopyJobPB copyJobPB = Env.getCurrentInternalCatalog().getCopyJob(stageId, tableId, copyId, 0);
+        CopyJobPB copyJobPB =
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getCopyJob(stageId, tableId, copyId, 0);
         // BeginCopy does not execute
         if (copyJobPB == null) {
             return new ArrayList<>();

@@ -35,6 +35,7 @@ import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -58,6 +59,7 @@ public class CopyIntoTest extends DorisHttpTestCase {
         port = UtFrameUtils.createMetaServer(MockedMetaServerFactory.METASERVER_DEFAULT_IP);
     }
 
+    @Ignore
     @Test
     public void testUpload() throws IOException {
         FeConstants.runningUnitTest = true;

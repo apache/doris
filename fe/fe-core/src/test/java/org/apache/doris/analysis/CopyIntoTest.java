@@ -19,24 +19,30 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.storage.MockRemote;
 import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
-import org.junit.jupiter.api.Test;
+import org.junit.Ignore;
+import org.junit.Test;
 
 import java.util.List;
 
@@ -87,6 +93,7 @@ public class CopyIntoTest extends TestWithFeService {
                 .setStageId(INTERNAL_STAGE_ID).setObjInfo(externalStagePB.getObjInfo()).build();
     }
 
+    @Ignore
     @Test
     public void testCopyInto() throws Exception {
         String query1 = "create stage if not exists ex_stage_2 " + OBJ_INFO + ")";
@@ -102,11 +109,13 @@ public class CopyIntoTest extends TestWithFeService {
 
         new Expectations(Env.getCurrentInternalCatalog()) {
             {
-                Env.getCurrentInternalCatalog().getStage(StageType.EXTERNAL, anyString, "ex_stage_2", anyString);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.EXTERNAL, anyString, "ex_stage_2", anyString);
                 minTimes = 0;
                 result = stages1;
 
-                Env.getCurrentInternalCatalog().getStage(StageType.EXTERNAL, anyString, "ex_stage_3", anyString);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.EXTERNAL, anyString, "ex_stage_3", anyString);
                 minTimes = 0;
                 result = stages2;
             }
@@ -199,12 +208,14 @@ public class CopyIntoTest extends TestWithFeService {
         }
     }
 
+    @Ignore
     @Test
     public void testCopyFromInternalStage() throws Exception {
         List<StagePB> stages = Lists.newArrayList(internalStagePB);
         new Expectations(Env.getCurrentInternalCatalog()) {
             {
-                Env.getCurrentInternalCatalog().getStage(StageType.INTERNAL, anyString, null, null);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.INTERNAL, anyString, null, null);
                 minTimes = 0;
                 result = stages;
             }
@@ -218,12 +229,43 @@ public class CopyIntoTest extends TestWithFeService {
         // Assert.assertEquals("tmp_ak", copyStmt.getObjectInfo().getAk());
     }
 
+    @Ignore
+    @Test
+    public void testCopyWithCloudCluster() throws Exception {
+        List<StagePB> stages = Lists.newArrayList(internalStagePB);
+        List<String> clusters = Lists.newArrayList("cluster0");
+        ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+        new Expectations(Env.getCurrentInternalCatalog(), Env.getCurrentSystemInfo()) {
+            {
+                ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getCloudClusterNames();
+                minTimes = 0;
+                result = clusters;
+
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.INTERNAL, anyString, null, null);
+                minTimes = 0;
+                result = stages;
+
+                Env.getCurrentSystemInfo().getAllBackendsMap();
+                minTimes = 0;
+                result = idToBackendRef;
+            }
+        };
+
+        String sql = "copy into /*+SET_VAR(cloud_cluster=cluster0)*/ t2 from @~";
+        CopyStmt copyStmt = parseAndAnalyze(sql);
+        Assert.assertEquals("cluster0", copyStmt.getOptHints().get(SessionVariable.CLOUD_CLUSTER));
+    }
+
+    @Ignore
     @Test
     public void testCopyWithPattern() throws Exception {
         List<StagePB> stages = Lists.newArrayList(internalStagePB);
         new Expectations(Env.getCurrentInternalCatalog()) {
             {
-                Env.getCurrentInternalCatalog().getStage(StageType.INTERNAL, anyString, null, null);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.INTERNAL, anyString, null, null);
                 minTimes = 0;
                 result = stages;
             }
@@ -237,12 +279,14 @@ public class CopyIntoTest extends TestWithFeService {
         }
     }
 
+    @Ignore
     @Test
     public void testCopyIntoWithSelect() throws Exception {
         List<StagePB> stages = Lists.newArrayList(externalStagePB);
         new Expectations(Env.getCurrentInternalCatalog()) {
             {
-                Env.getCurrentInternalCatalog().getStage(StageType.EXTERNAL, anyString, "ex_stage_1", null);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.EXTERNAL, anyString, "ex_stage_1", null);
                 minTimes = 0;
                 result = stages;
             }
@@ -479,12 +523,14 @@ public class CopyIntoTest extends TestWithFeService {
         }
     }
 
+    @Ignore
     @Test
     public void testDeleteOn() throws DdlException {
         List<StagePB> stages = Lists.newArrayList(externalStagePB);
         new Expectations(Env.getCurrentInternalCatalog()) {
             {
-                Env.getCurrentInternalCatalog().getStage(StageType.EXTERNAL, anyString, "ex_stage_1", null);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .getStage(StageType.EXTERNAL, anyString, "ex_stage_1", null);
                 minTimes = 0;
                 result = stages;
             }

@@ -19,6 +19,7 @@ package org.apache.doris.cloud.stage;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
@@ -68,7 +69,8 @@ public class StageUtil {
                 throw new AnalysisException("User name can not be empty");
             }
             String userId = Env.getCurrentEnv().getAuth().getUserId(user);
-            List<StagePB> stagePBs = Env.getCurrentInternalCatalog().getStage(StageType.INTERNAL, user, null, userId);
+            List<StagePB> stagePBs = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                            .getStage(StageType.INTERNAL, user, null, userId);
             if (stagePBs == null || stagePBs.isEmpty()) {
                 throw new AnalysisException("Failed to get internal stage for user: " + user + ", userId: " + userId);
             }
@@ -81,7 +83,8 @@ public class StageUtil {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP() + "' for cloud stage '" + stage + "'");
             }
-            List<StagePB> stagePBs = Env.getCurrentInternalCatalog().getStage(StageType.EXTERNAL, null, stage, null);
+            List<StagePB> stagePBs = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                            .getStage(StageType.EXTERNAL, null, stage, null);
             if (stagePBs.isEmpty()) {
                 throw new AnalysisException("Failed to get external stage with name: " + stage);
             }
@@ -103,8 +106,8 @@ public class StageUtil {
         List<ObjectFilePB> objectFiles = fileStatus.stream().map(p -> p.second).collect(Collectors.toList());
         long startTime = System.currentTimeMillis();
         long timeoutTime = startTime + timeout + 5000;
-        List<ObjectFilePB> filteredObjectFiles = Env.getCurrentInternalCatalog().beginCopy(stageId,
-                stageType, tableId, copyId, 0, startTime, timeoutTime, objectFiles, sizeLimit,
+        List<ObjectFilePB> filteredObjectFiles = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                .beginCopy(stageId, stageType, tableId, copyId, 0, startTime, timeoutTime, objectFiles, sizeLimit,
                 Config.max_file_num_per_copy_into_job, Config.max_meta_size_per_copy_into_job);
         if (filteredObjectFiles.isEmpty()) {
             LOG.warn(NO_FILES_ERROR_MSG + ", matched {} files, filtered {} files "
@@ -127,7 +130,7 @@ public class StageUtil {
 
     public static void finishCopy(String stageId, StageType stageType, long tableId, String copyId, boolean success)
             throws Exception {
-        Env.getCurrentInternalCatalog()
+        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                 .finishCopy(stageId, stageType, tableId, copyId, 0, success ? Action.COMMIT : Action.ABORT);
     }
 
@@ -246,7 +249,9 @@ public class StageUtil {
                     .map(f -> ObjectFilePB.newBuilder().setRelativePath(f.getRelativePath()).setEtag(f.getEtag())
                             .setSize(f.getSize()).build()).collect(Collectors.toList());
         }
-        return objectFiles.size() > 0 ? Env.getCurrentInternalCatalog().filterCopyFiles(stageId, tableId, objectFiles)
+        return objectFiles.size() > 0
+                ? ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                            .filterCopyFiles(stageId, tableId, objectFiles)
                 : new ArrayList<>();
     }
 

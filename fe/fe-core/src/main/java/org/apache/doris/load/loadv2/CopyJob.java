@@ -24,6 +24,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
@@ -130,7 +131,8 @@ public class CopyJob extends BrokerLoadJob {
                 .entrySet()) {
             long tableId = entry.getKey().getTableId();
             LOG.debug("Start finish copy for stage={}, table={}, queryId={}", stageId, tableId, getCopyId());
-            Env.getCurrentInternalCatalog().finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.COMMIT);
+            ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                    .finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.COMMIT);
             // delete internal stage files and copy job
             if (Config.cloud_delete_loaded_internal_stage_files && loadFiles != null && stageType == StageType.INTERNAL
                     && !isForceCopy()) {
@@ -152,7 +154,8 @@ public class CopyJob extends BrokerLoadJob {
                 .entrySet()) {
             long tableId = entry.getKey().getTableId();
             LOG.info("Cancel copy for stage={}, table={}, queryId={}", stageId, tableId, getCopyId());
-            Env.getCurrentInternalCatalog().finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.ABORT);
+            ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                    .finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.ABORT);
         }
         abortedCopy = true;
     }
@@ -183,7 +186,8 @@ public class CopyJob extends BrokerLoadJob {
             long tableId = entry.getKey().getTableId();
             try {
                 LOG.info("Cancel copy for stage={}, table={}, queryId={}", stageId, tableId, getCopyId());
-                Env.getCurrentInternalCatalog().finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.ABORT);
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .finishCopy(stageId, stageType, tableId, getCopyId(), 0, Action.ABORT);
                 abortedCopy = true;
             } catch (DdlException e) {
                 // if cancel copy failed, kvs in fdb will be cleaned when expired

@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
@@ -57,7 +58,7 @@ public class CleanCopyJobTask {
         try {
             remote = RemoteBase.newInstance(objectInfo);
             remote.deleteObjects(loadFiles);
-            Env.getCurrentInternalCatalog()
+            ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .finishCopy(stageId, stageType, tableId, copyId, 0, Action.REMOVE);
         } catch (Throwable e) {
             LOG.warn("Failed delete internal stage files={}", loadFiles, e);

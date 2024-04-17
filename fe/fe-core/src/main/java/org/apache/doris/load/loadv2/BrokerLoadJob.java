@@ -385,16 +385,6 @@ public class BrokerLoadJob extends BulkLoadJob {
                 failMsg);
     }
 
-    private void writeProfile() {
-        if (!enableProfile) {
-            return;
-        }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
-                Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
-        // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
-        jobProfile = null;
-    }
-
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
