@@ -125,8 +125,6 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
-    LOG(INFO)<<"block dump: "<<block->dump_structure();
-    LOG(INFO)<<block->dump_data();
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",
