@@ -56,6 +56,8 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
 
+    public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -124,6 +126,16 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
     public static int auditPluginMaxSqlLength = 4096;
+
+    @VariableMgr.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VariableMgr.GLOBAL,
+            description = {
+                    "针对外表，是否允许根据文件列表估算表行数。获取文件列表可能是一个耗时的操作，"
+                            + "如果不需要估算表行数或者对性能有影响，可以关闭该功能。",
+                    "For external tables, whether to enable getting row count from file list. "
+                            + "Getting file list may be a time-consuming operation. "
+                            + "If you don't need to estimate the number of rows in the table "
+                            + "or it affects performance, you can disable this feature."})
+    public static boolean enable_get_row_count_from_file_list = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {
