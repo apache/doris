@@ -601,19 +601,21 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, int dataIndex = 0) {
-        def tb1Result = sql "select * FROM ${tbName1}"
-        def tb2Result = sql "select * FROM ${tbName2}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
-            tbData1.add(items.get(dataIndex))
+            tbData1.add(items.get(0))
         }
         List<Object> tbData2 = new ArrayList<Object>();
         for (List<Object> items:tb2Result){
-            tbData2.add(items.get(dataIndex))
+            tbData2.add(items.get(0))
         }
-        if(!tbData1.containsAll(tbData2)){
-            throw new RuntimeException("tbData should be same")
+        for (int i =0; i<tbData1.size(); i++) {
+            if (ObjectUtils.notEqual(tbData1.get(i),tbData2.get(i)) ){
+                throw new RuntimeException("tbData should be same")
+            }
         }
     }
 

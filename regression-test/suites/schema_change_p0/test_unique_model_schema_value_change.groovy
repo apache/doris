@@ -543,7 +543,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "               (123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
      sql initTable2
      sql initTableData2
-     checkTableData("${tbName}","${tbName2}",2)
+     checkTableData("${tbName}","${tbName2}","is_student")
 
      //Test the unique model by modify a value type from TINYINT  to INT
      sql """ DROP TABLE IF EXISTS ${tbName} """
