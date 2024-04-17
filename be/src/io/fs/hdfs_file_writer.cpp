@@ -18,6 +18,7 @@
 #include "io/fs/hdfs_file_writer.h"
 
 #include <fcntl.h>
+#include <fmt/core.h>
 
 #include <filesystem>
 #include <ostream>
@@ -214,8 +215,10 @@ size_t HdfsFileWriter::CachedBatchBuffer::append(std::string_view content) {
 Status HdfsFileWriter::_append(std::string_view content) {
     while (!content.empty()) {
         if (_batch_buffer.full()) {
-            DCHECK(false) << "invalid batch buffer status";
-            return Status::InternalError("invalid batch buffer status");
+            auto error_msg = fmt::format("invalid batch buffer status, capacity {}, size {}",
+                                         _batch_buffer.capacity(), _batch_buffer.size());
+            DCHECK(false) << error_msg;
+            return Status::InternalError(error_msg);
         }
         size_t append_size = _batch_buffer.append(content);
         content.remove_prefix(append_size);
