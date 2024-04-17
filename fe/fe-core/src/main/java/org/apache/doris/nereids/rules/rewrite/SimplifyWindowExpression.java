@@ -32,9 +32,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
@@ -117,5 +117,4 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
                     window.child(0)));
         }
     }
-
 }
