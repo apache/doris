@@ -520,7 +520,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
