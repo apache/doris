@@ -102,6 +102,23 @@ public class StorageVaultMgr {
         setDefaultStorageVault(Pair.of(stmt.getStorageVaultName(), vaultId));
     }
 
+    public void unsetDefaultStorageVault() throws DdlException {
+        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        builder.setOp(Operation.UNSET_DEFAULT_VAULT);
+        try {
+            Cloud.AlterObjStoreInfoResponse resp =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(builder.build());
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to unset default storage vault");
+                throw new DdlException(resp.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to unset default storage vault");
+            throw new DdlException(e.getMessage());
+        }
+        defaultVaultInfo = null;
+    }
+
     public void setDefaultStorageVault(Pair<String, String> vaultInfo) {
         try {
             rwLock.writeLock().lock();
