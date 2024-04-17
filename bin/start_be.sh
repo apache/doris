@@ -252,7 +252,7 @@ export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
 
 ## set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:$ASAN_OPTIONS
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
