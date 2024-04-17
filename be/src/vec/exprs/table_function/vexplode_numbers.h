@@ -60,20 +60,28 @@ public:
                         ->insert_range_from(*_elements_column, _cur_offset, max_step);
             }
         } else {
-            ColumnInt32* target = nullptr;
-            if (_is_nullable) {
-                target = assert_cast<ColumnInt32*>(
-                        assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
-                assert_cast<ColumnUInt8*>(
-                        assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                        ->insert_many_defaults(max_step);
+            // should dispose the empty status, forward one step
+            if (current_empty()) {
+                column->insert_default();
+                max_step = 1;
             } else {
-                target = assert_cast<ColumnInt32*>(column.get());
+                ColumnInt32* target = nullptr;
+                if (_is_nullable) {
+                    target = assert_cast<ColumnInt32*>(assert_cast<ColumnNullable*>(column.get())
+                                                               ->get_nested_column_ptr()
+                                                               .get());
+                    assert_cast<ColumnUInt8*>(assert_cast<ColumnNullable*>(column.get())
+                                                      ->get_null_map_column_ptr()
+                                                      .get())
+                            ->insert_many_defaults(max_step);
+                } else {
+                    target = assert_cast<ColumnInt32*>(column.get());
+                }
+                auto origin_size = target->size();
+                target->resize(origin_size + max_step);
+                std::iota(target->get_data().data() + origin_size,
+                          target->get_data().data() + origin_size + max_step, _cur_offset);
             }
-            auto origin_size = target->size();
-            target->resize(origin_size + max_step);
-            std::iota(target->get_data().data() + origin_size,
-                      target->get_data().data() + origin_size + max_step, _cur_offset);
         }
         forward(max_step);
         return max_step;
