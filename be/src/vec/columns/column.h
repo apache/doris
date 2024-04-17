@@ -99,7 +99,7 @@ public:
       */
     virtual Ptr convert_to_full_column_if_const() const { return get_ptr(); }
 
-    /** If in join. the StringColumn size may overflow uint32_t, we need convert to uint64_t to ColumnLargeStringForJoin
+    /** If in join. the StringColumn size may overflow uint32_t, we need convert to uint64_t to ColumnString64
   * The Column: ColumnString, ColumnNullable, ColumnArray, ColumnStruct need impl the code
   */
     virtual Ptr convert_column_if_overflow() { return get_ptr(); }

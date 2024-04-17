@@ -572,7 +572,8 @@ ColumnPtr ColumnStr<T>::index(const IColumn& indexes, size_t limit) const {
 
 template <typename T>
 ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
-    if (std::is_same_v<T, UInt32> && chars.size() > 10) {
+    // TODO: Try to fuzzy the overflow size to test more case in CI
+    if (std::is_same_v<T, UInt32> && chars.size() > std::numeric_limits<UInt32>::max()) {
         auto new_col = ColumnStr<uint64_t>::create();
 
         const auto length = offsets.size();
