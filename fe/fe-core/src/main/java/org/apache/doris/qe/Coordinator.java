@@ -4145,55 +4145,6 @@ public class Coordinator implements CoordInterface {
     public List<PlanFragment> getFragments() {
         return fragments;
     }
-    
-    @Override
-    public void refreshExecStatus() {
-        List<TNetworkAddress> backendAddresses = Lists.newArrayList();
-        if (this.enablePipelineXEngine) {
-            for (Long backendId : this.beToPipelineExecCtxs.keySet()) {
-                Backend backend = idToBackend.get(backendId);
-                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
-            }
-        } else {
-            for (Long backendId : this.beToExecStates.keySet()) {
-                Backend backend = idToBackend.get(backendId);
-                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
-            }
-        }
-
-        for (TNetworkAddress address : backendAddresses) {
-            try {
-                Client client = ClientPool.backendPool.borrowObject(address);
-                TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
-                req.setId(this.queryId);
-                LOG.debug("Refreshing exec status of query {}, backend {}",
-                            DebugUtil.printId(this.queryId), address.toString());
-                TGetRealtimeExecStatusResponse resp = client.getRealtimeExecStatus(req);
-                if (!resp.isSetStatus()) {
-                    LOG.warn("Broken GetRealtimeExecStatusResponse response, query {} backend {}",
-                                DebugUtil.printId(queryId), address.toString());
-                    continue;
-                }
-
-                if (resp.getStatus().status_code != TStatusCode.OK) {
-                    LOG.warn("Failed to get realtime query exec status, query {} backend {} error msg {}",
-                            DebugUtil.printId(queryId), address.toString(), resp.getStatus().toString());
-                    continue;
-                }
-
-                if (!resp.isSetReportExecStatusParams()) {
-                    LOG.warn("Invalid GetRealtimeExecStatusResponse, query {} backend {}",
-                            DebugUtil.printId(queryId), address.toString());
-                    continue;
-                }
-                LOG.info("Get real-time exec status succeed, query {} backend {}", DebugUtil.printId(queryId), address.toString());
-                QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), address);
-            } catch (Exception e) {
-                LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
-                        DebugUtil.printId(queryId), address.toString(), e);
-            }
-        }
-    }
 
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
