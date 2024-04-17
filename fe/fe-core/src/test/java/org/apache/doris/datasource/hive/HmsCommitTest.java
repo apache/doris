@@ -19,7 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.datasource.HMSCachedClientTest;
+import org.apache.doris.datasource.TestHMSCachedClient;
 import org.apache.doris.fs.LocalDfsFileSystem;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
@@ -90,7 +90,7 @@ public class HmsCommitTest {
             entries.set("hive.metastore.uris", uri);
             hmsClient = new ThriftHMSCachedClient(entries, 2);
         } else {
-            hmsClient = new HMSCachedClientTest();
+            hmsClient = new TestHMSCachedClient();
         }
         hmsOps = new HiveMetadataOps(null, hmsClient, fs);
     }
