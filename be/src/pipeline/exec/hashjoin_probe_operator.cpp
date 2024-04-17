@@ -257,12 +257,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
             return Status::OK();
         }
 
-        vectorized::Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(local_state._probe_block.get_by_position(i));
-        }
-
         //create build side null column, if need output
         for (int i = 0;
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
@@ -273,8 +267,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
-            temp_block.insert({std::move(nullable_column), make_nullable(type),
-                               _right_table_column_names[i]});
+            local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),
+                                             _right_table_column_names[i]});
         }
         if (_is_outer_join) {
             reinterpret_cast<vectorized::ColumnUInt8*>(
@@ -290,9 +284,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
-                                                                 &temp_block, false));
-        temp_block.clear();
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+                                                                 &local_state._probe_block, false));
         return Status::OK();
     }
 
