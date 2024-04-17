@@ -255,10 +255,22 @@ suite("test_unique_model_schema_key_change","p0") {
      },errorMessage)
 
 
+     //TODO Test the unique model by adding a column with JSON type none default value 
+     errorMessage="errCode = 2, detailMessage = JSONB or VARIANT type column default value just support null"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} add  column   j    JSON   DEFAULT '{\"a\": 300}' AFTER username """
+          insertSql = " insert into ${tbName} values(123456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true,"${tbName}")
+     },errorMessage)
 
 
      //TODO Test the unique model by adding a key column with JSON
-     errorMessage="errCode = 2, detailMessage = JSONB type should not be used in key column[j]."
+     errorMessage="errCode = 2, detailMessage = JSONB or VARIANT type should not be used in key column[j]."
      expectException({
           sql initTable
           sql initTableData
