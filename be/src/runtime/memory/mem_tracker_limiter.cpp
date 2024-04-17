@@ -125,10 +125,10 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-#ifdef NDEBUG
-            LOG(INFO) << err_msg;
-#else
+#ifdef DEBUG
             LOG(FATAL) << err_msg << print_address_sanitizers();
+#else
+            LOG(INFO) << err_msg;
 #endif
         }
         if (ExecEnv::tracking_memory()) {
