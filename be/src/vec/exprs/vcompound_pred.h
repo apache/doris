@@ -71,7 +71,8 @@ public:
                 Status st = child->eval_inverted_index(context, colid_to_inverted_index_iter,
                                                        num_rows, child_roaring.get());
                 if (!st.ok()) {
-                    continue;
+                    bitmap->addRange(0, num_rows);
+                    return st;
                 }
                 *res |= *child_roaring;
                 if (res->cardinality() == num_rows) {
@@ -82,7 +83,7 @@ public:
                     return Status::OK();
                 }
             }
-            *bitmap &= *res;
+            *bitmap = *res;
         } else if (_op == TExprOpcode::COMPOUND_AND) {
             for (auto child : _children) {
                 std::shared_ptr<roaring::Roaring> child_roaring =
@@ -99,14 +100,16 @@ public:
                     return Status::OK();
                 }
             }
-            *bitmap &= *res;
+            *bitmap = *res;
         } else if (_op == TExprOpcode::COMPOUND_NOT) {
             Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
                                                           num_rows, res.get());
             if (!st.ok()) {
                 return st;
             }
-            *bitmap -= *res;
+            std::shared_ptr<roaring::Roaring> all_rows = std::make_shared<roaring::Roaring>();
+            all_rows->addRange(0, num_rows);
+            *bitmap = *all_rows - *res;
         } else {
             return Status::InternalError(
                     "Compound operator must be AND or OR or Not can execute with inverted index.");

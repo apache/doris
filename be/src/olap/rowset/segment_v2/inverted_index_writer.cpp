@@ -405,6 +405,8 @@ public:
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
                     _CLDELETE(ts);
+                } else {
+                    RETURN_IF_ERROR(add_null_document());
                 }
                 _rid++;
             }

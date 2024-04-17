@@ -1244,11 +1244,14 @@ Status SegmentIterator::_apply_inverted_index() {
         if (_row_bitmap.isEmpty()) {
             break;
         }
-        // every single result of expr_ctx must be `and` collection relationship
-        if (Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), &_row_bitmap);
+        std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
+        if (Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), result_bitmap.get());
             !st.ok() && st.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
             LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
                          << expr_ctx->root()->debug_string() << ", error msg: " << st.to_string();
+        } else {
+            // every single result of expr_ctx must be `and` collection relationship
+            _row_bitmap &= *result_bitmap;
         }
     }
 

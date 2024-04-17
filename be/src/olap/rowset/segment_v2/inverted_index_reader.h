@@ -332,14 +332,8 @@ public:
             return create_query_value<TYPE_CHAR>(value, result_param);
         case PrimitiveType::TYPE_VARCHAR:
             return create_query_value<TYPE_VARCHAR>(value, result_param);
-        case PrimitiveType::TYPE_HLL:
-            return create_query_value<TYPE_HLL>(value, result_param);
         case PrimitiveType::TYPE_STRING:
             return create_query_value<TYPE_STRING>(value, result_param);
-        case PrimitiveType::TYPE_IPV4:
-            return create_query_value<TYPE_IPV4>(value, result_param);
-        case PrimitiveType::TYPE_IPV6:
-            return create_query_value<TYPE_IPV6>(value, result_param);
         default:
             LOG(FATAL) << "Unsupported primitive type for inverted index reader : "
                        << primitiveType;
