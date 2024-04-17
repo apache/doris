@@ -139,17 +139,23 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
         tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
 
-        long wgId = routineLoadJob.getWorkloadId();
-        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-        if (wgId > 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupById(wgId);
+        if (Config.enable_workload_group) {
+            long wgId = routineLoadJob.getWorkloadId();
+            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+            if (wgId > 0) {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getTWorkloadGroupById(wgId);
+                if (tWgList.size() == 0) {
+                    throw new UserException("can not find workload group, id=" + wgId);
+                }
+            } else {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
+            }
+            if (tWgList.size() != 0) {
+                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+            }
         }
-        if (tWgList.size() == 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
-        }
-        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
 
         return tExecPlanFragmentParams;
     }
@@ -166,17 +172,23 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
         tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
 
-        long wgId = routineLoadJob.getWorkloadId();
-        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-        if (wgId > 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupById(wgId);
+        if (Config.enable_workload_group) {
+            long wgId = routineLoadJob.getWorkloadId();
+            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+            if (wgId > 0) {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getTWorkloadGroupById(wgId);
+                if (tWgList.size() == 0) {
+                    throw new UserException("can not find workload group, id=" + wgId);
+                }
+            } else {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
+            }
+            if (tWgList.size() != 0) {
+                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+            }
         }
-        if (tWgList.size() == 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
-        }
-        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
 
         return tExecPlanFragmentParams;
     }
