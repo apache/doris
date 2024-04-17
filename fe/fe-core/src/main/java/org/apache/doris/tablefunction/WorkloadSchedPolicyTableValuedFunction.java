@@ -41,7 +41,8 @@ public class WorkloadSchedPolicyTableValuedFunction extends MetadataTableValuedF
             new Column("Action", ScalarType.createType(PrimitiveType.STRING)),
             new Column("Priority", ScalarType.createType(PrimitiveType.INT)),
             new Column("Enabled", ScalarType.createType(PrimitiveType.BOOLEAN)),
-            new Column("Version", ScalarType.createType(PrimitiveType.INT)));
+            new Column("Version", ScalarType.createType(PrimitiveType.INT)),
+            new Column("WorkloadGroup", ScalarType.createType(PrimitiveType.STRING)));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
