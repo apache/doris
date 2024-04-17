@@ -17,7 +17,8 @@
 
 suite("test_array_with_func_load", "p0") {
     def tableName = "test_array_split_string"
-	sql """ set enable_fallback_to_original_planner=false;"""
+    // 2-0 old planner support array
+    sql """ set enable_nereids_planner=false; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
                 id int,
