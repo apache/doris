@@ -57,7 +57,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final Statistics statistics;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
-    protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
+    protected Supplier<LogicalProperties> logicalPropertiesSupplier;
 
     /**
      * all parameter constructor.
@@ -98,6 +98,12 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public Statistics getStats() {
         return statistics;
+    }
+
+    public void outputWithExprIds(Set<ExprId> newExprIds) {
+        // logicalProperties in logicalPropertiesSupplier invoke withExprIds
+        LogicalProperties logicalProperties = this.logicalPropertiesSupplier.get().withExprIds(newExprIds);
+        this.logicalPropertiesSupplier = Suppliers.ofInstance(logicalProperties);
     }
 
     @Override

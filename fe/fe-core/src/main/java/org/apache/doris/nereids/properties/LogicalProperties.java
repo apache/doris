@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -98,6 +99,23 @@ public class LogicalProperties {
         this.fdSupplier = Suppliers.memoize(
                 Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
         );
+    }
+
+    /**
+     * Get a new LogicalProperties with new output.
+     */
+    public LogicalProperties withExprIds(Set<ExprId> newExprIds) {
+        List<Slot> output = this.outputSupplier.get();
+        Supplier<List<Slot>> newOutputSupplier = Suppliers.memoize(() -> {
+            Builder<Slot> newOutput = ImmutableList.builder();
+            for (Slot slot : output) {
+                if (newExprIds.contains(slot.getExprId())) {
+                    newOutput.add(slot);
+                }
+            }
+            return newOutput.build();
+        });
+        return new LogicalProperties(newOutputSupplier, fdSupplier);
     }
 
     public List<Slot> getOutput() {
