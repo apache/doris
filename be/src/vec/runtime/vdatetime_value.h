@@ -824,6 +824,19 @@ public:
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
+    template <typename U>
+    void assign_from(DateV2Value<U> src) {
+        date_v2_value_.year_ = src.year();
+        date_v2_value_.month_ = src.month();
+        date_v2_value_.day_ = src.day();
+        if constexpr (is_datetime && std::is_same_v<U, DateTimeV2ValueType>) {
+            date_v2_value_.hour_ = src.hour();
+            date_v2_value_.minute_ = src.minute();
+            date_v2_value_.second_ = src.second();
+            date_v2_value_.microsecond_ = src.microsecond();
+        }
+    }
+
     // Construct Date/Datetime type value from string.
     // At least the following formats are recognised (based on number of digits)
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'

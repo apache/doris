@@ -5,7 +5,7 @@ internal
 -- !show_db --
 doris_test
 information_schema
-performance_schema
+mysql
 
 -- !sql --
 internal

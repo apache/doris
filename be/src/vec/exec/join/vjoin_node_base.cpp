@@ -144,6 +144,7 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
 
     _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
+    _runtime_filter_init_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterInitTime");
 
     return Status::OK();
 }

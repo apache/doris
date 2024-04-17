@@ -77,6 +77,7 @@ VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
 Status VMetaScanner::open(RuntimeState* state) {
     VLOG_CRITICAL << "VMetaScanner::open";
     RETURN_IF_ERROR(VScanner::open(state));
+    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 
@@ -94,8 +95,6 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
         // from a NULL value.
         return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
     }
-
-    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 

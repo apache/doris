@@ -124,8 +124,10 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    sql "build index idx_desc on ${indexTbName1}"
-    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    if (!isCloudMode()) {
+        sql "build index idx_desc on ${indexTbName1}"
+        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    }
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
@@ -229,8 +231,10 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    sql "build index idx_desc on ${indexTbName1}"
-    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    if (!isCloudMode()) {
+        sql "build index idx_desc on ${indexTbName1}"
+        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    }
     // query rows where description match 'desc'
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
     assertEquals(select_result.size(), 2)
@@ -265,8 +269,10 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 3)
-    sql "build index idx_name on ${indexTbName1}"
-    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    if (!isCloudMode()) {
+        sql "build index idx_name on ${indexTbName1}"
+        wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+    }
 
     // query rows where name match 'name1'
     select_result = sql "select * from ${indexTbName1} where name match 'name1'"

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -40,6 +41,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -51,6 +53,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -102,7 +105,7 @@ public abstract class ExternalCatalog
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
-    private boolean initialized = false;
+    protected boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
@@ -112,6 +115,7 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
+    protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
     private String comment;
@@ -290,10 +294,12 @@ public abstract class ExternalCatalog
 
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
+        allDatabases.remove(MysqlDb.DATABASE_NAME);
+        allDatabases.add(MysqlDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
                 // Exclude database map take effect with higher priority over include database map
                 if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
                     continue;
@@ -437,6 +443,9 @@ public abstract class ExternalCatalog
             if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
                 return idToDb.get(dbNameToId.get(InfoSchemaDb.DATABASE_NAME));
             }
+            if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+                return idToDb.get(dbNameToId.get(MysqlDb.DATABASE_NAME));
+            }
         }
         return null;
     }
@@ -547,6 +556,9 @@ public abstract class ExternalCatalog
                                                                      InitCatalogLog.Type logType) {
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
             return new ExternalInfoSchemaDatabase(this, dbId);
+        }
+        if (dbName.equals(MysqlDb.DATABASE_NAME)) {
+            return new ExternalMysqlDatabase(this, dbId);
         }
         switch (logType) {
             case HMS:

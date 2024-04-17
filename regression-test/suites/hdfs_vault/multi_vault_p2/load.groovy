@@ -24,20 +24,25 @@
 suite("load") {
 
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ssb_hdfs_vault
+        CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}"
+        "fs.defaultFS"="${getHdfsFs()}",
+        "path_prefix" = "multi_vault_ssb_hdfs_vault"
         );
     """
 
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ssb_flat_hdfs_vault
+        CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_flat_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}"
+        "fs.defaultFS"="${getHdfsFs()}",
+        "path_prefix" = "multi_vault_ssb_flat_hdfs_vault"
         );
     """
+
+    // sleep 3 minutes to wait for BE sync the vault info from MS
+    sleep(180000)
 
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that

@@ -136,7 +136,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
-        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets,
+        int timeout) {
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
@@ -148,7 +149,7 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
             std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
-            partition_offsets);
+            partition_offsets, timeout);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -156,7 +157,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
-        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets,
+        int timeout) {
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
@@ -171,7 +173,7 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
                     ->get_latest_offsets_for_partitions(
                             std::vector<int32_t>(request.partition_id_for_latest_offsets().begin(),
                                                  request.partition_id_for_latest_offsets().end()),
-                            partition_offsets);
+                            partition_offsets, timeout);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -310,7 +312,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
         if (ctx->is_multi_table) {
-            LOG(INFO) << "recv single-stream-multi-table request, ctx=" << ctx->brief();
+            LOG(INFO) << "recv single-stream-multi-table request, ctx: " << ctx->brief();
             pipe = std::make_shared<io::MultiTablePipe>(ctx);
         } else {
             pipe = std::make_shared<io::KafkaConsumerPipe>();

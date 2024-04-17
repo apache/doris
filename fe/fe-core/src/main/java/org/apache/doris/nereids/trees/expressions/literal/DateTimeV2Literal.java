@@ -110,10 +110,72 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     @Override
     public String getStringValue() {
+        int scale = getDataType().getScale();
+        if (scale <= 0) {
+            return super.getStringValue();
+        }
+
+        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99
+                && 0 <= hour && hour <= 99 && 0 <= minute && minute <= 99 && 0 <= second && second <= 99
+                && 0 <= microSecond && microSecond <= MAX_MICROSECOND) {
+            char[] format = new char[] {
+                    '0', '0', '0', '0', '-', '0', '0', '-', '0', '0', ' ', '0', '0', ':', '0', '0', ':', '0', '0',
+                    '.', '0', '0', '0', '0', '0', '0'};
+            int offset = 3;
+            long year = this.year;
+            while (year > 0) {
+                format[offset--] = (char) ('0' + (year % 10));
+                year /= 10;
+            }
+
+            offset = 6;
+            long month = this.month;
+            while (month > 0) {
+                format[offset--] = (char) ('0' + (month % 10));
+                month /= 10;
+            }
+
+            offset = 9;
+            long day = this.day;
+            while (day > 0) {
+                format[offset--] = (char) ('0' + (day % 10));
+                day /= 10;
+            }
+
+            offset = 12;
+            long hour = this.hour;
+            while (hour > 0) {
+                format[offset--] = (char) ('0' + (hour % 10));
+                hour /= 10;
+            }
+
+            offset = 15;
+            long minute = this.minute;
+            while (minute > 0) {
+                format[offset--] = (char) ('0' + (minute % 10));
+                minute /= 10;
+            }
+
+            offset = 18;
+            long second = this.second;
+            while (second > 0) {
+                format[offset--] = (char) ('0' + (second % 10));
+                second /= 10;
+            }
+
+            offset = 19 + scale;
+            long microSecond = (int) (this.microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale));
+            while (microSecond > 0) {
+                format[offset--] = (char) ('0' + (microSecond % 10));
+                microSecond /= 10;
+            }
+            return String.valueOf(format, 0, 20 + scale);
+        }
+
         return String.format("%04d-%02d-%02d %02d:%02d:%02d"
-                        + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
+                        + (scale > 0 ? ".%0" + scale + "d" : ""),
                 year, month, day, hour, minute, second,
-                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
+                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
     }
 
     public String getMicrosecondString() {
@@ -124,59 +186,36 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
-    @Override
-    public Expression plusYears(long years) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusYears(years), getDataType().getScale());
-    }
-
-    @Override
-    public Expression plusMonths(long months) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusMonths(months), getDataType().getScale());
-    }
-
-    @Override
-    public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusWeeks(weeks), getDataType().getScale());
-    }
-
-    @Override
     public Expression plusDays(long days) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusDays(days), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
     }
 
-    @Override
+    public Expression plusMonths(long months) {
+        return fromJavaDateType(toJavaDateType().plusMonths(months), getDataType().getScale());
+    }
+
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks), getDataType().getScale());
+    }
+
+    public Expression plusYears(long years) {
+        return fromJavaDateType(toJavaDateType().plusYears(years), getDataType().getScale());
+    }
+
     public Expression plusHours(long hours) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusHours(hours), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusHours(hours), getDataType().getScale());
     }
 
-    @Override
     public Expression plusMinutes(long minutes) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusMinutes(minutes), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusMinutes(minutes), getDataType().getScale());
     }
 
-    @Override
     public Expression plusSeconds(long seconds) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                        .plusSeconds(seconds), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getFullMicroSecondValue())
-                        .plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
     }
 
     /**

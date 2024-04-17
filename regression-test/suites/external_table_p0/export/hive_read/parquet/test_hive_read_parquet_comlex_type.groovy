@@ -41,6 +41,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
     def hdfsUserName = "doris"
     def format = "parquet"
     def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+    def defaultFS_with_postfix = "hdfs://${externalEnvIp}:${hdfs_port}/"
     def outfile_path = "/user/doris/tmp_data"
     def uri = "${defaultFS}" + "${outfile_path}/exp_"
 
@@ -99,7 +100,6 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
             INTO OUTFILE "${uri}"
             FORMAT AS ${format}
             PROPERTIES (
-                "fs.defaultFS"="${defaultFS}",
                 "hadoop.username" = "${hdfsUserName}"
             );
         """
@@ -147,11 +147,12 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
 
         qt_select_tvf1 """ select * from HDFS(
                         "uri" = "${outfile_url}0.parquet",
+                        "fs.defaultFS" = "${defaultFS_with_postfix}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
             
     } finally {
     }
@@ -185,11 +186,12 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
 
         qt_select_tvf2 """ select * from HDFS(
                         "uri" = "${outfile_url}0.parquet",
+                        "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }
@@ -229,7 +231,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }
@@ -274,7 +276,7 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
     } finally {
     }

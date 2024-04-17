@@ -24,10 +24,16 @@ namespace doris::pipeline {
 Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
+    return Status::OK();
+}
 
+Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
 
@@ -46,7 +52,11 @@ Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
     if (exec_status.ok()) {
-        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0);
+        DCHECK(_release_count) << "Do not finish correctly! " << debug_string(0)
+                               << " state: { cancel = " << state->is_cancelled() << ", "
+                               << state->query_status().to_string() << "} query ctx: { cancel = "
+                               << state->get_query_ctx()->is_cancelled() << ", "
+                               << state->get_query_ctx()->exec_status().to_string() << "}";
     }
     return Status::OK();
 }

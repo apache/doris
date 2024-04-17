@@ -15,20 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
-    def cloudMode = isCloudMode.call()
-    log.info("is cloud mode $cloudMode")
-    if (!cloudMode) {
+suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
+    if (!isCloudMode()) {
+        log.info("not cloud mode just return")
         return
     }
     def roleName = "testRole"
-    def user1 = "test_grant_revoke_cluster_to_user1"
+    def user1 = "test_grant_revoke_cluster_stage_to_user1"
     def tbl = "test_auth_role_tbl"
     def testClusterA = "clusterA"
+    def testStageA = "stageA"
     sql """drop table if exists ${tbl}"""
 
     sql """drop user if exists ${user1}"""
@@ -60,13 +56,24 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
         assertEquals(Roles as String, result.Roles[0] as String)
         assertEquals(GlobalPrivs as String, result.GlobalPrivs[0] as String)
     }
-    
+
     def fieldDisorder = { result, expected1, expected2 ->
         boolean ret = false
         if ((result as String) == (expected1 as String) || (result as String) == (expected2 as String)) {
             ret = true
         }
         return ret
+    }
+
+    def splitCloudAuth = { String st ->
+        def map = [:]
+        st.split(';').each { entry ->
+            def parts = entry.trim().split(':')
+            if (parts.size() == 2) {
+                map[parts[0].trim()] = parts[1].trim()
+            }
+        }
+        return map
     }
 
     def clusters = sql " SHOW CLUSTERS; "
@@ -80,14 +87,21 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
 
     def result = showRoles.call(roleName)
     assertNull(result.CloudClusterPrivs)
+    assertNull(result.CloudStagePrivs)
     assertEquals(result.Users, "")
 
-    // grant cluster usage_priv to role
+    // grant cluster and stage usage_priv to role
     sql """
         grant usage_priv on cluster '$testClusterA' to role "${roleName}";
         """
+
+    sql """
+        grant usage_priv on stage '$testStageA' to role "${roleName}";
+        """
+
     result = showRoles.call(roleName)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterA: Cluster_Usage_priv " as String)
+    assertEquals(result.CloudClusterPrivs as String, "$testClusterA: Cluster_usage_priv" as String)
+    assertEquals(result.CloudStagePrivs as String, "$testStageA: Stage_usage_priv" as String)
     assertEquals(result.Users as String, "")
 
     sql """
@@ -102,8 +116,8 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
         GRANT SELECT_PRIV ON *.*.* TO ROLE '${roleName}'
     """
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv "
-    assertEquals("[$testClusterA: Cluster_Usage_priv ; $validCluster: Cluster_Usage_priv ]" as String, result.CloudClusterPrivs as String)
+    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
+    assertEquals("[$testClusterA: Cluster_usage_priv; $validCluster: Cluster_usage_priv]" as String, result.CloudClusterPrivs as String)
     def db = context.dbName
 
     sql """
@@ -117,10 +131,6 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
     PROPERTIES (
     "replication_num"="1"
     );
-    """
-
-    sql """
-    set enable_memtable_on_sink_node = false
     """
 
     sql """
@@ -139,28 +149,51 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
         grant usage_priv on cluster * to role "${roleName}";
         """
 
+    sql """
+        grant usage_priv on stage * to role "${roleName}";
+        """
+
     result = showRoles.call(roleName)
-    assertTrue(fieldDisorder.call(result.CloudClusterPrivs as String,
-        "$testClusterA: Cluster_Usage_priv ; $validCluster: Cluster_Usage_priv " as String, 
-        "$validCluster: Cluster_Usage_priv ; $testClusterA: Cluster_Usage_priv " as String) as boolean)
-    assertEquals(result.GlobalPrivs as String, "Select_priv  Cluster_Usage_priv " as String)
+    log.info(result as String)
+    def m = splitCloudAuth(result.CloudClusterPrivs as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("${testClusterA}" as String, "%", "${validCluster}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
+    assertEquals(result.GlobalPrivs as String, "Select_priv" as String)
+    m = splitCloudAuth(result.CloudStagePrivs as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("${testStageA}" as String, "%")) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Stage_usage_priv")
+    assertEquals(result.GlobalPrivs as String, "Select_priv" as String) 
     def matcher = result.Users =~ /.*${user1}.*/
     assertTrue(matcher.matches())
 
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv Cluster_Usage_priv "
-    assertEquals("[$testClusterA: Cluster_Usage_priv ; $validCluster: Cluster_Usage_priv ]" as String, result.CloudClusterPrivs as String)
+    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
+    m = splitCloudAuth(result.CloudClusterPrivs[0] as String)
+    log.info(m.keySet() as String)
+    // clusterA: Cluster_usage_priv ; %: Cluster_usage_priv ; compute_cluster: Cluster_usage_priv
+    assertTrue(m.keySet().containsAll(Arrays.asList("${testClusterA}" as String, "%", "${validCluster}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
+    assertEquals(result.GlobalPrivs[0] as String, "Select_priv" as String)
 
     def otherRole = "testOtherRole"
     def testClusterB = "clusterB"
+    def testStageB = "stageB"
 
     sql """
         grant usage_priv on cluster ${testClusterB} to role "${otherRole}";
     """
 
+    sql """
+        grant usage_priv on stage ${testStageB} to role "${otherRole}"; 
+    """
+
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_Usage_priv " as String)
+    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
+    assertEquals(result.CloudStagePrivs as String, "$testStageB: Stage_usage_priv" as String)
     assertEquals(result.Users as String, "")
 
     // add more roles to user1
@@ -168,31 +201,48 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
         GRANT '$otherRole' TO '$user1';  
     """
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_Usage_priv " as String)
+    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
+    assertEquals(result.CloudStagePrivs as String, "$testStageB: Stage_usage_priv" as String)
     matcher = result.Users =~ /.*${user1}.*/
     assertTrue(matcher.matches())
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testOtherRole,testRole", "Select_priv Cluster_Usage_priv "
-    assertEquals("[$testClusterA: Cluster_Usage_priv ; $testClusterB: Cluster_Usage_priv ; $validCluster: Cluster_Usage_priv ]" as String,
-        result.CloudClusterPrivs as String) 
+    log.info(result as String)
+    commonAuth result, "'${user1}'@'%'", "Yes", "testOtherRole,testRole", "Select_priv"
+    // [%: Cluster_usage_priv ; clusterA: Cluster_usage_priv ; clusterB: Cluster_usage_priv ; compute_cluster: Cluster_usage_priv ]
+    m = splitCloudAuth(result.CloudClusterPrivs[0] as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("${testClusterA}" as String, "%", "${validCluster}" as String, "${testClusterB}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
 
-    // revoke cluster usage_priv from role
+    // revoke cluster and stage usage_priv from role
     sql """
         revoke usage_priv on cluster '$testClusterA' from role "${roleName}";
         """
 
+    sql """
+        revoke usage_priv on stage '$testStageA' from role "${roleName}";
+        """
+    
     result = showRoles.call(roleName)
-    assertTrue(fieldDisorder.call(result.CloudClusterPrivs as String,
-        "$testClusterA: ; $validCluster: Cluster_Usage_priv " as String, 
-        "$validCluster: Cluster_Usage_priv ; $testClusterA: " as String) as boolean)
+    log.info(result as String)
+    // CloudClusterPrivs:clusterA: ; %: Cluster_usage_priv ; compute_cluster: Cluster_usage_priv
+    m = splitCloudAuth(result.CloudClusterPrivs as String)
+    // clusterA lost in splitCloudAuth
+    assertTrue(m.keySet().containsAll(Arrays.asList("%", "${validCluster}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
     matcher = result.Users =~ /.*${user1}.*/
     assertTrue(matcher.matches())
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testOtherRole,testRole", "Select_priv Cluster_Usage_priv "
-    assertEquals("[$testClusterB: Cluster_Usage_priv ; $validCluster: Cluster_Usage_priv ]" as String,
-        result.CloudClusterPrivs as String) 
+    commonAuth result, "'${user1}'@'%'", "Yes", "testOtherRole,testRole", "Select_priv"
+    log.info(result as String)
+    // CloudClusterPrivs:%: Cluster_usage_priv ; clusterB: Cluster_usage_priv ; compute_cluster: Cluster_usage_priv
+    m = splitCloudAuth(result.CloudClusterPrivs[0] as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("%", "${validCluster}" as String, "${testClusterB}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
     
     // revoke otherRole from user1
     sql """
@@ -200,21 +250,29 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
     """
 
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_Usage_priv " as String)
+    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
     assertEquals(result.Users as String, "")
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv Cluster_Usage_priv "
-    assertEquals("[$validCluster: Cluster_Usage_priv ]" as String, result.CloudClusterPrivs as String) 
+    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
+    log.info(result as String)
+    // CloudClusterPrivs:%: Cluster_usage_priv ; compute_cluster: Cluster_usage_priv
+    m = splitCloudAuth(result.CloudClusterPrivs[0] as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("%", "${validCluster}" as String)) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
 
     sql """
         revoke usage_priv on cluster ${validCluster} from role "${roleName}";
         """
 
     result = showRoles.call(roleName)
-    assertTrue(fieldDisorder.call(result.CloudClusterPrivs as String,
-        "$testClusterA: ; $validCluster: " as String, 
-        "$validCluster: ; $testClusterA: " as String as String) as boolean)
+    log.info(result as String)
+    // CloudClusterPrivs:clusterA: ; %: Cluster_usage_priv ; compute_cluster:
+    m = splitCloudAuth(result.CloudClusterPrivs as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("%")) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
 
     // still can select, because have global * cluster
     connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
@@ -225,22 +283,32 @@ suite("test_grant_revoke_cluster_to_role", "cloud_auth") {
     } 
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv Cluster_Usage_priv "
-    assertNull(result.CloudClusterPrivs[0])
+    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
+    m = splitCloudAuth(result.CloudClusterPrivs[0] as String)
+    assertTrue(m.keySet().containsAll(Arrays.asList("%")) as boolean)
+    assertEquals(m.values().toUnique().asList().size(), 1)
+    assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
 
     // revoke global * from role
     sql """
         revoke usage_priv on cluster * from role "${roleName}";
         """
 
+    sql """
+        revoke usage_priv on stage * from role "${roleName}";
+        """
+
     result = showRoles.call(roleName)
-    assertTrue(fieldDisorder.call(result.CloudClusterPrivs as String,
-        "$testClusterA: ; $validCluster: " as String, 
-        "$validCluster: ; $testClusterA: " as String as String) as boolean)
-    assertEquals(result.GlobalPrivs as String, "Select_priv  " as String)
+    log.info(result as String)
+    // CloudClusterPrivs:clusterA: ; %: ; compute_cluster:
+    m = splitCloudAuth(result.CloudClusterPrivs as String)
+    assertEquals(m.size(), 0)
+    m = splitCloudAuth(result.CloudStagePrivs as String)
+    assertEquals(m.size(), 0)
+    assertEquals(result.GlobalPrivs as String, "Select_priv" as String)
 
     result = sql_return_maparray """show grants for '${user1}'"""
-    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv "
+    commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
 
     // can not use @cluster, because no cluster auth
     connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {

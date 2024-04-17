@@ -20,10 +20,17 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -56,6 +63,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -734,5 +742,64 @@ public class TypeCoercionUtilsTest {
         expression = TypeCoercionUtils.processBinaryArithmetic(sub);
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
+    }
+
+    @Test
+    public void testProcessInDowngrade() {
+        // DecimalV2 slot vs DecimalV3 literal
+        InPredicate decimalDowngrade = new InPredicate(
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                ImmutableList.of(
+                        new DecimalV3Literal(BigDecimal.valueOf(12345.1234567)),
+                        new DecimalLiteral(BigDecimal.valueOf(12345.1234))));
+        decimalDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(decimalDowngrade);
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.getCompareExpr().getDataType());
+
+        // DateV1 slot vs DateV2 literal
+        InPredicate dateDowngrade = new InPredicate(
+                new SlotReference("c1", DateType.INSTANCE),
+                ImmutableList.of(
+                        new DateLiteral(2024, 4, 12),
+                        new DateV2Literal(2024, 4, 12)));
+        dateDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(dateDowngrade);
+        Assertions.assertEquals(DateType.INSTANCE, dateDowngrade.getCompareExpr().getDataType());
+
+        // DatetimeV1 slot vs DateLike literal
+        InPredicate datetimeDowngrade = new InPredicate(
+                new SlotReference("c1", DateTimeType.INSTANCE),
+                ImmutableList.of(
+                        new DateLiteral(2024, 4, 12),
+                        new DateV2Literal(2024, 4, 12),
+                        new DateTimeLiteral(2024, 4, 12, 18, 25, 30),
+                        new DateTimeV2Literal(2024, 4, 12, 18, 25, 30, 0)));
+        datetimeDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(datetimeDowngrade);
+        Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.getCompareExpr().getDataType());
+    }
+
+    @Test
+    public void testProcessComparisonPredicateDowngrade() {
+        // DecimalV2 slot vs DecimalV3 literal
+        EqualTo decimalDowngrade = new EqualTo(
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                new DecimalV3Literal(BigDecimal.valueOf(12345.1234567))
+        );
+        decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.left().getDataType());
+
+        // DateV1 slot vs DateV2 literal (this case cover right slot vs left literal)
+        EqualTo dateDowngrade = new EqualTo(
+                new DateV2Literal(2024, 4, 12),
+                new SlotReference("c1", DateType.INSTANCE)
+        );
+        dateDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(dateDowngrade);
+        Assertions.assertEquals(DateType.INSTANCE, dateDowngrade.left().getDataType());
+
+        // DatetimeV1 slot vs DateLike literal
+        EqualTo datetimeDowngrade = new EqualTo(
+                new SlotReference("c1", DateTimeType.INSTANCE),
+                new DateTimeV2Literal(2024, 4, 12, 18, 25, 30, 0)
+        );
+        datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
+        Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.left().getDataType());
     }
 }

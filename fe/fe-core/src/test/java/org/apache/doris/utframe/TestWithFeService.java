@@ -278,7 +278,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -605,6 +605,11 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().dropDb(createDbStmt);
     }
 
+    public void dropDatabaseWithSql(String dropDbSql) throws Exception {
+        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
+    }
+
     public void useDatabase(String dbName) {
         connectContext.setDatabase(dbName);
     }
@@ -650,6 +655,11 @@ public abstract class TestWithFeService {
     public void dropTable(String table, boolean force) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
                 "drop table " + table + (force ? " force" : "") + ";", connectContext);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
+    }
+
+    public void dropTableWithSql(String dropTableSql) throws Exception {
+        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(dropTableSql);
         Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 

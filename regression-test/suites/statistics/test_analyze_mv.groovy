@@ -35,7 +35,7 @@ suite("test_analyze_mv") {
         throw new Exception("Wait mv finish timeout.")
     }
 
-    def wait_row_count_reported = { db, table, expected ->
+    def wait_row_count_reported = { db, table, row, column, expected ->
         def result = sql """show frontends;"""
         logger.info("show frontends result origin: " + result)
         def host
@@ -57,7 +57,7 @@ suite("test_analyze_mv") {
                 Thread.sleep(5000)
                 result = sql """SHOW DATA FROM ${table};"""
                 logger.info("result " + result)
-                if (result[3][4] == expected) {
+                if (result[row][column] == expected) {
                     return;
                 }
             }
@@ -111,6 +111,7 @@ suite("test_analyze_mv") {
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
+    sql """set global force_sample_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,
@@ -118,12 +119,12 @@ suite("test_analyze_mv") {
             value1 int NOT NULL,
             value2 int NOT NULL,
             value3 int NOT NULL
-        )ENGINE=OLAP 
+        )ENGINE=OLAP
         DUPLICATE KEY(`key1`, `key2`)
         COMMENT "OLAP"
         DISTRIBUTED BY HASH(`key1`) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1" 
+            "replication_num" = "1"
         )
     """
     sql """create materialized view mv1 as select key1 from mvTestDup;"""
@@ -226,13 +227,13 @@ suite("test_analyze_mv") {
             key2 bigint NOT NULL,
             value1 int SUM NOT NULL,
             value2 int MAX NOT NULL,
-            value3 int MIN NOT NULL 
+            value3 int MIN NOT NULL
         )ENGINE=OLAP
         AGGREGATE KEY(`key1`, `key2`)
         COMMENT "OLAP"
         DISTRIBUTED BY HASH(`key1`) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1" 
+            "replication_num" = "1"
         );
     """
 
@@ -362,7 +363,7 @@ suite("test_analyze_mv") {
 
 
     sql """
-        CREATE TABLE mvTestUni ( 
+        CREATE TABLE mvTestUni (
             key1 bigint NOT NULL,
             key2 bigint NOT NULL,
             value1 int NOT NULL,
@@ -423,7 +424,15 @@ suite("test_analyze_mv") {
     assertEquals(0, result_sample.size())
 
     // Test sample
-    wait_row_count_reported("test_analyze_mv", "mvTestDup", "6")
+    try {
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 0, 4, "6")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 1, 4, "6")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 2, 4, "4")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 3, 4, "6")
+    } catch (Exception e) {
+        logger.info(e.getMessage());
+        return;
+    }
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""

@@ -114,7 +114,7 @@ public:
                                    const std::string& msg);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
-    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
+    void cancel(std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {

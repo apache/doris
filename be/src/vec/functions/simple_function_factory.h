@@ -24,8 +24,6 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "udf/udf.h"
-#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -37,7 +35,9 @@ void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll_cardinality(SimpleFunctionFactory& factory);
 void register_function_hll_empty(SimpleFunctionFactory& factory);
+void register_function_hll_from_base64(SimpleFunctionFactory& factory);
 void register_function_hll_hash(SimpleFunctionFactory& factory);
+void register_function_hll_to_base64(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
@@ -81,6 +81,7 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
+void register_function_uuid_transforms(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -223,7 +224,9 @@ public:
             register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);
             register_function_hll_empty(instance);
+            register_function_hll_from_base64(instance);
             register_function_hll_hash(instance);
+            register_function_hll_to_base64(instance);
             register_function_comparison(instance);
             register_function_logical(instance);
             register_function_case(instance);
@@ -265,6 +268,7 @@ public:
             register_function_random(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
+            register_function_uuid_transforms(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);

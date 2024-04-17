@@ -86,6 +86,64 @@ C
 737472696E6733
 737472696E6733
 
+-- !sql_hll_from_base64_1 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_hll_from_base64_notnull_1 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_hll_from_base64_2 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_hll_from_base64_notnull_2 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
 -- !sql_hll_hash_Varchar --
 \N
 \N
@@ -143,6 +201,64 @@ C
 \N
 \N
 \N
+
+-- !sql_hll_to_base64_1 --
+AQEsDw6y1DKvWA==
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+
+-- !sql_hll_to_base64_notnull_1 --
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQEBHCni6iZ4IA==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQHDvC2tP+3Ztg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+AQGGjGuwPQuJSg==
+
+-- !sql_hll_to_base64_2 --
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
+
+-- !sql_hll_to_base64_notnull_2 --
+AQEsDw6y1DKvWA==
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQEVuTIP+2DCFQ==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQFrObf9ClSMJg==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
+AQGO5rMmsc7hDA==
 
 -- !sql_hour_DateTime --
 \N

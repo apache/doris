@@ -452,7 +452,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
-    _context->cancel(true, err, Status::Cancelled(err));
+    _context->cancel(err, Status::Cancelled(err));
     _ended(id);
 }
 
@@ -464,6 +464,8 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
         _rpc_channel_is_idle[id] = true;
         _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
     }
+    std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>> empty;
+    swap(empty, _instance_to_broadcast_package_queue[id]);
 }
 
 template <typename Parent>
