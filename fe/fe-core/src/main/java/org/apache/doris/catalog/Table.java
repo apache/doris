@@ -602,7 +602,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */
     public boolean needSchedule() {
-        if (type != TableType.OLAP) {
+        if (!isManagedTable()) {
             return false;
         }
 

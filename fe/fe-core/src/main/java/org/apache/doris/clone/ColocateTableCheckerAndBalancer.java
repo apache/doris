@@ -859,7 +859,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (backendsSet.contains(destBeId) || hostsSet.contains(destBe.getHost())) {
+                    if (backendsSet.contains(destBeId)
+                            || (!Config.allow_replica_on_same_host && hostsSet.contains(destBe.getHost()))) {
                         continue;
                     }
 
