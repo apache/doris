@@ -198,6 +198,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();
@@ -986,7 +987,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             for (size_t i = 0; i < target_size; i++) {
                 RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
-                    prepare_status[i] = pre_and_submit(i);
+                    {
+                        SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+                        prepare_status[i] = pre_and_submit(i);
+                    }
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
                     if (prepare_done == target_size) {
