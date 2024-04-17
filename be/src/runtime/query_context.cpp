@@ -372,7 +372,7 @@ void QueryContext::_report_query_profile() {
 }
 
 void QueryContext::_report_query_profile_non_pipeline() {
-    if (enable_pipeline_exec() || enable_pipeline_x_exec()) {
+    if (enable_pipeline_x_exec()) {
         return;
     }
 

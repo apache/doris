@@ -100,7 +100,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     _state = state;
-    _is_pipeline_scan = state->enable_pipeline_exec();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -140,26 +139,11 @@ Status VScanNode::prepare(RuntimeState* state) {
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(_runtime_profile.get());
 
-    if (_is_pipeline_scan) {
-        if (_shared_scan_opt) {
-            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
-            auto [should_create_scanner, queue_id] =
-                    _shared_scanner_controller->should_build_scanner_and_queue_id(id());
-            _should_create_scanner = should_create_scanner;
-            _context_queue_id = queue_id;
-        } else {
-            _should_create_scanner = true;
-            _context_queue_id = 0;
-        }
-    }
-
     // 1: running at not pipeline mode will init profile.
     // 2: the scan node should create scanner at pipeline mode will init profile.
     // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
     // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
-    if (!_is_pipeline_scan || _should_create_scanner) {
-        RETURN_IF_ERROR(_init_profile());
-    }
+    RETURN_IF_ERROR(_init_profile());
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
@@ -190,35 +174,9 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(_acquire_runtime_filter(false));
     RETURN_IF_ERROR(_process_conjuncts());
 
-    if (_is_pipeline_scan) {
-        if (_should_create_scanner) {
-            auto status =
-                    !_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK();
-            if (_scanner_ctx) {
-                DCHECK(!_eos && _num_scanners->value() > 0);
-                RETURN_IF_ERROR(_scanner_ctx->init());
-            }
-            if (_shared_scan_opt) {
-                LOG(INFO) << "instance shared scan enabled"
-                          << print_id(state->fragment_instance_id());
-                _shared_scanner_controller->set_scanner_context(id(),
-                                                                _eos ? nullptr : _scanner_ctx);
-            }
-            RETURN_IF_ERROR(status);
-        } else if (_shared_scanner_controller->scanner_context_is_ready(id())) {
-            _scanner_ctx = _shared_scanner_controller->get_scanner_context(id());
-            if (!_scanner_ctx) {
-                _eos = true;
-            }
-        } else {
-            return Status::WaitForScannerContext("Need wait for scanner context create");
-        }
-    } else {
-        RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num())
-                              : Status::OK());
-        if (_scanner_ctx) {
-            RETURN_IF_ERROR(_scanner_ctx->init());
-        }
+    RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK());
+    if (_scanner_ctx) {
+        RETURN_IF_ERROR(_scanner_ctx->init());
     }
 
     RETURN_IF_CANCELLED(state);
@@ -305,16 +263,9 @@ Status VScanNode::_init_profile() {
 
 void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                 const int query_parallel_instance_num) {
-    if (_is_pipeline_scan) {
-        int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
-        _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
-                _state->scan_queue_mem_limit(), max_queue_size);
-    } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
-                                                     _output_row_descriptor.get(), scanners,
-                                                     limit(), _state->scan_queue_mem_limit());
-    }
+    _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
+                                                 _output_row_descriptor.get(), scanners, limit(),
+                                                 _state->scan_queue_mem_limit());
 }
 
 Status VScanNode::close(RuntimeState* state) {
@@ -328,11 +279,7 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     if (_scanner_ctx) {
-        if (!state->enable_pipeline_exec() || _should_create_scanner) {
-            // stop and wait the scanner scheduler to be done
-            // _scanner_ctx may not be created for some short circuit case.
-            _scanner_ctx->stop_scanners(state);
-        }
+        _scanner_ctx->stop_scanners(state);
     }
     _scanners.clear();
     ExecNode::release_resource(state);

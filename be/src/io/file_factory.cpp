@@ -227,7 +227,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     }
 
     TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_exec()) {
+    if (runtime_state->enable_pipeline_x_exec()) {
         pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
                                                         runtime_state->fragment_id());
     } else {

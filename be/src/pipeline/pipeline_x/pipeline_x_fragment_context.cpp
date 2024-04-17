@@ -541,7 +541,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     _runtime_state->runtime_filter_wait_infinitely();
             filterparams->runtime_filter_wait_time_ms =
                     _runtime_state->runtime_filter_wait_time_ms();
-            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_exec();
+            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_x_exec();
             filterparams->execution_timeout = _runtime_state->execution_timeout();
 
             filterparams->exec_env = ExecEnv::GetInstance();
