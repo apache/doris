@@ -32,6 +32,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PaimonColumnValue implements ColumnValue {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
@@ -166,6 +167,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
+        int numFields = structFieldIndex.stream().collect(Collectors.maxBy(Integer::compareTo)).get() + 1;
+        InternalRow row = record.getRow(idx, numFields);
+        for (int i = 0; i < structFieldIndex.size(); i++) {
+            PaimonColumnValue structColumnValue = new PaimonColumnValue((DataGetters) row, structFieldIndex.get(i),
+                    dorisType.getChildTypes().get(i));
+            values.add(structColumnValue);
+        }
     }
 }
