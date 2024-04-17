@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
@@ -41,8 +42,10 @@ import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -582,6 +585,23 @@ public class StructInfo {
                 }
             }
             return true;
+        }
+    }
+
+    /**
+     * Add predicates on base table when materialized view scan contains invalid partitions
+     */
+    public static class InvalidPartitionRemover extends DefaultPlanRewriter<Pair<MTMV, Set<Long>>> {
+        // materialized view scan is always LogicalOlapScan, so just handle LogicalOlapScan
+        @Override
+        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Pair<MTMV, Set<Long>> context) {
+            if (olapScan.getTable().getName().equals(context.key().getName())) {
+                List<Long> selectedPartitionIds = olapScan.getSelectedPartitionIds();
+                return olapScan.withSelectedPartitionIds(selectedPartitionIds.stream()
+                        .filter(partitionId -> !context.value().contains(partitionId))
+                        .collect(Collectors.toList()));
+            }
+            return olapScan;
         }
     }
 }
