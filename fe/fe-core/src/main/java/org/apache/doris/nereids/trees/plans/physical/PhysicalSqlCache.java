@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PCacheValue;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TUniqueId;
@@ -98,10 +99,18 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     @Override
     public String toString() {
+        long rowCount = 0;
+        if (resultSet.isPresent()) {
+            rowCount = resultSet.get().getResultRows().size();
+        } else {
+            for (PCacheValue cacheValue : cacheValues) {
+                rowCount += cacheValue.getRowsCount();
+            }
+        }
         return Utils.toSqlString("PhysicalSqlCache[" + id.asInt() + "]",
                 "queryId", DebugUtil.printId(queryId),
                 "backend", backendAddress,
-                "rowCount", resultSet.map(rs -> rs.getResultRows().size()).orElse(cacheValues.size())
+                "rowCount", rowCount
         );
     }
 
