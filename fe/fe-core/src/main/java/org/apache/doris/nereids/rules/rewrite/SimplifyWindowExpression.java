@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -46,6 +48,9 @@ import java.util.Set;
  * select max(c1) over(partition by pk) from t1;
  * -> select c1 from t1;
  * */
+@DependsRules({
+        ExtractAndNormalizeWindowExpression.class
+})
 public class SimplifyWindowExpression extends OneRewriteRuleFactory {
     private static final String COUNT = "count";
     private static final ImmutableSet<String> REWRRITE_TO_CONST_WINDOW_FUNCTIONS =
@@ -67,10 +72,6 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
         for (NamedExpression expr : windowExpressions) {
             Alias alias = (Alias) expr;
             WindowExpression windowExpression = (WindowExpression) alias.child();
-            if (!windowExpression.getOrderKeys().isEmpty()) {
-                remainWindowExpression.add(expr);
-                continue;
-            }
             if (windowExpression.getPartitionKeys().stream().anyMatch((
                     partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
                 continue;
@@ -99,31 +100,22 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             }
         }
         List<NamedExpression> projections = projectionsBuilder.build();
-        List<NamedExpression> remainWindow = remainWindowExpression.build();
+        List<NamedExpression> remainWindows = remainWindowExpression.build();
 
         if (projections.isEmpty()) {
             return window;
-        } else if (remainWindow.isEmpty()) {
+        } else if (remainWindows.isEmpty()) {
             return new LogicalProject(projections, window.child(0));
         } else {
-            return new LogicalProject(projections, window.withExpression(remainWindow,
+            List<Slot> windowOutputs = Lists.newArrayList();
+            for (NamedExpression remainWindow : remainWindows) {
+                windowOutputs.add(remainWindow.toSlot());
+            }
+            List<NamedExpression> finalProjections = Lists.newArrayList(projections);
+            finalProjections.addAll(windowOutputs);
+            return new LogicalProject(finalProjections, window.withExpression(remainWindows,
                     window.child(0)));
         }
     }
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
