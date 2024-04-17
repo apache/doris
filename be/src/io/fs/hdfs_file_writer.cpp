@@ -100,14 +100,7 @@ Status HdfsFileWriter::close() {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_flush_latency);
         // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
-        ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
-    }
-    if (ret == -1) {
-        std::stringstream ss;
-        ss << "failed to flush hdfs file. "
-           << "fs_name:" << _fs_name << " path:" << _path << ", err: " << hdfs_error();
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
     _hdfs_file = nullptr;
     if (ret != 0) {
@@ -119,13 +112,12 @@ Status HdfsFileWriter::close() {
     return Status::OK();
 }
 
-HdfsFileWriter::CachedBatchBuffer::CachedBatchBuffer(size_t capacity)
-        : _capacity(capacity), _size(0) {
+HdfsFileWriter::CachedBatchBuffer::CachedBatchBuffer(size_t capacity) {
     _batch_buffer.reserve(capacity);
 }
 
 bool HdfsFileWriter::CachedBatchBuffer::full() const {
-    return _size == _capacity;
+    return size() == capacity();
 }
 
 const char* HdfsFileWriter::CachedBatchBuffer::data() const {
@@ -133,15 +125,14 @@ const char* HdfsFileWriter::CachedBatchBuffer::data() const {
 }
 
 size_t HdfsFileWriter::CachedBatchBuffer::capacity() const {
-    return _capacity;
+    return _batch_buffer.capacity();
 }
 
 size_t HdfsFileWriter::CachedBatchBuffer::size() const {
-    return _size;
+    return _batch_buffer.size();
 }
 
 void HdfsFileWriter::CachedBatchBuffer::clear() {
-    _size = 0;
     _batch_buffer.clear();
 }
 
@@ -150,7 +141,7 @@ FileBlocksHolderPtr HdfsFileWriter::CachedBatchBuffer::allocate_cache_holder(siz
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
     ctx.is_cold_data = _is_cold_data;
-    auto holder = _cache->get_or_set(_cache_hash, offset, _capacity, ctx);
+    auto holder = _cache->get_or_set(_cache_hash, offset, capacity(), ctx);
     return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
 
@@ -186,14 +177,6 @@ void HdfsFileWriter::_write_into_local_file_cache() {
     }
 }
 
-void HdfsFileWriter::CachedBatchBuffer::append(Slice& data) {
-    size_t append_size =
-            std::min(config::hdfs_write_batch_buffer_size - _batch_buffer.size(), data.get_size());
-    std::string_view sv(data.get_data(), append_size);
-    _batch_buffer.append(sv);
-    data.remove_prefix(append_size);
-}
-
 Status HdfsFileWriter::_write_batch_into_underlying_hdfs() {
     size_t left_bytes = _batch_buffer.capacity();
     const char* p = _batch_buffer.data();
@@ -224,14 +207,25 @@ Status HdfsFileWriter::_consume_batch_into_hdfs_and_cache() {
     return Status::OK();
 }
 
+size_t HdfsFileWriter::CachedBatchBuffer::append(const char* pos, size_t data_size) {
+    size_t append_size = std::min(capacity() - size(), data_size);
+    std::string_view sv(pos, append_size);
+    _batch_buffer.append(sv);
+    return append_size;
+}
+
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_closed) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
-        while (!data[i].empty()) {
-            _batch_buffer.append(const_cast<Slice&>(data[i]));
+        size_t size = data[i].get_size();
+        size_t pos = 0;
+        while (size > 0) {
+            size_t append_size = _batch_buffer.append(data[i].get_data() + pos, size);
+            size -= append_size;
+            pos += append_size;
             if (_batch_buffer.full()) {
                 RETURN_IF_ERROR(_consume_batch_into_hdfs_and_cache());
             }

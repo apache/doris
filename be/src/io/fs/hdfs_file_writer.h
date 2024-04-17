@@ -64,15 +64,13 @@ private:
     bool _sync_file_data;
     struct CachedBatchBuffer {
         CachedBatchBuffer(size_t capacity);
-        uint64_t _expiration_time;
         bool _is_cold_data;
         bool _write_file_cache;
+        uint64_t _expiration_time;
         UInt128Wrapper _cache_hash;
         BlockFileCache* _cache;
         std::string _batch_buffer;
-        size_t _capacity;
-        size_t _size;
-        void append(Slice& s);
+        size_t append(const char* pos, size_t size);
         bool full() const;
         const char* data() const;
         size_t capacity() const;
