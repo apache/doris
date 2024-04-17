@@ -85,8 +85,9 @@ Status Channel<Parent>::init(RuntimeState* state) {
     }
 
     if (_is_local) {
-        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr));
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
     } else {
         if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
             _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
@@ -125,8 +126,9 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
         _is_local &= state->query_options().enable_local_exchange;
     }
     if (_is_local) {
-        RETURN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr));
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
         return Status::OK();
     }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
