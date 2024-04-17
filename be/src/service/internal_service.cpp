@@ -666,7 +666,11 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         auto&& res = FileFactory::create_file_writer(
                 FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
                 ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name);
+                file_options.broker_properties, file_name,
+                {
+                        .write_file_cache = false,
+                        .sync_file_data = false,
+                });
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
