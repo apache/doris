@@ -119,6 +119,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
+    _intermediate_tuple_desc = descs.get_tuple_descriptor(_intermediate_tuple_id);
+    _output_tuple_desc = descs.get_tuple_descriptor(_output_tuple_id);
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -250,8 +252,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(runtime_profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
-    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 

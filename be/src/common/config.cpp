@@ -800,6 +800,11 @@ DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+// The default delete bitmap cache is set to 100MB,
+// which can be insufficient and cause performance issues when the amount of user data is large.
+// To mitigate the problem of an inadequate cache,
+// we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "0.5%");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
@@ -1148,6 +1153,8 @@ DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
+DEFINE_mInt32(report_exec_status_thread_num, "5");
+
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
@@ -1155,13 +1162,13 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
-DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
-DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
+DEFINE_String(spill_storage_limit, "20%");   // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
+DEFINE_mInt32(spill_gc_file_count, "2000");
 DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
 DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
 DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
 DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
-DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
@@ -1176,14 +1183,15 @@ DEFINE_mString(ca_cert_file_paths,
                "/etc/ssl/ca-bundle.pem");
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DEFINE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold,
-              "125829120"); // 120MB
-// Minimum data processed to start rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_data_processed_threshold, "209715200"); // 200MB
+              "26214400"); // 25MB
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DEFINE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold,
-              "209715200"); // 200MB
+DEFINE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold,
+              "26214400"); // 25MB
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DEFINE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold,
+              "15728640"); // 15MB
 // Maximum processed partition nums of per writer when partition writing
 DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
@@ -1191,6 +1199,11 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
+
+DEFINE_Bool(enable_index_compaction, "false");
+
+// enable injection point in regression-test
+DEFINE_mBool(enable_injection_point, "false");
 
 // clang-format off
 #ifdef BE_TEST

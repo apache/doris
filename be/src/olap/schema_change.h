@@ -270,6 +270,7 @@ struct SchemaChangeParams {
     DescriptorTbl* desc_tbl = nullptr;
     ObjectPool pool;
     int32_t be_exec_version;
+    std::string vault_id;
 };
 
 class SchemaChangeJob {

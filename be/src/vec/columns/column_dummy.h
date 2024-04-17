@@ -116,20 +116,6 @@ public:
         return clone_dummy(offsets.back());
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        if (s != selector.size()) {
-            LOG(FATAL) << "Size of selector doesn't match size of column.";
-        }
-
-        std::vector<size_t> counts(num_columns);
-        for (auto idx : selector) ++counts[idx];
-
-        MutableColumns res(num_columns);
-        for (size_t i = 0; i < num_columns; ++i) res[i] = clone_resized(counts[i]);
-
-        return res;
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         size_t num_rows = size();
@@ -142,6 +128,20 @@ public:
         res->reserve(num_rows);
 
         for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                      selector.size(), num_rows);
+        }
+
+        res->reserve(num_rows);
+
+        for (size_t i = begin; i < end; ++i) res->insert_from(*this, selector[i]);
     }
 
     void addSize(size_t delta) { s += delta; }

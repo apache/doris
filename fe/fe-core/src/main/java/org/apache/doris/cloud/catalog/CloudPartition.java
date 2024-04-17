@@ -22,7 +22,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
-import org.apache.doris.cloud.qe.SnapshotProxy;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -98,6 +98,11 @@ public class CloudPartition extends Partition {
             super.setVisibleVersion(version);
         }
         lock.unlock();
+    }
+
+    @Override
+    public long getCachedVisibleVersion() {
+        return super.getVisibleVersion();
     }
 
     @Override
@@ -323,7 +328,7 @@ public class CloudPartition extends Partition {
             throws RpcException {
         long startAt = System.nanoTime();
         try {
-            return SnapshotProxy.getVisibleVersion(req);
+            return VersionHelper.getVisibleVersion(req);
         } finally {
             SummaryProfile profile = getSummaryProfile();
             if (profile != null) {

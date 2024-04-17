@@ -173,6 +173,8 @@ public class JdbcMySQLClient extends JdbcClient {
 
     protected Set<String> getFilterInternalDatabases() {
         return ImmutableSet.<String>builder()
+                .add("information_schema")
+                .add("performance_schema")
                 .add("mysql")
                 .add("sys")
                 .build();

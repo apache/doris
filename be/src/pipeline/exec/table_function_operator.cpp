@@ -44,8 +44,10 @@ Status TableFunctionOperator::close(doris::RuntimeState* state) {
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
 
-Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+Status TableFunctionLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
+    SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     auto& p = _parent->cast<TableFunctionOperatorX>();
     _vfn_ctxs.resize(p._vfn_ctxs.size());
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {

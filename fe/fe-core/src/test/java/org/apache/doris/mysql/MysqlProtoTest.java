@@ -22,11 +22,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.ldap.LdapManager;
+import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticate;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -216,7 +216,7 @@ public class MysqlProtoTest {
     }
 
     private void mockLdap(String user, boolean userExist) {
-        LdapConfig.ldap_authentication_enabled = true;
+        Config.authentication_type = "ldap";
 
         new Expectations() {
             {
@@ -290,7 +290,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
-        LdapConfig.ldap_authentication_enabled = false;
+        Config.authentication_type = "default";
     }
 
     @Test
@@ -304,7 +304,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertFalse(MysqlProto.negotiate(context));
-        LdapConfig.ldap_authentication_enabled = false;
+        Config.authentication_type = "default";
     }
 
     @Test
@@ -318,7 +318,7 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
-        LdapConfig.ldap_authentication_enabled = false;
+        Config.authentication_type = "default";
     }
 
     @Test

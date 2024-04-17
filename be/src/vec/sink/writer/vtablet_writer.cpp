@@ -974,20 +974,15 @@ VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& o
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
-Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 void VTabletWriter::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    int sleep_time = config::olap_table_sink_send_interval_microseconds *
-                     (_vpartition->is_auto_partition()
-                              ? config::olap_table_sink_send_interval_auto_partition_factor
-                              : 1);
+    int sleep_time = int(config::olap_table_sink_send_interval_microseconds *
+                         (_vpartition->is_auto_partition()
+                                  ? config::olap_table_sink_send_interval_auto_partition_factor
+                                  : 1));
 
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
@@ -1125,6 +1120,7 @@ Status VTabletWriter::_init_row_distribution() {
 
 Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_t_sink.__isset.olap_table_sink);
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -1134,6 +1130,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {

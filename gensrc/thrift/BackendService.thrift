@@ -24,6 +24,7 @@ include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
+include "FrontendService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -319,6 +320,16 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
+struct TGetRealtimeExecStatusRequest {
+    // maybe query id or other unique id
+    1: optional Types.TUniqueId id
+}
+
+struct TGetRealtimeExecStatusResponse {
+    1: optional Status.TStatus status
+    2: optional FrontendService.TReportExecStatusParams report_exec_status_params
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -387,4 +398,6 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 }

@@ -165,7 +165,12 @@ public class RoleManager implements Writable, GsonPostProcessable {
                     .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
             replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
 
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> stageMap = role.getStagePatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(stageMap, PrivLevel.STAGE);
+
             Map<PrivLevel, String> infoMap =
+                    Stream.concat(
                     Stream.concat(
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
@@ -179,6 +184,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                             .entrySet().stream())
                     ),
                     clusterMap.entrySet().stream()
+                    ), stageMap.entrySet().stream()
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -191,7 +197,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
                             }, (s1, s2) -> s1 + " " + s2
                     ));
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
-                        PrivLevel.CLUSTER)
+                        PrivLevel.CLUSTER, PrivLevel.STAGE)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {

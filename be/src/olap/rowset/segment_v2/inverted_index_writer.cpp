@@ -91,7 +91,11 @@ public:
         _field_name = std::wstring(field_name.begin(), field_name.end());
     }
 
-    ~InvertedIndexColumnWriterImpl() override = default;
+    ~InvertedIndexColumnWriterImpl() override {
+        if (_index_writer != nullptr) {
+            close_on_error();
+        }
+    }
 
     Status init() override {
         try {
@@ -112,6 +116,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
+            _index_writer.reset();
         }
     }
 
@@ -400,9 +405,12 @@ public:
                         _doc->add(*new_field);
                     }
                 }
-                RETURN_IF_ERROR(add_document());
-                _doc->clear();
-                _CLDELETE(ts);
+                if (!_doc->getFields()->empty()) {
+                    // if this array is null, we just ignore to write inverted index
+                    RETURN_IF_ERROR(add_document());
+                    _doc->clear();
+                    _CLDELETE(ts);
+                }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {

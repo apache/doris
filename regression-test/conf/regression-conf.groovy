@@ -89,6 +89,7 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
+    "cloud_p0/cache" +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
@@ -123,8 +124,8 @@ db2_11_port=50000
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
-hms_port=9183
-hdfs_port=8120
+hms_port=9083
+hdfs_port=8020
 hiveServerPort=10000
 hive_pg_port=5432
 

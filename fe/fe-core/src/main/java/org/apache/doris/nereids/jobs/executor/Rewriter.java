@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
@@ -51,6 +51,7 @@ import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
+import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
@@ -117,6 +118,7 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
@@ -152,8 +154,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //   such as group by key matching and replaced
                             //   but we need to do some normalization before subquery unnesting,
                             //   such as extract common expression.
-                            new ExpressionNormalization(),
-                            new ExpressionOptimization(),
+                            new ExpressionNormalizationAndOptimization(),
                             new AvgDistinctToSumDivCount(),
                             new CountDistinctRewrite(),
                             new ExtractFilterFromCrossJoin()
@@ -204,6 +205,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
+                            new EliminateAggCaseWhen(),
+                            new ReduceAggregateChildOutputRows(),
                             new EliminateJoinCondition(),
                             new EliminateAssertNumRows(),
                             new EliminateSemiJoin()
@@ -240,7 +243,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     // after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
-                    topDown(new ExpressionOptimization()),
+                    // topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
                             new ReorderJoin(),

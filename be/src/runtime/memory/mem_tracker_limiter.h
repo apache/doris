@@ -46,6 +46,9 @@ class RuntimeProfile;
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
 struct TrackerLimiterGroup {
+    // Note! in order to enable ExecEnv::mem_tracker_limiter_pool support resize,
+    // the copy construction of TrackerLimiterGroup is disabled.
+    // so cannot copy TrackerLimiterGroup anywhere, should use reference.
     TrackerLimiterGroup() = default;
     TrackerLimiterGroup(TrackerLimiterGroup&&) noexcept {}
     TrackerLimiterGroup(const TrackerLimiterGroup&) {}
@@ -157,6 +160,7 @@ public:
     }
 
     static void refresh_global_counter();
+    static void clean_tracker_limiter_group();
 
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
@@ -238,7 +242,6 @@ public:
     }
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tracker_limiter_group_it;
     std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
 
 private:

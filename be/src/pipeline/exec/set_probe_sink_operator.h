@@ -81,6 +81,7 @@ public:
             : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     int64_t* valid_element_in_hash_tbl() { return &_shared_state->valid_element_in_hash_tbl; }
 
 private:

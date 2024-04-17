@@ -71,50 +71,31 @@ void NewFileScanNode::set_scan_ranges(RuntimeState* state,
         _scan_ranges = scan_ranges;
     } else {
         // There is no need for the number of scanners to exceed the number of threads in thread pool.
+        // scan_ranges is sorted by path(as well as partition path) in FE, so merge scan ranges in order.
+        // In the insert statement, reading data in partition order can reduce the memory usage of BE
+        // and prevent the generation of smaller tables.
         _scan_ranges.resize(max_scanners);
-        std::vector<TScanRangeParams>& scan_ranges_ =
-                const_cast<std::vector<TScanRangeParams>&>(scan_ranges);
-        auto& first_ranges = scan_ranges_[0].scan_range.ext_scan_range.file_scan_range.ranges;
-        if (first_ranges[0].__isset.columns_from_path_keys &&
-            !first_ranges[0].columns_from_path_keys.empty()) {
-            int num_keys = first_ranges[0].columns_from_path_keys.size();
-            // In the insert statement, reading data in partition order can reduce the memory usage of BE
-            // and prevent the generation of smaller tables.
-            std::sort(scan_ranges_.begin(), scan_ranges_.end(),
-                      [&num_keys](TScanRangeParams r1, TScanRangeParams r2) {
-                          auto& path1 = r1.scan_range.ext_scan_range.file_scan_range.ranges[0]
-                                                .columns_from_path;
-                          auto& path2 = r2.scan_range.ext_scan_range.file_scan_range.ranges[0]
-                                                .columns_from_path;
-                          for (int i = 0; i < num_keys; ++i) {
-                              if (path1[i] < path2[i]) {
-                                  return true;
-                              }
-                          }
-                          return false;
-                      });
-        }
         int num_ranges = scan_ranges.size() / max_scanners;
         int num_add_one = scan_ranges.size() - num_ranges * max_scanners;
         int scan_index = 0;
         int range_index = 0;
         for (int i = 0; i < num_add_one; ++i) {
-            _scan_ranges[scan_index] = scan_ranges_[range_index++];
+            _scan_ranges[scan_index] = scan_ranges[range_index++];
             auto& ranges =
                     _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges; j++) {
-                auto& merged_ranges = scan_ranges_[range_index++]
-                                              .scan_range.ext_scan_range.file_scan_range.ranges;
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }
         for (int i = num_add_one; i < max_scanners; ++i) {
-            _scan_ranges[scan_index] = scan_ranges_[range_index++];
+            _scan_ranges[scan_index] = scan_ranges[range_index++];
             auto& ranges =
                     _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges - 1; j++) {
-                auto& merged_ranges = scan_ranges_[range_index++]
-                                              .scan_range.ext_scan_range.file_scan_range.ranges;
+                auto& merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }

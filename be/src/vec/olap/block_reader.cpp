@@ -193,22 +193,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         _agg_places.push_back(place);
 
         // calculate `_has_variable_length_tag` tag. like string, array, map
-        _stored_has_variable_length_tag[idx] =
-                _stored_data_columns[idx]->is_column_string() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_string()) ||
-                _stored_data_columns[idx]->is_column_array() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_array()) ||
-                _stored_data_columns[idx]->is_column_map() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_map());
+        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
 }
 
@@ -491,10 +476,10 @@ size_t BlockReader::_copy_agg_data() {
         auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_variable_length_tag[idx]) {
             //variable length type should replace ordered
+            dst_column->clear();
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
-                dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
-                                                ref.row_pos, i);
+                dst_column->insert_from(*ref.block->get_by_position(idx).column, ref.row_pos);
             }
         } else {
             for (auto& it : _temp_ref_map) {

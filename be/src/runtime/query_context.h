@@ -18,11 +18,14 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -32,6 +35,7 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
+#include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -114,7 +118,7 @@ public:
                                    const std::string& msg);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
-    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
+    void cancel(std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -238,6 +242,8 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
+    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
+
     int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
@@ -351,6 +357,58 @@ private:
     std::mutex _weighted_mem_lock;
     int64_t _weighted_consumption = 0;
     int64_t _weighted_limit = 0;
+
+    std::mutex _profile_mutex;
+
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // flatten profile of one fragment:
+    // Pipeline 0
+    //      PipelineTask 0
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    //      PipelineTask 1
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    // Pipeline 1
+    //      PipelineTask 2
+    //              Operator 3
+    //      PipelineTask 3
+    //              Operator 3
+    // fragment_id -> list<profile>
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
+
+    // instance_id -> profile
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+
+    void _report_query_profile();
+    void _report_query_profile_non_pipeline();
+    void _report_query_profile_x();
+
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+    _collect_realtime_query_profile_x() const;
+
+    std::unordered_map<TUniqueId, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+    _collect_realtime_query_profile_non_pipeline() const;
+
+public:
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    void add_fragment_profile_x(
+            int fragment_id,
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
+            std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
+                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    TReportExecStatusParams get_realtime_exec_status_x() const;
+
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 };
 
 } // namespace doris

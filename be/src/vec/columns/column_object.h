@@ -385,7 +385,14 @@ public:
     void insert(const Field& field) override { try_insert(field); }
 
     void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override;
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
+    }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
@@ -456,18 +463,11 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    MutableColumns scatter(ColumnIndex, const Selector&) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return {};
-    }
+    bool is_variable_length() const override { return true; }
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
 
-    void replace_column_data_default(size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void replace_column_data_default(size_t self_row) override;
 
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";

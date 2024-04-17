@@ -26,12 +26,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
@@ -40,11 +37,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -104,7 +99,7 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
 #include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -155,6 +150,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
+    }
+    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -245,12 +246,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
+    _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
+    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -306,7 +308,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr->start(this);
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-
+    _runtime_query_statistics_mgr->start_report_thread();
     _s_ready = true;
 
     return Status::OK();
@@ -595,15 +597,18 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
-    _load_stream_stub_pool.reset();
+    _load_stream_map_pool.reset();
     _file_cache_open_fd_cache.reset();
-    SAFE_DELETE(_dns_cache);
+    SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
     // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
+    if (_runtime_query_statistics_mgr) {
+        _runtime_query_statistics_mgr->stop_report_thread();
+    }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -659,6 +664,7 @@ void ExecEnv::destroy() {
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _file_cache_open_fd_cache.reset(nullptr);
+    _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -688,6 +694,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
     LOG(INFO) << "Doris exec envorinment is destoried.";

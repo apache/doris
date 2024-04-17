@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -110,8 +112,6 @@ public:
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
 
-    bool query_is_canceled(const TUniqueId& query_id);
-
     void cancel_worker();
 
     void debug(std::stringstream& ss) override;
@@ -132,6 +132,10 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
+
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);
@@ -148,6 +152,9 @@ public:
     std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
+
+    Status get_realtime_exec_status(const TUniqueId& query_id,
+                                    TReportExecStatusParams* exec_status);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
