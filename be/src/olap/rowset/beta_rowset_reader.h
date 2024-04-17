@@ -84,6 +84,8 @@ public:
 
     RowsetReaderSharedPtr clone() override;
 
+    void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
+
 private:
     [[nodiscard]] Status _init_iterator_once();
     [[nodiscard]] Status _init_iterator();
@@ -123,6 +125,7 @@ private:
     StorageReadOptions _read_options;
 
     bool _empty = false;
+    size_t _topn_limit = 0;
 };
 
 } // namespace doris
