@@ -18,7 +18,7 @@
 suite("test_query_sys_rowsets", "query,p0") {
     def dbName1 = "test_query_sys_rowsets"
 
-    sql("drop database IF EXISTS ${dbName1}")
+    sql("CREATE DATABASE IF NOT EXISTS ${dbName1}")
 
     // test rowsets
     qt_desc_rowsets """ desc information_schema.rowsets """ 
