@@ -176,9 +176,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     }
     // indexes for this column
     opts.indexes = _tablet_schema->get_indexes_for_column(column);
-    if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
-        (column.is_extracted_column() && column.is_array_type())) {
-        // variant and jsonb type skip write index
+    if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+        // skip inverted index if invalid
         opts.indexes.clear();
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
