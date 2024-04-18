@@ -42,6 +42,7 @@
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -224,9 +225,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
-            (column.is_extracted_column() && column.is_array_type())) {
-            // variant and jsonb type skip write index
+        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+            // skip inverted index if invalid
             opts.indexes.clear();
             opts.need_zone_map = false;
             opts.need_bloom_filter = false;
