@@ -104,7 +104,7 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
     if (iter != _planned_pipes.end()) {
         pipe = iter->second;
         RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
-                                       "append failed in unplanned kafka pipe");
+                                       "append failed in planned kafka pipe");
     } else {
         iter = _unplanned_pipes.find(table);
         if (iter == _unplanned_pipes.end()) {
