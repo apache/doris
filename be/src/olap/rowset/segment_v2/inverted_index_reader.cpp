@@ -207,6 +207,14 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             return Status::OK();
         }
 
+        bool exists = false;
+        RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << index_file_path.native() << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index path: {} not exist.", index_file_path.native());
+        }
+
         if (!dir) {
             dir = new DorisCompoundReader(
                     DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
