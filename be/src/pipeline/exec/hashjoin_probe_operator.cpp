@@ -247,7 +247,9 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
-    if (local_state._shared_state->empty_right_table_need_probe_dispose) {
+    // only support nereids
+    if (local_state._shared_state->empty_right_table_need_probe_dispose &&
+        !Base::_projections.empty()) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         // we could get the result is probe table + null-column(if need output)
         // If we use a short-circuit strategy, should return block directly by add additional null data.
