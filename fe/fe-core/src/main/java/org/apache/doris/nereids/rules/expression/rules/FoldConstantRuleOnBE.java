@@ -206,12 +206,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                     || (expr instanceof ArrayItemReference) || (expr instanceof Match)) {
                 return;
             }
-            // Tokenize function want check the second child literal must be string type
-            // and properties format, it's a little special,
-            // maybe check in checkLegalityBeforeTypeCoercion function?
-            if (expr instanceof Tokenize) {
-                expr.checkLegalityAfterRewrite();
-            }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
             Expr staleExpr;
