@@ -326,7 +326,7 @@ DEFINE_Int32(storage_page_cache_shard_size, "256");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-DEFINE_Bool(disable_storage_page_cache, "false");
+DEFINE_mBool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
@@ -1155,6 +1155,8 @@ DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
+
+DEFINE_mInt32(report_exec_status_thread_num, "5");
 
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");

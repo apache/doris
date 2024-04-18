@@ -100,7 +100,8 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
 
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
         TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const std::string& path) {
+        const std::map<std::string, std::string>& properties, const std::string& path,
+        const io::FileWriterOptions& options) {
     io::FileWriterPtr file_writer;
     switch (type) {
     case TFileType::FILE_LOCAL: {
@@ -117,16 +118,15 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         RETURN_IF_ERROR_RESULT(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
         auto client = S3ClientFactory::instance().create(s3_conf.client_conf);
-        // TODO(plat1ko): Set opts
         return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), nullptr);
+                                                  s3_uri.get_key(), &options);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         io::HdfsHandler* handler;
         RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
                 hdfs_params, hdfs_params.fs_name, &handler));
-        auto res = io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name);
+        auto res = io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
         if (!res.has_value()) {
             handler->dec_ref();
         }

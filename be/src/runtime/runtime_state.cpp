@@ -536,10 +536,10 @@ Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilte
     // So if `need_local_merge` is true, we will disable `build_bf_exactly`.
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_local_merge_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly && !need_local_merge);
+                desc, query_options(), producer_filter, build_bf_exactly);
     } else {
         return local_runtime_filter_mgr()->register_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly && !need_local_merge);
+                desc, query_options(), producer_filter, build_bf_exactly);
     }
 }
 

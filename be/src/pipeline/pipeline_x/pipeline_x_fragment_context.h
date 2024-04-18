@@ -112,6 +112,9 @@ public:
 
     [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
+
     std::string debug_string() override;
 
 private:

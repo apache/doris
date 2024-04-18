@@ -593,6 +593,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         msg = "Unknown alter info " + proto_to_json(*request);
         return;
     } break;
+    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
+        break;
     }
 
     // TODO(dx): check s3 info right
@@ -796,6 +798,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.set_default_storage_vault_id(*id_itr);
         instance.set_default_storage_vault_name(name);
         response->set_storage_vault_id(*id_itr);
+        break;
+    }
+    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
+        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+                 instance.instance_id(), instance.default_storage_vault_name(),
+                 instance.default_storage_vault_id());
+        instance.clear_default_storage_vault_id();
+        instance.clear_default_storage_vault_name();
         break;
     }
     default: {
