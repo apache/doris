@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -31,9 +37,11 @@ import org.junit.jupiter.api.Test;
  * Tests for {@link EliminateFilter}.
  */
 class EliminateFilterTest implements MemoPatternMatchSupported {
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
     @Test
     void testEliminateFilterFalse() {
-        LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+        LogicalPlan filterFalse = new LogicalPlanBuilder(scan1)
                 .filter(BooleanLiteral.FALSE)
                 .build();
 
@@ -44,12 +52,42 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
 
     @Test
     void testEliminateFilterTrue() {
-        LogicalPlan filterTrue = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+        LogicalPlan filterTrue = new LogicalPlanBuilder(scan1)
                 .filter(BooleanLiteral.TRUE)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), filterTrue)
                 .applyTopDown(new EliminateFilter())
                 .matches(logicalOlapScan());
+    }
+
+    @Test
+    void testEliminateOneFilterTrue() {
+        And expr = new And(BooleanLiteral.TRUE, new GreaterThan(scan1.getOutput().get(0), Literal.of("1")));
+        LogicalPlan filter = new LogicalPlanBuilder(scan1)
+                .filter(expr)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new EliminateFilter())
+                .applyBottomUp(new ExpressionNormalization())
+                .matches(
+                        logicalFilter(logicalOlapScan()).when(f -> f.getPredicate() instanceof GreaterThan)
+                );
+    }
+
+    @Test
+    void testEliminateOneFilterFalse() {
+        Or expr = new Or(BooleanLiteral.FALSE, new GreaterThan(scan1.getOutput().get(0), Literal.of("1")));
+        LogicalPlan filter = new LogicalPlanBuilder(scan1)
+                .filter(expr)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new EliminateFilter())
+                .applyBottomUp(new ExpressionNormalization())
+                .matches(
+                        logicalFilter(logicalOlapScan()).when(f -> f.getPredicate() instanceof GreaterThan)
+                );
     }
 }
