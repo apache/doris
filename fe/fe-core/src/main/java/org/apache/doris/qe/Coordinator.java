@@ -4089,7 +4089,7 @@ public class Coordinator implements CoordInterface {
     }
 
     @Override
-    public void refreshExecStatus() {
+    public List<TNetworkAddress> getInvolvedBackends() {
         List<TNetworkAddress> backendAddresses = Lists.newArrayList();
         if (this.enablePipelineXEngine) {
             for (Long backendId : this.beToPipelineExecCtxs.keySet()) {
@@ -4102,84 +4102,7 @@ public class Coordinator implements CoordInterface {
                 backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
             }
         }
-
-        List<Future<TGetRealtimeExecStatusResponse>>
-                getRealtimeExecStatusFutures = Lists.newArrayList();
-
-        for (TNetworkAddress address : backendAddresses) {
-            CompletableFuture<TGetRealtimeExecStatusResponse> future =
-                    CompletableFuture.supplyAsync(
-                    () -> {
-                        TGetRealtimeExecStatusResponse resp = null;
-                        BackendService.Client client = null;
-
-                        try {
-                            client = ClientPool.backendPool.borrowObject(address);
-                        } catch (Exception e) {
-                            LOG.warn("Fetch a agent client failed, address: {}", address.toString());
-                            return null;
-                        }
-
-                        try {
-                            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
-                            req.setId(this.queryId);
-                            resp = client.getRealtimeExecStatus(req);
-                        } catch (TException e) {
-                            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
-                                    DebugUtil.printId(queryId), address.toString(), e);
-                            ClientPool.backendPool.invalidateObject(address, client);
-                        } finally {
-                            ClientPool.backendPool.returnObject(address, client);
-                        }
-
-                        return resp;
-                    }
-            );
-
-            getRealtimeExecStatusFutures.add(future);
-        }
-
-        List<TGetRealtimeExecStatusResponse> responses = Lists.newArrayList();
-        for (Future<TGetRealtimeExecStatusResponse> future : getRealtimeExecStatusFutures) {
-            try {
-                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
-                if (resp != null) {
-                    responses.add(resp);
-                }
-            } catch (Exception e) {
-                LOG.warn("Got exception when getRealtimeExecStatus, query {}",
-                        DebugUtil.printId(queryId), e);
-            }
-        }
-
-        for (TGetRealtimeExecStatusResponse resp : responses) {
-            if (!resp.isSetStatus()) {
-                LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
-                            DebugUtil.printId(queryId));
-                continue;
-            }
-
-            if (resp.getStatus().status_code != TStatusCode.OK) {
-                LOG.warn("Failed to get realtime query exec status, query {} error msg {}",
-                        DebugUtil.printId(queryId), resp.getStatus().toString());
-                continue;
-            }
-
-            if (!resp.isSetReportExecStatusParams()) {
-                LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
-                        DebugUtil.printId(queryId));
-                continue;
-            }
-
-            LOG.info("Get real-time exec status succeed, query {}",
-                        DebugUtil.printId(queryId));
-
-            // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
-            // to avoid compile failing.
-            TNetworkAddress dummyAddr = new TNetworkAddress();
-            QeProcessorImpl.INSTANCE.reportExecStatus(
-                                            resp.getReportExecStatusParams(), dummyAddr);
-        }
+        return backendAddresses;
     }
 
     public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
