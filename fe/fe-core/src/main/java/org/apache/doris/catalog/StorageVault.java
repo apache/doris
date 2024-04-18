@@ -220,8 +220,8 @@ public abstract class StorageVault {
 
         for (int cnt = 0; cnt < rows.size(); cnt++) {
             if (rows.get(cnt).get(vaultIdIndex).equals(vaultId)) {
-                rows.get(cnt).get(isDefaultIndex) = "true";
-                return;
+                List<String> defaultVaultRow = rows.get(cnt);
+                defaultVaultRow.set(isDefaultIndex, "true");
             }
         }
     }
