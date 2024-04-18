@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_not_equal_to_length") {
+suite("string_equal_to_length") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
-    sql 'drop table if exists test_not_equal_to_length;'
+    sql 'drop table if exists test_string_equal_to_length;'
 
-    sql '''create table test_not_equal_to_length (k0 int, k1 string, k2 varchar, k3 char(5)) distributed by hash(k0) buckets 3 properties('replication_num' = '1');'''
+    sql '''create table test_string_equal_to_length (k0 int, k1 string, k2 varchar, k3 char(5)) distributed by hash(k0) buckets 3 properties('replication_num' = '1');'''
 
     // for string type
     sql '''
     select k1
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k1 <> "";
     '''
     def res = sql '''
     explain rewritten plan select k1
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k1 <> "";
     '''
     assertTrue(res.toString().contains("length"))
@@ -39,25 +39,38 @@ suite("test_not_equal_to_length") {
     // for varchar type
     sql '''
     select k2
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k2 <> "";
     '''
     def res1 = sql '''
     explain rewritten plan select k2
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k2 <> "";
     '''
     assertTrue(res1.toString().contains("length"))
 
     sql '''
     select k3
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k3 <> "";
     '''
     def res2 = sql '''
     explain rewritten plan select k3
-    from test_not_equal_to_length
+    from test_string_equal_to_length
     where k3 <> "";
     '''
     assertTrue(res2.toString().contains("length"))
+
+    // for equal
+    sql '''
+    select k1
+    from test_string_equal_to_length
+    where k1 == "";
+    '''
+    def res3 = sql '''
+    explain rewritten plan select k1
+    from test_string_equal_to_length
+    where k1 == "";'''
+    assertTrue(res3.toString().contains("length"))
+
 }

@@ -22,13 +22,13 @@ import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
-import org.apache.doris.nereids.rules.expression.rules.NotEqualToLength;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.rules.expression.rules.StringEqualToLength;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -53,7 +53,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                 CaseWhenToIf.INSTANCE,
                 TopnToMax.INSTANCE,
                 NullSafeEqualToEqual.INSTANCE,
-                NotEqualToLength.INSTANCE
+                StringEqualToLength.INSTANCE
             )
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
