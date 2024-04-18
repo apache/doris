@@ -305,7 +305,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void translate(PhysicalPlan resultPlan) throws UserException {
+    private void translate(PhysicalPlan resultPlan) {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
         }
