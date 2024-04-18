@@ -58,6 +58,7 @@ public class PropertyConverter {
 
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
 
     /**
      * Convert properties defined at doris to metadata properties on Cloud
