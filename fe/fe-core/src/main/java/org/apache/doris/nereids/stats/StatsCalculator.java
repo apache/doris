@@ -777,9 +777,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 idxId = olapScan.getSelectedIndexId();
             }
         }
-        if (deltaRowCount > 0) {
-            LOG.info(catalogRelation.getTable().getName()
-                    + " is partially analyzed, clear min/max values in column stats");
+        if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
+            LOG.debug("{} is partially analyzed, clear min/max values in column stats",
+                    catalogRelation.getTable().getName());
         }
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
