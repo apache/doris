@@ -72,6 +72,11 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.end()) {
+        std::string keys;
+        for (auto it : _consumer_map) {
+            keys += std::to_string(it.first) + ",";
+        }
+        LOG(WARNING) << "add: " << this << " ,keys:" << keys << " ,filter_id:" << filter_id;
         return Status::InternalError("get_consume_filters meet unknown filter: {}, role: CONSUMER.",
                                      filter_id);
     }
