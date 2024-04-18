@@ -1589,7 +1589,7 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitNvl(Nvl nvl, C context) {
         return visitScalarFunction(nvl, context);
     }
-    
+
     default R visitOverlay(Overlay overlay, C context) {
         return visitScalarFunction(overlay, context);
     }
