@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.IntStream;
 
 public abstract class StorageVault {
     private static final Logger LOG = LogManager.getLogger(StorageVault.class);
@@ -170,8 +171,9 @@ public abstract class StorageVault {
     public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
             ShowResultSetMetaData.builder()
                 .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(100)))
-                .addColumn(new Column("StoragevaultId", ScalarType.createVarchar(20)))
+                .addColumn(new Column("StorageVaultId", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
+                .addColumn(new Column("IsDefault", ScalarType.createVarchar(5)))
                 .build();
 
     public static List<String> convertToShowStorageVaultProperties(Cloud.StorageVaultPB vault) {
@@ -191,6 +193,36 @@ public abstract class StorageVault {
             builder.setSk("xxxxxxx");
             row.add(printer.shortDebugString(builder));
         }
+        row.add("false");
         return row;
+    }
+
+    public static void setDefaultVaultToShowVaultResult(List<List<String>> rows, String vaultId) {
+        List<Column> columns = STORAGE_VAULT_META_DATA.getColumns();
+
+        int isDefaultIndex = IntStream.range(0, columns.size())
+                .filter(i -> columns.get(i).getName().equals("IsDefault"))
+                .findFirst()
+                .orElse(-1);
+
+        if (isDefaultIndex == -1) {
+            return;
+        }
+
+        int vaultIdIndex = IntStream.range(0, columns.size())
+                .filter(i -> columns.get(i).getName().equals("StorageVaultId"))
+                .findFirst()
+                .orElse(-1);
+
+        if (vaultIdIndex == -1) {
+            return;
+        }
+
+        for (int cnt = 0; cnt < rows.size(); cnt++) {
+            if (rows.get(cnt).get(vaultIdIndex).equals(vaultId)) {
+                rows.get(cnt).get(isDefaultIndex) = "true";
+                return;
+            }
+        }
     }
 }
