@@ -325,6 +325,7 @@ public class MTMV extends OlapTable {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
+        long start = System.currentTimeMillis();
         Map<Long, Set<Long>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
@@ -332,6 +333,12 @@ public class MTMV extends OlapTable {
         for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+        }
+        LOG.warn("calculatePartitionMappings use [{}] mills, mvName is [{}]",
+                System.currentTimeMillis() - start, name);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
+                    System.currentTimeMillis() - start, name);
         }
         return res;
     }

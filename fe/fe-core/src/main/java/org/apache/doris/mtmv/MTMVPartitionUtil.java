@@ -151,9 +151,16 @@ public class MTMVPartitionUtil {
 
     public static Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
             Map<String, String> mvProperties) throws AnalysisException {
+        long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
             service.apply(mvPartitionInfo, mvProperties, result);
+        }
+        LOG.warn("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
+                System.currentTimeMillis() - start, mvPartitionInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
+                    System.currentTimeMillis() - start, mvPartitionInfo);
         }
         return result.getDescs();
     }
