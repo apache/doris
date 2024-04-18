@@ -1110,6 +1110,7 @@ DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
 // FAST: Perform CU lookup using .debug_aranges (might be incomplete).
