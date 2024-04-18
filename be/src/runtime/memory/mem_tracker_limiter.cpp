@@ -152,13 +152,13 @@ void MemTrackerLimiter::add_address_sanitizers(void* buf, size_t size) {
                       << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
                       << ", size: " << size << ", old buf: " << it->first
                       << ", old size: " << it->second.size
-                      << ", new stack_trace: " << get_stack_trace()
+                      << ", new stack_trace: " << get_stack_trace(1, "DISABLED")
                       << ", old stack_trace: " << it->second.stack_trace;
         }
 
         // if alignment not equal to 0, maybe usable_size > size.
         AddressSanitizer as = {size, doris::config::enable_address_sanitizers_with_stack_trace
-                                             ? get_stack_trace()
+                                             ? get_stack_trace(1, "DISABLED")
                                              : ""};
         _address_sanitizers.emplace(buf, as);
     }
@@ -176,7 +176,7 @@ void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
                           << ", peak consumption: " << _consumption->peak_value()
                           << ", buf: " << buf << ", size: " << size << ", old buf: " << it->first
                           << ", old size: " << it->second.size
-                          << ", new stack_trace: " << get_stack_trace()
+                          << ", new stack_trace: " << get_stack_trace(1, "DISABLED")
                           << ", old stack_trace: " << it->second.stack_trace;
             }
             _address_sanitizers.erase(buf);
@@ -184,7 +184,7 @@ void MemTrackerLimiter::remove_address_sanitizers(void* buf, size_t size) {
             LOG(INFO) << "[Address Sanitizer] memory buf not exist, mem tracker label: " << _label
                       << ", consumption: " << _consumption->current_value()
                       << ", peak consumption: " << _consumption->peak_value() << ", buf: " << buf
-                      << ", size: " << size << ", stack_trace: " << get_stack_trace();
+                      << ", size: " << size << ", stack_trace: " << get_stack_trace(1, "DISABLED");
         }
     }
 }
