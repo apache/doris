@@ -50,7 +50,7 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql """select count() from ${table_name}"""
     }
 
-    def create_table = { table_name, buckets="auto", key_type="DUPLICATE" ->
+    def create_table = { table_name, key_type="DUPLICATE", buckets=(new Random().nextInt(15) + 1).toString()  ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -82,12 +82,12 @@ suite("regression_test_variant", "nonConcurrent"){
         for (int i = 0; i < key_types.size(); i++) {
             def table_name = "simple_variant_${key_types[i]}"
             // 1. simple cases
-            create_table.call(table_name, "auto", key_types[i])
+            create_table.call(table_name, key_types[i])
             sql """insert into ${table_name} values (1,  '[1]'),(1,  '{"a" : 1}');"""
             sql """insert into ${table_name} values (2,  '[2]'),(1,  '{"a" : [[[1]]]}');"""
             sql """insert into ${table_name} values (3,  '3'),(1,  '{"a" : 1}'), (1,  '{"a" : [1]}');"""
             sql """insert into ${table_name} values (4,  '"4"'),(1,  '{"a" : "1223"}');"""
-            sql """insert into ${table_name} values (5,  '5.0'),(1,  '{"a" : [1]}');"""
+            sql """insert into ${table_name} values (5,  '5'),(1,  '{"a" : [1]}');"""
             sql """insert into ${table_name} values (6,  '"[6]"'),(1,  '{"a" : ["1", 2, 1.1]}');"""
             sql """insert into ${table_name} values (7,  '7'),(1,  '{"a" : 1, "b" : {"c" : 1}}');"""
             sql """insert into ${table_name} values (8,  '8.11111'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
@@ -95,18 +95,16 @@ suite("regression_test_variant", "nonConcurrent"){
             sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-            qt_sql "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
-            // FIXME: unstable, todo use qt_sql
-            sql "select k, v, cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string)"
-            sql "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
-            sql "select v['b'], v['b']['c'], v from  ${table_name} order by k,cast(v as string) desc limit 10000;"
-            sql "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
-            sql "select cast(v['b'] as string) from ${table_name} order by k"
+            qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
+            qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
+            qt_sql3 "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
+            qt_sql4 "select v['b'], v['b']['c'], cast(v as int) from  ${table_name} where cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
+            qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
+            qt_sql6 "select cast(v['b'] as string) from ${table_name} where cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
             // verify table_name 
         }
-        // FIXME
         sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
-        
+       
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
         create_table table_name
@@ -181,7 +179,7 @@ suite("regression_test_variant", "nonConcurrent"){
                     v1 variant,
                     v2 variant,
                     v3 variant
-                    
+
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY RANDOM BUCKETS 5 
@@ -256,6 +254,23 @@ suite("regression_test_variant", "nonConcurrent"){
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
 
+        test {
+            sql "select v['a'] from ${table_name} group by v['a']"
+            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
+        }
+
+        test {
+            sql """
+            create table var(
+                `content` variant
+            )distributed by hash(`content`) buckets 8
+            properties(
+              "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+        }
+
         // 13. sparse columns
         table_name = "sparse_columns"
         create_table table_name
@@ -270,7 +285,7 @@ suite("regression_test_variant", "nonConcurrent"){
 
         // 12. streamload remote file
         table_name = "logdata"
-        create_table.call(table_name, "4")
+        create_table.call(table_name, "DUPLICATE", "4")
         // sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
@@ -329,7 +344,6 @@ suite("regression_test_variant", "nonConcurrent"){
         sql """UPDATE ${table_name} set v = '{"updated_value" : 10}' where k = 2"""
         qt_sql_36_3 """select * from ${table_name} where k = 2"""
 
-
         // delete sign
         load_json_data.call(table_name, """delete.json""")
 
@@ -337,7 +351,7 @@ suite("regression_test_variant", "nonConcurrent"){
         // // filter invalid variant
         // table_name = "invalid_variant"
         // set_be_config.call("max_filter_ratio_for_variant_parsing", "1")
-        // create_table.call(table_name, "4")
+        // create_table.call(table_name,  "DUPLICATE", "4")
         // sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
         // sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
         // set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
@@ -348,7 +362,7 @@ suite("regression_test_variant", "nonConcurrent"){
         // test all sparse columns
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "all_sparse_columns"
-        create_table.call(table_name, "1")
+        create_table.call(table_name,  "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"

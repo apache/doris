@@ -97,28 +97,38 @@ public class StructInfoMap {
      * refresh group expression map
      *
      * @param group the root group
+     *
+     * @return whether groupExpressionMap is updated
      */
-    public void refresh(Group group) {
+    public boolean refresh(Group group) {
         Set<Group> refreshedGroup = new HashSet<>();
+        int originSize = groupExpressionMap.size();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new ArrayList<>();
+            boolean needRefresh = false;
             if (groupExpression.children().isEmpty()) {
-                groupExpressionMap.put(constructLeaf(groupExpression), Pair.of(groupExpression, new ArrayList<>()));
+                BitSet leaf = constructLeaf(groupExpression);
+                groupExpressionMap.put(leaf, Pair.of(groupExpression, new ArrayList<>()));
                 continue;
             }
+
             for (Group child : groupExpression.children()) {
                 if (!refreshedGroup.contains(child)) {
                     StructInfoMap childStructInfoMap = child.getstructInfoMap();
-                    childStructInfoMap.refresh(child);
+                    needRefresh |= childStructInfoMap.refresh(child);
                 }
                 refreshedGroup.add(child);
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
-            Set<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
-            for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                groupExpressionMap.put(bitSetWithChild.first, Pair.of(groupExpression, bitSetWithChild.second));
+
+            if (needRefresh) {
+                Set<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
+                for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
+                    groupExpressionMap.put(bitSetWithChild.first, Pair.of(groupExpression, bitSetWithChild.second));
+                }
             }
         }
+        return originSize != groupExpressionMap.size();
     }
 
     private BitSet constructLeaf(GroupExpression groupExpression) {

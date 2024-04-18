@@ -135,6 +135,7 @@ private:
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -144,6 +145,8 @@ private:
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;

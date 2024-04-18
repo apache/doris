@@ -41,6 +41,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -100,6 +101,8 @@ public class PropertyAnalyzer {
      * v2: beta rowset
      */
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
+
+    public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
@@ -175,7 +178,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
-    public static final String PROPERTIES_STORAGE_VAULT = "storage_vault";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -994,6 +996,35 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+            throws AnalysisException {
+        String invertedIndexStorageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+        } else {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        }
+
+        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexStorageFormat.V1;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexStorageFormat.V2;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+                return TInvertedIndexStorageFormat.V1;
+            } else {
+                return TInvertedIndexStorageFormat.V2;
+            }
+        } else {
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
+        }
+    }
+
     // analyze common boolean properties, such as "in_memory" = "false"
     public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
         if (properties != null && properties.containsKey(propKey)) {
@@ -1024,8 +1055,9 @@ public class PropertyAnalyzer {
 
     public static String analyzeStorageVault(Map<String, String> properties) {
         String storageVault = null;
-        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
+            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
         return storageVault;
@@ -1200,7 +1232,29 @@ public class PropertyAnalyzer {
 
     public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
             throws AnalysisException {
+        if (!Config.force_olap_table_replication_allocation.isEmpty()) {
+            properties = forceRewriteReplicaAllocation(properties, prefix);
+        }
         return analyzeReplicaAllocationImpl(properties, prefix, true);
+    }
+
+    public static Map<String, String> forceRewriteReplicaAllocation(Map<String, String> properties,
+            String prefix) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        String propNumKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM
+                : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties.containsKey(propNumKey)) {
+            properties.remove(propNumKey);
+        }
+        String propTagKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        if (properties.containsKey(propTagKey)) {
+            properties.remove(propTagKey);
+        }
+        properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
+        return properties;
     }
 
     // There are 2 kinds of replication property:
@@ -1453,7 +1507,7 @@ public class PropertyAnalyzer {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
         }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(ctl);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
         if (catalog == null) {
             return properties;
         }
@@ -1489,10 +1543,6 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
-        if (Config.isCloudMode()) {
-            // the default value of enable_unique_key_merge_on_write is false for cloud mode yet.
-            return properties;
-        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

@@ -54,7 +54,7 @@ TEST_F(NumbersTest, test_float_to_buffer) {
     len1 = FloatToBuffer(v4, MAX_FLOAT_STR_LENGTH, buffer1);
     len2 = FastFloatToBuffer(v4, buffer2);
     EXPECT_EQ(std::string("2.000123e+11"), std::string(buffer1, len1));
-    EXPECT_EQ(std::string("2.000123e+11"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("200012300000"), std::string(buffer2, len2));
 
     float v5 = -3167.3131;
     len1 = FloatToBuffer(v5, MAX_FLOAT_STR_LENGTH, buffer1);

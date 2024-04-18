@@ -155,6 +155,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
         break;
     }
+    sc_params.vault_id = request.storage_vault_id;
     if (!request.__isset.materialized_view_params) {
         return _convert_historical_rowsets(sc_params);
     }
@@ -201,6 +202,10 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 "Don't support to add materialized view by linked schema change");
     }
 
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
+
     // 2. Generate historical data converter
     auto sc_procedure = get_sc_procedure(changer, sc_sorting);
 
@@ -246,9 +251,12 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
-        context.original_tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = _cloud_storage_engine.latest_fs();
+        context.fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
+        if (context.fs == nullptr) {
+            return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                         sc_params.vault_id);
+        }
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 

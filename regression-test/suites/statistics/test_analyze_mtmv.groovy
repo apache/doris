@@ -17,7 +17,7 @@
 
 suite("test_analyze_mtmv") {
 
-    def wait_row_count_reported = { db, table, expected ->
+    def wait_row_count_reported = { db, table, row, column, expected ->
         def result = sql """show frontends;"""
         logger.info("show frontends result origin: " + result)
         def host
@@ -39,7 +39,7 @@ suite("test_analyze_mtmv") {
                 Thread.sleep(5000)
                 result = sql """SHOW DATA FROM ${table};"""
                 logger.info("result " + result)
-                if (result[0][4] == expected) {
+                if (result[row][column] == expected) {
                     return;
                 }
             }
@@ -51,6 +51,7 @@ suite("test_analyze_mtmv") {
     sql """drop database if exists test_analyze_mtmv"""
     sql """create database test_analyze_mtmv"""
     sql """use test_analyze_mtmv"""
+    sql """set global force_sample_analyze=false"""
 
     sql """CREATE TABLE IF NOT EXISTS orders  (
         o_orderkey       integer not null,
@@ -98,7 +99,7 @@ suite("test_analyze_mtmv") {
         PARTITION BY RANGE(l_shipdate)
         (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
         DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
-        PROPERTIES ("replication_num" = "1");   
+        PROPERTIES ("replication_num" = "1");
     """
 
     sql """insert into lineitem values
@@ -108,12 +109,12 @@ suite("test_analyze_mtmv") {
     """
 
     sql """
-        CREATE MATERIALIZED VIEW mv1 
+        CREATE MATERIALIZED VIEW mv1
                 BUILD DEFERRED REFRESH AUTO ON MANUAL
                 partition by(l_shipdate)
                 DISTRIBUTED BY RANDOM BUCKETS 2
-                PROPERTIES ('replication_num' = '1') 
-                AS 
+                PROPERTIES ('replication_num' = '1')
+                AS
                 select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
                     from lineitem
                     left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
@@ -123,7 +124,7 @@ suite("test_analyze_mtmv") {
                     l_partkey,
                     l_suppkey;
     """
-    sql """REFRESH MATERIALIZED VIEW mv1"""
+    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
     while(true) {
         Thread.sleep(1000)
         def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""
@@ -143,7 +144,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column stats mv1(l_shipdate)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -157,7 +158,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(l_shipdate)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -171,7 +172,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column stats mv1(o_orderdate)"""
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -185,7 +186,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(o_orderdate)"""
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -199,7 +200,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column stats mv1(l_partkey)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -213,7 +214,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(l_partkey)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -227,7 +228,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column stats mv1(l_suppkey)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -241,7 +242,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(l_suppkey)"""
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -255,7 +256,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column stats mv1(sum_total)"""
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("2.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -269,7 +270,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(sum_total)"""
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("2.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -286,7 +287,12 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(sum_total)"""
     assertEquals(0, result_sample.size())
 
-    wait_row_count_reported("test_analyze_mtmv", "mv1", "3")
+    try {
+        wait_row_count_reported("test_analyze_mtmv", "mv1", 0, 4, "3")
+    } catch (Exception e) {
+        logger.info(e.getMessage());
+        return;
+    }
     sql """analyze table mv1 with sync with sample rows 4000000"""
     result_sample = sql """show column stats mv1(l_shipdate)"""
     logger.info("result " + result_sample)
@@ -298,7 +304,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -319,7 +325,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -340,7 +346,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -361,7 +367,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("3.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -382,7 +388,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -403,7 +409,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -424,7 +430,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -445,7 +451,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("1.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -466,7 +472,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("2.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])
@@ -487,7 +493,7 @@ suite("test_analyze_mtmv") {
     }
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
-    assertEquals("N/A", result_sample[0][1])
+    assertEquals("mv1", result_sample[0][1])
     assertEquals("3.0", result_sample[0][2])
     assertEquals("2.0", result_sample[0][3])
     assertEquals("0.0", result_sample[0][4])

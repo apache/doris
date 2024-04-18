@@ -14,149 +14,94 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-add_library(gflags STATIC IMPORTED)
-set_target_properties(gflags PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgflags.a)
 
-add_library(glog STATIC IMPORTED)
-set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libglog.a)
+# Set all libraries
 
-add_library(backtrace STATIC IMPORTED)
-set_target_properties(backtrace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbacktrace.a)
+# define COMMON_THIRDPARTY list variable
+set(COMMON_THIRDPARTY)
 
-add_library(pprof STATIC IMPORTED)
-set_target_properties(pprof PROPERTIES IMPORTED_LOCATION
-    ${GPERFTOOLS_HOME}/lib/libprofiler.a)
+# define add_thirdparty function, append thirdparty libraries to COMMON_THIRDPARTY variable, and pass arg too add_library
+# if arg exist lib64, use lib64, else use lib
+# if arg exist noadd, not append to COMMON_THIRDPARTY variable
+# if arg exist libname, use libname to find library
+# if arg exist wholelibpath, use wholelibpath to find library
+function(add_thirdparty)
+    cmake_parse_arguments(DORIS_THIRDPARTY
+        "NOTADD;LIB64"
+        "LIBNAME;WHOLELIBPATH"
+        ""
+        ${ARGN})
 
-add_library(tcmalloc STATIC IMPORTED)
-set_target_properties(tcmalloc PROPERTIES IMPORTED_LOCATION
-    ${GPERFTOOLS_HOME}/lib/libtcmalloc.a)
+    set(DORIS_THIRDPARTY_NAME ${DORIS_THIRDPARTY_UNPARSED_ARGUMENTS})
+    add_library(${DORIS_THIRDPARTY_NAME} STATIC IMPORTED)
 
-add_library(protobuf STATIC IMPORTED)
-set_target_properties(protobuf PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libprotobuf.a)
+    if (NOT DORIS_THIRDPARTY_NOTADD)
+        set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} ${DORIS_THIRDPARTY_NAME} PARENT_SCOPE)
+    endif()
 
-add_library(protoc STATIC IMPORTED)
-set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libprotoc.a)
+    if (DORIS_THIRDPARTY_LIB64)
+        set(DORIS_THIRDPARTY_LIBPATH ${THIRDPARTY_DIR}/lib64/lib${DORIS_THIRDPARTY_NAME}.a)
+    elseif (DORIS_THIRDPARTY_LIBNAME)
+        set(DORIS_THIRDPARTY_LIBPATH ${THIRDPARTY_DIR}/${DORIS_THIRDPARTY_LIBNAME})
+    elseif (DORIS_THIRDPARTY_WHOLELIBPATH)
+        set(DORIS_THIRDPARTY_LIBPATH ${DORIS_THIRDPARTY_WHOLELIBPATH})
+    else()
+        set(DORIS_THIRDPARTY_LIBPATH ${THIRDPARTY_DIR}/lib/lib${DORIS_THIRDPARTY_NAME}.a)
+    endif()
+    set_target_properties(${DORIS_THIRDPARTY_NAME} PROPERTIES IMPORTED_LOCATION ${DORIS_THIRDPARTY_LIBPATH})
+endfunction()
 
-add_library(gtest STATIC IMPORTED)
-set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
+add_thirdparty(glog)
+add_thirdparty(gflags)
+add_thirdparty(backtrace)
+add_thirdparty(pprof WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libprofiler.a)
+add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
+add_thirdparty(protobuf)
+add_thirdparty(thrift)
+add_thirdparty(crypto)
+add_thirdparty(openssl LIBNAME "lib/libssl.a")
+add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
+add_thirdparty(leveldb) # Required by brpc
+add_thirdparty(brpc LIB64)
+add_thirdparty(rocksdb) # For local storage mocking
+add_thirdparty(libz LIBNAME "lib/libz.a") # Required by google::protobuf
+add_thirdparty(curl)
+add_thirdparty(zstd LIB64)
+add_thirdparty(fmt)
+# begin aws libs
+add_thirdparty(aws-cpp-sdk-core LIB64)
+add_thirdparty(aws-cpp-sdk-s3 LIB64)
+add_thirdparty(aws-cpp-sdk-transfer LIB64)
+add_thirdparty(aws-cpp-sdk-s3-crt LIB64)
+add_thirdparty(aws-crt-cpp LIB64)
+add_thirdparty(aws-c-cal LIB64)
+add_thirdparty(aws-c-auth LIB64)
+add_thirdparty(aws-c-compression LIB64)
+add_thirdparty(aws-c-common LIB64)
+add_thirdparty(aws-c-event-stream LIB64)
+add_thirdparty(aws-c-io LIB64)
+add_thirdparty(aws-c-http LIB64)
+add_thirdparty(aws-c-mqtt LIB64)
+add_thirdparty(aws-checksums LIB64)
+add_thirdparty(aws-c-s3 LIB64)
+add_thirdparty(aws-c-sdkutils LIB64)
+add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+# end aws libs
+add_thirdparty(jsoncpp LIB64)
+add_thirdparty(uuid LIB64)
+add_thirdparty(ali-sdk LIBNAME "lib64/libalibabacloud-sdk-core.a")
+# begin krb5 libs
+add_thirdparty(krb5support)
+add_thirdparty(krb5)
+add_thirdparty(com_err)
+add_thirdparty(gssapi_krb5)
+add_thirdparty(k5crypto)
+add_thirdparty(xml2 LIB64)
+add_thirdparty(lzma LIB64)
+add_thirdparty(idn LIB64)
+add_thirdparty(gsasl)
+# end krb5 libs
 
-add_library(gtest_main STATIC IMPORTED)
-set_target_properties(gtest_main PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest_main.a)
-
-add_library(gmock STATIC IMPORTED)
-set_target_properties(gmock PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgmock.a)
-
-add_library(thrift STATIC IMPORTED)
-set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthrift.a)
-
-add_library(crypto STATIC IMPORTED)
-set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
-
-add_library(openssl STATIC IMPORTED)
-set_target_properties(openssl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libssl.a)
-
-add_library(jemalloc STATIC IMPORTED)
-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libjemalloc_doris.a)
-
-# Required by brpc
-add_library(leveldb STATIC IMPORTED)
-set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
-
-add_library(brpc STATIC IMPORTED)
-set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
-
-# For local storage mocking
-add_library(rocksdb STATIC IMPORTED)
-set_target_properties(rocksdb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librocksdb.a)
-
-# Required by google::protobuf
-add_library(libz STATIC IMPORTED)
-set_target_properties(libz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libz.a)
-
-add_library(curl STATIC IMPORTED)
-set_target_properties(curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcurl.a)
-
-add_library(zstd STATIC IMPORTED)
-set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libzstd.a)
-
-add_library(aws-sdk-core STATIC IMPORTED)
-set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
-
-add_library(aws-sdk-s3 STATIC IMPORTED)
-set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
-
-add_library(aws-sdk-transfer STATIC IMPORTED)
-set_target_properties(aws-sdk-transfer PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-transfer.a)
-
-add_library(aws-sdk-s3-crt STATIC IMPORTED)
-set_target_properties(aws-sdk-s3-crt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3-crt.a)
-
-add_library(aws-crt-cpp STATIC IMPORTED)
-set_target_properties(aws-crt-cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-crt-cpp.a)
-
-add_library(aws-c-cal STATIC IMPORTED)
-set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
-
-add_library(aws-c-auth STATIC IMPORTED)
-set_target_properties(aws-c-auth PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-auth.a)
-
-add_library(aws-c-compression STATIC IMPORTED)
-set_target_properties(aws-c-compression PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-compression.a)
-
-add_library(aws-c-common STATIC IMPORTED)
-set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
-
-add_library(aws-c-event-stream STATIC IMPORTED)
-set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
-
-add_library(aws-c-io STATIC IMPORTED)
-set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
-
-add_library(aws-c-http STATIC IMPORTED)
-set_target_properties(aws-c-http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-http.a)
-
-add_library(aws-c-mqtt STATIC IMPORTED)
-set_target_properties(aws-c-mqtt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-mqtt.a)
-
-add_library(aws-checksums STATIC IMPORTED)
-set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
-
-add_library(aws-c-s3 STATIC IMPORTED)
-set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
-
-add_library(aws-s2n STATIC IMPORTED)
-set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
-
-add_library(aws-c-sdkutils STATIC IMPORTED)
-set_target_properties(aws-c-sdkutils PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-sdkutils.a)
-
-add_library(jsoncpp STATIC IMPORTED)
-set_target_properties(jsoncpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjsoncpp.a)
-
-add_library(libuuid STATIC IMPORTED)
-set_target_properties(libuuid PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libuuid.a)
-
-add_library(ali-sdk STATIC IMPORTED)
-set_target_properties(ali-sdk PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libalibabacloud-sdk-core.a)
-
-set(AWS_LIBS
-    aws-sdk-s3
-    aws-sdk-core
-    aws-sdk-transfer
-    aws-checksums
-    aws-c-io
-    aws-c-event-stream
-    aws-c-common
-    aws-c-cal
-    aws-s2n
-    aws-c-s3
-    aws-c-auth
-    aws-crt-cpp
-    aws-c-compression
-    aws-c-http
-    aws-c-mqtt
-    aws-c-sdkutils
-    aws-sdk-s3-crt)
-
-add_library(fmt STATIC IMPORTED)
-set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
+add_thirdparty(gtest NOTADD)
+add_thirdparty(gtest_main NOTADD)
+add_thirdparty(gmock NOTADD)

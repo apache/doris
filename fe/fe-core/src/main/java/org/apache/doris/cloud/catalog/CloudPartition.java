@@ -22,8 +22,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.common.Config;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -38,10 +37,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -49,9 +44,6 @@ import java.util.stream.Collectors;
  * Internal representation of partition-related metadata.
  */
 public class CloudPartition extends Partition {
-    // Every partition starts from version 1, version 1 has no data
-    public static long EMPTY_VERSION = 1;
-
     private static final Logger LOG = LogManager.getLogger(CloudPartition.class);
 
     // not Serialized
@@ -130,13 +122,10 @@ public class CloudPartition extends Partition {
                 setCachedVisibleVersion(version);
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
-                version = 0;
+                version = Partition.PARTITION_INIT_VERSION;
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get version from meta service, version: {}, partition: {}", version, super.getId());
-            }
-            if (version == 0 && isEmptyPartitionPruneDisabled()) {
-                version = 1;
             }
             return version;
         } catch (RpcException e) {
@@ -168,7 +157,7 @@ public class CloudPartition extends Partition {
 
             int size = versions.size();
             for (int i = 0; i < size; i++) {
-                if (versions.get(i) > CloudPartition.EMPTY_VERSION) {
+                if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
                     nonEmptyPartitionIds.add(unknowns.get(i).getId());
                 }
             }
@@ -202,7 +191,7 @@ public class CloudPartition extends Partition {
         int size = versions.size();
         for (int i = 0; i < size; ++i) {
             Long version = versions.get(i);
-            if (version > EMPTY_VERSION) {
+            if (version > Partition.PARTITION_INIT_VERSION) {
                 partitions.get(i).setCachedVisibleVersion(versions.get(i));
             }
         }
@@ -309,7 +298,7 @@ public class CloudPartition extends Partition {
 
         // Every partition starts from version 1, version 1 has no data.
         // So as long as version is greater than 1, it can be determined that there is data here.
-        return super.getVisibleVersion() > EMPTY_VERSION;
+        return super.getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
     }
 
     /**
@@ -327,69 +316,20 @@ public class CloudPartition extends Partition {
             profile.incGetPartitionVersionByHasDataCount();
         }
 
-        return getVisibleVersion() > EMPTY_VERSION;
+        return getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
     }
 
     private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
             throws RpcException {
         long startAt = System.nanoTime();
         try {
-            return getVersionFromMetaInner(req);
+            return VersionHelper.getVisibleVersion(req);
         } finally {
             SummaryProfile profile = getSummaryProfile();
             if (profile != null) {
                 profile.addGetPartitionVersionTime(System.nanoTime() - startAt);
             }
         }
-    }
-
-    private static Cloud.GetVersionResponse getVersionFromMetaInner(Cloud.GetVersionRequest req)
-            throws RpcException {
-        for (int retryTime = 0; retryTime < Config.cloud_meta_service_rpc_failed_retry_times; retryTime++) {
-            try {
-                long deadline = System.currentTimeMillis() + Config.default_get_version_from_ms_timeout_second * 1000L;
-                Future<Cloud.GetVersionResponse> future =
-                        MetaServiceProxy.getInstance().getVisibleVersionAsync(req);
-
-                Cloud.GetVersionResponse resp = null;
-                while (resp == null) {
-                    try {
-                        resp = future.get(Math.max(0, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
-                    } catch (InterruptedException e) {
-                        LOG.warn("get version from meta service: future get interrupted exception");
-                    }
-                }
-
-                if (resp.hasStatus() && (resp.getStatus().getCode() == MetaServiceCode.OK
-                            || resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND)) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get version from meta service, code: {}", resp.getStatus().getCode());
-                    }
-                    return resp;
-                }
-
-                LOG.warn("get version from meta service failed, status: {}, retry time: {}",
-                        resp.getStatus(), retryTime);
-            } catch (RpcException | ExecutionException | TimeoutException | RuntimeException e) {
-                LOG.warn("get version from meta service failed, retry times: {} exception: ", retryTime, e);
-            }
-
-            // sleep random millis [20, 200] ms, retry rpc failed
-            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
-            if (retryTime > Config.cloud_meta_service_rpc_failed_retry_times / 2) {
-                // sleep random millis [500, 1000] ms, retry rpc failed
-                randomMillis = 500 + (int) (Math.random() * (1000 - 500));
-            }
-            try {
-                Thread.sleep(randomMillis);
-            } catch (InterruptedException e) {
-                LOG.warn("get version from meta service: sleep get interrupted exception");
-            }
-        }
-
-        LOG.warn("get version from meta service failed after retry {} times",
-                Config.cloud_meta_service_rpc_failed_retry_times);
-        throw new RpcException("get version from meta service", "failed after retry n times");
     }
 
     private static boolean isEmptyPartitionPruneDisabled() {

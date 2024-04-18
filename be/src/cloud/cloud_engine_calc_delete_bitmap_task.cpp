@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 
+#include <fmt/format.h>
+
 #include <memory>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -29,6 +31,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 
@@ -38,7 +41,10 @@ CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         : _engine(engine),
           _cal_delete_bitmap_req(cal_delete_bitmap_req),
           _error_tablet_ids(error_tablet_ids),
-          _succ_tablet_ids(succ_tablet_ids) {}
+          _succ_tablet_ids(succ_tablet_ids) {
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "CloudEngineCalcDeleteBitmapTask");
+}
 
 void CloudEngineCalcDeleteBitmapTask::add_error_tablet_id(int64_t tablet_id, const Status& err) {
     std::lock_guard<std::mutex> lck(_mutex);
@@ -126,9 +132,14 @@ CloudTabletCalcDeleteBitmapTask::CloudTabletCalcDeleteBitmapTask(
           _engine_calc_delete_bitmap_task(engine_task),
           _tablet(tablet),
           _transaction_id(transaction_id),
-          _version(version) {}
+          _version(version) {
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("CloudTabletCalcDeleteBitmapTask#_transaction_id={}", _transaction_id));
+}
 
 void CloudTabletCalcDeleteBitmapTask::handle() const {
+    SCOPED_ATTACH_TASK(_mem_tracker);
     RowsetSharedPtr rowset;
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;

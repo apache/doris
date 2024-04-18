@@ -72,10 +72,10 @@ import java.util.stream.Collectors;
 public class GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(GroupCommitPlanner.class);
 
-    private Database db;
-    private OlapTable table;
-    private TUniqueId loadId;
-    private Backend backend;
+    protected Database db;
+    protected OlapTable table;
+    protected TUniqueId loadId;
+    protected Backend backend;
     private TExecPlanFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
@@ -91,7 +91,7 @@ public class GroupCommitPlanner {
         }
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
         if (targetColumnNames != null) {
-            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
+            streamLoadPutRequest.setColumns("`" + String.join("`,`", targetColumnNames) + "`");
             if (targetColumnNames.stream().anyMatch(col -> col.equalsIgnoreCase(Column.SEQUENCE_COL))) {
                 streamLoadPutRequest.setSequenceCol(Column.SEQUENCE_COL);
             }
@@ -131,29 +131,8 @@ public class GroupCommitPlanner {
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows)
             throws DdlException, RpcException, ExecutionException, InterruptedException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (allBackendIds.isEmpty()) {
-                throw new DdlException("No alive backend");
-            }
-            Collections.shuffle(allBackendIds);
-            boolean find = false;
-            for (Long beId : allBackendIds) {
-                backend = Env.getCurrentSystemInfo().getBackend(beId);
-                if (!backend.isDecommissioned()) {
-                    ctx.setInsertGroupCommit(this.table.getId(), backend);
-                    find = true;
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("choose new be {}", backend.getId());
-                    }
-                    break;
-                }
-            }
-            if (!find) {
-                throw new DdlException("No suitable backend");
-            }
-        }
+        selectBackends(ctx);
+
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
@@ -164,6 +143,32 @@ public class GroupCommitPlanner {
         Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
                 .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
         return future.get();
+    }
+
+    // cloud override
+    protected void selectBackends(ConnectContext ctx) throws DdlException {
+        backend = ctx.getInsertGroupCommit(this.table.getId());
+        if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
+            return;
+        }
+
+        List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        if (allBackendIds.isEmpty()) {
+            throw new DdlException("No alive backend");
+        }
+        Collections.shuffle(allBackendIds);
+        for (Long beId : allBackendIds) {
+            backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (!backend.isDecommissioned()) {
+                ctx.setInsertGroupCommit(this.table.getId(), backend);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("choose new be {}", backend.getId());
+                }
+                return;
+            }
+        }
+
+        throw new DdlException("No suitable backend");
     }
 
     // only for nereids use

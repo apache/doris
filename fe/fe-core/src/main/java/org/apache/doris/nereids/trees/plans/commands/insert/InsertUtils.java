@@ -27,6 +27,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -233,39 +235,39 @@ public class InsertUtils {
      * normalize plan to let it could be process correctly by nereids
      */
     public static Plan normalizePlan(Plan plan, TableIf table) {
-        UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-
-        if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS
-                && unboundTableSink.isPartialUpdate()) {
-            // check the necessary conditions for partial updates
-            OlapTable olapTable = (OlapTable) table;
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed on "
-                        + "unique table with merge-on-write enabled.");
-            }
-            if (unboundTableSink.getDMLCommandType() == DMLCommandType.INSERT) {
-                if (unboundTableSink.getColNames().isEmpty()) {
-                    throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                            + "updating partial columns using the INSERT statement.");
-                }
-                for (Column col : olapTable.getFullSchema()) {
-                    Optional<String> insertCol = unboundTableSink.getColNames().stream()
-                            .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                    if (col.isKey() && !insertCol.isPresent()) {
-                        throw new AnalysisException("Partial update should include all key columns, missing: "
-                                + col.getName());
-                    }
-                }
-            }
-        }
+        UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
-            // TODO: check HMSExternalTable
             HMSExternalTable hiveTable = (HMSExternalTable) table;
             if (hiveTable.isView()) {
                 throw new AnalysisException("View is not support in hive external table.");
             }
         }
-        Plan query = unboundTableSink.child();
+        if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (unboundLogicalSink instanceof UnboundTableSink
+                    && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
+                // check the necessary conditions for partial updates
+                OlapTable olapTable = (OlapTable) table;
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new AnalysisException("Partial update is only allowed on "
+                            + "unique table with merge-on-write enabled.");
+                }
+                if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
+                    if (unboundLogicalSink.getColNames().isEmpty()) {
+                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                                + "updating partial columns using the INSERT statement.");
+                    }
+                    for (Column col : olapTable.getFullSchema()) {
+                        Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
+                                .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                        if (col.isKey() && !insertCol.isPresent()) {
+                            throw new AnalysisException("Partial update should include all key columns, missing: "
+                                    + col.getName());
+                        }
+                    }
+                }
+            }
+        }
+        Plan query = unboundLogicalSink.child();
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
@@ -276,28 +278,28 @@ public class InsertUtils {
         for (List<NamedExpression> values : logicalInlineTable.getConstantExprsList()) {
             ImmutableList.Builder<NamedExpression> constantExprs = ImmutableList.builder();
             if (values.isEmpty()) {
-                if (CollectionUtils.isNotEmpty(unboundTableSink.getColNames())) {
+                if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
                     throw new AnalysisException("value list should not be empty if columns are specified");
                 }
                 for (Column column : columns) {
                     constantExprs.add(generateDefaultExpression(column));
                 }
             } else {
-                if (CollectionUtils.isNotEmpty(unboundTableSink.getColNames())) {
-                    if (values.size() != unboundTableSink.getColNames().size()) {
+                if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
+                    if (values.size() != unboundLogicalSink.getColNames().size()) {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
                         Column sameNameColumn = null;
                         for (Column column : table.getBaseSchema(true)) {
-                            if (unboundTableSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
+                            if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
                                 sameNameColumn = column;
                                 break;
                             }
                         }
                         if (sameNameColumn == null) {
                             throw new AnalysisException("Unknown column '"
-                                    + unboundTableSink.getColNames().get(i) + "' in target table.");
+                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(sameNameColumn));
@@ -345,11 +347,15 @@ public class InsertUtils {
      * get target table from names.
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
-        if (!(plan instanceof UnboundTableSink)) {
-            throw new AnalysisException("the root of plan should be UnboundTableSink"
+        UnboundLogicalSink<? extends Plan> unboundTableSink;
+        if (plan instanceof UnboundTableSink) {
+            unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundHiveTableSink) {
+            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
+        } else {
+            throw new AnalysisException("the root of plan should be UnboundTableSink or UnboundHiveTableSink"
                     + " but it is " + plan.getType());
         }
-        UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
         return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
     }

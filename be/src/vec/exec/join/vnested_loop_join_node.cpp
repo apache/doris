@@ -102,6 +102,7 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     if (tnode.nested_loop_join_node.__isset.is_output_left_side_only) {
         _is_output_left_side_only = tnode.nested_loop_join_node.is_output_left_side_only;
+        _keep_origin = _is_output_left_side_only;
     }
 
     if (tnode.nested_loop_join_node.__isset.join_conjuncts &&
@@ -382,6 +383,9 @@ void VNestedLoopJoinNode::_resize_fill_tuple_is_null_column(size_t new_size, int
 }
 
 void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
+    if (!_use_specific_projections) {
+        return;
+    }
     if (_is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();

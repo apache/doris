@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -50,10 +51,6 @@
 
 namespace doris {
 class FunctionContext;
-
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 } // namespace doris
 template <typename, typename>
 struct DefaultHash;

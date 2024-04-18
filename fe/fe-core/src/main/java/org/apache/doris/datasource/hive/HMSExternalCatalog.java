@@ -34,6 +34,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -142,10 +143,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
-                    AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HIVE_KERBEROS_KEYTAB));
+                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         }
-        metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps);
+        transactionManager.setEditLog(Env.getCurrentEnv().getEditLog());
+        metadataOps = hiveOps;
     }
 
     @Override

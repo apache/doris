@@ -20,6 +20,7 @@ suite("push_down_expression_in_hash_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
+    sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set disable_join_reorder=true"
 
     // Push down arithmetic expression in inner join

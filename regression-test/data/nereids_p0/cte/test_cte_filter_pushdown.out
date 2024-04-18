@@ -4,58 +4,37 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
-----------filter((main.k1 = 1))
-------------PhysicalOlapScan[test]
+--------filter((main.k1 = 1))
+----------PhysicalOlapScan[test]
 --PhysicalResultSink
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalProject
---------hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------filter((temp.k1 = 1))
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------PhysicalDistribute[DistributionSpecReplicated]
-------------PhysicalProject
---------------filter((m2.k1 = 1))
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
+------filter((temp.k1 = 1))
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
+------filter((m2.k1 = 1))
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !cte_filter_pushdown_2 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------filter((main.k1 = 1))
---------PhysicalWindow
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[test]
+----filter((main.k1 = 1))
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalOlapScan[test]
 --PhysicalResultSink
-----PhysicalDistribute[DistributionSpecGather]
-------PhysicalProject
---------hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
-----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------filter((temp.k1 = 1))
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------PhysicalDistribute[DistributionSpecReplicated]
-------------PhysicalProject
---------------filter((m2.k1 = 1))
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
+------filter((temp.k1 = 1))
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
+------filter((m2.k1 = 1))
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !cte_filter_pushdown_3 --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((k3 = dd.k3)) otherCondition=()
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalProject
-------------filter((tmp2.k3 = 0))
---------------PhysicalWindow
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalProject
---------------------filter((tmp.k1 = 1))
-----------------------PhysicalOlapScan[test]
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalProject
-------------filter((dd.k3 = 0))
---------------PhysicalOlapScan[baseall]
+--hashJoin[INNER_JOIN] hashCondition=((k3 = dd.k3)) otherCondition=()
+----filter((tmp2.k3 = 0))
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------filter((tmp.k1 = 1))
+------------PhysicalOlapScan[test]
+----filter((dd.k3 = 0))
+------PhysicalOlapScan[baseall]
 

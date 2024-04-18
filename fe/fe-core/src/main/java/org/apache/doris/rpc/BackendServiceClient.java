@@ -22,6 +22,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
@@ -82,9 +83,10 @@ public class BackendServiceClient {
                 .execPlanFragmentStart(request);
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             InternalService.PCancelPlanFragmentRequest request) {
-        return stub.cancelPlanFragment(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .cancelPlanFragment(request);
     }
 
     public Future<InternalService.PFetchDataResult> fetchDataAsync(InternalService.PFetchDataRequest request) {
@@ -105,9 +107,19 @@ public class BackendServiceClient {
         return stub.fetchArrowFlightSchema(request);
     }
 
+    public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(
+            InternalService.POutfileWriteSuccessRequest request) {
+        return stub.outfileWriteSuccess(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);
+    }
+
+    public Future<InternalService.PJdbcTestConnectionResult> testJdbcConnection(
+            InternalService.PJdbcTestConnectionRequest request) {
+        return stub.testJdbcConnection(request);
     }
 
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
@@ -169,6 +181,11 @@ public class BackendServiceClient {
     public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
             InternalService.PGetWalQueueSizeRequest request) {
         return stub.getWalQueueSize(request);
+    }
+
+    public Future<InternalService.PAlterVaultSyncResponse> alterVaultSync(
+            InternalService.PAlterVaultSyncRequest request) {
+        return stub.alterVaultSync(request);
     }
 
 

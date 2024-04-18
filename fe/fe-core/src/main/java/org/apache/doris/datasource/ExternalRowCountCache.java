@@ -18,17 +18,18 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.statistics.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
@@ -38,13 +39,18 @@ public class ExternalRowCountCache {
     private final AsyncLoadingCache<RowCountKey, Optional<Long>> rowCountCache;
 
     public ExternalRowCountCache(ExecutorService executor) {
-        rowCountCache = Caffeine.newBuilder()
-                .maximumSize(Config.max_external_table_row_count_cache_num)
-                .expireAfterWrite(Duration.ofMinutes(Config.external_cache_expire_time_minutes_after_access))
-                .executor(executor)
-                .buildAsync(new RowCountCacheLoader());
+        // 1. set expireAfterWrite to 1 day, avoid too many entries
+        // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
+        CacheFactory rowCountCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_external_table_row_count_cache_num,
+                false,
+                null);
+        rowCountCache = rowCountCacheFactory.buildAsyncCache(new RowCountCacheLoader(), executor);
     }
 
+    @Getter
     public static class RowCountKey {
         private final long catalogId;
         private final long dbId;
@@ -74,7 +80,6 @@ public class ExternalRowCountCache {
     }
 
     public static class RowCountCacheLoader extends BasicAsyncCacheLoader<RowCountKey, Optional<Long>> {
-
         @Override
         protected Optional<Long> doLoad(RowCountKey rowCountKey) {
             try {

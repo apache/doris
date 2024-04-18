@@ -173,6 +173,9 @@ void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
 
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
+    if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p0);
@@ -214,6 +217,7 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
+    _key_columns_holder.clear();
     _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
 }
 
@@ -243,7 +247,9 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
-    if (local_state._shared_state->empty_right_table_need_probe_dispose) {
+    // only support nereids
+    if (local_state._shared_state->empty_right_table_need_probe_dispose &&
+        !Base::_projections.empty()) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         // we could get the result is probe table + null-column(if need output)
         // If we use a short-circuit strategy, should return block directly by add additional null data.
@@ -251,12 +257,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         if (local_state._probe_eos && block_rows == 0) {
             *eos = local_state._probe_eos;
             return Status::OK();
-        }
-
-        vectorized::Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(local_state._probe_block.get_by_position(i));
         }
 
         //create build side null column, if need output
@@ -269,8 +269,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
-            temp_block.insert({std::move(nullable_column), make_nullable(type),
-                               _right_table_column_names[i]});
+            local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),
+                                             _right_table_column_names[i]});
         }
         if (_is_outer_join) {
             reinterpret_cast<vectorized::ColumnUInt8*>(
@@ -286,8 +286,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
-                                                                 &temp_block, false));
-        temp_block.clear();
+                                                                 &local_state._probe_block, false));
         local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
         return Status::OK();
     }
@@ -374,7 +373,15 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
                                                      vectorized::ColumnRawPtrs& raw_ptrs,
                                                      const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (p._should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -474,12 +481,12 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         local_state._probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
+                                     *local_state._probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
                     local_state._convert_block_to_null(*input_block);
         }
-        RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
-                                     *local_state._probe_expr_call_timer, res_col_ids));
 
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
@@ -524,6 +531,18 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
+        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
+                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+
+        /// If it's right anti join,
+        /// we should convert the probe to nullable if the build side is nullable.
+        /// And if it is 'null safe equal',
+        /// we must make sure the build side and the probe side are both nullable or non-nullable.
+        const bool should_convert_to_nullable =
+                (is_null_safe_equal || _join_op == TJoinOp::RIGHT_ANTI_JOIN) &&
+                !eq_join_conjunct.left.nodes[0].is_nullable &&
+                eq_join_conjunct.right.nodes[0].is_nullable;
+        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
     }
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         _probe_ignore_null |= !probe_not_ignore_null[i];

@@ -216,6 +216,10 @@ public class ScalarType extends Type {
                 return DEFAULT_DECIMALV2;
             case LARGEINT:
                 return LARGEINT;
+            case IPV4:
+                return IPV4;
+            case IPV6:
+                return IPV6;
             case ALL:
                 return ALL;
             default:
@@ -740,15 +744,19 @@ public class ScalarType extends Type {
             case DECIMAL128:
             case DECIMAL256:
             case DATETIMEV2: {
-                Preconditions.checkArgument(precision >= scale,
-                        String.format("given precision %d is out of scale bound %d", precision, scale));
+                if (precision < scale) {
+                    throw new IllegalArgumentException(
+                            String.format("given precision %d is out of scale bound %d", precision, scale));
+                }
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
             }
             case TIMEV2: {
-                Preconditions.checkArgument(precision >= scale,
-                        String.format("given precision %d is out of scale bound %d", precision, scale));
+                if (precision < scale) {
+                    throw new IllegalArgumentException(
+                            String.format("given precision %d is out of scale bound %d", precision, scale));
+                }
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;

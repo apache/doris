@@ -27,13 +27,13 @@ public class JdbcSapHanaClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'";
+    protected String[] getTableTypes() {
+        return new String[] {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
     }
 
     @Override
-    protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
+    public String getTestQuery() {
+        return "SELECT 1 FROM DUMMY";
     }
 
     @Override

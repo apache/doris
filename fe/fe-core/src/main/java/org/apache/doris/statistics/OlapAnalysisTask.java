@@ -39,6 +39,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,13 +65,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
-                || partitionNames == null || partitionNames.isEmpty()) {
-            if (partitionNames == null) {
-                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
-                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
-            }
+        List<Pair<String, String>> columnList = info.jobColumns;
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
             job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
@@ -109,7 +105,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
                 .collect(Collectors.joining(", "));
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(
+                info.jobType.equals(JobType.SYSTEM), false)) {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
@@ -164,7 +161,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                }
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
                     + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
@@ -254,7 +255,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> sampleTabletIds = new ArrayList<>();
         long actualSampledRowCount = 0;
         boolean enough = false;
-        for (Partition p : olapTable.getPartitions()) {
+        List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
+                Comparator.comparing(Partition::getName)).collect(Collectors.toList());
+        for (Partition p : sortedPartitions) {
             MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
             if (materializedIndex == null) {
                 continue;

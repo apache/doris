@@ -61,9 +61,7 @@ TEST(TEST_VEXPR, ABSTEST) {
     doris::vectorized::VExprContextSPtr context;
     static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_mem_trackers();
+    doris::RuntimeState runtime_stat;
     runtime_stat.set_desc_tbl(desc_tbl);
     auto state = doris::Status::OK();
     state = context->prepare(&runtime_stat, row_desc);
@@ -129,7 +127,7 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     TTupleDescriptor t_tuple_desc;
     t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    t_tuple_desc.__set_numNullBytes(0);
     doris::TupleDescriptor* tuple_desc =
             pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
 
@@ -154,9 +152,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     doris::vectorized::VExprContextSPtr context;
     static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
-    doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
-                                     doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_mem_trackers();
+    doris::RuntimeState runtime_stat;
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
@@ -480,21 +476,16 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint8_t hour = 9;
         uint8_t minute = 12;
         uint8_t second = 46;
-        uint32_t microsecond = 999999;
+        uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
         DateV2Value<DateTimeV2ValueType> datetime_v2;
         datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
         std::string date = datetime_v2.debug_string();
 
-        __uint64_t dt;
-        memcpy(&dt, &datetime_v2, sizeof(__uint64_t));
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
         Block block;
         int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__uint64_t>();
-        EXPECT_EQ(v, dt);
-        EXPECT_EQ("1997-11-18 09:12:46.9999", literal.value());
+        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        EXPECT_EQ("1997-11-18 09:12:47.0000", literal.value());
     }
     // date
     {

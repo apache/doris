@@ -100,7 +100,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
+            LOG(FATAL) << "offsets_column has data inconsistent with nested_column " << data->size()
+                       << " " << last_offset;
         }
     }
 
@@ -118,8 +119,16 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
+bool ColumnArray::could_shrinked_column() {
+    return data->could_shrinked_column();
+}
+
 MutableColumnPtr ColumnArray::get_shrinked_column() {
-    return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    if (could_shrinked_column()) {
+        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    } else {
+        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
+    }
 }
 
 std::string ColumnArray::get_name() const {
@@ -488,6 +497,40 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
 
     get_data().insert_range_from(src_concrete.get_data(), nested_offset, nested_length);
+
+    auto& cur_offsets = get_offsets();
+    const auto& src_offsets = src_concrete.get_offsets();
+
+    if (start == 0 && cur_offsets.empty()) {
+        cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+    } else {
+        size_t old_size = cur_offsets.size();
+        // -1 is ok, because PaddedPODArray pads zeros on the left.
+        size_t prev_max_offset = cur_offsets.back();
+        cur_offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i)
+            cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+    }
+}
+
+void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                    size_t length) {
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+
+    if (start + length > src_concrete.get_offsets().size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnArray::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.get_offsets().size()));
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
+
+    get_data().insert_range_from_ignore_overflow(src_concrete.get_data(), nested_offset,
+                                                 nested_length);
 
     auto& cur_offsets = get_offsets();
     const auto& src_offsets = src_concrete.get_offsets();

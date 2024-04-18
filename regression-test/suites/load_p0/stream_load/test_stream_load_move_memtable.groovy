@@ -877,8 +877,17 @@ suite("test_stream_load_move_memtable", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user1@'%' IDENTIFIED BY '123456test!'"""
-    sql """GRANT LOAD_PRIV ON *.* TO 'common_user1'@'%';"""
+    sql "sync"
+    try_sql """DROP USER 'ddd'"""
+    sql """create USER ddd IDENTIFIED BY '123456test!'"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'ddd'@'%';"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ddd""";
+    }
 
     streamLoad {
         table "${tableName13}"
@@ -886,7 +895,7 @@ suite("test_stream_load_move_memtable", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1NnRlc3Qh'
+        set 'Authorization', 'Basic ZGRkOjEyMzQ1NnRlc3Qh'
         set 'memtable_on_sink_node', 'true'
 
         file 'test_auth.csv'
@@ -906,7 +915,7 @@ suite("test_stream_load_move_memtable", "p0") {
     }
 
     sql "sync"
-    sql """DROP USER 'common_user1'@'%'"""
+    sql """DROP USER 'ddd'"""
 
     // test default value
     def tableName14 = "test_default_value_mm"

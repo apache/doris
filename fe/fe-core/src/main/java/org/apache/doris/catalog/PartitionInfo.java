@@ -25,6 +25,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -390,15 +391,31 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId,
+    public void resetPartitionIdForRestore(
+            Map<Long, Long> partitionIdMap,
             ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
-        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
-        idToReplicaAllocation.remove(oldPartitionId);
-        idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);
-        if (!isSinglePartitioned) {
-            idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        Map<Long, DataProperty> origIdToDataProperty = idToDataProperty;
+        Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
+        Map<Long, PartitionItem> origIdToItem = idToItem;
+        Map<Long, Boolean> origIdToInMemory = idToInMemory;
+        Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
+        idToDataProperty = Maps.newHashMap();
+        idToReplicaAllocation = Maps.newHashMap();
+        idToItem = Maps.newHashMap();
+        idToInMemory = Maps.newHashMap();
+        idToStoragePolicy = Maps.newHashMap();
+
+        for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
+            idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
+            idToReplicaAllocation.put(entry.getKey(),
+                    restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
+                            : restoreReplicaAlloc);
+            if (!isSinglePartitioned) {
+                idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
+            }
+            idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
         }
-        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
     }
 
     @Override
@@ -419,6 +436,14 @@ public class PartitionInfo implements Writable {
 
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     out.writeBoolean(idToPersistent.get(entry.getKey()));
+                //
+                // keep the compatibility here.
+                out.writeBoolean(false);
+            }
         }
         int size = partitionExprs.size();
         out.writeInt(size);
@@ -452,6 +477,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+            if (Config.isCloudMode()) {
+                // HACK: the origin implementation of the cloud mode has code likes:
+                //
+                //     idToPersistent.put(partitionId, in.readBoolean());
+                //
+                // keep the compatibility here.
+                in.readBoolean();
+            }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
             int size = in.readInt();

@@ -42,6 +42,8 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.PartitionTableInfo;
@@ -76,7 +78,7 @@ public class CreateTableInfo {
     private List<ColumnDefinition> columns;
     private final List<IndexDefinition> indexes;
     private final List<String> ctasColumns;
-    private final String engineName;
+    private String engineName;
     private KeysType keysType;
     private List<String> keys;
     private final String comment;
@@ -90,7 +92,7 @@ public class CreateTableInfo {
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private List<Integer> clusterKeysColumnIds = null;
-    private PartitionTableInfo partitionTableInfo;
+    private PartitionTableInfo partitionTableInfo; // get when validate
 
     /**
      * constructor for create table
@@ -190,13 +192,22 @@ public class CreateTableInfo {
             throw new AnalysisException("table should contain at least one column");
         }
 
+        // analyze catalog name
+        if (Strings.isNullOrEmpty(ctlName)) {
+            if (ctx.getCurrentCatalog() != null) {
+                ctlName = ctx.getCurrentCatalog().getName();
+            } else {
+                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+            }
+        }
+        paddingEngineName(ctlName, ctx);
         checkEngineName();
 
         if (properties == null) {
             properties = Maps.newHashMap();
         }
 
-        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase("olap")) {
             if (distribution == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
@@ -209,12 +220,10 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        // analyze catalog name
-        if (Strings.isNullOrEmpty(ctlName)) {
-            if (ctx.getCurrentCatalog() != null) {
-                ctlName = ctx.getCurrentCatalog().getName();
-            } else {
-                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        if (engineName.equals("olap")) {
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
             }
         }
 
@@ -227,7 +236,7 @@ public class CreateTableInfo {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), ctlName, dbName,
                 tableName, PrivPredicate.CREATE)) {
             try {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
@@ -251,6 +260,18 @@ public class CreateTableInfo {
                         + "please use `DECIMALV3`.");
             }
         }
+        // check duplicated columns
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> {
+            if (columnMap.put(c.getName(), c) != null) {
+                try {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
+                            c.getName());
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        });
 
         if (engineName.equalsIgnoreCase("olap")) {
             boolean enableDuplicateWithoutKeysByDefault = false;
@@ -412,20 +433,8 @@ public class CreateTableInfo {
                 }
             }
 
-            // validate partitions
-            Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-            columns.forEach(c -> {
-                if (columnMap.put(c.getName(), c) != null) {
-                    try {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
-                                c.getName());
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
-                }
-            });
-
             // validate partition
+            partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
@@ -465,9 +474,17 @@ public class CreateTableInfo {
                     "Iceberg doesn't support 'DISTRIBUTE BY', "
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
-
             for (ColumnDefinition columnDef : columns) {
+                if (!columnDef.isNullable()
+                        && engineName.equalsIgnoreCase("hive")) {
+                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
+                }
                 columnDef.setIsKey(true);
+                columnDef.setAggType(AggregateType.NONE);
+            }
+            // TODO: support iceberg partition check
+            if (engineName.equalsIgnoreCase("hive")) {
+                partitionTableInfo.validatePartitionInfo(columnMap, properties, ctx, false, true);
             }
         }
 
@@ -525,11 +542,38 @@ public class CreateTableInfo {
         }
     }
 
-    public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
+    private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        if (Strings.isNullOrEmpty(engineName)) {
+            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
+                engineName = "olap";
+            } else if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
+                engineName = "hive";
+            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
+                engineName = "iceberg";
+            } else {
+                // set to olap by default
+                engineName = "olap";
+            }
+        }
+    }
+
+    /**
+     * validate ctas definition
+     */
+    public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
+                                            ConnectContext ctx) {
+        String catalogName = qualifierTableName.get(0);
+        paddingEngineName(catalogName, ctx);
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
-        this.distribution = new DistributionDescriptor(true, false, 10,
-                Lists.newArrayList(columns.get(0).getName()));
+        if (engineName.equals("olap") && this.distribution == null) {
+            if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                        + " Make sure 'engine' type is specified when use the catalog: " + catalogName);
+            }
+            this.distribution = new DistributionDescriptor(true, false, 10,
+                    Lists.newArrayList(columns.get(0).getName()));
+        }
         validate(ctx);
     }
 
@@ -727,5 +771,9 @@ public class CreateTableInfo {
                 new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
                 comment, addRollups, null);
+    }
+
+    public void setIsExternal(boolean isExternal) {
+        this.isExternal = isExternal;
     }
 }

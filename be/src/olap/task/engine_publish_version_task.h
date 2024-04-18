@@ -31,6 +31,7 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
 
 namespace doris {
@@ -82,6 +83,7 @@ private:
     TabletInfo _tablet_info;
     TabletPublishStatistics _stats;
     Status _result;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 class EnginePublishVersionTask final : public EngineTask {
@@ -118,7 +120,9 @@ public:
               _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
-              _version(version) {
+              _version(version),
+              _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "AsyncTabletPublishTask")) {
         _stats.submit_time_us = MonotonicMicros();
     }
     ~AsyncTabletPublishTask() = default;
@@ -132,6 +136,7 @@ private:
     int64_t _transaction_id;
     int64_t _version;
     TabletPublishStatistics _stats;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris

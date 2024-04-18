@@ -30,7 +30,7 @@
 
 #include "common/status.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 namespace pipeline {
@@ -76,7 +76,7 @@ public:
 
     void inc_runtime(uint64_t delta_time) { _runtime += delta_time; }
 
-    void adjust_runtime(uint64_t vruntime) { this->_runtime = vruntime * _level_factor; }
+    void adjust_runtime(uint64_t vruntime) { this->_runtime = uint64_t(vruntime * _level_factor); }
 
     bool empty() { return _queue.empty(); }
 

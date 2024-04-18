@@ -48,6 +48,7 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "orc/OrcFile.hh"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
@@ -133,7 +134,7 @@ public:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -148,7 +149,7 @@ public:
                                            compressed_buf.size);
         }
         output->resize(compressed_len);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), compressed_len);
         }
         return Status::OK();
@@ -228,7 +229,7 @@ public:
     }
 
 private:
-    Decompressor* _decompressor;
+    std::unique_ptr<Decompressor> _decompressor;
 };
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
@@ -297,7 +298,7 @@ private:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -331,7 +332,7 @@ private:
         }
         offset += wbytes;
         output->resize(offset);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), offset);
         }
 
@@ -492,7 +493,7 @@ public:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -506,7 +507,7 @@ public:
                                            compressed_buf.size);
         }
         output->resize(compressed_len);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), compressed_len);
         }
         return Status::OK();
@@ -767,6 +768,7 @@ public:
         return &s_instance;
     }
     ~ZstdBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context);
         for (auto ctx : _ctx_c_pool) {
             _delete_compression_ctx(ctx);
         }
@@ -786,6 +788,7 @@ public:
     //  https://github.com/facebook/zstd/blob/dev/examples/streaming_compression.c
     Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                     faststring* output) override {
+        _query_thread_context.init();
         CContext* context;
         RETURN_IF_ERROR(_acquire_compression_ctx(&context));
         bool compress_failed = false;
@@ -805,7 +808,7 @@ public:
             compressed_buf.data = reinterpret_cast<char*>(output->data());
             compressed_buf.size = max_len;
         } else {
-            // reuse context buffer if max_len < MAX_COMPRESSION_BUFFER_FOR_REUSE
+            // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
             context->buffer.resize(max_len);
             compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
             compressed_buf.size = max_len;
@@ -856,7 +859,7 @@ public:
 
         // set compressed size for caller
         output->resize(out_buf.pos);
-        if (max_len < MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
+        if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
             output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
         }
 
@@ -864,6 +867,7 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
+        _query_thread_context.init();
         DContext* context;
         bool decompress_failed = false;
         RETURN_IF_ERROR(_acquire_decompression_ctx(&context));
@@ -960,6 +964,8 @@ private:
 
     mutable std::mutex _ctx_d_mutex;
     mutable std::vector<DContext*> _ctx_d_pool;
+
+    QueryThreadContext _query_thread_context;
 };
 
 class GzipBlockCompression : public ZlibBlockCompression {

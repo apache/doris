@@ -47,6 +47,7 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
 
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """

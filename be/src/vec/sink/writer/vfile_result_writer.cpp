@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -98,38 +99,6 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
     _written_data_bytes = ADD_COUNTER(profile, "WrittenDataBytes", TUnit::BYTES);
 }
 
-Status VFileResultWriter::_create_success_file() {
-    std::string file_name;
-    RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
-            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
-            _file_writer_impl));
-    // must write somthing because s3 file writer can not writer empty file
-    RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
-    return _file_writer_impl->close();
-}
-
-Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
-    std::stringstream ss;
-    ss << _file_opts->file_path << _file_opts->success_file_name;
-    *file_name = ss.str();
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        // For local file writer, the file_path is a local dir.
-        // Here we do a simple security verification by checking whether the file exists.
-        // Because the file path is currently arbitrarily specified by the user,
-        // Doris is not responsible for ensuring the correctness of the path.
-        // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
-            return Status::InternalError("File already exists: {}", *file_name);
-        }
-    }
-
-    return Status::OK();
-}
-
 Status VFileResultWriter::_create_next_file_writer() {
     std::string file_name;
     RETURN_IF_ERROR(_get_next_file_name(&file_name));
@@ -137,11 +106,13 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
+    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
-            _file_writer_impl));
-    RETURN_IF_ERROR(_file_writer_impl->open());
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            {
+                    .write_file_cache = false,
+                    .sync_file_data = false,
+            }));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
@@ -277,10 +248,6 @@ Status VFileResultWriter::_close_file_writer(bool done) {
         RETURN_IF_ERROR(_create_next_file_writer());
     } else {
         // All data is written to file, send statistic result
-        if (_file_opts->success_file_name != "") {
-            // write success file, just need to touch an empty file
-            RETURN_IF_ERROR(_create_success_file());
-        }
         if (_output_block == nullptr) {
             RETURN_IF_ERROR(_send_result());
         } else {
@@ -382,25 +349,20 @@ Status VFileResultWriter::_fill_result_block() {
 Status VFileResultWriter::_delete_dir() {
     // get dir of file_path
     std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
-    std::shared_ptr<io::FileSystem> file_system = nullptr;
     switch (_storage_type) {
     case TStorageBackendType::LOCAL:
-        file_system = io::LocalFileSystem::create(dir, "");
-        break;
+        return io::global_local_filesystem()->delete_directory(dir);
     case TStorageBackendType::BROKER: {
-        std::shared_ptr<io::BrokerFileSystem> broker_fs = nullptr;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
-                                                     _file_opts->broker_properties, &broker_fs));
-        file_system = broker_fs;
-        break;
+        auto fs = DORIS_TRY(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
+                                                         _file_opts->broker_properties,
+                                                         io::FileSystem::TMP_FS_ID));
+        return fs->delete_directory(dir);
     }
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
-        std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr,
-                                                   &hdfs_fs));
-        file_system = hdfs_fs;
-        break;
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                       io::FileSystem::TMP_FS_ID, nullptr));
+        return fs->delete_directory(dir);
     }
     case TStorageBackendType::S3: {
         S3URI s3_uri(dir);
@@ -409,15 +371,12 @@ Status VFileResultWriter::_delete_dir() {
         std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
                 _file_opts->broker_properties, s3_uri, &s3_conf));
-        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
-        file_system = s3_fs;
-        break;
+        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, io::FileSystem::TMP_FS_ID));
+        return fs->delete_directory(dir);
     }
     default:
         return Status::NotSupported("Unsupported storage type: {}", std::to_string(_storage_type));
     }
-    RETURN_IF_ERROR(file_system->delete_directory(dir));
-    return Status::OK();
 }
 
 Status VFileResultWriter::close(Status exec_status) {

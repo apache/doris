@@ -125,12 +125,17 @@ suite("inner_join") {
     """
 
     // without filter
-    def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query1_0 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
+    def mv1_0 =
+            """
+            select  lineitem.L_LINENUMBER, orders.O_CUSTKEY
+            from lineitem
+            inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            """
+    def query1_0 = """
+            select lineitem.L_LINENUMBER
+            from lineitem
+            inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            """
     order_qt_query1_0_before "${query1_0}"
     check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"

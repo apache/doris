@@ -88,6 +88,8 @@ public:
     virtual bool update_profile(RuntimeProfile* profile) = 0;
 
     virtual RowsetReaderSharedPtr clone() = 0;
+
+    virtual void set_topn_limit(size_t topn_limit) = 0;
 };
 
 } // namespace doris

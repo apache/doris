@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 
@@ -107,7 +108,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
@@ -138,14 +140,15 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     public ShowResultSet constructResultSet(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         columnStatistics.forEach(p -> {
             if (p.second.isUnKnown) {
                 return;
             }
-
             List<String> row = Lists.newArrayList();
-            row.add(p.first.first);
+            // p data structure is Pair<Pair<IndexName, ColumnName>, ColumnStatistic>
             row.add(p.first.second);
+            row.add(p.first.first);
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -153,8 +156,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
-            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
-                    p.first.first);
+            ColStatsMeta colStatsMeta = analysisManager.findColStatsMeta(table.getId(), p.first.first, p.first.second);
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));

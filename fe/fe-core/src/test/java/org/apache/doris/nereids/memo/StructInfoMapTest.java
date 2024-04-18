@@ -83,6 +83,59 @@ class StructInfoMapTest extends SqlTestBase {
     }
 
     @Test
+    void testLazyRefresh() throws Exception {
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .optimize();
+        Group root = c1.getMemo().getRoot();
+        Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
+        Assertions.assertTrue(tableMaps.isEmpty());
+        boolean refreshed = root.getstructInfoMap().refresh(root);
+        Assertions.assertTrue(refreshed);
+        refreshed = root.getstructInfoMap().refresh(root);
+        Assertions.assertFalse(refreshed);
+        Assertions.assertEquals(1, tableMaps.size());
+        new MockUp<MTMVRelationManager>() {
+            @Mock
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+                return true;
+            }
+        };
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select T1.id from T1 inner join T2 "
+                + "on T1.id = T2.id;");
+        c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .optimize()
+                .printlnBestPlanTree();
+        root = c1.getMemo().getRoot();
+        refreshed = root.getstructInfoMap().refresh(root);
+        Assertions.assertTrue(refreshed);
+        refreshed = root.getstructInfoMap().refresh(root);
+        Assertions.assertFalse(refreshed);
+        tableMaps = root.getstructInfoMap().getTableMaps();
+        Assertions.assertEquals(2, tableMaps.size());
+        dropMvByNereids("drop materialized view mv1");
+    }
+
+    @Test
     void testTableChild() throws Exception {
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "

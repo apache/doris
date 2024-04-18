@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -113,7 +114,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         OlapTableSink olapTableSink = (OlapTableSink) sink;
         PhysicalOlapTableSink physicalOlapTableSink = (PhysicalOlapTableSink) physicalSink;
         OlapInsertCommandContext olapInsertCtx = (OlapInsertCommandContext) insertCtx.orElse(
-                new OlapInsertCommandContext());
+                new OlapInsertCommandContext(true));
 
         boolean isStrictMode = ctx.getSessionVariable().getEnableInsertStrict()
                 && physicalOlapTableSink.isPartialUpdate()
@@ -127,9 +128,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     false,
                     isStrictMode,
                     timeout);
+            // complete and set commands both modify thrift struct
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!olapInsertCtx.isAllowAutoPartition()) {
                 olapTableSink.setAutoPartition(false);
+            }
+            if (olapInsertCtx.isAutoDetectOverwrite()) {
+                olapTableSink.setAutoDetectOverwite(true);
+                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
             }
             // update
 
@@ -212,7 +218,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-
+        // retry insert into from select when meet E-230 in cloud
+        if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+            return;
+        }
         StringBuilder sb = new StringBuilder(t.getMessage());
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());

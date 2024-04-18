@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -66,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -160,6 +163,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
         return visitAggregateFunction(multiDistinctSum, context);
+    }
+
+    default R visitMultiDistinctSum0(MultiDistinctSum0 multiDistinctSum0, C context) {
+        return visitAggregateFunction(multiDistinctSum0, context);
+    }
+
+    default R visitGroupArrayIntersect(GroupArrayIntersect groupArrayIntersect, C context) {
+        return visitAggregateFunction(groupArrayIntersect, context);
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
@@ -272,6 +283,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum(Sum sum, C context) {
         return visitNullableAggregateFunction(sum, context);
+    }
+
+    default R visitSum0(Sum0 sum0, C context) {
+        return visitAggregateFunction(sum0, context);
     }
 
     default R visitTopN(TopN topN, C context) {

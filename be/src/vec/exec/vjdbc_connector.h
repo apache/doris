@@ -113,6 +113,9 @@ public:
 
     Status close(Status s = Status::OK()) override;
 
+    Status test_connection();
+    Status clean_datasource();
+
 protected:
     JdbcConnectorParam _conn_param;
 
@@ -155,6 +158,8 @@ private:
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
+    jmethodID _executor_test_connection_id;
+    jmethodID _executor_clean_datasource_id;
 
     std::map<int, int> _map_column_idx_to_cast_idx_hll;
     std::vector<DataTypePtr> _input_hll_string_types;

@@ -123,7 +123,7 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+        result.mutable_string_value()->Reserve(end - start);
         auto* ptype = result.mutable_type();
         ptype->set_id(PGenericType::STRING);
         for (size_t row_num = start; row_num < end; ++row_num) {
@@ -133,10 +133,10 @@ public:
         return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.string_value_size());
+        auto& column_dest = assert_cast<ColumnType&>(column);
+        column_dest.reserve(column_dest.size() + arg.string_value_size());
         for (int i = 0; i < arg.string_value_size(); ++i) {
-            assert_cast<ColumnType&>(column).insert_data(arg.string_value(i).c_str(),
-                                                         arg.string_value(i).size());
+            column_dest.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
         }
         return Status::OK();
     }
@@ -156,8 +156,8 @@ public:
     }
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override {
         const auto& string_column = assert_cast<const ColumnType&>(column);
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {
@@ -228,23 +228,25 @@ public:
         cur_batch->numElements = end - start;
         return Status::OK();
     }
-    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                rapidjson::Document::AllocatorType& allocator,
-                                int row_num) const override {
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator,
+                                  int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
         result.SetString(data_ref.data, data_ref.size);
+        return Status::OK();
     }
-    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
+    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
         auto& col = assert_cast<ColumnType&>(column);
         if (!result.IsString()) {
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             result.Accept(writer);
             col.insert_data(buffer.GetString(), buffer.GetSize());
-            return;
+            return Status::OK();
         }
         col.insert_data(result.GetString(), result.GetStringLength());
+        return Status::OK();
     }
 
 private:

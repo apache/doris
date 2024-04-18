@@ -31,7 +31,9 @@ PhysicalResultSink
 
 -- !left_anti_join --
 PhysicalResultSink
---PhysicalEmptyRelation
+--NestedLoopJoin[LEFT_ANTI_JOIN]
+----PhysicalOlapScan[t]
+----PhysicalOlapScan[t]
 
 -- !right_semi_join --
 PhysicalResultSink

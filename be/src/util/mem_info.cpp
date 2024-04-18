@@ -42,8 +42,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/task_group/task_group.h"
-#include "runtime/task_group/task_group_manager.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/cgroup_util.h"
 #include "util/defer_op.h"
 #include "util/parse_util.h"
@@ -241,23 +241,24 @@ bool MemInfo::process_full_gc() {
 int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
     MonotonicStopWatch watch;
     watch.start();
-    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    std::vector<WorkloadGroupPtr> task_groups;
     std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
     int64_t total_free_memory = 0;
 
-    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
-            [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
+    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
+            [](const WorkloadGroupPtr& workload_group) {
+                return workload_group->is_mem_limit_valid() &&
+                       !workload_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
         return 0;
     }
 
-    std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
-    for (const auto& task_group : task_groups) {
-        if (task_group->memory_used() > task_group->memory_limit()) {
-            task_groups_overcommit.push_back(task_group);
+    std::vector<WorkloadGroupPtr> task_groups_overcommit;
+    for (const auto& workload_group : task_groups) {
+        if (workload_group->memory_used() > workload_group->memory_limit()) {
+            task_groups_overcommit.push_back(workload_group);
         }
     }
     if (task_groups_overcommit.empty()) {
@@ -283,10 +284,10 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
         }
     }};
 
-    for (const auto& task_group : task_groups_overcommit) {
-        auto used = task_group->memory_used();
+    for (const auto& workload_group : task_groups_overcommit) {
+        auto used = workload_group->memory_used();
         total_free_memory +=
-                task_group->gc_memory(used - task_group->memory_limit(), tg_profile.get());
+                workload_group->gc_memory(used - workload_group->memory_limit(), tg_profile.get());
     }
     return total_free_memory;
 }
@@ -295,10 +296,11 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
                                                RuntimeProfile* profile) {
     MonotonicStopWatch watch;
     watch.start();
-    std::vector<taskgroup::TaskGroupPtr> task_groups;
-    ExecEnv::GetInstance()->task_group_manager()->get_related_taskgroups(
-            [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
+    std::vector<WorkloadGroupPtr> task_groups;
+    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
+            [](const WorkloadGroupPtr& workload_group) {
+                return workload_group->is_mem_limit_valid() &&
+                       workload_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
@@ -308,9 +310,9 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
     int64_t total_exceeded_memory = 0;
     std::vector<int64_t> used_memorys;
     std::vector<int64_t> exceeded_memorys;
-    for (const auto& task_group : task_groups) {
-        int64_t used_memory = task_group->memory_used();
-        int64_t exceeded = used_memory - task_group->memory_limit();
+    for (const auto& workload_group : task_groups) {
+        int64_t used_memory = workload_group->memory_used();
+        int64_t exceeded = used_memory - workload_group->memory_limit();
         int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
         total_exceeded_memory += exceeded_memory;
         used_memorys.emplace_back(used_memory);
@@ -352,12 +354,12 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
         }
 
         // todo: GC according to resource group priority
-        int64_t tg_need_free_memory =
+        auto tg_need_free_memory = int64_t(
                 gc_all_exceeded ? exceeded_memorys[i]
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
-                                          request_free_memory /* exceeded memory as a weight */;
-        auto task_group = task_groups[i];
-        total_free_memory += task_group->gc_memory(tg_need_free_memory, profile);
+                                          request_free_memory); // exceeded memory as a weight
+        auto workload_group = task_groups[i];
+        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile);
     }
     return total_free_memory;
 }
@@ -391,6 +393,15 @@ void MemInfo::refresh_proc_meminfo() {
         _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
         _s_sys_mem_available_str = PrettyPrinter::print(
                 _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#ifdef ADDRESS_SANITIZER
+        _s_sys_mem_available_str =
+                "[ASAN]" +
+                PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
+                                     TUnit::BYTES);
+#else
+        _s_sys_mem_available_str = PrettyPrinter::print(
+                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
+#endif
     }
 }
 
@@ -421,7 +432,7 @@ void MemInfo::init() {
         _s_mem_limit = _s_physical_mem;
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit = int64_t(_s_mem_limit * config::soft_mem_limit_frac);
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     _s_process_minor_gc_size =
@@ -454,9 +465,9 @@ void MemInfo::init() {
         //
         // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
         _s_sys_mem_available_low_water_mark = std::max<int64_t>(
-                std::min<int64_t>(
-                        std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-                        config::max_sys_mem_available_low_water_mark_bytes),
+                std::min<int64_t>(std::min<int64_t>(_s_physical_mem - _s_mem_limit,
+                                                    int64_t(_s_physical_mem * 0.1)),
+                                  config::max_sys_mem_available_low_water_mark_bytes),
                 0);
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
@@ -512,7 +523,7 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit = static_cast<int64_t>(_s_mem_limit * config::soft_mem_limit_frac);
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);

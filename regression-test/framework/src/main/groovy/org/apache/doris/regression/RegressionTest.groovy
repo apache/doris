@@ -97,6 +97,10 @@ class RegressionTest {
                 TeamcityUtils.postfix = i.toString()
             }
 
+            if (config.caseNamePrefix) {
+                TeamcityUtils.prefix = config.caseNamePrefix.toString()
+            }
+
             Recorder recorder = runScripts(config)
             success = (success && printResult(config, recorder))
 

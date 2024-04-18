@@ -521,8 +521,8 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                     bool is_need_shrink =
                             arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
                     if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(
-                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
+                        tmp_hash_table->init_buf_size(size_t(
+                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
                     }
 
                     arg.init_iterator();

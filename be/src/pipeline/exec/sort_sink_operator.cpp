@@ -29,9 +29,18 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SortSharedState>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _sort_blocks_memory_usage =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    return Status::OK();
+}
+
+Status SortSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<SortSinkOperatorX>();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -62,9 +71,6 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _shared_state->sorter->init_profile(_profile);
 
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
-
-    _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
     return Status::OK();
 }
 
@@ -154,13 +160,15 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         local_state._mem_tracker->set_consumption(local_state._shared_state->sorter->data_size());
         RETURN_IF_CANCELLED(state);
 
-        // update runtime predicate
         if (_use_topn_opt) {
-            vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
-            if (!new_top.is_null() && new_top != local_state.old_top) {
-                auto* query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).update(new_top));
-                local_state.old_top = std::move(new_top);
+            auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
+            if (predicate.need_update()) {
+                vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
+                if (!new_top.is_null() && new_top != local_state.old_top) {
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).update(new_top));
+                    local_state.old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {
