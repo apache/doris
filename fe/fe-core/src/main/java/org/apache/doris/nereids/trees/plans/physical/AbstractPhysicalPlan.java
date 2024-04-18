@@ -88,7 +88,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
         // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkProbeSlot(ctx, probeSlot)) {
             return false;
         }
 
