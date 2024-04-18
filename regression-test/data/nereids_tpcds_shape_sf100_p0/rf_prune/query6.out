@@ -18,7 +18,8 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF4 ss_customer_sk->[c_customer_sk]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF4
+--------------------------------filter(( not c_current_addr_sk IS NULL))
+----------------------------------PhysicalOlapScan[customer] apply RFs: RF4
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
@@ -26,28 +27,34 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_sold_date_sk = d.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
+------------------------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_sold_date_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF1 d_month_seq->[d_month_seq]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+----------------------------------------------filter(( not d_month_seq IS NULL))
+------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
 --------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------------PhysicalAssertNumRows
-------------------------------------------------PhysicalDistribute[DistributionSpecGather]
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
-------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------filter(( not d_month_seq IS NULL))
+------------------------------------------------PhysicalAssertNumRows
+--------------------------------------------------PhysicalDistribute[DistributionSpecGather]
+----------------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------------PhysicalProject
+------------------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
+--------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4)))))) build RFs:RF0 i_category->[i_category]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter(( not i_category IS NULL) and ( not i_current_price IS NULL))
+------------------------------------------PhysicalOlapScan[item] apply RFs: RF0
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------hashAgg[GLOBAL]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter(( not avg(cast(i_current_price as DECIMALV3(9, 4))) IS NULL))
+------------------------------------------hashAgg[GLOBAL]
+--------------------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------------------hashAgg[LOCAL]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter(( not i_category IS NULL))
+----------------------------------------------------PhysicalOlapScan[item]
 

@@ -23,12 +23,14 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF0 cs_item_sk->[inv_item_sk]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF2 RF3 RF8
+----------------------------------------------filter(( not inv_quantity_on_hand IS NULL) and ( not inv_warehouse_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF2 RF3 RF8
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
 ------------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2 RF5 RF6 RF7
+----------------------------------------------------filter(( not cs_bill_cdemo_sk IS NULL) and ( not cs_bill_hdemo_sk IS NULL) and ( not cs_quantity IS NULL) and ( not cs_ship_date_sk IS NULL) and ( not cs_sold_date_sk IS NULL))
+------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2 RF5 RF6 RF7
 --------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------PhysicalOlapScan[promotion]
@@ -43,14 +45,16 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
+------------------------------------filter(( not d_week_seq IS NULL))
+--------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
-----------------------------------filter((d1.d_year = 2002))
+----------------------------------filter(( not d_date IS NULL) and ( not d_week_seq IS NULL) and (d1.d_year = 2002))
 ------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[date_dim]
+------------------------------filter(( not d_date IS NULL))
+--------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((household_demographics.hd_buy_potential = '501-1000'))

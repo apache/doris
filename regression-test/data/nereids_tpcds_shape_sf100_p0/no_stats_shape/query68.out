@@ -21,7 +21,8 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
+------------------------------------------filter(( not ss_addr_sk IS NULL) and ( not ss_customer_sk IS NULL) and ( not ss_hdemo_sk IS NULL) and ( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_dom <= 2) and (date_dim.d_dom >= 1) and d_year IN (1998, 1999, 2000))
@@ -36,11 +37,14 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[store]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_address]
+--------------------------------filter(( not ca_city IS NULL))
+----------------------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[customer] apply RFs: RF5
+----------------------filter(( not c_current_addr_sk IS NULL))
+------------------------PhysicalOlapScan[customer] apply RFs: RF5
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
+----------------filter(( not ca_city IS NULL))
+------------------PhysicalOlapScan[customer_address]
 

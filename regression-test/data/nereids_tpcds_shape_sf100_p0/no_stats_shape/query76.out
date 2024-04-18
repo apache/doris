@@ -14,7 +14,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
 --------------------------PhysicalProject
-----------------------------filter(ss_hdemo_sk IS NULL)
+----------------------------filter(( not ss_sold_date_sk IS NULL) and ss_hdemo_sk IS NULL)
 ------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
@@ -28,7 +28,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ws_item_sk]
 --------------------------PhysicalProject
-----------------------------filter(ws_bill_addr_sk IS NULL)
+----------------------------filter(( not ws_sold_date_sk IS NULL) and ws_bill_addr_sk IS NULL)
 ------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
@@ -42,7 +42,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[cs_item_sk]
 --------------------------PhysicalProject
-----------------------------filter(cs_warehouse_sk IS NULL)
+----------------------------filter(( not cs_sold_date_sk IS NULL) and cs_warehouse_sk IS NULL)
 ------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject

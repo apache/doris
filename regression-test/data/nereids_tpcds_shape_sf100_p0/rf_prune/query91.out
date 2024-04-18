@@ -22,7 +22,8 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cr_returned_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2 RF3
+--------------------------------------filter(( not cr_call_center_sk IS NULL) and ( not cr_returned_date_sk IS NULL) and ( not cr_returning_customer_sk IS NULL))
+----------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2 RF3
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
@@ -32,7 +33,8 @@ PhysicalResultSink
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[c_current_cdemo_sk]
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
+----------------------------------------filter(( not c_current_addr_sk IS NULL) and ( not c_current_cdemo_sk IS NULL) and ( not c_current_hdemo_sk IS NULL))
+------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))))

@@ -19,7 +19,8 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4
+--------------------------------------filter(( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((d1.d_month_seq <= 1224) and (d1.d_month_seq >= 1213))
@@ -27,7 +28,8 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store.s_state = tmp1.s_state)) otherCondition=() build RFs:RF2 s_state->[s_state]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store] apply RFs: RF2
+--------------------------------------filter(( not s_state IS NULL))
+----------------------------------------PhysicalOlapScan[store] apply RFs: RF2
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((ranking <= 5))
@@ -42,7 +44,8 @@ PhysicalResultSink
 ----------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 ------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 --------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+----------------------------------------------------------------filter(( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 --------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------filter((date_dim.d_month_seq <= 1224) and (date_dim.d_month_seq >= 1213))

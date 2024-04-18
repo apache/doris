@@ -14,7 +14,8 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_returns] apply RFs: RF2
+------------------------filter(( not sr_reason_sk IS NULL))
+--------------------------PhysicalOlapScan[store_returns] apply RFs: RF2
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------filter((reason.r_reason_desc = 'duplicate purchase'))

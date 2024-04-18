@@ -19,7 +19,8 @@ PhysicalResultSink
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+----------------------------------filter(( not ss_customer_sk IS NULL) and ( not ss_hdemo_sk IS NULL) and ( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------filter((store.s_county = 'Williamson County'))
