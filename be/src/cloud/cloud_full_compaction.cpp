@@ -296,6 +296,9 @@ void CloudFullCompaction::do_lease() {
 }
 
 Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t initiator) {
+    if (_tablet->keys_type() != KeysType::UNIQUE_KEYS) {
+        return Status::OK();
+    }
     std::vector<RowsetSharedPtr> tmp_rowsets {};
     DeleteBitmapPtr delete_bitmap =
             std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
