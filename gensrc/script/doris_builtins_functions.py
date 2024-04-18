@@ -2251,7 +2251,7 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
-    'str_insert',
+    'overlay',
     'strcmp',
     'append_trailing_char_if_absent',
     'ST_X',
