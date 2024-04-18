@@ -56,7 +56,6 @@ using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
 
 struct FileCacheAllocatorBuilder {
     bool _is_cold_data;
-    bool _write_file_cache;
     uint64_t _expiration_time;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache

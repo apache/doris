@@ -90,7 +90,7 @@ private:
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    FileCacheAllocatorBuilder _cache_builder;
+    std::unique_ptr<FileCacheAllocatorBuilder> _cache_builder;
 };
 
 } // namespace io

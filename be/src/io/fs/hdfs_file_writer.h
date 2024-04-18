@@ -18,17 +18,17 @@
 #pragma once
 
 #include "common/status.h"
-#include "io/cache/file_block.h"
-#include "io/cache/file_cache_common.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
-#include "util/slice.h"
 
-namespace doris::io {
+namespace doris {
+struct Slice;
+namespace io {
 
 class HdfsHandler;
 class BlockFileCache;
+struct FileCacheAllocatorBuilder;
 
 class HdfsFileWriter final : public FileWriter {
 public:
@@ -51,7 +51,8 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    // Flush buffer into file cache, **Notice**: this would clear the underlying buffer
+    // Flush buffered data into HDFS client and write local file cache if enabled
+    // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();
     Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
@@ -64,19 +65,25 @@ private:
     size_t _bytes_appended = 0;
     bool _closed = false;
     bool _sync_file_data;
-    FileCacheAllocatorBuilder _cache_builder;
-    struct BatchBuffer {
+    std::unique_ptr<FileCacheAllocatorBuilder>
+            _cache_builder; // nullptr if disable write file cache
+    class BatchBuffer {
+    public:
         BatchBuffer(size_t capacity);
-        std::string _batch_buffer;
         size_t append(std::string_view content);
         bool full() const;
         const char* data() const;
         size_t capacity() const;
         size_t size() const;
         void clear();
+        std::string_view content() const;
+
+    private:
+        std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
     size_t _index_offset;
 };
 
-} // namespace doris::io
+} // namespace io
+} // namespace doris

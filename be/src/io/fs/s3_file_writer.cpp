@@ -87,21 +87,17 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _bucket(std::move(bucket)),
           _key(std::move(key)),
-          _client(std::move(client)),
-          _cache_builder({._write_file_cache = false}) {
+          _client(std::move(client)) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && opts ? opts->write_file_cache : false) {
-        _cache_builder = {
-                ._is_cold_data = opts ? opts->is_cold_data : false,
-                ._write_file_cache = true,
-                ._expiration_time = opts ? opts->file_cache_expiration : 0,
-                ._cache_hash = BlockFileCache::hash(_path.filename().native()),
-                ._cache = FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_path.filename().native())),
-        };
+    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
+        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
+                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                BlockFileCache::hash(_path.filename().native()),
+                FileCacheFactory::instance()->get_by_path(
+                        BlockFileCache::hash(_path.filename().native()))});
     }
 }
 
@@ -287,14 +283,14 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                             return ret;
                         })
                         .set_is_cancelled([this]() { return _failed.load(); });
-                if (_cache_builder._write_file_cache) {
+                if (_cache_builder != nullptr) {
                     // We would load the data into file cache asynchronously which indicates
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable
                     // we need by value to extend their lifetime
                     builder.set_allocate_file_blocks_holder(
                             [&, offset = _bytes_appended]() -> FileBlocksHolderPtr {
-                                return _cache_builder.allocate_cache_holder(
+                                return _cache_builder->allocate_cache_holder(
                                         offset, config::s3_write_buffer_size);
                             });
                 }

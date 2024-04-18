@@ -43,7 +43,7 @@ bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written")
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
 
-constexpr size_t MB = 1024 * 1024;
+static constexpr size_t MB = 1024 * 1024;
 
 HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -52,19 +52,13 @@ HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_fi
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
-          _cache_builder({
-                  ._write_file_cache = false,
-          }),
           _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
-    if (config::enable_file_cache && (opts ? opts->write_file_cache : false)) {
-        _cache_builder = {
-                ._is_cold_data = opts ? opts->is_cold_data : false,
-                ._write_file_cache = true,
-                ._expiration_time = opts ? opts->file_cache_expiration : 0,
-                ._cache_hash = BlockFileCache::hash(_path.filename().native()),
-                ._cache = FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_path.filename().native())),
-        };
+    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
+        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
+                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                BlockFileCache::hash(_path.filename().native()),
+                FileCacheFactory::instance()->get_by_path(
+                        BlockFileCache::hash(_path.filename().native()))});
     }
     hdfs_file_writer_total << 1;
     hdfs_file_being_written << 1;
@@ -147,7 +141,7 @@ void HdfsFileWriter::BatchBuffer::clear() {
 
 // TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
 void HdfsFileWriter::_write_into_local_file_cache() {
-    auto holder = _cache_builder.allocate_cache_holder(_bytes_appended - _batch_buffer.size(),
+    auto holder = _cache_builder->allocate_cache_holder(_bytes_appended - _batch_buffer.size(),
                                                        _batch_buffer.capacity());
     size_t pos = 0;
     size_t data_remain_size = _batch_buffer.size();
@@ -197,8 +191,8 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
 }
 
 Status HdfsFileWriter::_flush_buffer() {
-    RETURN_IF_ERROR(append_hdfs_file(_batch_buffer._batch_buffer));
-    if (_cache_builder._write_file_cache) {
+    RETURN_IF_ERROR(append_hdfs_file(_batch_buffer.content()));
+    if (_cache_builder != nullptr) {
         _write_into_local_file_cache();
     }
     _batch_buffer.clear();
@@ -209,6 +203,10 @@ size_t HdfsFileWriter::BatchBuffer::append(std::string_view content) {
     size_t append_size = std::min(capacity() - size(), content.size());
     _batch_buffer.append(content.data(), append_size);
     return append_size;
+}
+
+std::string_view HdfsFileWriter::BatchBuffer::content() const {
+    return _batch_buffer;
 }
 
 Status HdfsFileWriter::_append(std::string_view content) {
