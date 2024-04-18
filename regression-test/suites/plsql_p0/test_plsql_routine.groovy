@@ -39,7 +39,8 @@ suite("test_plsql_routine") {
     def select_routines_fixed_value_column = """select SPECIFIC_NAME,ROUTINE_CATALOG,ROUTINE_SCHEMA,ROUTINE_NAME,ROUTINE_TYPE
             ,DTD_IDENTIFIER,ROUTINE_BODY,ROUTINE_DEFINITION,EXTERNAL_NAME,EXTERNAL_NAME,EXTERNAL_LANGUAGE,PARAMETER_STYLE
             ,IS_DETERMINISTIC,SQL_DATA_ACCESS,SQL_PATH,SECURITY_TYPE,SQL_MODE,ROUTINE_COMMENT,DEFINER,CHARACTER_SET_CLIENT
-            ,COLLATION_CONNECTION,DATABASE_COLLATION from information_schema.routines where routine_schema=\"${dbName}\";"""
+            ,COLLATION_CONNECTION,DATABASE_COLLATION from information_schema.routines where routine_schema=\"${dbName}\" 
+            order by SPECIFIC_NAME;"""
 
     sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine1() ${procedure_body} """
     sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine2() ${procedure_body} """
