@@ -185,6 +185,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
+        SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
         RowsetId rowset_id = rowset()->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
             auto d = _read_context->delete_bitmap->get_agg(
