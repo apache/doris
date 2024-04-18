@@ -22,9 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -40,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -73,21 +72,15 @@ public class RuntimeFilterTranslator {
     }
 
     private class RuntimeFilterExpressionTranslator extends ExpressionTranslator {
-        Map<ExprId, SlotRef> nereidsExprIdToSlotRef;
+        SlotRef targetSlotRef;
 
-        RuntimeFilterExpressionTranslator(Map<ExprId, SlotRef> nereidsExprIdToSlotRef) {
-            this.nereidsExprIdToSlotRef = nereidsExprIdToSlotRef;
+        RuntimeFilterExpressionTranslator(SlotRef targetSlotRef) {
+            this.targetSlotRef = targetSlotRef;
         }
 
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-            slotReference = context.getRuntimeTranslator().get()
-                    .context.getCorrespondingOlapSlotReference(slotReference);
-            SlotRef slot = nereidsExprIdToSlotRef.get(slotReference.getExprId());
-            if (slot == null) {
-                throw new AnalysisException("cannot find SlotRef for " + slotReference);
-            }
-            return slot;
+            return targetSlotRef;
         }
     }
 
