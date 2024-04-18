@@ -67,6 +67,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Config.disable_balance = true;
         Config.schedule_batch_size = 1000;
         Config.schedule_slot_num_per_hdd_path = 1000;
+        Config.heartbeat_interval_second = 5;
     }
 
     @Test
@@ -239,6 +240,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
         Assertions.assertDoesNotThrow(() -> recoverTable("db3.tbl1"));
         Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
+        dropTable("db3.tbl1", false);
 
         addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
