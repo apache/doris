@@ -306,7 +306,7 @@ public class TabletScheduler extends MasterDaemon {
 
     /**
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
-     * Firstly, it will try to update cluster load statistic and check if priority need to be adjurted.
+     * Firstly, it will try to update cluster load statistic and check if priority need to be adjusted.
      * Then, it will schedule the tablets in pendingTablets.
      * Thirdly, it will check the current running tasks.
      * Finally, it try to balance the cluster if possible.
