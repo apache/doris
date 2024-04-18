@@ -161,10 +161,6 @@ public class Partition extends MetaObject implements Writable {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
-    public long getCachedVisibleVersion() {
-        return visibleVersion;
-    }
-
     public long getVisibleVersion() {
         return visibleVersion;
     }
