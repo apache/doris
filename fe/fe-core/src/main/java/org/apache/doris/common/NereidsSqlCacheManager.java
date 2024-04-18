@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 
@@ -96,8 +97,8 @@ public class NereidsSqlCacheManager {
     }
 
     private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCacheNum = sqlCacheNum <= 0 ? 100 : sqlCacheNum;
-        cacheIntervalSeconds = cacheIntervalSeconds <= 0 ? 30 : cacheIntervalSeconds;
+        sqlCacheNum = sqlCacheNum < 0 ? 100 : sqlCacheNum;
+        cacheIntervalSeconds = cacheIntervalSeconds < 0 ? 30 : cacheIntervalSeconds;
 
         return Caffeine.newBuilder()
                 .maximumSize(sqlCacheNum)
@@ -105,6 +106,22 @@ public class NereidsSqlCacheManager {
                 // auto evict cache when jvm memory too low
                 .softValues()
                 .build();
+    }
+
+    /** tryAddFeCache */
+    public void tryAddFeSqlCache(ConnectContext connectContext, String sql) {
+        Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
+        if (!sqlCacheContextOpt.isPresent()) {
+            return;
+        }
+
+        SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+        UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
+        String key = currentUserIdentity.toString() + ":" + sql.trim();
+        if ((sqlCaches.getIfPresent(key) == null) && sqlCacheContext.getOrComputeCacheKeyMd5() != null
+                && sqlCacheContext.getResultSetInFe().isPresent()) {
+            sqlCaches.put(key, sqlCacheContext);
+        }
     }
 
     /** tryAddCache */
@@ -178,6 +195,19 @@ public class NereidsSqlCacheManager {
         }
 
         try {
+            Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
+            if (resultSetInFe.isPresent()) {
+                MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
+
+                String cachedPlan = sqlCacheContext.getPhysicalPlan();
+                LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
+                        sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(),
+                        sqlCacheContext.getResultExprs(), resultSetInFe, ImmutableList.of(),
+                        "none", cachedPlan
+                );
+                return Optional.of(logicalSqlCache);
+            }
+
             Status status = new Status();
             PUniqueId cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
             InternalService.PFetchCacheResult cacheData =
@@ -195,7 +225,9 @@ public class NereidsSqlCacheManager {
 
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
                         sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(),
-                        sqlCacheContext.getResultExprs(), cacheValues, backendAddress, cachedPlan);
+                        sqlCacheContext.getResultExprs(), Optional.empty(),
+                        cacheValues, backendAddress, cachedPlan
+                );
                 return Optional.of(logicalSqlCache);
             }
             return invalidateCache(key);

@@ -215,7 +215,8 @@ public class CacheAnalyzer {
     }
 
     public static boolean commonCacheCondition(SessionVariable sessionVariable) {
-        return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0;
+        return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0
+                && !sessionVariable.dryRunQuery;
     }
 
     /**
