@@ -198,6 +198,8 @@ public class Function implements Writable {
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
         this.checksum = other.checksum;
+        this.isGlobal = other.isGlobal;
+        this.isUDTFunction = other.isUDTFunction;
     }
 
     public void setNestedFunction(Function nestedFunction) {
