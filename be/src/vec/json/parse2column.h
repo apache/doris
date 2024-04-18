@@ -21,11 +21,11 @@
 #include <vector>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
 namespace vectorized {
-class ColumnString;
 class SimdJSONParser;
 enum class ExtractType;
 template <typename ParserImpl, bool>

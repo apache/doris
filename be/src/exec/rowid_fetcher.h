@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/storage_engine.h"
+#include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -37,7 +38,6 @@ class RuntimeState;
 class TupleDescriptor;
 
 namespace vectorized {
-class ColumnString;
 class MutableBlock;
 } // namespace vectorized
 
