@@ -53,6 +53,7 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "orc/OrcFile.hh"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
@@ -810,6 +811,8 @@ public:
         return &s_instance;
     }
     ~ZstdBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_c_pool.clear();
         _ctx_d_pool.clear();
     }
