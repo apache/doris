@@ -3087,7 +3087,7 @@ public class ShowExecutor {
                             .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {
-                StorageVault.setDefaultVaultToShowVaultResult(rows, resp.defaultStorageVaultId());
+                StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
             }
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
