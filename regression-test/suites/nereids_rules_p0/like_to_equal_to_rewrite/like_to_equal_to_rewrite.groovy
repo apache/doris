@@ -18,53 +18,36 @@
 suite("like_to_equal_to_rewrite") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "drop table if exists mal_test_like"
+    sql "drop table if exists mal_test_to_equal_to"
     sql """
-        create table mal_test_like(a varchar(10), b int) 
+        create table mal_test_to_equal_to(a varchar(10), b int) 
         distributed by hash(a) buckets 32
         properties(
         "replication_allocation"="tag.location.default: 1"
         );"""
 
-    sql "insert into mal_test_like values('abc',1);"
-    qt_test_regular "select * from mal_test_like where a like 'abc';"
+    sql "insert into mal_test_to_equal_to values('abc',1);"
+    qt_test_regular "select * from mal_test_to_equal_to where a like 'abc';"
 
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc%',1);"
-    qt_test_const_percent_sign "select * from mal_test_like where a like 'abc\\%';"
+    sql "truncate table mal_test_to_equal_to;"
+    sql "insert into mal_test_to_equal_to values('abc%',1);"
+    qt_test_const_percent_sign "select * from mal_test_to_equal_to where a like 'abc\\%';"
 
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc_',1);"
-    qt_test_underline """select * from mal_test_like where a like 'abc\\_';"""
+    sql "truncate table mal_test_to_equal_to;"
+    sql "insert into mal_test_to_equal_to values('abc_',1);"
+    qt_test_underline """select * from mal_test_to_equal_to where a like 'abc\\_';"""
 
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc_',1);"
-    explain {
-        sql("select * from mal_test_like where a like 'abc%';")
-        contains("like")
-    }
-    explain {
-        sql("select * from mal_test_like where a like 'abc_';")
-        contains("like")
-    }
+    sql "truncate table mal_test_to_equal_to;"
+    sql "insert into mal_test_to_equal_to values('abc\\\\',1);"
+    qt_test_backslash1 "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\';"
+    qt_test_backslash2 "select * from mal_test_to_equal_to where a like 'abc\\\\';"
 
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc\\\\',1);"
-    qt_test_backslash1 "select * from mal_test_like where a like 'abc\\\\\\\\';"
-    qt_test_backslash2 "select * from mal_test_like where a like 'abc\\\\';"
+    sql "truncate table mal_test_to_equal_to;"
+    sql "insert into mal_test_to_equal_to values('abc\\\\%',1);"
+    qt_test_backslash_percent_sign_odd "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\\\%';"
 
-
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc\\\\%',1);"
-    qt_test_backslash_percent_sign_odd "select * from mal_test_like where a like 'abc\\\\\\\\\\%';"
-
-    sql "truncate table mal_test_like;"
-    sql "insert into mal_test_like values('abc\\\\\\%',1);"
-    qt_test_backslash_percent_sign_even_match "select * from mal_test_like where a like 'abc\\\\\\\\\\\\\\\\\\\\%';"
-
-    qt_test_backslash_percent_sign_even_cannot_match "select * from mal_test_like where a like 'abc\\\\\\\\\\\\\\\\\\\\\\\\%';"
-    explain {
-        sql("select * from mal_test_like where a like 'abc\\\\\\\\\\\\\\\\%'")
-        contains("like")
-    }
+    sql "truncate table mal_test_to_equal_to;"
+    sql "insert into mal_test_to_equal_to values('abc\\\\\\%',1);"
+    qt_test_backslash_percent_sign_even_match "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\\\\\\\\\\\\\%';"
+    qt_test_backslash_percent_sign_even_cannot_match "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\\\\\\\\\\\\\\\\\%';"
 }

@@ -50,10 +50,11 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
         String str = ((VarcharLiteral) right).value;
         StringBuilder sb = new StringBuilder();
         int len = str.length();
+        char escapeChar = '\\';
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
-            if (c == '\\' && (i + 1) < len
-                    && (str.charAt(i + 1) == '%' || str.charAt(i + 1) == '_' || str.charAt(i + 1) == '\\')) {
+            if (c == escapeChar && (i + 1) < len
+                    && (str.charAt(i + 1) == '%' || str.charAt(i + 1) == '_' || str.charAt(i + 1) == escapeChar)) {
                 sb.append(str.charAt(i + 1));
                 i += 2;
             } else {
