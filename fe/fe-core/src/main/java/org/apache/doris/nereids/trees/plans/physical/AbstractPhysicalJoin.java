@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -129,6 +131,9 @@ public abstract class AbstractPhysicalJoin<
         this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
         this.hint = hint;
         this.markJoinSlotReference = markJoinSlotReference;
+        Set<ExprId> conditionExprIds = this.getConditionExprIds();
+        Set<ExprId> childrenOutputExprIdSet = this.getChildrenOutputExprIdSet();
+        Preconditions.checkState(childrenOutputExprIdSet.containsAll(conditionExprIds));
     }
 
     public List<Expression> getHashJoinConjuncts() {
@@ -262,6 +267,12 @@ public abstract class AbstractPhysicalJoin<
         return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
                 markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public Set<ExprId> getConditionExprIds() {
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                        markJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override

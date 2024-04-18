@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,14 +39,12 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Use nested loop algorithm to do join.
@@ -210,16 +207,6 @@ public class PhysicalNestedLoopJoin<
 
     public boolean isBitMapRuntimeFilterConditionsEmpty() {
         return bitMapRuntimeFilterConditions.isEmpty();
-    }
-
-    /**
-     *  getConditionSlot
-     */
-    public Set<Slot> getConditionSlot() {
-        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
-                markJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .collect(ImmutableSet.toImmutableSet());
     }
 
     @Override

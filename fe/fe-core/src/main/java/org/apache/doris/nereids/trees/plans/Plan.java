@@ -142,6 +142,26 @@ public interface Plan extends TreeNode<Plan> {
         }
     }
 
+    /** getChildrenOutputExprIdSet */
+    default Set<Slot> getChildrenOutputSlotSet() {
+        switch (arity()) {
+            case 0: return ImmutableSet.of();
+            case 1: return child(0).getOutputSet();
+            default: {
+                int slotSize = 0;
+                for (Plan child : children()) {
+                    slotSize += child.getOutput().size();
+                }
+
+                ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(slotSize);
+                for (Plan child : children()) {
+                    slots.addAll(child.getOutput());
+                }
+                return slots.build();
+            }
+        }
+    }
+
     /**
      * Get the input slot set of the plan.
      * The result is collected from all the expressions' input slots appearing in the plan node.

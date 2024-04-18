@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -164,6 +165,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             this.joinReorderContext.copyFrom(joinReorderContext);
         }
         this.markJoinSlotReference = markJoinSlotReference;
+        Set<Slot> conditionSlot = this.getConditionSlot();
+        if (conditionSlot.stream().noneMatch(slot -> slot instanceof Unbound)
+                && left().bound() && right().bound()
+                && getChildrenOutputSlotSet().stream().noneMatch(slot -> slot instanceof Unbound)) {
+            Set<ExprId> conditionExprIds = this.getConditionExprId();
+            Set<ExprId> childrenOutputExprIdSet = getChildrenOutputExprIdSet();
+            if (!childrenOutputExprIdSet.containsAll(conditionExprIds)) {
+                System.out.println("false");
+            }
+        }
     }
 
     public LogicalJoin<? extends Plan, ? extends Plan> swap() {
@@ -338,32 +349,43 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public LogicalJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(), children,
                 joinReorderContext);
+        // join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
     @Override
     public LogicalJoin<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
                 children, joinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, groupExpression, logicalProperties, children,
                 joinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
     public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right,
-                                                         JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+            JoinReorderContext otherJoinReorderContext) {
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
+        return join;
     }
 
     /**
@@ -371,62 +393,92 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      */
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 children, otherJoinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
-                                                     List<Expression> otherJoinConjuncts,
-                                                     List<Expression> markJoinConjuncts,
-                                                     JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            List<Expression> markJoinConjuncts,
+            JoinReorderContext otherJoinReorderContext) {
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.of(getLogicalProperties()),
                 children, otherJoinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
             List<Expression> hashJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
+        // join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
-                                                         List<Expression> otherJoinConjuncts,
-                                                         List<Expression> markJoinConjuncts, Plan left, Plan right,
-                                                         JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+            List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, Plan left, Plan right,
+            JoinReorderContext otherJoinReorderContext) {
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
+        // join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
                 children, joinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
             JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 children, otherJoinReorderContext);
+        join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
+    /** with **/
     public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right,
-                                                    JoinReorderContext otherJoinReorderContext) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+            JoinReorderContext otherJoinReorderContext) {
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
+        // join.setProjectExprIds(this.projectExprIds);
+        return join;
     }
 
     /**

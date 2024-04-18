@@ -36,6 +36,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -57,7 +59,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final Statistics statistics;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
-    protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
+    protected Supplier<LogicalProperties> logicalPropertiesSupplier;
+    protected Set<ExprId> projectExprIds = ImmutableSet.of();
 
     /**
      * all parameter constructor.
@@ -85,6 +88,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.statistics = statistics;
         Preconditions.checkArgument(useZeroId);
         this.id = zeroId;
+    }
+
+    public void setProjectExprIds(Set<ExprId> projectExprIds) {
+        this.projectExprIds = projectExprIds;
+    }
+
+    public Set<ExprId> getProjectExprIds() {
+        return projectExprIds;
     }
 
     @Override
@@ -201,7 +212,21 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
+            Supplier<List<Slot>> outputSupplier;
+            if (projectExprIds.size() == 0) {
+                outputSupplier = Suppliers.memoize(this::computeOutput);
+            } else {
+                outputSupplier = Suppliers.memoize(() -> {
+                    List<Slot> output = computeOutput();
+                    Builder<Slot> newOutput = ImmutableList.builder();
+                    for (Slot slot : output) {
+                        if (projectExprIds.contains(slot.getExprId())) {
+                            newOutput.add(slot);
+                        }
+                    }
+                    return newOutput.build();
+                });
+            }
             Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
                     ? ((LogicalPlan) this).computeFuncDeps()
                     : FunctionalDependencies.EMPTY_FUNC_DEPS;
