@@ -67,7 +67,6 @@ public class DecommissionBackendTest extends TestWithFeService {
         Config.disable_balance = true;
         Config.schedule_batch_size = 1000;
         Config.schedule_slot_num_per_hdd_path = 1000;
-        Config.allow_replica_on_same_host = true;
     }
 
     @Test
