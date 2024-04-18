@@ -638,7 +638,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToMeta.put(newIdxId, origIdxIdToMeta.get(entry.getKey()));
+            MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
+            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -1598,6 +1600,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             this.indexNameToId.put(indexName, indexId);
             MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
             indexIdToMeta.put(indexId, indexMeta);
+
+            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
+            // saved in OlapTable, because the table restore from snapshot is not reset
+            // the MaterializedIndexMeta correctly.
+            if (indexMeta.getIndexId() != indexId) {
+                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                        + " to the index saved in table {} ({}), reset it to {}",
+                        indexMeta.getIndexId(), indexName, name, id, indexId);
+                indexMeta.resetIndexIdForRestore(indexId);
+            }
         }
 
         // partition and distribution info
