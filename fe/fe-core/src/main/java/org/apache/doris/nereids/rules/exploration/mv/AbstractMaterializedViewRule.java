@@ -379,17 +379,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<Long, Set<PartitionItem>> baseTablePartitionMap = new LinkedHashMap<>();
         baseTablePartitionMap.put(relatedPartitionTable.getTableId(), new HashSet<>());
         cascadesContext.getRewritePlan().accept(new QueryScanPartitionsCollector(), baseTablePartitionMap);
-        Set<PartitionKeyDesc> baseTablePartitionsQueryUsed = baseTablePartitionMap.getOrDefault(
-                        relatedPartitionTable.getTableId(),
-                        ImmutableSet.of()).stream()
+        Set<PartitionItem> baseTablePartitions = baseTablePartitionMap.getOrDefault(
+                relatedPartitionTable.getTableId(),
+                ImmutableSet.of());
+        Set<PartitionKeyDesc> baseTablePartitionsQueryUsed = baseTablePartitions.stream()
                 .map(PartitionItem::toPartitionKeyDesc)
                 .collect(Collectors.toSet());
-        Set<PartitionKeyDesc> mvPartitionsQueryUsed = mvPartitionIdSetQueryUsed.stream()
-                .map(mvPartitionId -> mvPartitionInfo.getItem(mvPartitionId).toPartitionKeyDesc())
-                .collect(Collectors.toSet());
-
+        Set<PartitionKeyDesc> mvPartitionsQueryUsed = new HashSet<>(baseTablePartitionsQueryUsed.size());
+        mvPartitionIdSetQueryUsed.forEach(mvPartitionId ->
+                mvPartitionsQueryUsed.add(mvPartitionInfo.getItem(mvPartitionId).toPartitionKeyDesc()));
         Sets.difference(baseTablePartitionsQueryUsed, mvPartitionsQueryUsed).copyInto(needUnionPartitions);
-
         Set<PartitionKeyDesc> needRemovePartitions = new HashSet<>();
         Sets.difference(mvPartitionsQueryUsed, baseTablePartitionsQueryUsed).copyInto(needRemovePartitions);
         return Sets.union(needRemovePartitions, needUnionPartitions);
