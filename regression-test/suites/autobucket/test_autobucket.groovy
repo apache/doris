@@ -63,7 +63,7 @@ suite("test_autobucket") {
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '1')"
     sql "drop table if exists autobucket_test_min_buckets"
 
-    sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '200')"
+    sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '4')"
     sql "drop table if exists autobucket_test_max_buckets"
     result = sql """
         CREATE TABLE `autobucket_test_max_buckets` (
@@ -81,6 +81,6 @@ suite("test_autobucket") {
     result = sql "show partitions from autobucket_test_max_buckets"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 200)
+    assertEquals(Integer.valueOf(result.get(0).get(8)), 4)
     sql "drop table if exists autobucket_test_max_buckets"
 }
