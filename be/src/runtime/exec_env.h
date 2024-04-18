@@ -187,6 +187,8 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
         return _stream_load_pipe_tracker;
+    std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
+        return _point_query_executor_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
         return _rowid_storage_reader_tracker;
@@ -366,6 +368,7 @@ private:
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
+    std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
