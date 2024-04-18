@@ -64,23 +64,18 @@ private:
     size_t _bytes_appended = 0;
     bool _closed = false;
     bool _sync_file_data;
-    struct CachedBatchBuffer {
-        CachedBatchBuffer(size_t capacity);
-        bool _is_cold_data;
-        bool _write_file_cache;
-        uint64_t _expiration_time;
-        UInt128Wrapper _cache_hash;
-        BlockFileCache* _cache;
+    FileCacheAllocatorBuilder _cache_builder;
+    struct BatchBuffer {
+        BatchBuffer(size_t capacity);
         std::string _batch_buffer;
         size_t append(std::string_view content);
         bool full() const;
         const char* data() const;
         size_t capacity() const;
         size_t size() const;
-        FileBlocksHolderPtr allocate_cache_holder(size_t offset);
         void clear();
     };
-    CachedBatchBuffer _batch_buffer;
+    BatchBuffer _batch_buffer;
     size_t _index_offset;
 };
 

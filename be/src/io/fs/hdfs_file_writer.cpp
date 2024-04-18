@@ -52,13 +52,19 @@ HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_fi
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
+          _cache_builder({
+                  ._write_file_cache = false,
+          }),
           _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
     if (config::enable_file_cache && (opts ? opts->write_file_cache : false)) {
-        _batch_buffer._write_file_cache = true;
-        _batch_buffer._expiration_time = opts ? opts->file_cache_expiration : 0;
-        _batch_buffer._is_cold_data = opts ? opts->is_cold_data : false;
-        _batch_buffer._cache_hash = BlockFileCache::hash(_path.filename().native());
-        _batch_buffer._cache = FileCacheFactory::instance()->get_by_path(_batch_buffer._cache_hash);
+        _cache_builder = {
+                ._is_cold_data = opts ? opts->is_cold_data : false,
+                ._write_file_cache = true,
+                ._expiration_time = opts ? opts->file_cache_expiration : 0,
+                ._cache_hash = BlockFileCache::hash(_path.filename().native()),
+                ._cache = FileCacheFactory::instance()->get_by_path(
+                        BlockFileCache::hash(_path.filename().native())),
+        };
     }
     hdfs_file_writer_total << 1;
     hdfs_file_being_written << 1;
@@ -115,43 +121,34 @@ Status HdfsFileWriter::close() {
     return Status::OK();
 }
 
-HdfsFileWriter::CachedBatchBuffer::CachedBatchBuffer(size_t capacity)
-        : _is_cold_data(false), _write_file_cache(false), _expiration_time(0) {
+HdfsFileWriter::BatchBuffer::BatchBuffer(size_t capacity) {
     _batch_buffer.reserve(capacity);
 }
 
-bool HdfsFileWriter::CachedBatchBuffer::full() const {
+bool HdfsFileWriter::BatchBuffer::full() const {
     return size() == capacity();
 }
 
-const char* HdfsFileWriter::CachedBatchBuffer::data() const {
+const char* HdfsFileWriter::BatchBuffer::data() const {
     return _batch_buffer.data();
 }
 
-size_t HdfsFileWriter::CachedBatchBuffer::capacity() const {
+size_t HdfsFileWriter::BatchBuffer::capacity() const {
     return _batch_buffer.capacity();
 }
 
-size_t HdfsFileWriter::CachedBatchBuffer::size() const {
+size_t HdfsFileWriter::BatchBuffer::size() const {
     return _batch_buffer.size();
 }
 
-void HdfsFileWriter::CachedBatchBuffer::clear() {
+void HdfsFileWriter::BatchBuffer::clear() {
     _batch_buffer.clear();
-}
-
-FileBlocksHolderPtr HdfsFileWriter::CachedBatchBuffer::allocate_cache_holder(size_t offset) {
-    CacheContext ctx;
-    ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
-    ctx.expiration_time = _expiration_time;
-    ctx.is_cold_data = _is_cold_data;
-    auto holder = _cache->get_or_set(_cache_hash, offset, capacity(), ctx);
-    return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
 
 // TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
 void HdfsFileWriter::_write_into_local_file_cache() {
-    auto holder = _batch_buffer.allocate_cache_holder(_bytes_appended - _batch_buffer.size());
+    auto holder = _cache_builder.allocate_cache_holder(_bytes_appended - _batch_buffer.size(),
+                                                       _batch_buffer.capacity());
     size_t pos = 0;
     size_t data_remain_size = _batch_buffer.size();
     for (auto& block : holder->file_blocks) {
@@ -201,14 +198,14 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
 
 Status HdfsFileWriter::_flush_buffer() {
     RETURN_IF_ERROR(append_hdfs_file(_batch_buffer._batch_buffer));
-    if (_batch_buffer._write_file_cache) {
+    if (_cache_builder._write_file_cache) {
         _write_into_local_file_cache();
     }
     _batch_buffer.clear();
     return Status::OK();
 }
 
-size_t HdfsFileWriter::CachedBatchBuffer::append(std::string_view content) {
+size_t HdfsFileWriter::BatchBuffer::append(std::string_view content) {
     size_t append_size = std::min(capacity() - size(), content.size());
     _batch_buffer.append(content.data(), append_size);
     return append_size;
