@@ -41,8 +41,7 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     _group_commit_mode = p._group_commit_mode;
-    _vpartition =
-            std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
+    _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
     // profile must add to state's object pool
