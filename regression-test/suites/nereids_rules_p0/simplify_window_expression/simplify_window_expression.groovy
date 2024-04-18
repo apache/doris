@@ -97,4 +97,14 @@ suite("simplify_window_expression") {
     qt_select_upper_plan_use_all_not_rewrite_shape """
         explain shape plan select b, c2 from (select b, max(b) over (partition by a order by a) c2
         from mal_test_simplify_window) t order by 1,2 """
+
+    qt_window_agg """
+        select a, rank() over (partition by a order by sum(b) desc) as ranking
+        from mal_test_simplify_window group by a order by 1,2;
+    """
+    qt_window_agg_shape """
+        explain shape plan
+        select a, rank() over (partition by a order by sum(b) desc) as ranking
+        from mal_test_simplify_window group by a;
+    """
 }

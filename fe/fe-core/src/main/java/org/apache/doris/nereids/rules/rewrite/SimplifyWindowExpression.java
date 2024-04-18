@@ -101,11 +101,14 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
         }
         List<NamedExpression> projections = projectionsBuilder.build();
         List<NamedExpression> remainWindows = remainWindowExpression.build();
-
         if (projections.isEmpty()) {
             return window;
         } else if (remainWindows.isEmpty()) {
-            return new LogicalProject(projections, window.child(0));
+            Plan windowChild = window.child(0);
+            List<Slot> slots = windowChild.getOutput();
+            List<NamedExpression> finalProjections = Lists.newArrayList(projections);
+            finalProjections.addAll(slots);
+            return new LogicalProject(finalProjections, windowChild);
         } else {
             List<Slot> windowOutputs = Lists.newArrayList();
             for (NamedExpression remainWindow : remainWindows) {
