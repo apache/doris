@@ -60,7 +60,11 @@ Status HdfsFileWriter::close() {
     _closed = true;
 
     if (_sync_file_data) {
+#ifdef USE_LIBHDFS3
+        int ret = hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+#else
         int ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+#endif
         if (ret != 0) {
             return Status::InternalError("failed to sync hdfs file. fs_name={} path={} : {}",
                                          _fs_name, _path.native(), hdfs_error());
