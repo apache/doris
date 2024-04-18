@@ -26,6 +26,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -222,6 +223,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto st = iter->next_batch(block.get());
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset", {
+                    st = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "next_batch fault injection");
+                });
                 if (!st.ok()) {
                     if (st.is<ErrorCode::END_OF_FILE>()) {
                         break;
@@ -229,6 +234,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     LOG(WARNING)
                             << "failed to read next block when schema change for inverted index."
                             << ", err=" << st.to_string();
+                    return st;
                 }
 
                 // write inverted index data
