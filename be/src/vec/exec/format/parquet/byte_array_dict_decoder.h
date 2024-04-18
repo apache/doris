@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "util/bit_util.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -36,7 +37,6 @@
 
 namespace doris {
 namespace vectorized {
-class ColumnString;
 template <typename T>
 class ColumnDecimal;
 } // namespace vectorized
