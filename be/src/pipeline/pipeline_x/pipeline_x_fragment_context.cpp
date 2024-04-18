@@ -121,8 +121,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
             _call_back(runtime_state.get(), &st);
             runtime_state.reset();
         }
-    } else {
-        _call_back(nullptr, &st);
     }
     _runtime_state.reset();
     _runtime_filter_states.clear();
