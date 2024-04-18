@@ -95,7 +95,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             throw new UserException("failed to get be:" + beId + " rack because not exist");
         }
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
-        tKafkaLoadInfo.getProperties().put(ConsumerConfig.CLIENT_RACK_CONFIG, backend.getRack());
+        if (backend.getRack() != null) {
+            tKafkaLoadInfo.getProperties().put(ConsumerConfig.CLIENT_RACK_CONFIG, backend.getRack());
+        }
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
