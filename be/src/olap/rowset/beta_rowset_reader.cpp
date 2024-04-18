@@ -317,6 +317,9 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
+        if (_read_context->merged_rows == nullptr) {
+            _read_context->merged_rows = &_merged_rows;
+        }
         _iterator = vectorized::new_merge_iterator(
                 std::move(iterators), sequence_loc, _read_context->is_unique,
                 _read_context->read_orderby_key_reverse, _read_context->merged_rows);
