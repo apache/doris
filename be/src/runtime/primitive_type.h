@@ -28,6 +28,7 @@
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
@@ -35,10 +36,6 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
-
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 
 class DecimalV2Value;
 struct StringRef;

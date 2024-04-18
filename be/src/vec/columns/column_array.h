@@ -85,6 +85,8 @@ private:
 
     ColumnArray(const ColumnArray&) = default;
 
+    ColumnArray() = default;
+
 public:
     // offsets of array is 64bit wise
     using Offset64 = IColumn::Offset64;
@@ -152,6 +154,8 @@ public:
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -215,6 +219,11 @@ public:
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(offsets);
         callback(data);
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        data = data->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,

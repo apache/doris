@@ -535,7 +535,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
     }
 
     std::vector<uint32_t> partition_indexes[_partition_count];
-    auto* channel_ids = reinterpret_cast<uint64_t*>(local_state._partitioner->get_channel_ids());
+    auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
     for (uint32_t i = 0; i != rows; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
     }
@@ -862,6 +862,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
             RETURN_IF_ERROR(
                     _inner_probe_operator->pull(local_state._runtime_state.get(), block, eos));
             if (*eos) {
+                _update_profile_from_internal_states(local_state);
                 local_state._runtime_state.reset();
             }
         }
