@@ -134,14 +134,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             throw new AnalysisException("date trunc not support MAXVALUE partition");
         }
         // begin time and end time dateTrunc should has same result
-        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral endTruncTime = dateTrunc(
-                upperValue.getStringValue(),
-                Optional.empty());
-        if (!Objects.equals(beginTruncTime, endTruncTime)) {
-            throw new AnalysisException(
-                    String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s", beginTruncTime,
-                            endTruncTime));
-        }
+        // org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral endTruncTime = dateTrunc(
+        //         upperValue.getStringValue(),
+        //         Optional.empty());
+        // if (!Objects.equals(beginTruncTime, endTruncTime)) {
+        //     throw new AnalysisException(
+        //             String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s", beginTruncTime,
+        //                     endTruncTime));
+        // }
         org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral endTime = dateAdd(beginTruncTime);
         return new PartitionValue(timeToStr(endTime, partitionColumnType));
     }
