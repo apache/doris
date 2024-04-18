@@ -20,41 +20,38 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * Rewrite rule to convert NOT EQUAL(string, "") to GREATERTHAN(string, 0)
+ * Rewrite rule to convert EQUAL(string, "") to length(string, 0)
  * For example:
- * string <> ""  ==>  length(string) > 0
+ * string == ""  ==>  length(string) == 0
  */
-public class NotEqualToLength implements ExpressionPatternRuleFactory {
+public class StringEqualToLength implements ExpressionPatternRuleFactory {
 
-    public static NotEqualToLength INSTANCE = new NotEqualToLength();
+    public static StringEqualToLength INSTANCE = new StringEqualToLength();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-            matchesTopType(Not.class).then(NotEqualToLength::rewrite)
+            matchesTopType(EqualPredicate.class).then(StringEqualToLength::rewrite)
         );
     }
 
-    private static Expression rewrite(Not not) {
-        Expression expr = not;
-        if (not.getArgument(0) instanceof EqualPredicate) {
-            EqualPredicate equalPredicate = (EqualPredicate) not.getArgument(0);
-            if (equalPredicate.getArgument(0).getDataType().isStringType()
-                    && equalPredicate.getArgument(1).equals(new StringLiteral(""))) {
-                expr = new GreaterThan(new Length(equalPredicate.getArgument(0)), new IntegerLiteral(0), false);
-            }
+    private static Expression rewrite(EqualPredicate equalPredicate) {
+        Expression expr = equalPredicate;
+        if (equalPredicate.getArgument(0).getDataType().isStringType()
+                && equalPredicate.getArgument(1) instanceof StringLikeLiteral
+                && ((StringLikeLiteral) equalPredicate.getArgument(1)).getStringValue().equals("")) {
+            expr = new EqualTo(new Length(equalPredicate.getArgument(0)), new IntegerLiteral(0));
         }
         return expr;
     }
