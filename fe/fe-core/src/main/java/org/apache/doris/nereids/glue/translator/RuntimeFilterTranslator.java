@@ -101,7 +101,7 @@ public class RuntimeFilterTranslator {
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
         List<ScanNode> scanNodeList = new ArrayList<>();
         boolean hasInvalidTarget = false;
-             for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
+        for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
             Slot curTargetSlot = filter.getTargetSlots().get(i);
             Expression curTargetExpression = filter.getTargetExpressions().get(i);
             SlotRef targetSlotRef = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
