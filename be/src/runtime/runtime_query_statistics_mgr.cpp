@@ -382,7 +382,7 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_non_pipeline() {
         }
 
         TReportExecStatusParams req = create_report_exec_status_params_non_pipeline(
-                query_id, instance_id_to_profile, load_channel_profiles);
+                query_id, instance_id_to_profile, load_channel_profiles, /*is_done=*/true);
         TReportExecStatusResult res;
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
 
