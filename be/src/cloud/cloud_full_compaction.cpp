@@ -202,7 +202,7 @@ Status CloudFullCompaction::modify_rowsets() {
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     int64_t initiator =
             boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-    RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
+    RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap_if_necessary(initiator));
     compaction_job->set_delete_bitmap_lock_initiator(initiator);
 
     cloud::FinishTabletJobResponse resp;
@@ -295,8 +295,12 @@ void CloudFullCompaction::do_lease() {
     }
 }
 
-Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t initiator) {
+Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap_if_necessary(
+        int64_t initiator) {
     if (_tablet->keys_type() != KeysType::UNIQUE_KEYS) {
+        return Status::OK();
+    }
+    if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
     std::vector<RowsetSharedPtr> tmp_rowsets {};

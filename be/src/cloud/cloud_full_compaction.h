@@ -45,7 +45,7 @@ protected:
     void garbage_collection() override;
 
 private:
-    Status _cloud_full_compaction_update_delete_bitmap(int64_t initiator);
+    Status _cloud_full_compaction_update_delete_bitmap_if_necessary(int64_t initiator);
     Status _cloud_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& rowset,
                                                      const int64_t& cur_version,
                                                      const DeleteBitmapPtr& delete_bitmap);
