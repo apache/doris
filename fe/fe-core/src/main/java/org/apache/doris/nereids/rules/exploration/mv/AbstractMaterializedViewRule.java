@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -45,9 +47,11 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 
@@ -58,6 +62,8 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -247,17 +253,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // check the partitions used by rewritten plan is valid or not
-            Set<Long> invalidPartitionsQueryUsed =
+            Set<PartitionKeyDesc> invalidPartitionsQueryUsed =
                     calcInvalidPartitions(finalRewrittenPlan, materializationContext, cascadesContext);
             if (!invalidPartitionsQueryUsed.isEmpty()) {
                 materializationContext.recordFailReason(queryStructInfo,
                         "Check partition query used validation fail",
                         () -> String.format("the partition used by query is invalid by materialized view,"
-                                        + "invalid partition info query used is %s",
-                                materializationContext.getMTMV().getPartitions().stream()
-                                        .filter(partition ->
-                                                invalidPartitionsQueryUsed.contains(partition.getId()))
-                                        .collect(Collectors.toSet())));
+                                        + "invalid partition info query used is %s", invalidPartitionsQueryUsed));
                 continue;
             }
             recordIfRewritten(originalPlan, materializationContext);
@@ -336,8 +338,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Maybe only just some partitions is valid in materialized view, so we should check if the mv can
      * offer the partitions which query used or not.
      */
-    protected Set<Long> calcInvalidPartitions(Plan rewrittenPlan, MaterializationContext materializationContext,
-            CascadesContext cascadesContext) {
+    protected Set<PartitionKeyDesc> calcInvalidPartitions(Plan rewrittenPlan,
+            MaterializationContext materializationContext, CascadesContext cascadesContext) {
         // check partition is valid or not
         MTMV mtmv = materializationContext.getMTMV();
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
@@ -351,19 +353,69 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (relatedPartitionTable == null) {
             return ImmutableSet.of();
         }
-        // get mv valid partitions
+        // Check base table partition if update or not, if updated, will calc the invalid mv partitions which
+        // are updated and then return
         Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
                         cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
                 .map(Partition::getId)
                 .collect(Collectors.toSet());
-        Set<Long> queryUsedPartitionIdSet = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
+        Set<Long> mvPartitionIdSetQueryUsed = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
                         && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
                 .stream()
                 .map(node -> ((LogicalOlapScan) node).getSelectedPartitionIds())
                 .flatMap(Collection::stream)
+                .collect(ImmutableSet.toImmutableSet());
+
+        Set<Long> invalidMvPartitionIdSet = new HashSet<>(mvPartitionIdSetQueryUsed);
+        invalidMvPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
+        Set<PartitionKeyDesc> needUnionPartitions = invalidMvPartitionIdSet.stream()
+                .map(invalidPartitionId -> mvPartitionInfo.getItem(invalidPartitionId).toPartitionKeyDesc())
                 .collect(Collectors.toSet());
-        queryUsedPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
-        return queryUsedPartitionIdSet;
+        if (!needUnionPartitions.isEmpty()) {
+            return needUnionPartitions;
+        }
+        // check partitions used is valid or not when base table create or delete partitions
+        // or partition in mv is not ready but base table is ready
+        Map<Long, Set<PartitionItem>> baseTablePartitionMap = new LinkedHashMap<>();
+        baseTablePartitionMap.put(relatedPartitionTable.getTableId(), new HashSet<>());
+        cascadesContext.getRewritePlan().accept(new QueryScanPartitionsCollector(), baseTablePartitionMap);
+        Set<PartitionKeyDesc> baseTablePartitionsQueryUsed = baseTablePartitionMap.getOrDefault(
+                        relatedPartitionTable.getTableId(),
+                        ImmutableSet.of()).stream()
+                .map(PartitionItem::toPartitionKeyDesc)
+                .collect(Collectors.toSet());
+        Set<PartitionKeyDesc> mvPartitionsQueryUsed = mvPartitionIdSetQueryUsed.stream()
+                .map(mvPartitionId -> mvPartitionInfo.getItem(mvPartitionId).toPartitionKeyDesc())
+                .collect(Collectors.toSet());
+
+        Sets.difference(baseTablePartitionsQueryUsed, mvPartitionsQueryUsed).copyInto(needUnionPartitions);
+
+        Set<PartitionKeyDesc> needRemovePartitions = new HashSet<>();
+        Sets.difference(mvPartitionsQueryUsed, baseTablePartitionsQueryUsed).copyInto(needRemovePartitions);
+        return Sets.union(needRemovePartitions, needUnionPartitions);
+    }
+
+    private static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan, Map<Long, Set<PartitionItem>>> {
+        @Override
+        public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
+                Map<Long, Set<PartitionItem>> context) {
+            TableIf table = catalogRelation.getTable();
+            if (!context.containsKey(table.getId())) {
+                return catalogRelation;
+            }
+            // Only support check olap partition currently
+            if (catalogRelation instanceof LogicalOlapScan) {
+                LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
+                PartitionInfo partitionInfo = logicalOlapScan.getTable().getPartitionInfo();
+                logicalOlapScan.getSelectedPartitionIds().stream()
+                        .map(partitionInfo::getItem)
+                        .forEach(partitionItem -> context.computeIfPresent(table.getId(), (key, oldValue) -> {
+                            oldValue.add(partitionItem);
+                            return oldValue;
+                        }));
+            }
+            return catalogRelation;
+        }
     }
 
     /**

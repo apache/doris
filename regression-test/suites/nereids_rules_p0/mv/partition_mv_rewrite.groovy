@@ -42,7 +42,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     PARTITION BY RANGE(o_orderdate)(
-    FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY
+    FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY
     )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
@@ -75,7 +75,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     PARTITION BY RANGE(l_shipdate) 
-    (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
+    (FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -146,10 +146,13 @@ suite("partition_mv_rewrite") {
         """
 
     def mv_name = "mv_10086"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
 
-    def job_name = getJobName(db, mv_name);
-    waitingMTMVTaskFinished(job_name)
-
+    // All partition is valid, test query and rewrite by materialized view
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_all_before_0 "${all_partition_sql}"
+    order_qt_query_partition_before_0 "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
         contains("${mv_name}(${mv_name})")
@@ -158,14 +161,20 @@ suite("partition_mv_rewrite") {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    // partition is invalid, so can not use partition 2023-10-17 to rewrite
+    order_qt_query_all_after_0 "${all_partition_sql}"
+    order_qt_query_partition_after_0 "${partition_sql}"
+    // Part partition is invalid, test can not use partition 2023-10-17 to rewrite
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // wait partition is invalid
     sleep(5000)
-    // only can use valid partition
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_all_before_1 "${all_partition_sql}"
+    order_qt_query_partition_before_1 "${partition_sql}"
+    // Partition is invalid, can not use materialized view
+    sql "SET enable_materialized_view_rewrite=true"
     explain {
         sql("${all_partition_sql}")
         notContains("${mv_name}(${mv_name})")
@@ -174,4 +183,54 @@ suite("partition_mv_rewrite") {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
+    order_qt_query_all_after_1 "${all_partition_sql}"
+    order_qt_query_partition_after_1 "${partition_sql}"
+
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    // Test when base table create partition
+    sql """
+    insert into lineitem values 
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
+    """
+    // Wait partition is invalid
+    sleep(5000)
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_all_before_2 "${all_partition_sql}"
+    order_qt_query_partition_before_2 "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        notContains("${mv_name}(${mv_name})")
+    }
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_all_after_2 "${all_partition_sql}"
+    order_qt_query_partition_after_2 "${partition_sql}"
+
+    // Test when base table delete partition test
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231021 FORCE;
+    """
+    // Wait partition is invalid
+    sleep(3000)
+    sql "SET enable_materialized_view_rewrite=false"
+    order_qt_query_all_before_3 "${all_partition_sql}"
+    order_qt_query_partition_before_3 "${partition_sql}"
+    sql "SET enable_materialized_view_rewrite=true"
+    explain {
+        sql("${all_partition_sql}")
+        // mv doesn't contain all valid partitions, can not use materialized view
+        notContains("${mv_name}(${mv_name})")
+    }
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_all_after_3 "${all_partition_sql}"
+    order_qt_query_partition_after_3 "${partition_sql}"
 }
