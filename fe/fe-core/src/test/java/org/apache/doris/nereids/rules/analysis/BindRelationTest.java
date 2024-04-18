@@ -64,7 +64,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);
         Assertions.assertEquals(
-                ImmutableList.of(DEFAULT_CLUSTER_PREFIX + DB1, "t"),
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
     }
 
@@ -76,7 +76,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);
         Assertions.assertEquals(
-                ImmutableList.of(DEFAULT_CLUSTER_PREFIX + DB1, "t"),
+                ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
     }
 
