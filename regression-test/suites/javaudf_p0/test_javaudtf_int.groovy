@@ -57,6 +57,7 @@ suite("test_javaudtf_int") {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
+        sql """DROP FUNCTION IF EXISTS udtf_int_outer(int);"""
         sql """ CREATE TABLES FUNCTION udtf_int(int) RETURNS array<int> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFIntTest",

@@ -49,7 +49,7 @@ suite("test_javaudtf_decimal") {
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
-
+        sql """DROP FUNCTION IF EXISTS udtf_decimal_outer(decimal(27,9));"""
         sql """ CREATE TABLES FUNCTION udtf_decimal(decimal(27,9)) RETURNS array<decimal(27,9)> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFDecimalTest",

@@ -52,6 +52,7 @@ suite("test_javaudtf_double") {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
+        sql """DROP FUNCTION IF EXISTS udtf_double_outer(double);"""
         sql """ CREATE TABLES FUNCTION udtf_double(double) RETURNS array<double> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFDoubleTest",
