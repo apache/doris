@@ -38,10 +38,12 @@
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer", "total_num");
-bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer", "bytes_written");
-bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer", "file_created");
-bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer", "file_being_written");
+bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
+bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
+bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
+bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
+
+constexpr size_t MB = 1024 * 1024;
 
 HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -50,7 +52,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_fi
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
-          _batch_buffer(config::hdfs_write_batch_buffer_size) {
+          _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
     if (config::enable_file_cache && (opts ? opts->write_file_cache : false)) {
         _batch_buffer._write_file_cache = true;
         _batch_buffer._expiration_time = opts ? opts->file_cache_expiration : 0;
@@ -149,10 +151,10 @@ FileBlocksHolderPtr HdfsFileWriter::CachedBatchBuffer::allocate_cache_holder(siz
 
 // TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
 void HdfsFileWriter::_write_into_local_file_cache() {
-    auto _holder = _batch_buffer.allocate_cache_holder(_bytes_appended - _batch_buffer.size());
+    auto holder = _batch_buffer.allocate_cache_holder(_bytes_appended - _batch_buffer.size());
     size_t pos = 0;
     size_t data_remain_size = _batch_buffer.size();
-    for (auto& block : _holder->file_blocks) {
+    for (auto& block : holder->file_blocks) {
         if (data_remain_size == 0) {
             break;
         }
@@ -208,7 +210,7 @@ Status HdfsFileWriter::_flush_buffer() {
 
 size_t HdfsFileWriter::CachedBatchBuffer::append(std::string_view content) {
     size_t append_size = std::min(capacity() - size(), content.size());
-    _batch_buffer.append(content.substr(0, append_size));
+    _batch_buffer.append(content.data(), append_size);
     return append_size;
 }
 

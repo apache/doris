@@ -51,6 +51,7 @@ public:
     bool closed() const override { return _closed; }
 
 private:
+    // Flush buffer into file cache, **Notice**: this would clear the underlying buffer
     Status _flush_buffer();
     Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
