@@ -739,11 +739,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
-                                             (uint64_t*)_partitioner->get_channel_ids(), rows,
+                                             _partitioner->get_channel_ids().get<uint64_t>(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
-                                             (uint32_t*)_partitioner->get_channel_ids(), rows,
+                                             _partitioner->get_channel_ids().get<uint32_t>(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
