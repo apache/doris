@@ -25,6 +25,7 @@
 #include <butil/errno.h>
 #include <butil/iobuf.h>
 #include <fcntl.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
@@ -56,6 +57,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -542,6 +544,87 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controlle
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController* controller,
+                                                 const POutfileWriteSuccessRequest* request,
+                                                 POutfileWriteSuccessResult* result,
+                                                 google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "outfile write success file";
+        brpc::ClosureGuard closure_guard(done);
+        TResultFileSink result_file_sink;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->result_file_sink().data());
+            uint32_t len = request->result_file_sink().size();
+            st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        TResultFileSinkOptions file_options = result_file_sink.file_options;
+        std::stringstream ss;
+        ss << file_options.file_path << file_options.success_file_name;
+        std::string file_name = ss.str();
+        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
+            // For local file writer, the file_path is a local dir.
+            // Here we do a simple security verification by checking whether the file exists.
+            // Because the file path is currently arbitrarily specified by the user,
+            // Doris is not responsible for ensuring the correctness of the path.
+            // This is just to prevent overwriting the existing file.
+            bool exists = true;
+            st = io::global_local_filesystem()->exists(file_name, &exists);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            if (exists) {
+                st = Status::InternalError("File already exists: {}", file_name);
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
+        st = FileFactory::create_file_writer(
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
+                ExecEnv::GetInstance(), file_options.broker_addresses,
+                file_options.broker_properties, file_name, 0, _file_writer_impl);
+        if (!st.ok()) {
+            LOG(WARNING) << "Outfile write success file failed when create file writer , errmsg = "
+                         << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        // must write somthing because s3 file writer can not writer empty file
+        st = _file_writer_impl->append({"success"});
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success file failed when write success, errmsg = " << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        st = _file_writer_impl->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success file failed when close file writer, errmsg = "
+                         << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
