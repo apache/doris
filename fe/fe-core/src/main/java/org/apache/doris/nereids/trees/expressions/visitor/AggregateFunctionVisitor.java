@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCountDistributedByKey;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
@@ -155,6 +156,11 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
         return visitAggregateFunction(multiDistinctCount, context);
+    }
+
+    default R visitMultiDistinctCountDistributedByKey(
+            MultiDistinctCountDistributedByKey multiDistinctCountDistributedByKey, C context) {
+        return visitAggregateFunction(multiDistinctCountDistributedByKey, context);
     }
 
     default R visitMultiDistinctGroupConcat(MultiDistinctGroupConcat multiDistinctGroupConcat, C context) {

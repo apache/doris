@@ -95,7 +95,10 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCountDistributedByKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -896,10 +899,36 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
-
     /* ********************************************************************************************
      * other Node, in lexicographical order, ignore algorithm name. for example, HashAggregate -> Aggregate
      * ******************************************************************************************** */
+
+    private static class UpdateFunctionName extends DefaultExpressionRewriter<Void> {
+
+        public static UpdateFunctionName INSTANCE = new UpdateFunctionName();
+
+        @Override
+        public Expression visitAggregateExpression(AggregateExpression aggregateExpression, Void context) {
+            aggregateExpression = (AggregateExpression) super.visit(aggregateExpression, context);
+            AggregateFunction aggregateFunction = aggregateExpression.getFunction();
+            if (aggregateFunction instanceof MultiDistinctCount) {
+                MultiDistinctCountDistributedByKey optimizeFunction = new MultiDistinctCountDistributedByKey(
+                        aggregateFunction.getArgument(0),
+                        aggregateFunction.getArguments()
+                                .subList(1, aggregateFunction.arity()).toArray(new Expression[0]));
+                return new AggregateExpression(optimizeFunction,
+                        aggregateExpression.getAggregateParam(), aggregateExpression.child());
+            }
+            return aggregateExpression;
+        }
+
+        @Override
+        public Expression visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, Void context) {
+            return new MultiDistinctCountDistributedByKey(multiDistinctCount.getArgument(0),
+                    multiDistinctCount.getArguments()
+                            .subList(1, multiDistinctCount.arity()).toArray(new Expression[0]));
+        }
+    }
 
     /**
      * Translate Agg.
@@ -914,6 +943,79 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+
+        // ATTN: this is a trick optimize to skip multi_distinct_xxx function build set on second phase
+        if (aggregate.getAggMode() == AggMode.INPUT_TO_BUFFER && aggregate.getAggPhase() == AggPhase.LOCAL) {
+            // change first phase multi_distinct_count to multi_distinct_count_distribute_by_key
+            DistributionSpec distributionSpec = aggregate.getPhysicalProperties().getDistributionSpec();
+            Set<ExprId> distributeExprIds = Collections.emptySet();
+            if (distributionSpec instanceof DistributionSpecHash) {
+                DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionSpec;
+                List<Set<ExprId>> eqIds = distributionSpecHash.getEquivalenceExprIds();
+                if (eqIds.size() == 1) {
+                    distributeExprIds = eqIds.get(0);
+                }
+            }
+            List<NamedExpression> beforeUpdateOutput = outputExpressions;
+            outputExpressions = Lists.newArrayListWithExpectedSize(beforeUpdateOutput.size());
+            for (NamedExpression beforeUpdateExpr : beforeUpdateOutput) {
+                if (beforeUpdateExpr.anyMatch(MultiDistinctCount.class::isInstance)
+                        && distributeExprIds.contains(beforeUpdateExpr.getInputSlotExprIds().iterator().next())) {
+                    outputExpressions.add(
+                            (NamedExpression) beforeUpdateExpr.accept(UpdateFunctionName.INSTANCE, null));
+                } else {
+                    outputExpressions.add(beforeUpdateExpr);
+                }
+            }
+        } else if (aggregate.getAggMode() == AggMode.BUFFER_TO_RESULT && aggregate.getAggPhase() == AggPhase.GLOBAL) {
+            // change second phase multi_distinct_count to multi_distinct_count_distribute_by_key
+            // 1. find out all multi_distinct_count
+            List<NamedExpression> countDistinctFuncs = outputExpressions.stream()
+                    .filter(o -> o.anyMatch(AggregateExpression.class::isInstance))
+                    .filter(o -> o.<AggregateExpression>collectFirst(AggregateExpression.class::isInstance)
+                            .get(0).getFunction() instanceof MultiDistinctCount)
+                    .collect(Collectors.toList());
+            // 2. find out these input
+            Plan firstPhase = aggregate.child();
+            while (!(firstPhase instanceof PhysicalHashAggregate)) {
+                firstPhase = firstPhase.child(0);
+            }
+            DistributionSpec distributionSpec = ((PhysicalHashAggregate<?>) firstPhase)
+                    .getPhysicalProperties().getDistributionSpec();
+            Set<ExprId> distributeExprIds = Collections.emptySet();
+            if (distributionSpec instanceof DistributionSpecHash) {
+                DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionSpec;
+                List<Set<ExprId>> eqIds = distributionSpecHash.getEquivalenceExprIds();
+                if (eqIds.size() == 1) {
+                    distributeExprIds = eqIds.get(0);
+                }
+            }
+            List<ExprId> needUpdate = Lists.newArrayList();
+            List<NamedExpression> firstPhaseOutputs = ((PhysicalHashAggregate<?>) firstPhase).getOutputExpressions();
+            for (NamedExpression countDistinct : countDistinctFuncs) {
+                Slot input = countDistinct.getInputSlots().iterator().next();
+                for (NamedExpression outputExpr : firstPhaseOutputs) {
+                    if (outputExpr.getExprId().equals(input.getExprId())) {
+                        // 3. find out whether their first phase is distributed by its child slot
+                        Slot firstInput = outputExpr.getInputSlots().iterator().next();
+                        if (distributeExprIds.contains(firstInput.getExprId())) {
+                            needUpdate.add(countDistinct.getExprId());
+                        }
+                    }
+                }
+            }
+            // 4. update function
+            List<NamedExpression> beforeUpdateOutput = outputExpressions;
+            outputExpressions = Lists.newArrayListWithExpectedSize(beforeUpdateOutput.size());
+            for (NamedExpression beforeUpdateExpr : beforeUpdateOutput) {
+                if (needUpdate.contains(beforeUpdateExpr.getExprId())) {
+                    outputExpressions.add(
+                            (NamedExpression) beforeUpdateExpr.accept(UpdateFunctionName.INSTANCE, null));
+                } else {
+                    outputExpressions.add(beforeUpdateExpr);
+                }
+            }
+        }
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
