@@ -69,7 +69,7 @@ public class AlterJobV2Factory {
                 }
             }
             return job;
-        } catch (IOException e) {
+        } catch (IllegalAccessException e) {
             throw new AnalysisException(e.getMessage());
         }
     }
