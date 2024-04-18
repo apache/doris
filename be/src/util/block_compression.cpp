@@ -126,7 +126,7 @@ public:
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
-                _release_compression_ctx(context);
+                _release_compression_ctx(std::move(context));
             }
         }};
         Slice compressed_buf;
@@ -190,7 +190,7 @@ private:
         _ctx_pool.pop_back();
         return Status::OK();
     }
-    void _release_compression_ctx(std::unique_ptr<Context>& context) {
+    void _release_compression_ctx(std::unique_ptr<Context> context) {
         DCHECK(context);
         LZ4_resetStream(context->ctx);
         std::lock_guard<std::mutex> l(_ctx_mutex);
@@ -294,7 +294,7 @@ private:
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
-                _release_compression_ctx(context);
+                _release_compression_ctx(std::move(context));
             }
         }};
         Slice compressed_buf;
@@ -352,7 +352,7 @@ private:
         RETURN_IF_ERROR(_acquire_decompression_ctx(context));
         Defer defer {[&] {
             if (!decompress_failed) {
-                _release_decompression_ctx(context);
+                _release_decompression_ctx(std::move(context));
             }
         }};
         size_t input_size = input.size;
@@ -398,7 +398,7 @@ private:
         _ctx_c_pool.pop_back();
         return Status::OK();
     }
-    void _release_compression_ctx(std::unique_ptr<CContext>& context) {
+    void _release_compression_ctx(std::unique_ptr<CContext> context) {
         DCHECK(context);
         std::lock_guard<std::mutex> l(_ctx_c_mutex);
         _ctx_c_pool.push_back(std::move(context));
@@ -423,7 +423,7 @@ private:
         _ctx_d_pool.pop_back();
         return Status::OK();
     }
-    void _release_decompression_ctx(std::unique_ptr<DContext>& context) {
+    void _release_decompression_ctx(std::unique_ptr<DContext> context) {
         DCHECK(context);
         // reset decompression context to avoid ERROR_maxBlockSize_invalid
         LZ4F_resetDecompressionContext(context->ctx);
@@ -479,7 +479,7 @@ public:
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
-                _release_compression_ctx(context);
+                _release_compression_ctx(std::move(context));
             }
         }};
         Slice compressed_buf;
@@ -541,7 +541,7 @@ private:
         _ctx_pool.pop_back();
         return Status::OK();
     }
-    void _release_compression_ctx(std::unique_ptr<Context>& context) {
+    void _release_compression_ctx(std::unique_ptr<Context> context) {
         DCHECK(context);
         LZ4_resetStreamHC_fast(context->ctx, _compression_level);
         std::lock_guard<std::mutex> l(_ctx_mutex);
@@ -797,7 +797,7 @@ public:
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
-                _release_compression_ctx(context);
+                _release_compression_ctx(std::move(context));
             }
         }};
 
@@ -874,7 +874,7 @@ public:
         RETURN_IF_ERROR(_acquire_decompression_ctx(context));
         Defer defer {[&] {
             if (!decompress_failed) {
-                _release_decompression_ctx(context);
+                _release_decompression_ctx(std::move(context));
             }
         }};
 
@@ -912,7 +912,7 @@ private:
         _ctx_c_pool.pop_back();
         return Status::OK();
     }
-    void _release_compression_ctx(std::unique_ptr<CContext>& context) {
+    void _release_compression_ctx(std::unique_ptr<CContext> context) {
         DCHECK(context);
         auto ret = ZSTD_CCtx_reset(context->ctx, ZSTD_reset_session_only);
         DCHECK(!ZSTD_isError(ret));
@@ -938,7 +938,7 @@ private:
         _ctx_d_pool.pop_back();
         return Status::OK();
     }
-    void _release_decompression_ctx(std::unique_ptr<DContext>& context) {
+    void _release_decompression_ctx(std::unique_ptr<DContext> context) {
         DCHECK(context);
         // reset ctx to start a new decompress session
         auto ret = ZSTD_DCtx_reset(context->ctx, ZSTD_reset_session_only);
