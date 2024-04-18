@@ -80,7 +80,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.BackendService.Client;
+import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDataSinkType;
@@ -153,6 +153,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -4102,36 +4103,82 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        List<Future<TGetRealtimeExecStatusResponse>>
+                getRealtimeExecStatusFutures = Lists.newArrayList();
+
         for (TNetworkAddress address : backendAddresses) {
+            CompletableFuture<TGetRealtimeExecStatusResponse> future = 
+                    CompletableFuture.supplyAsync(
+                    () -> {
+                        TGetRealtimeExecStatusResponse resp = null;
+                        BackendService.Client client = null;
+
+                        try {
+                            client = ClientPool.backendPool.borrowObject(address);
+                        } catch (Exception e) {
+                            LOG.warn("Fetch a agent client failed, address: {}", address.toString());
+                            return null;
+                        }
+
+                        try {
+                            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
+                            req.setId(this.queryId);
+                            resp = client.getRealtimeExecStatus(req);
+                        } catch (TException e) {
+                            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
+                                    DebugUtil.printId(queryId), address.toString(), e);
+                            ClientPool.backendPool.invalidateObject(address, client);
+                        } finally {
+                            ClientPool.backendPool.returnObject(address, client);
+                        }
+
+                        return resp;
+                    }
+            );
+
+            getRealtimeExecStatusFutures.add(future);
+        }
+
+        List<TGetRealtimeExecStatusResponse> responses = Lists.newArrayList();
+        for (Future<TGetRealtimeExecStatusResponse> future : getRealtimeExecStatusFutures) {
             try {
-                Client client = ClientPool.backendPool.borrowObject(address);
-                TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
-                req.setId(this.queryId);
-                TGetRealtimeExecStatusResponse resp = client.getRealtimeExecStatus(req);
-                if (!resp.isSetStatus()) {
-                    LOG.warn("Broken GetRealtimeExecStatusResponse response, query {} backend {}",
-                                DebugUtil.printId(queryId), address.toString());
-                    continue;
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null) {
+                    responses.add(resp);
                 }
-
-                if (resp.getStatus().status_code != TStatusCode.OK) {
-                    LOG.warn("Failed to get realtime query exec status, query {} backend {} error msg {}",
-                            DebugUtil.printId(queryId), address.toString(), resp.getStatus().toString());
-                    continue;
-                }
-
-                if (!resp.isSetReportExecStatusParams()) {
-                    LOG.warn("Invalid GetRealtimeExecStatusResponse, query {} backend {}",
-                            DebugUtil.printId(queryId), address.toString());
-                    continue;
-                }
-                LOG.info("Get real-time exec status succeed, query {} backend {}",
-                            DebugUtil.printId(queryId), address.toString());
-                QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), address);
             } catch (Exception e) {
-                LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
-                        DebugUtil.printId(queryId), address.toString(), e);
+                LOG.warn("Got exception when getRealtimeExecStatus, query {}",
+                        DebugUtil.printId(queryId), e);
             }
+        }
+
+        for (TGetRealtimeExecStatusResponse resp : responses) {
+            if (!resp.isSetStatus()) {
+                LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
+                            DebugUtil.printId(queryId));
+                continue;
+            }
+
+            if (resp.getStatus().status_code != TStatusCode.OK) {
+                LOG.warn("Failed to get realtime query exec status, query {} error msg {}",
+                        DebugUtil.printId(queryId), resp.getStatus().toString());
+                continue;
+            }
+
+            if (!resp.isSetReportExecStatusParams()) {
+                LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+                        DebugUtil.printId(queryId));
+                continue;
+            }
+
+            LOG.info("Get real-time exec status succeed, query {}",
+                        DebugUtil.printId(queryId));
+
+            // reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
+            // to avoid compile failing.
+            TNetworkAddress dummyAddr = new TNetworkAddress();
+            QeProcessorImpl.INSTANCE.reportExecStatus(
+                                            resp.getReportExecStatusParams(), dummyAddr);
         }
     }
 
