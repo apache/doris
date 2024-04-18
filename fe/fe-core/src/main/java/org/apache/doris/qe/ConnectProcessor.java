@@ -645,17 +645,16 @@ public class ConnectProcessor {
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
-                if (packet == null) {
-                    LOG.debug("packet == null");
-                    return;
-                }
             }
         } else {
             packet = getResultPacket();
-            if (packet == null) {
+        }
+
+        if (packet == null) {
+            if (LOG.isDebugEnabled()) {
                 LOG.debug("packet == null");
-                return;
             }
+            return;
         }
 
         MysqlChannel channel = ctx.getMysqlChannel();
