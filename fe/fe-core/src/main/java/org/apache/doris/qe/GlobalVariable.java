@@ -49,6 +49,9 @@ public final class GlobalVariable {
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
+    public static final String READ_ONLY = "read_only";
+    public static final String SUPER_READ_ONLY = "super_read_only";
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -97,7 +100,17 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
     public static long validatePasswordPolicy = 0;
 
-    // Don't allow to create instance.
+    @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
+            description = {"仅用于兼容MySQL生态，暂无实际意义",
+                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+    public static boolean read_only = true;
+
+    @VariableMgr.VarAttr(name = SUPER_READ_ONLY, flag = VariableMgr.GLOBAL,
+            description = {"仅用于兼容MySQL生态，暂无实际意义",
+                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+    public static boolean super_read_only = true;
+
+    // Don't allow creating instance.
     private GlobalVariable() {
     }
 
