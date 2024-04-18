@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
