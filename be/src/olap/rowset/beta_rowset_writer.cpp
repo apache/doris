@@ -110,8 +110,6 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) { // abnormal exit, remove all files generated
-        WARN_IF_ERROR(_segment_creator.close(),
-                      "close segment creator failed"); // ensure all files are closed
         const auto& fs = _rowset_meta->fs();
         if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
