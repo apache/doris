@@ -4174,7 +4174,7 @@ public class Coordinator implements CoordInterface {
             LOG.info("Get real-time exec status succeed, query {}",
                         DebugUtil.printId(queryId));
 
-            // reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
+            // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
             // to avoid compile failing.
             TNetworkAddress dummyAddr = new TNetworkAddress();
             QeProcessorImpl.INSTANCE.reportExecStatus(
