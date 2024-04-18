@@ -56,7 +56,8 @@ std::string UInt128Wrapper::to_string() const {
     return vectorized::get_hex_uint_lowercase(value_);
 }
 
-FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size) const {
+FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset,
+                                                                     size_t size) const {
     CacheContext ctx;
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
