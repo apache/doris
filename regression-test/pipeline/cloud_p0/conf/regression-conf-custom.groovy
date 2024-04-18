@@ -55,6 +55,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +
+    "ccr_syncer_p0," +
+    "ccr_mow_syncer_p0," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 100
