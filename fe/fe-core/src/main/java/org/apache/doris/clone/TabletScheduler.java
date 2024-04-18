@@ -306,7 +306,7 @@ public class TabletScheduler extends MasterDaemon {
 
     /**
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
-     * Firstly, it will try to update cluster load statistic and check if priority need to be adjusted.
+     * Firstly, it will try to update cluster load statistic and check if priority need to be adjurted.
      * Then, it will schedule the tablets in pendingTablets.
      * Thirdly, it will check the current running tasks.
      * Finally, it try to balance the cluster if possible.
@@ -315,10 +315,10 @@ public class TabletScheduler extends MasterDaemon {
      * 1. tablet with higher priority will be scheduled first.
      * 2. high priority should be downgraded if it fails to be schedule too many times.
      * 3. priority may be upgraded if it is not being schedule for a long time.
-     * 4. every pending task should has a max scheduled time, if schedule fails too many times, if should be removed.
-     * 5. every running task should has a timeout, to avoid running forever.
-     * 6. every running task should also has a max failure time,
-     *    if clone task fails too many times, if should be removed.
+     * 4. every pending task should have a max scheduled time, if schedule fails too many times, it should be removed.
+     * 5. every running task should have a timeout, to avoid running forever.
+     * 6. every running task should also have a max failure time,
+     *    if clone task fails too many times, it should be removed.
      *
      */
     @Override
@@ -456,7 +456,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * we take the tablet out of the runningTablets and than handle it,
+     * we take the tablet out of the runningTablets and then handle it,
      * avoid other threads see it.
      * Whoever takes this tablet, make sure to put it to the schedHistory or back to runningTablets.
      */
