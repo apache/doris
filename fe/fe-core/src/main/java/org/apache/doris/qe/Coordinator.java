@@ -4107,7 +4107,7 @@ public class Coordinator implements CoordInterface {
                 getRealtimeExecStatusFutures = Lists.newArrayList();
 
         for (TNetworkAddress address : backendAddresses) {
-            CompletableFuture<TGetRealtimeExecStatusResponse> future = 
+            CompletableFuture<TGetRealtimeExecStatusResponse> future =
                     CompletableFuture.supplyAsync(
                     () -> {
                         TGetRealtimeExecStatusResponse resp = null;
