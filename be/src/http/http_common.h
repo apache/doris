@@ -38,6 +38,7 @@ static const std::string HTTP_TEMP_PARTITIONS = "temporary_partitions";
 static const std::string HTTP_NEGATIVE = "negative";
 static const std::string HTTP_STRICT_MODE = "strict_mode";
 static const std::string HTTP_TIMEZONE = "timezone";
+static const std::string HTTP_TIME_ZONE = "time_zone";
 static const std::string HTTP_EXEC_MEM_LIMIT = "exec_mem_limit";
 static const std::string HTTP_JSONPATHS = "jsonpaths";
 static const std::string HTTP_JSONROOT = "json_root";
