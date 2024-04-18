@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.gson.Gson;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -93,7 +94,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         if (backend == null) {
             throw new UserException("failed to get be:" + beId + " rack because not exist");
         }
-        tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties(backend.getRack()));
+        tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
+        tKafkaLoadInfo.getProperties().put(ConsumerConfig.CLIENT_RACK_CONFIG, backend.getRack());
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
