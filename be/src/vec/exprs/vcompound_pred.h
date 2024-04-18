@@ -89,7 +89,7 @@ public:
                 std::shared_ptr<roaring::Roaring> child_roaring =
                         std::make_shared<roaring::Roaring>();
                 Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
-                                                       num_rows, child_roaring.get());
+                                                              num_rows, child_roaring.get());
                 if (!st.ok()) {
                     continue;
                 }
