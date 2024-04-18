@@ -67,10 +67,12 @@ import doris.segment_v2.SegmentV2;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class CloudInternalCatalog extends InternalCatalog {
     private static final Logger LOG = LogManager.getLogger(CloudInternalCatalog.class);
@@ -155,7 +157,12 @@ public class CloudInternalCatalog extends InternalCatalog {
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                        tbl.getTimeSeriesCompactionFileCountThreshold(),
+                        tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                        tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                        tbl.getTimeSeriesCompactionLevelThreshold());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -198,7 +205,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion) throws DdlException {
+            boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+            Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
+            Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
+            Long timeSeriesCompactionLevelThreshold) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -226,6 +236,13 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         builder.setReplicaId(tablet.getReplicas().get(0).getId());
         builder.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        builder.setCompactionPolicy(compactionPolicy);
+        builder.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
+        builder.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
+        builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
+        builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
+        builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);
@@ -601,7 +618,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         long tableId = -1;
         List<Long> partitionIds = Lists.newArrayList();
-        List<Long> indexIds = Lists.newArrayList();
+        Set<Long> indexIds = new HashSet<>();
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
@@ -622,7 +639,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
             }
             try {
-                dropCloudPartition(partition0.getDbId(), tableId, partitionIds, indexIds);
+                dropCloudPartition(partition0.getDbId(), tableId, partitionIds,
+                        indexIds.stream().collect(Collectors.toList()));
             } catch (Exception e) {
                 LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
                         partitionIds, tableId, tryCnt, e);

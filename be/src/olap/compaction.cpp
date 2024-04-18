@@ -67,6 +67,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -120,7 +121,14 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
     init_profile(label);
 }
 
-Compaction::~Compaction() = default;
+Compaction::~Compaction() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _output_rs_writer.reset();
+    _tablet.reset();
+    _input_rowsets.clear();
+    _output_rowset.reset();
+    _cur_tablet_schema.reset();
+}
 
 void Compaction::init_profile(const std::string& label) {
     _profile = std::make_unique<RuntimeProfile>(label);
@@ -1109,6 +1117,11 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    ctx.compaction_level =
+            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
+
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();

@@ -19,8 +19,9 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.datasource.HMSCachedClientTest;
+import org.apache.doris.datasource.TestHMSCachedClient;
 import org.apache.doris.fs.LocalDfsFileSystem;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
@@ -45,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public class HmsCommitTest {
@@ -68,6 +70,10 @@ public class HmsCommitTest {
         writeLocation = "file://" + writePath.toAbsolutePath() + "/";
         createTestHiveCatalog();
         createTestHiveDatabase();
+
+        // context
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
     }
 
     @AfterClass
@@ -84,7 +90,7 @@ public class HmsCommitTest {
             entries.set("hive.metastore.uris", uri);
             hmsClient = new ThriftHMSCachedClient(entries, 2);
         } else {
-            hmsClient = new HMSCachedClientTest();
+            hmsClient = new TestHMSCachedClient();
         }
         hmsOps = new HiveMetadataOps(null, hmsClient, fs);
     }
@@ -107,23 +113,18 @@ public class HmsCommitTest {
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         String fileFormat = "orc";
-        HashMap<String, String> params = new HashMap<String, String>() {{
-                put("location_uri", dbLocation + tbWithPartition);
-            }};
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
-                dbName, tbWithPartition, columns, partitionKeys,
-                params, fileFormat);
+                dbName, tbWithPartition, Optional.of(dbLocation + tbWithPartition),
+                columns, partitionKeys,
+                new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
 
         // create table for tbWithoutPartition
-        HashMap<String, String> params2 = new HashMap<String, String>() {{
-                put("location_uri", dbLocation + tbWithPartition);
-            }};
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
-                    dbName, tbWithoutPartition, columns, new ArrayList<>(),
-                    params2, fileFormat);
+                    dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition),
+                    columns, new ArrayList<>(),
+                    new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
-
     }
 
     @After

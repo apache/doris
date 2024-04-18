@@ -97,6 +97,7 @@ suite("alter_ttl_1") {
     }
 
     load_customer_ttl_once("customer_ttl")
+    sql """ select count(*) from customer_ttl """
     sleep(30000)
     long ttl_cache_size = 0
     getMetricsMethod.call() {
@@ -118,7 +119,7 @@ suite("alter_ttl_1") {
             }
             assertTrue(flag1)
     }
-    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="120") """
+    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="140") """
     sleep(80000)
     getMetricsMethod.call() {
         respCode, body ->
@@ -140,7 +141,7 @@ suite("alter_ttl_1") {
             assertTrue(flag1)
     }
     // wait for ttl timeout
-    sleep(30000)
+    sleep(50000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")

@@ -85,6 +85,8 @@ private:
 
     ColumnArray(const ColumnArray&) = default;
 
+    ColumnArray() = default;
+
 public:
     // offsets of array is 64bit wise
     using Offset64 = IColumn::Offset64;
@@ -152,6 +154,8 @@ public:
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -207,33 +211,30 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(offsets);
         callback(data);
     }
 
+    ColumnPtr convert_column_if_overflow() override {
+        data = data->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
+    }
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnArray&>(rhs);
-        const size_t nested_row_size = r.size_at(row);
-        const size_t r_nested_start_off = r.offset_at(row);
-
-        // we should clear data because we call resize() before replace_column_data()
-        if (self_row == 0) {
-            data->clear();
-        }
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // we make sure call replace_column_data() by order so, here we just insert data for nested
-        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        get_offsets()[self_row] = get_offsets()[self_row - 1];
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     void clear() override {

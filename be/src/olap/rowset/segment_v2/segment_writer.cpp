@@ -45,6 +45,7 @@
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -227,9 +228,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
-            (column.is_extracted_column() && column.is_array_type())) {
-            // variant and jsonb type skip write index
+        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+            // skip inverted index if invalid
             opts.indexes.clear();
             opts.need_zone_map = false;
             opts.need_bloom_filter = false;
@@ -563,7 +563,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
-    CHECK(use_default_or_null_flag.size() == num_rows);
+    CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
         tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
@@ -641,7 +641,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
-    CHECK(cids_missing.size() == old_value_block.columns());
+    CHECK_EQ(cids_missing.size(), old_value_block.columns());
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
@@ -1189,7 +1189,7 @@ Status SegmentWriter::_write_short_key_index() {
 }
 
 Status SegmentWriter::_write_primary_key_index() {
-    CHECK(_primary_key_index_builder->num_rows() == _row_count);
+    CHECK_EQ(_primary_key_index_builder->num_rows(), _row_count);
     return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
 }
 

@@ -180,7 +180,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                MemTrackerLimiter::Type::OTHER,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -249,7 +249,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                MemTrackerLimiter::Type::OTHER,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -1969,6 +1969,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     auto status = check_migrate_request(engine, storage_medium_migrate_req, tablet, &dest_store);
     if (status.ok()) {
         EngineStorageMigrationTask engine_task(engine, tablet, dest_store);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
     // fe should ignore this err

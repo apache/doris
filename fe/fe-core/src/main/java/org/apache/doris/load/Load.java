@@ -63,6 +63,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -550,11 +551,11 @@ public class Load {
                 }
             }
 
-            // Array type do not support cast now
+            // Array/Map/Struct type do not support cast now
             Type exprReturnType = expr.getType();
-            if (exprReturnType.isArrayType()) {
+            if (exprReturnType.isComplexType()) {
                 Type schemaType = tbl.getColumn(entry.getKey()).getType();
-                if (exprReturnType != schemaType) {
+                if (!exprReturnType.matchesType(schemaType)) {
                     throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
                             + schemaType + " for column:" + entry.getKey());
                 }
@@ -1012,6 +1013,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1047,6 +1049,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1070,8 +1073,9 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 boolean auth = true;
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            tblName, PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    tblName, PrivPredicate.LOAD)) {
                         auth = false;
                         break;
                     }
@@ -1236,15 +1240,17 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                            PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                                tblName, PrivPredicate.LOAD)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                        tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }

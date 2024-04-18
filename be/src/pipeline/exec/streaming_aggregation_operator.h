@@ -42,6 +42,7 @@ public:
     ~StreamingAggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);

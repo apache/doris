@@ -181,10 +181,10 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
-            return builder.build(functionName, arguments);
+            return builder.build(functionName, arguments).first;
         } else {
             Expression boundFunction = TypeCoercionUtils
-                    .processBoundFunction((BoundFunction) builder.build(functionName, arguments));
+                    .processBoundFunction((BoundFunction) builder.build(functionName, arguments).first);
             if (boundFunction instanceof Count
                     && context.cascadesContext.getOuterScope().isPresent()
                     && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()

@@ -494,11 +494,11 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         _probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
-        RETURN_IF_ERROR(
-                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
         if (!_has_set_need_null_map_for_probe) {
@@ -744,7 +744,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                          res_col_ids));
 
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(_build_side_mutable_block.merge_ignore_overflow(*in_block));
             if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
                 return Status::NotSupported(
                         "Hash join do not support build table rows"
@@ -942,6 +942,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     COUNTER_UPDATE(_build_rows_counter, rows);
+    block.replace_if_overflow();
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
@@ -951,6 +952,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            if (column->size() == 0) {
+                return Status::InternalError("here should not be empty column in build block");
+            }
             assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()

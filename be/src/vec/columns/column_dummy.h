@@ -130,6 +130,20 @@ public:
         for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
     }
 
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                      selector.size(), num_rows);
+        }
+
+        res->reserve(num_rows);
+
+        for (size_t i = begin; i < end; ++i) res->insert_from(*this, selector[i]);
+    }
+
     void addSize(size_t delta) { s += delta; }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

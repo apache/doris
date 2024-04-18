@@ -32,6 +32,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -42,15 +43,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/parquet_common.h"
-
-namespace cctz {
-class time_zone;
-} // namespace cctz
-namespace doris {
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
 
 namespace doris::vectorized {
 

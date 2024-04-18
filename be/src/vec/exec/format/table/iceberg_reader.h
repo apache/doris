@@ -32,6 +32,7 @@
 #include "table_format_reader.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_string.h"
 
 namespace tparquet {
 class KeyValue;
@@ -53,7 +54,6 @@ struct TypeDescriptor;
 
 namespace vectorized {
 class Block;
-class ColumnString;
 class GenericReader;
 class ShardedKVCache;
 class VExprContext;
