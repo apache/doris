@@ -104,7 +104,7 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
     if (iter != _planned_pipes.end()) {
         pipe = iter->second;
         RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
-                                       "append failed in planned kafka pipe");
+                                       "append failed in unplanned kafka pipe");
     } else {
         iter = _unplanned_pipes.find(table);
         if (iter == _unplanned_pipes.end()) {
@@ -114,17 +114,25 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
         } else {
             pipe = iter->second;
         }
-        RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
-                                       "append failed in unplanned kafka pipe");
 
+        // It is necessary to determine whether the sum of pipe_current_capacity and size is greater than pipe_max_capacity,
+        // otherwise the following situation may occur:
+        // the pipe is full but still cannot trigger the request and exec plan condition,
+        // causing one stream multi table load can not finish
         ++_unplanned_row_cnt;
+        auto pipe_current_capacity = pipe->current_capacity();
+        auto pipe_max_capacity = pipe->max_capacity();
         if (_unplanned_row_cnt >= _row_threshold ||
-            _unplanned_pipes.size() >= _wait_tables_threshold) {
+            _unplanned_pipes.size() >= _wait_tables_threshold ||
+            pipe_current_capacity + size > pipe_max_capacity) {
             LOG(INFO) << fmt::format(
                                  "unplanned row cnt={} reach row_threshold={} or "
-                                 "wait_plan_table_threshold={}, "
+                                 "wait_plan_table_threshold={}, or the sum of "
+                                 "pipe_current_capacity {} "
+                                 "and size {} is greater than pipe_max_capacity {}, "
                                  "plan them",
-                                 _unplanned_row_cnt, _row_threshold, _wait_tables_threshold)
+                                 _unplanned_row_cnt, _row_threshold, _wait_tables_threshold,
+                                 pipe_current_capacity, size, pipe_max_capacity)
                       << ", ctx: " << _ctx->brief();
             Status st = request_and_exec_plans();
             _unplanned_row_cnt = 0;
@@ -132,7 +140,11 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
                 return st;
             }
         }
+
+        RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
+                                       "append failed in unplanned kafka pipe");
     }
+
     return Status::OK();
 }
 
