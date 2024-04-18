@@ -753,7 +753,11 @@ public class Function implements Writable {
             // function type
             // intermediate type
             if (this instanceof ScalarFunction) {
-                row.add("Scalar");
+                if (isUDTFunction()) {
+                    row.add("TABLES");
+                } else {
+                    row.add("Scalar");
+                }
                 row.add("NULL");
             } else if (this instanceof AliasFunction) {
                 row.add("Alias");

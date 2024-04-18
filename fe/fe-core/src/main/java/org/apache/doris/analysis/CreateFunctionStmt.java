@@ -207,6 +207,8 @@ public class CreateFunctionStmt extends DdlStmt {
                     analyzeUda();
                 } else if (isAlias) {
                     analyzeAliasFunction();
+                } else if (isTableFunction) {
+                    analyzeTableFunction();
                 } else {
                     analyzeUdf();
                 }

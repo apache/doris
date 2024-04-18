@@ -63,7 +63,7 @@ suite("test_javaudtf_double") {
         qt_select2 """ SELECT user_id, double_2, e1 FROM ${tableName} lateral view  udtf_double(double_2) temp as e1 order by user_id; """
 
     } finally {
-        // try_sql("DROP FUNCTION IF EXISTS udtf_double(double);")
-        // try_sql("DROP TABLE IF EXISTS ${tableName}")
+        try_sql("DROP FUNCTION IF EXISTS udtf_double(double);")
+        try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
