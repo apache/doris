@@ -19,8 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/sink/load_stream_stub.h"
 #include "vec/sink/load_stream_map_pool.h"
+#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 
@@ -34,8 +34,8 @@ public:
 
 const int64_t src_id = 1000;
 
-static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map,
-                       int64_t node_id, std::vector<int64_t> success_tablets,
+static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t node_id,
+                       std::vector<int64_t> success_tablets,
                        std::unordered_map<int64_t, Status> failed_tablets) {
     auto stub = load_stream_map->get_or_create(node_id);
     for (const auto& tablet_id : success_tablets) {
