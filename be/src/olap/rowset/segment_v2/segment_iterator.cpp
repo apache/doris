@@ -2070,6 +2070,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
+    if (_can_opt_topn_reads()) {
+        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    }
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2509,6 +2512,22 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     std::set<uint32_t> delete_columns_set;
     _opts.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     return delete_columns_set.contains(cid);
+}
+
+bool SegmentIterator::_can_opt_topn_reads() const {
+    if (_opts.topn_limit <= 0) {
+        return false;
+    }
+
+    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
+        return false;
+    }
+
+    if (!_col_predicates.empty() || !_col_preds_except_leafnode_of_andnode.empty()) {
+        return false;
+    }
+
+    return true;
 }
 
 } // namespace segment_v2
