@@ -47,9 +47,6 @@ namespace doris {
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
