@@ -54,7 +54,7 @@ public class Tokenize extends ScalarFunction
     }
 
     @Override
-    public void checkLegalityAfterRewrite() {
+    public void checkLegalityBeforeTypeCoercion() {
         if (!(child(1) instanceof StringLikeLiteral)) {
             throw new AnalysisException("tokenize second argument must be string literal");
         }
