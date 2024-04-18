@@ -101,11 +101,11 @@ public class RuntimeFilterTranslator {
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
         List<ScanNode> scanNodeList = new ArrayList<>();
         boolean hasInvalidTarget = false;
-        for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
+             for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
             Slot curTargetSlot = filter.getTargetSlots().get(i);
             Expression curTargetExpression = filter.getTargetExpressions().get(i);
-            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
-            if (target == null) {
+            SlotRef targetSlotRef = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
+            if (targetSlotRef == null) {
                 context.setTargetNullCount();
                 hasInvalidTarget = true;
                 break;
@@ -113,10 +113,15 @@ public class RuntimeFilterTranslator {
             ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
             Expr targetExpr;
             if (curTargetSlot.equals(curTargetExpression)) {
-                targetExpr = target;
+                targetExpr = targetSlotRef;
             } else {
-                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
-                        context.getExprIdToOlapScanNodeSlotRef());
+                // map nereids target slot to original planner slot
+                Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
+                        "target expression is invalid, input slot num > 1; filter :" + filter);
+                Slot slotInTargetExpression = curTargetExpression.getInputSlots().iterator().next();
+                Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot)
+                        || curTargetSlot.equals(context.getAliasTransferMap().get(slotInTargetExpression).second));
+                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(targetSlotRef);
                 targetExpr = curTargetExpression.accept(translator, ctx);
             }
 
@@ -124,7 +129,7 @@ public class RuntimeFilterTranslator {
             if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                 targetExpr = new CastExpr(src.getType(), targetExpr);
             }
-            SlotRef targetSlot = target.getSrcSlotRef();
+            SlotRef targetSlot = targetSlotRef.getSrcSlotRef();
             TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
             SlotId targetSlotId = targetSlot.getSlotId();
             scanNodeList.add(scanNode);
