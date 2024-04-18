@@ -108,7 +108,7 @@ public class S3FileSystemTest {
             fileSystem = new S3FileSystem(mockedStorage);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
-                public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+                public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
                     try {
                         S3URI uri = S3URI.create(remotePath, false);
                         ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder().bucket(uri.getBucket());
@@ -225,7 +225,7 @@ public class S3FileSystemTest {
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
-        Assertions.assertEquals(Status.OK, fileSystem.list(bucket + basePath + "_list/*", result));
+        Assertions.assertEquals(Status.OK, fileSystem.globList(bucket + basePath + "_list/*", result));
         Assertions.assertEquals(3, result.size());
     }
 

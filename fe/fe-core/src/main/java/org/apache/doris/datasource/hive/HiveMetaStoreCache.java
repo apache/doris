@@ -39,7 +39,6 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.metric.GaugeMetric;
@@ -80,7 +79,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.FileNotFoundException;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
@@ -360,16 +358,17 @@ public class HiveMetaStoreCache {
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
                         location, bindBrokerName), jobConf, bindBrokerName));
         result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location, jobConf));
-        try {
-            // For Tez engine, it may generate subdirectoies for "union" query.
-            // So there may be files and directories in the table directory at the same time. eg:
-            //      /user/hive/warehouse/region_tmp_union_all2/000000_0
-            //      /user/hive/warehouse/region_tmp_union_all2/1
-            //      /user/hive/warehouse/region_tmp_union_all2/2
-            // So we need to recursively list data location.
-            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
-            for (RemoteFile remoteFile : locatedFiles.files()) {
+        // For Tez engine, it may generate subdirectoies for "union" query.
+        // So there may be files and directories in the table directory at the same time. eg:
+        //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+        //      /user/hive/warehouse/region_tmp_union_all2/1
+        //      /user/hive/warehouse/region_tmp_union_all2/2
+        // So we need to recursively list data location.
+        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+        List<RemoteFile> remoteFiles = new ArrayList<>();
+        Status status = fs.listFiles(location, true, remoteFiles);
+        if (status.ok()) {
+            for (RemoteFile remoteFile : remoteFiles) {
                 String srcPath = remoteFile.getPath().toString();
                 LocationPath locationPath = new LocationPath(srcPath, catalog.getProperties());
                 Path convertedPath = locationPath.toScanRangeLocation();
@@ -378,15 +377,13 @@ public class HiveMetaStoreCache {
                 }
                 result.addFile(remoteFile);
             }
-        } catch (Exception e) {
+        } else if (status.getErrCode().equals(ErrCode.NOT_FOUND)) {
             // User may manually remove partition under HDFS, in this case,
             // Hive doesn't aware that the removed partition is missing.
             // Here is to support this case without throw an exception.
-            if (e.getCause() instanceof FileNotFoundException) {
-                LOG.warn(String.format("File %s not exist.", location));
-            } else {
-                throw e;
-            }
+            LOG.warn(String.format("File %s not exist.", location));
+        } else {
+            throw new RuntimeException(status.getErrMsg());
         }
         // Must copy the partitionValues to avoid concurrent modification of key and value
         result.setPartitionValues(Lists.newArrayList(partitionValues));
@@ -820,17 +817,22 @@ public class HiveMetaStoreCache {
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
                                             jobConf, bindBrokerName));
-                    RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    if (delta.isDeleteDelta()) {
-                        List<String> deleteDeltaFileNames = locatedFiles.files().stream().map(f -> f.getName()).filter(
-                                        name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                                        .collect(Collectors.toList());
-                        deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
-                        continue;
-                    }
-                    locatedFiles.files().stream().filter(
-                            f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                    List<RemoteFile> remoteFiles = new ArrayList<>();
+                    Status status = fs.listFiles(location, false, remoteFiles);
+                    if (status.ok()) {
+                        if (delta.isDeleteDelta()) {
+                            List<String> deleteDeltaFileNames = remoteFiles.stream().map(f -> f.getName()).filter(
+                                    name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                    .collect(Collectors.toList());
+                            deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
+                            continue;
+                        }
+                        remoteFiles.stream().filter(
+                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                             .forEach(fileCacheValue::addFile);
+                    } else {
+                        throw new RuntimeException(status.getErrMsg());
+                    }
                 }
 
                 // base
@@ -840,10 +842,15 @@ public class HiveMetaStoreCache {
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
                                             jobConf, bindBrokerName));
-                    RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    locatedFiles.files().stream().filter(
-                            f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                            .forEach(fileCacheValue::addFile);
+                    List<RemoteFile> remoteFiles = new ArrayList<>();
+                    Status status = fs.listFiles(location, false, remoteFiles);
+                    if (status.ok()) {
+                        remoteFiles.stream().filter(
+                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                .forEach(fileCacheValue::addFile);
+                    } else {
+                        throw new RuntimeException(status.getErrMsg());
+                    }
                 }
                 fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
                 fileCacheValues.add(fileCacheValue);

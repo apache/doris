@@ -18,7 +18,6 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.UserException;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.google.common.collect.ImmutableSet;
@@ -30,14 +29,12 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LocalDfsFileSystem implements FileSystem {
 
@@ -112,46 +109,6 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
-    public void asyncRename(Executor executor,
-                            List<CompletableFuture<?>> renameFileFutures,
-                            AtomicBoolean cancelled,
-                            String origFilePath,
-                            String destFilePath,
-                            List<String> fileNames)  {
-        for (String fileName : fileNames) {
-            Path source = new Path(origFilePath, fileName);
-            Path target = new Path(destFilePath, fileName);
-            renameFileFutures.add(CompletableFuture.runAsync(() -> {
-                if (cancelled.get()) {
-                    return;
-                }
-                Status status = rename(source.toString(), target.toString());
-                if (!status.ok()) {
-                    throw new RuntimeException(status.getErrMsg());
-                }
-            }, executor));
-        }
-    }
-
-    @Override
-    public void asyncRenameDir(Executor executor,
-                               List<CompletableFuture<?>> renameFileFutures,
-                               AtomicBoolean cancelled,
-                               String origFilePath,
-                               String destFilePath,
-                               Runnable runWhenPathNotExist) {
-        renameFileFutures.add(CompletableFuture.runAsync(() -> {
-            if (cancelled.get()) {
-                return;
-            }
-            Status status = renameDir(origFilePath, destFilePath, runWhenPathNotExist);
-            if (!status.ok()) {
-                throw new RuntimeException(status.getErrMsg());
-            }
-        }, executor));
-    }
-
-    @Override
     public Status delete(String remotePath) {
         try {
             fs.delete(new Path(remotePath), true);
@@ -172,14 +129,9 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
-    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
-        return null;
-    }
-
-    @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            FileStatus[] locatedFileStatusRemoteIterator = fs.listStatus(new Path(remotePath));
+            FileStatus[] locatedFileStatusRemoteIterator = fs.globStatus(new Path(remotePath));
             if (locatedFileStatusRemoteIterator == null) {
                 return Status.OK;
             }
@@ -197,23 +149,20 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
-    public Status listFiles(String remotePath, List<RemoteFile> result) {
-        RemoteIterator<LocatedFileStatus> iterator;
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         try {
-            Path dirPath = new Path(remotePath);
-            iterator = fs.listFiles(dirPath, true);
-            while (iterator.hasNext()) {
-                LocatedFileStatus next = iterator.next();
-                String location = next.getPath().toString();
-                String child = location.substring(dirPath.toString().length());
-                while (child.startsWith("/")) {
-                    child = child.substring(1);
-                }
-                if (!child.contains("/")) {
-                    result.add(new RemoteFile(location, next.isFile(), next.getLen(), next.getBlockSize()));
-                }
+            Path locatedPath = new Path(remotePath);
+            RemoteIterator<LocatedFileStatus> locatedFiles = fs.listFiles(locatedPath, recursive);
+            while (locatedFiles.hasNext()) {
+                LocatedFileStatus fileStatus = locatedFiles.next();
+                RemoteFile location = new RemoteFile(
+                        fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
+                result.add(location);
             }
-        } catch (IOException e) {
+        } catch (FileNotFoundException e) {
+            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+        } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;
