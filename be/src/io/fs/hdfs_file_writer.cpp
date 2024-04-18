@@ -90,7 +90,11 @@ Status HdfsFileWriter::close() {
     if (_sync_file_data) {
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hsync_latency);
+#ifdef USE_LIBHDFS3
+            ret = hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+#else
             ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+#endif
         }
 
         if (ret != 0) {
