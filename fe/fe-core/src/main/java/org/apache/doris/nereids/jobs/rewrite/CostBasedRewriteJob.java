@@ -91,17 +91,13 @@ public class CostBasedRewriteJob implements RewriteJob {
             // set subtree rewrite cache
             currentCtx.getStatementContext().getRewrittenCtePlan()
                     .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
-            // Do Whole tree rewrite
-            CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
-            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
-            // Do optimize
-            new Optimizer(rootCtxCopy).execute();
-            return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
-                    rootCtxCopy.getCurrentJobContext().getRequiredProperties());
-        } else {
-            new Optimizer(cboCtx).execute();
-            return cboCtx.getMemo().getRoot().getLowestCostPlan(
-                    cboCtx.getCurrentJobContext().getRequiredProperties());
         }
+        // Do post tree rewrite
+        CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
+        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+        // Do optimize
+        new Optimizer(rootCtxCopy).execute();
+        return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                rootCtxCopy.getCurrentJobContext().getRequiredProperties());
     }
 }
