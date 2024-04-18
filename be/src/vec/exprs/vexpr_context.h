@@ -79,7 +79,7 @@ public:
      * @param bitmap roaring bitmap to store the result. 0 is present filed by index.
      * @return status not ok means execute failed.
      */
-    [[nodiscard]] Status eval_inverted_indexs(
+    [[nodiscard]] Status eval_inverted_index(
             const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
                     colid_to_inverted_index_iter,

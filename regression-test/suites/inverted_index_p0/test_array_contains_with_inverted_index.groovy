@@ -74,5 +74,8 @@ suite("test_array_contains_with_inverted_index"){
     order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
     order_qt_sql """ select * from tai where array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
     order_qt_sql """ select * from tai where !array_contains(inventors, 's') order by id; """
-
+    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
+    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
+    order_qt_sql """ select * from tai where !array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
+    order_qt_sql """ select * from tai where (array_contains(inventors, 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
 }

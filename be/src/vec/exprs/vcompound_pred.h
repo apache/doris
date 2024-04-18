@@ -85,15 +85,19 @@ public:
             }
             *bitmap = *res;
         } else if (_op == TExprOpcode::COMPOUND_AND) {
-            for (auto child : _children) {
+            for (int i = 0; i < _children.size(); ++i) {
                 std::shared_ptr<roaring::Roaring> child_roaring =
                         std::make_shared<roaring::Roaring>();
-                Status st = child->eval_inverted_index(context, colid_to_inverted_index_iter,
+                Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
                                                        num_rows, child_roaring.get());
                 if (!st.ok()) {
                     continue;
                 }
-                *res &= *child_roaring;
+                if (i == 0) {
+                    *res = *child_roaring;
+                } else {
+                    *res &= *child_roaring;
+                }
                 if (res->isEmpty()) {
                     // the left expr no need to be extracted by inverted index, just return 0 rows
                     // res bitmap will be zero

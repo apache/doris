@@ -1245,7 +1245,7 @@ Status SegmentIterator::_apply_inverted_index() {
             break;
         }
         std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
-        if (Status st = expr_ctx->eval_inverted_indexs(iter_map, num_rows(), result_bitmap.get());
+        if (Status st = expr_ctx->eval_inverted_index(iter_map, num_rows(), result_bitmap.get());
             !st.ok() && st.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
             LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
                          << expr_ctx->root()->debug_string() << ", error msg: " << st.to_string();
