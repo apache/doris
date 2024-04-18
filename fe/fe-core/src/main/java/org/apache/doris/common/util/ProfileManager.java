@@ -42,7 +42,6 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -125,7 +124,7 @@ public class ProfileManager {
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
-    private ExecutorService fetchRealTimeProfileExecutor;
+    private final ExecutorService fetchRealTimeProfileExecutor;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -146,7 +145,7 @@ public class ProfileManager {
         queryIdToProfileMap = new ConcurrentHashMap<>();
         queryIdToExecutionProfiles = Maps.newHashMap();
         fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-            10, 100, "fetch-realtime-profile-pool", true);
+                10, 100, "fetch-realtime-profile-pool", true);
     }
 
     private ProfileElement createElement(Profile profile) {
@@ -283,7 +282,7 @@ public class ProfileManager {
     }
 
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
-                                                TUniqueId queryID, TNetworkAddress targetBackend) {
+            TUniqueId queryID, TNetworkAddress targetBackend) {
         TGetRealtimeExecStatusResponse resp = null;
         BackendService.Client client = null;
 
@@ -308,7 +307,7 @@ public class ProfileManager {
 
         if (!resp.isSetStatus()) {
             LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
-                        DebugUtil.printId(queryID));
+                    DebugUtil.printId(queryID));
             return null;
         }
 
@@ -342,7 +341,8 @@ public class ProfileManager {
         if (involvedBackends != null) {
             for (TNetworkAddress beAddress : involvedBackends) {
                 Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                    return getRealtimeQueryProfile(thriftQueryId, beAddress);};
+                    return getRealtimeQueryProfile(thriftQueryId, beAddress);
+                };
                 Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
                 futures.add(future);
             }
@@ -359,7 +359,7 @@ public class ProfileManager {
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get real-time profile, query {}, error: {}",
-                            DebugUtil.printId(thriftQueryId), e.getMessage(), e);
+                        DebugUtil.printId(thriftQueryId), e.getMessage(), e);
             }
         }
 

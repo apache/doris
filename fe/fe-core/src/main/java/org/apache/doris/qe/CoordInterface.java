@@ -17,10 +17,10 @@
 
 package org.apache.doris.qe;
 
-import java.util.List;
-
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TNetworkAddress;
+
+import java.util.List;
 
 public interface CoordInterface {
 
@@ -34,5 +34,5 @@ public interface CoordInterface {
     // some resource.
     public default void close() {}
 
-    public List<TNetworkAddress> getInvolvedBackends();
+    List<TNetworkAddress> getInvolvedBackends();
 }

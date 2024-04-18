@@ -22,7 +22,6 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -80,7 +79,6 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDataSinkType;
@@ -92,8 +90,6 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
-import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -153,7 +149,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -4113,6 +4108,11 @@ public class Coordinator implements CoordInterface {
         return fragments;
     }
 
+    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
+        Optional.ofNullable(context).map(ConnectContext::getExecutor).map(StmtExecutor::getSummaryProfile)
+                .ifPresent(profileAction);
+    }
+
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
         public TUniqueId targetFragmentInstanceId;
@@ -4123,13 +4123,6 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentInstanceId = id;
             this.targetFragmentInstanceAddr = host;
         }
-    }
-
-    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
-        Optional.ofNullable(context)
-                .map(ConnectContext::getExecutor)
-                .map(StmtExecutor::getSummaryProfile)
-                .ifPresent(profileAction);
     }
 }
 
