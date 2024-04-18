@@ -278,7 +278,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());

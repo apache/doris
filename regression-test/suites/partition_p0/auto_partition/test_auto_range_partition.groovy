@@ -117,7 +117,7 @@ suite("test_auto_range_partition") {
         );
     """
     sql " insert into week_range values (20240408), (20240409); "
-    result2 = sql "show partitions from week_range"
+    def result2 = sql "show partitions from week_range"
     logger.info("${result2}")
     assertEquals(result2.size(), 1)
 
@@ -139,4 +139,36 @@ suite("test_auto_range_partition") {
     result2 = sql "show partitions from quarter_range"
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
+
+     // partition expr extraction
+
+    sql " drop table if exists isit "
+    sql " drop table if exists isit_src "
+    sql """
+        CREATE TABLE isit (
+            k DATE NOT NULL
+        )
+        AUTO PARTITION BY RANGE (date_trunc(k, 'day'))()
+        DISTRIBUTED BY HASH(k) BUCKETS AUTO
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+    sql """
+        CREATE TABLE isit_src (
+            k DATE NOT NULL
+        )
+        DISTRIBUTED BY HASH(k) BUCKETS AUTO
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+    sql " insert into isit_src values (20201212); "
+    sql " insert into isit select * from isit_src "
+    sql " sync "
+    result2 = sql "show partitions from isit"
+    logger.info("${result2}")
+    def tmp_result = sql "select count() from isit"
+    assertEquals(tmp_result[0][0], 1)
+    qt_sql " select * from isit order by k "
 }

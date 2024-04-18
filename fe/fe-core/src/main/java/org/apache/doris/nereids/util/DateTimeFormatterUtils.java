@@ -41,7 +41,6 @@ import java.time.temporal.ChronoField;
 public class DateTimeFormatterUtils {
     public static final DateTimeFormatter ZONE_FORMATTER = new DateTimeFormatterBuilder()
             .optionalStart()
-            // .appendZoneText(TextStyle.FULL)
             .appendZoneOrOffsetId()
             .optionalEnd()
             .toFormatter()
@@ -79,11 +78,13 @@ public class DateTimeFormatterUtils {
             .append(BASIC_DATE_FORMATTER)
             .appendLiteral('T')
             .append(BASIC_TIME_FORMATTER)
+            .appendOptional(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Date without delimiter
     public static final DateTimeFormatter BASIC_FORMATTER_WITHOUT_T = new DateTimeFormatterBuilder()
             .append(BASIC_DATE_FORMATTER)
             .appendOptional(BASIC_TIME_FORMATTER)
+            .appendOptional(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
     // Datetime

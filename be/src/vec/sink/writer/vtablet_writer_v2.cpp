@@ -135,12 +135,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -551,9 +547,15 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        // send CLOSE_LOAD and close_wait on all streams
+        // send CLOSE_LOAD on all streams if this is the last sink
         if (is_last_sink) {
             RETURN_IF_ERROR(_load_stream_map->close_load());
+        }
+
+        // close_wait on all streams, even if this is not the last sink.
+        // because some per-instance data structures are now shared among all sinks
+        // due to sharing delta writers and load stream stubs.
+        {
             SCOPED_TIMER(_close_load_timer);
             RETURN_IF_ERROR(_load_stream_map->for_each_st([this](int64_t dst_id,
                                                                  const Streams& streams) -> Status {

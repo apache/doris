@@ -137,25 +137,7 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-08-01 01:01:01Z");
         new DateTimeV2Literal("2022-08-01 01:01:01Europe/Berlin");
         new DateTimeV2Literal("2022-08-01 01:01:01Europe/London");
-    }
-
-    @Test
-    @Disabled("Test results can change over time")
-    void testZoneOrOffsetRight() {
-        java.util.function.BiConsumer<DateTimeV2Literal, Long> assertHour = (dateTimeV2Literal, expectHour) -> {
-            Assertions.assertEquals(dateTimeV2Literal.hour, expectHour);
-        };
-        DateTimeV2Literal dateTimeV2Literal;
-        dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00Europe/London"); // +01:00
-        assertHour.accept(dateTimeV2Literal, 7L);
-        dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00America/New_York"); // -04:00
-        assertHour.accept(dateTimeV2Literal, 12L);
-        dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00Asia/Shanghai");
-        assertHour.accept(dateTimeV2Literal, 0L);
-        dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00+01:00");
-        assertHour.accept(dateTimeV2Literal, 7L);
-        dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00-01:00");
-        assertHour.accept(dateTimeV2Literal, 9L);
+        new DateTimeV2Literal("2022-08-01 00:00:00Asia/Shanghai");
     }
 
     @Test
@@ -185,18 +167,7 @@ class DateTimeLiteralTest {
     }
 
     @Test
-    @Disabled
     void testOffset() {
-        new DateTimeV2Literal("2022-08-01 01:01:01+01:01:01");
-        new DateTimeV2Literal("2022-08-01 01:01:01+01:01");
-        new DateTimeV2Literal("2022-08-01 01:01:01+01");
-        new DateTimeV2Literal("2022-08-01 01:01:01+01:1:01");
-        new DateTimeV2Literal("2022-08-01 01:01:01+01:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01+01:01:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01+1:1:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01+1:1");
-        new DateTimeV2Literal("2022-08-01 01:01:01+1");
-
         new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
         new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
         new DateTimeV2Literal("2022-06-01T01:02:55+04:30");
@@ -206,8 +177,9 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
         new DateTimeV2Literal("2022-06-01T01:02:55+04:30");
         new DateTimeV2Literal("2022-06-01 01:02:55.123-07:30");
-        // new DateTimeV2Literal("20220701010255+07:00");
-        // new DateTimeV2Literal("20220701010255-05:00");
+
+        new DateTimeV2Literal("20220701010255+07:00");
+        new DateTimeV2Literal("20220701010255-05:00");
     }
 
     @Test
@@ -236,6 +208,27 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
 
         new DateTimeV2Literal("0001-01-01");
+    }
+
+    @Test
+    void testDateTimeZone1() {
+        Consumer<DateTimeV2Literal> assertFunc = (datetime) -> {
+            Assertions.assertEquals(2022, datetime.year);
+            Assertions.assertEquals(1, datetime.month);
+            Assertions.assertEquals(2, datetime.day);
+            Assertions.assertEquals(12, datetime.hour);
+            Assertions.assertEquals(0, datetime.minute);
+            Assertions.assertEquals(0, datetime.second);
+        };
+        DateTimeV2Literal literal;
+        literal = new DateTimeV2Literal("2022-01-02 12:00:00UTC+08:00");
+        assertFunc.accept(literal);
+        literal = new DateTimeV2Literal("2022-01-02 04:00:00UTC");
+        assertFunc.accept(literal);
+        literal = new DateTimeV2Literal("2022-01-01 20:00:00UTC-08:00");
+        assertFunc.accept(literal);
+        literal = new DateTimeV2Literal("2022-01-02 04:00:00Z");
+        assertFunc.accept(literal);
     }
 
     @Test

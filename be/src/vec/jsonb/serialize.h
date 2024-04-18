@@ -28,10 +28,6 @@
 namespace doris {
 class TabletSchema;
 class TupleDescriptor;
-
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {

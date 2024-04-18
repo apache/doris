@@ -1435,11 +1435,6 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
     return Status::OK();
 }
 
-void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
-                                           const IColumn::Selector& selector) const {
-    return append_data_by_selector_impl<ColumnObject>(res, selector);
-}
-
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {

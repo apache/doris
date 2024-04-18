@@ -48,6 +48,7 @@
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
 #include "orc/OrcFile.hh"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
@@ -767,6 +768,7 @@ public:
         return &s_instance;
     }
     ~ZstdBlockCompression() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context);
         for (auto ctx : _ctx_c_pool) {
             _delete_compression_ctx(ctx);
         }
@@ -786,6 +788,7 @@ public:
     //  https://github.com/facebook/zstd/blob/dev/examples/streaming_compression.c
     Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                     faststring* output) override {
+        _query_thread_context.init();
         CContext* context;
         RETURN_IF_ERROR(_acquire_compression_ctx(&context));
         bool compress_failed = false;
@@ -864,6 +867,7 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
+        _query_thread_context.init();
         DContext* context;
         bool decompress_failed = false;
         RETURN_IF_ERROR(_acquire_decompression_ctx(&context));
@@ -960,6 +964,8 @@ private:
 
     mutable std::mutex _ctx_d_mutex;
     mutable std::vector<DContext*> _ctx_d_pool;
+
+    QueryThreadContext _query_thread_context;
 };
 
 class GzipBlockCompression : public ZlibBlockCompression {

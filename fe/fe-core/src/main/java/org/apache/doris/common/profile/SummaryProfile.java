@@ -631,7 +631,7 @@ public class SummaryProfile {
     }
 
     public String getPrettyParseSqlTime() {
-        return getPrettyTime(parseSqlStartTime, parseSqlFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsAnalysisTime() {

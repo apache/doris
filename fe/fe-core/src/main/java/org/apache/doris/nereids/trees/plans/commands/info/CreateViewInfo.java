@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColWithComment;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
@@ -96,6 +97,16 @@ public class CreateViewInfo {
 
     /** init */
     public void init(ConnectContext ctx) throws UserException {
+        viewName.analyze(ctx);
+        FeNameFormat.checkTableName(viewName.getTbl());
+        // disallow external catalog
+        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
+        // check privilege
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
+                viewName.getTbl()), PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
+        }
         analyzeAndFillRewriteSqlMap(querySql, ctx);
         OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
         analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
@@ -107,15 +118,6 @@ public class CreateViewInfo {
     public void validate(ConnectContext ctx) throws UserException {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
-        viewName.analyze(ctx);
-        FeNameFormat.checkTableName(viewName.getTbl());
-        // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
-        // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), viewName.getDb(),
-                viewName.getTbl(), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
-        }
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {

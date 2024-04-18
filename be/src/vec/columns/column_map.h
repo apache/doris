@@ -102,6 +102,8 @@ public:
 
     void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert(const Field& x) override;
     void insert_default() override;
@@ -132,6 +134,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnMap>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -199,6 +205,12 @@ public:
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        keys_column = keys_column->convert_column_if_overflow();
+        values_column = values_column->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
     }
 
 private:

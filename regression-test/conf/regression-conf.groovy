@@ -124,8 +124,8 @@ db2_11_port=50000
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
-hms_port=9183
-hdfs_port=8120
+hms_port=9083
+hdfs_port=8020
 hiveServerPort=10000
 hive_pg_port=5432
 
