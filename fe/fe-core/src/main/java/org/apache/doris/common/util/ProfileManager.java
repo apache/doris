@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.backup.BackupJobInfo.ExtraInfo.NetworkAddrss;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ClientPool;
@@ -34,7 +33,6 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.CoordInterface;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.TGetRealTimeQueryExecStatusResponse;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -284,7 +282,8 @@ public class ProfileManager {
         return result;
     }
 
-    static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(TUniqueId queryID, TNetworkAddress targetBackend) {
+    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
+                                                TUniqueId queryID, TNetworkAddress targetBackend) {
         TGetRealtimeExecStatusResponse resp = null;
         BackendService.Client client = null;
 
@@ -306,7 +305,7 @@ public class ProfileManager {
         } finally {
             ClientPool.backendPool.returnObject(targetBackend, client);
         }
-    
+
         if (!resp.isSetStatus()) {
             LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
                         DebugUtil.printId(queryID));
@@ -325,7 +324,6 @@ public class ProfileManager {
             return null;
         }
 
-        LOG.info("Get real-time exec status succeed, query {}", DebugUtil.printId(queryID));
         return resp;
     }
 
@@ -340,18 +338,18 @@ public class ProfileManager {
         }
 
         List<Future<TGetRealtimeExecStatusResponse>> futures = Lists.newArrayList();
-        
+
         if (involvedBackends != null) {
             for (TNetworkAddress beAddress : involvedBackends) {
                 Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                    return getRealtimeQueryProfile(thriftQueryId, beAddress);};                
+                    return getRealtimeQueryProfile(thriftQueryId, beAddress);};
                 Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
                 futures.add(future);
             }
         }
 
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
-            // to avoid compile failing.
+        // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
         for (Future<TGetRealtimeExecStatusResponse> future : futures) {
             try {
@@ -361,9 +359,12 @@ public class ProfileManager {
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get real-time profile, query {}, error: {}",
-                        DebugUtil.printId(thriftQueryId), e.getMessage(), e);
-                
+                            DebugUtil.printId(thriftQueryId), e.getMessage(), e);
             }
+        }
+
+        if (!futures.isEmpty()) {
+            LOG.info("Get real-time exec status finished, query {}", queryID);
         }
 
         readLock.lock();
