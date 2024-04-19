@@ -82,6 +82,7 @@ public:
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
+            __builtin_unreachable();
         }
     }
 
@@ -129,6 +130,7 @@ public:
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
+        __builtin_unreachable();
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
@@ -358,6 +360,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

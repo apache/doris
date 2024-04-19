@@ -778,6 +778,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     } else {
         LOG(FATAL) << "only support overwrite now";
+        __builtin_unreachable();
     }
 
     // snapshot loader not need to change tablet uid

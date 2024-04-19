@@ -356,6 +356,7 @@ public:
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column nullable";
+        __builtin_unreachable();
     }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {

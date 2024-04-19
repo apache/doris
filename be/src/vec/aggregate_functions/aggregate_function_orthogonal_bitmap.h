@@ -18,11 +18,10 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -33,23 +32,20 @@
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 template <typename T>
 struct AggOrthBitmapBaseData {
