@@ -938,7 +938,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         tnode.node_type == TPlanNodeType::ES_SCAN_NODE ||
         tnode.node_type == TPlanNodeType::ES_HTTP_SCAN_NODE) {
         DCHECK_EQ(request.__isset.parallel_instances,
-                  request.per_node_shared_scans.contains(op->node_id()))
+                  find_with_default(request.per_node_shared_scans, op->node_id(), false))
                 << "query-id=" << print_id(request.query_id);
     }
 
