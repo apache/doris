@@ -63,6 +63,8 @@ public interface HMSCachedClient {
 
     List<FieldSchema> getSchema(String dbName, String tblName);
 
+    Map<String, String> getDefaultColumnValues(String dbName, String tblName);
+
     List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName,
             List<String> columns);
 
