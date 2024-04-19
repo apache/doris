@@ -120,8 +120,10 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     if (!_task_runtime_states.empty()) {
         for (auto& runtime_states : _task_runtime_states) {
             for (auto& runtime_state : runtime_states) {
-                _call_back(runtime_state.get(), &st);
-                runtime_state.reset();
+                if (runtime_state) {
+                    _call_back(runtime_state.get(), &st);
+                    runtime_state.reset();
+                }
             }
         }
     }
@@ -192,80 +194,77 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
                                                  request.query_options, _query_ctx->query_globals,
                                                  _exec_env, _query_ctx.get());
-    {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
-        if (request.__isset.backend_id) {
-            _runtime_state->set_backend_id(request.backend_id);
-        }
-        if (request.__isset.import_label) {
-            _runtime_state->set_import_label(request.import_label);
-        }
-        if (request.__isset.db_name) {
-            _runtime_state->set_db_name(request.db_name);
-        }
-        if (request.__isset.load_job_id) {
-            _runtime_state->set_load_job_id(request.load_job_id);
-        }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
+    if (request.__isset.backend_id) {
+        _runtime_state->set_backend_id(request.backend_id);
+    }
+    if (request.__isset.import_label) {
+        _runtime_state->set_import_label(request.import_label);
+    }
+    if (request.__isset.db_name) {
+        _runtime_state->set_db_name(request.db_name);
+    }
+    if (request.__isset.load_job_id) {
+        _runtime_state->set_load_job_id(request.load_job_id);
+    }
 
-        if (request.is_simplified_param) {
-            _desc_tbl = _query_ctx->desc_tbl;
-        } else {
-            DCHECK(request.__isset.desc_tbl);
-            RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl,
-                                                  &_desc_tbl));
-        }
-        _runtime_state->set_desc_tbl(_desc_tbl);
-        _runtime_state->set_num_per_fragment_instances(request.num_senders);
-        _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
-        _runtime_state->set_total_load_streams(request.total_load_streams);
-        _runtime_state->set_num_local_sink(request.num_local_sink);
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
+    _runtime_state->set_num_per_fragment_instances(request.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
-        const auto& local_params = request.local_params[0];
-        if (local_params.__isset.runtime_filter_params) {
-            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                    local_params.runtime_filter_params);
-        }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
+    const auto& local_params = request.local_params[0];
+    if (local_params.__isset.runtime_filter_params) {
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_params.runtime_filter_params);
+    }
+    if (local_params.__isset.topn_filter_source_node_ids) {
+        _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
+    } else {
+        _query_ctx->init_runtime_predicates({0});
+    }
 
-        _need_local_merge =
-                request.__isset.parallel_instances &&
-                (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
-        // 2. Build pipelines with operators in this fragment.
-        auto root_pipeline = add_pipeline();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(_runtime_state->obj_pool(), request,
-                                                            *_query_ctx->desc_tbl, &_root_op,
-                                                            root_pipeline));
+    _need_local_merge =
+            request.__isset.parallel_instances &&
+            (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
+    // 2. Build pipelines with operators in this fragment.
+    auto root_pipeline = add_pipeline();
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
+            _runtime_state->obj_pool(), request, *_query_ctx->desc_tbl, &_root_op, root_pipeline));
 
-        // 3. Create sink operator
-        if (!request.fragment.__isset.output_sink) {
-            return Status::InternalError("No output sink in this fragment!");
-        }
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *_desc_tbl, root_pipeline->id()));
-        RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-        RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
+    // 3. Create sink operator
+    if (!request.fragment.__isset.output_sink) {
+        return Status::InternalError("No output sink in this fragment!");
+    }
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
+            _runtime_state->obj_pool(), request.fragment.output_sink, request.fragment.output_exprs,
+            request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
+            root_pipeline->id()));
+    RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
+    RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
-        for (PipelinePtr& pipeline : _pipelines) {
-            DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-            RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
-        }
-        if (_enable_local_shuffle()) {
-            RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
-                                                 request.bucket_seq_to_instance_idx,
-                                                 request.shuffle_idx_to_instance_idx));
-        }
+    for (PipelinePtr& pipeline : _pipelines) {
+        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
+        RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+    }
+    if (_enable_local_shuffle()) {
+        RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
+                                             request.bucket_seq_to_instance_idx,
+                                             request.shuffle_idx_to_instance_idx));
+    }
 
-        // 4. Initialize global states in pipelines.
-        for (PipelinePtr& pipeline : _pipelines) {
-            pipeline->children().clear();
-            RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
-        }
+    // 4. Initialize global states in pipelines.
+    for (PipelinePtr& pipeline : _pipelines) {
+        pipeline->children().clear();
+        RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
     // 5. Build pipeline tasks and initialize local state.
@@ -498,7 +497,10 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
     _tasks.resize(target_size);
     _fragment_instance_ids.resize(target_size);
     _runtime_filter_states.resize(target_size);
-    _task_runtime_states.resize(target_size);
+    _task_runtime_states.resize(_pipelines.size());
+    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
+    }
     auto& pipeline_id_to_profile = _runtime_state->pipeline_id_to_profile();
     DCHECK(pipeline_id_to_profile.empty());
     pipeline_id_to_profile.resize(_pipelines.size());
@@ -593,16 +595,19 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
         };
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
-            if (pipeline->need_to_create_task()) {
-                auto cur_task_id = i * _pipelines.size() + pip_idx;
+            auto idx = pipeline->created_task_idx();
+            if (idx >= 0) {
+                auto cur_task_id = _total_tasks++;
+                DCHECK(_task_runtime_states[pip_idx][idx] == nullptr)
+                        << print_id(_task_runtime_states[pip_idx][idx]->fragment_instance_id())
+                        << " " << pipeline->debug_string();
                 // build task runtime state
-                _task_runtime_states[i].push_back(RuntimeState::create_unique(
+                _task_runtime_states[pip_idx][idx] = RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env, _query_ctx.get()));
-                auto& task_runtime_state = _task_runtime_states[i][pip_idx];
+                        _exec_env, _query_ctx.get());
+                auto& task_runtime_state = _task_runtime_states[pip_idx][idx];
                 init_runtime_state(task_runtime_state);
-                _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
                 auto task = std::make_unique<PipelineXTask>(pipeline, cur_task_id,
@@ -681,6 +686,7 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
         int prepare_done = 0;
         for (size_t i = 0; i < target_size; i++) {
             RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
+                SCOPED_ATTACH_TASK_WITH_ID(_query_ctx->query_mem_tracker, _query_id);
                 prepare_status[i] = pre_and_submit(i, this);
                 std::unique_lock<std::mutex> lock(m);
                 prepare_done++;
@@ -1453,7 +1459,9 @@ Status PipelineXFragmentContext::send_report(bool done) {
 
     for (auto& task_states : _task_runtime_states) {
         for (auto& task_state : task_states) {
-            runtime_states.push_back(task_state.get());
+            if (task_state) {
+                runtime_states.push_back(task_state.get());
+            }
         }
     }
 
@@ -1520,7 +1528,7 @@ PipelineXFragmentContext::collect_realtime_load_channel_profile_x() const {
 
     for (auto& runtime_states : _task_runtime_states) {
         for (auto& runtime_state : runtime_states) {
-            if (runtime_state->runtime_profile() == nullptr) {
+            if (runtime_state == nullptr || runtime_state->runtime_profile() == nullptr) {
                 continue;
             }
 
