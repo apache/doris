@@ -229,9 +229,11 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
         _query_ctx->init_runtime_predicates({0});
     }
 
-    _need_local_merge =
-            request.__isset.parallel_instances &&
-            (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
+    _need_local_merge = request.__isset.parallel_instances;
+    DCHECK_EQ(request.__isset.parallel_instances,
+              request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty())
+            << "query_id=" << print_id(_query_id);
+
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
@@ -929,14 +931,23 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
+
+    if (tnode.node_type == TPlanNodeType::OLAP_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::JDBC_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::FILE_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::ES_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::ES_HTTP_SCAN_NODE) {
+        DCHECK_EQ(request.__isset.parallel_instances,
+                  request.per_node_shared_scans.contains(op->node_id()))
+                << "query-id=" << print_id(request.query_id);
+    }
+
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -950,10 +961,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                     "Jdbc scan node is disabled, you can change be config enable_java_support "
                     "to true and restart be.");
         }
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -961,10 +970,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
         op.reset(new FileScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -973,10 +980,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case TPlanNodeType::ES_HTTP_SCAN_NODE: {
         op.reset(new EsScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
