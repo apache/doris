@@ -3100,7 +3100,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
-        tResult.setEnablePipelineXEngine(enablePipelineXEngine);
+        tResult.setEnablePipelineXEngine(enablePipelineXEngine || enablePipelineEngine);
         tResult.setEnableLocalShuffle(enableLocalShuffle && enableNereidsPlanner);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
@@ -3528,7 +3528,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean getEnablePipelineXEngine() {
-        return enablePipelineXEngine;
+        return enablePipelineXEngine || enablePipelineEngine;
     }
 
     public boolean enableSyncRuntimeFilterSize() {
@@ -3549,7 +3549,8 @@ public class SessionVariable implements Serializable, Writable {
         if (connectContext == null) {
             return false;
         }
-        return connectContext.getSessionVariable().enablePipelineXEngine;
+        return connectContext.getSessionVariable().enablePipelineXEngine
+                || connectContext.getSessionVariable().enablePipelineEngine;
     }
 
     public static boolean enableAggState() {

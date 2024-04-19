@@ -37,6 +37,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -622,6 +623,7 @@ DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
 DECLARE_OPERATOR_X(SetSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetSinkLocalState<false>)
 DECLARE_OPERATOR_X(PartitionedHashJoinSinkLocalState)
+DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 

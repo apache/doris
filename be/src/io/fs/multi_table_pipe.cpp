@@ -240,6 +240,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
                 plan, [this](RuntimeState* state, Status* status) {
+                    DCHECK(state);
                     {
                         std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
                         _tablet_commit_infos.insert(_tablet_commit_infos.end(),

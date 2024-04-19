@@ -378,11 +378,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
-            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
-        } else {
-            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
-        }
+        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
