@@ -474,16 +474,21 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from,
     // from decimal to integer
     MaxFieldType multiplier = DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from);
     for (size_t i = 0; i < size; i++) {
-        auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
-        if constexpr (narrow_integral) {
-            if (tmp < min_result.value || tmp > max_result.value) {
-                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                "Arithmetic overflow, convert failed from {}, "
-                                "expected data is [{}, {}]",
-                                tmp, min_result.value, max_result.value);
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<RealTo, UInt8>) {
+            dst[i] = static_cast<MaxFieldType>(src[i]).value != 0;
+        } else {
+            auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
+            if constexpr (narrow_integral) {
+                if (tmp < min_result.value || tmp > max_result.value) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                    "Arithmetic overflow, convert failed from {}, "
+                                    "expected data is [{}, {}]",
+                                    tmp, min_result.value, max_result.value);
+                }
+                dst[i] = tmp;
             }
         }
-        dst[i] = tmp;
     }
 }
 
