@@ -296,6 +296,7 @@ public:
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         LOG(FATAL) << "should not call the method in column const";
+        __builtin_unreachable();
     }
 };
 } // namespace doris::vectorized

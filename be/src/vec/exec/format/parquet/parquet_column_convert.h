@@ -19,13 +19,13 @@
 
 #include <gen_cpp/parquet_types.h>
 
-#include "gutil/endian.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized::parquet {
 

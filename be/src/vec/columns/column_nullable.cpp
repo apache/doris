@@ -44,6 +44,7 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
 
     if (is_column_const(*null_map)) {
         LOG(FATAL) << "ColumnNullable cannot have constant null map";
+        __builtin_unreachable();
     }
     _need_update_has_null = true;
 }
@@ -524,6 +525,7 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         LOG(FATAL) << "Inconsistent sizes of ColumnNullable objects";
+        __builtin_unreachable();
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

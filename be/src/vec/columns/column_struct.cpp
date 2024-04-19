@@ -54,6 +54,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     for (auto& column : mutable_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
         columns.push_back(std::move(column));
     }
@@ -63,6 +64,7 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -74,6 +76,7 @@ ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -146,6 +149,7 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
         LOG(FATAL) << "Cannot insert value of different size into tuple.";
+        __builtin_unreachable();
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {

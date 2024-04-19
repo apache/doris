@@ -22,12 +22,11 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/storage_engine.h"
-#include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -38,6 +37,9 @@ class RuntimeState;
 class TupleDescriptor;
 
 namespace vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
 } // namespace vectorized
 
@@ -52,7 +54,7 @@ struct FetchOption {
 
 class RowIDFetcher {
 public:
-    RowIDFetcher(const FetchOption& fetch_opt) : _fetch_option(fetch_opt) {}
+    RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
     Status init();
     Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::Block* block);
 
