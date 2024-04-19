@@ -209,7 +209,7 @@ suite("merge_aggregate") {
         ) t ;
     """
 
-    qt_test_has_project_distinct_expr_transform """
+    qt_test_distinct_expr_transform """
         select max(count_col)
         from (
             select k4,
@@ -217,7 +217,7 @@ suite("merge_aggregate") {
             from mal_test_merge_agg group by k4
         ) t ;
     """
-    qt_test_has_project_distinct_expr_transform_shape """
+    qt_test_distinct_expr_transform_shape """
         explain shape plan
         select max(count_col)
         from (
@@ -225,5 +225,24 @@ suite("merge_aggregate") {
             max(-abs(k1)) as count_col
             from mal_test_merge_agg group by k4
         ) t ;
+    """
+
+    qt_test_has_project_distinct_expr_transform """
+        select sum(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t  group by k4;
+    """
+
+    qt_test_has_project_distinct_expr_transform """
+        explain shape plan
+        select sum(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t  group by k4;
     """
 }

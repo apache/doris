@@ -89,15 +89,14 @@ public class MergeAggregate implements RewriteRuleFactory {
     private Plan mergeAggProjectAgg(LogicalAggregate<LogicalProject<LogicalAggregate<Plan>>> outerAgg) {
         LogicalProject<LogicalAggregate<Plan>> project = outerAgg.child();
         LogicalAggregate<Plan> innerAgg = project.child();
-
+        List<NamedExpression> outputExpressions = outerAgg.getOutputExpressions();
+        List<NamedExpression> replacedOutputExpressions = PlanUtils.replaceExpressionByProjections(
+                                project.getProjects(), (List) outputExpressions);
         // rewrite agg function. e.g. max(max)
-        List<NamedExpression> aggFunc = outerAgg.getOutputExpressions().stream()
+        List<NamedExpression> replacedAggFunc = replacedOutputExpressions.stream()
                 .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
-        // rewrite agg function directly refer to the slot below the project
-        List<Expression> replacedAggFunc = PlanUtils.replaceExpressionByProjections(project.getProjects(),
-                (List) aggFunc);
         // replace groupByKeys directly refer to the slot below the project
         List<Expression> replacedGroupBy = PlanUtils.replaceExpressionByProjections(project.getProjects(),
                 outerAgg.getGroupByExpressions());

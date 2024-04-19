@@ -261,14 +261,29 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[mal_test_merge_agg]
 
--- !test_has_project_distinct_expr_transform --
+-- !test_distinct_expr_transform --
 -1
 
--- !test_has_project_distinct_expr_transform_shape --
+-- !test_distinct_expr_transform_shape --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------PhysicalOlapScan[mal_test_merge_agg]
+
+-- !test_has_project_distinct_expr_transform --
+1
+1
+1
+
+-- !test_has_project_distinct_expr_transform --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[mal_test_merge_agg]
 
