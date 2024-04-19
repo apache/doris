@@ -613,7 +613,6 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
                 _tasks[i].emplace_back(std::move(task));
             }
         }
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         /**
          * Build DAG for pipeline tasks.
          * For example, we have
@@ -635,6 +634,8 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
         // First, set up the parent profile,task runtime state
 
         auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    _task_runtime_states[i][pip_idx]->query_mem_tracker());
             DCHECK(pipeline_id_to_profile[pip_idx]);
             RETURN_IF_ERROR(
                     task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
