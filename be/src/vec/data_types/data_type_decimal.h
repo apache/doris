@@ -486,8 +486,8 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from,
                                     "expected data is [{}, {}]",
                                     tmp, min_result.value, max_result.value);
                 }
-                dst[i] = tmp;
             }
+            dst[i] = tmp;
         }
     }
 }
