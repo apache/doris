@@ -129,7 +129,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                                     to + has_read, bytes_req - has_read);
         {
             [[maybe_unused]] Status error_ret;
-            TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", &error_ret);
+            TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", error_ret);
         }
         if (loop_read < 0) {
             // invoker maybe just skip Status.NotFound and continue

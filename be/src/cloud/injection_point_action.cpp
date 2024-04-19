@@ -78,18 +78,18 @@ void register_suites() {
             should_ret = true;
         });
         sp->set_call_back("HdfsFileWriter::hdfsFlush", [](auto&& args) {
-            auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
-            ret_value = -1;
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
             should_ret = true;
         });
         sp->set_call_back("HdfsFileWriter::hdfsCloseFile", [](auto&& args) {
-            auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
-            ret_value = -1;
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
             should_ret = true;
         });
         sp->set_call_back("HdfsFileWriter::hdfeSync", [](auto&& args) {
-            auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
-            ret_value = -1;
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
             should_ret = true;
         });
         sp->set_call_back("HdfsFileReader:read_error", [](auto&& args) {

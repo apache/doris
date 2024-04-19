@@ -97,7 +97,8 @@ Status HdfsFileWriter::close() {
             ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
 #endif
         }
-        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfeSync", &ret);
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfeSync",
+                                               Status::InternalError("failed to sync hdfs file"));
 
         if (ret != 0) {
             return Status::InternalError("failed to sync hdfs file. fs_name={} path={} : {}",
@@ -112,7 +113,8 @@ Status HdfsFileWriter::close() {
         ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
     _hdfs_file = nullptr;
-    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile", &ret);
+    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
+                                           Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
         std::string err_msg = hdfs_error();
         return Status::InternalError(
@@ -193,7 +195,7 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
                         "write hdfs failed. fs_name: {}, path: {}, error: size exceeds", _fs_name,
                         _path.native());
                 TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::append_hdfs_file_error",
-                                                       &error_ret);
+                                                       error_ret);
             }
         }
         if (written_bytes < 0) {
@@ -265,7 +267,8 @@ Status HdfsFileWriter::finalize() {
 
     // Flush buffered data to HDFS without waiting for HDFS response
     int ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
-    TEST_INJECTION_POINT_CALLBACK("hdfsFlush", &ret)
+    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsFlush",
+                                           Status::InternalError("failed to flush hdfs file"));
     if (ret != 0) {
         return Status::InternalError("failed to flush hdfs file. fs_name={} path={} : {}", _fs_name,
                                      _path.native(), hdfs_error());
