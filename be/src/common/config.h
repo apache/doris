@@ -1294,6 +1294,8 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 // enable injection point in regression-test
 DECLARE_mBool(enable_injection_point);
 
+DECLARE_mBool(ignore_schema_change_check);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

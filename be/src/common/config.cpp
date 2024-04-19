@@ -1207,6 +1207,8 @@ DEFINE_Bool(enable_index_compaction, "false");
 // enable injection point in regression-test
 DEFINE_mBool(enable_injection_point, "false");
 
+DEFINE_mBool(ignore_schema_change_check, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
