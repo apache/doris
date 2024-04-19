@@ -1841,7 +1841,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> projectionExprs = null;
         List<Expr> allProjectionExprs = Lists.newArrayList();
         List<Slot> slots = null;
-        if (project.hasMultiLayerProjection()) {
+        // TODO FE/BE do not support multi-layer-project on MultiDataSink now.
+        if (project.hasMultiLayerProjection() && !(inputFragment instanceof MultiCastPlanFragment)) {
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
