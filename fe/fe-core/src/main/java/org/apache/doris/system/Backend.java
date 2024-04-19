@@ -409,6 +409,10 @@ public class Backend implements Writable {
         return isAlive() && !isQueryDisabled() && !isShutDown.get();
     }
 
+    public boolean isShutDown() {
+        return isShutDown.get();
+    }
+
     public boolean isScheduleAvailable() {
         return isAlive() && !isDecommissioned();
     }

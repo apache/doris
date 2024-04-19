@@ -185,7 +185,6 @@ public class CloudReplica extends Replica {
             if (replicaEnough) {
                 backendId = memClusterToBackends.get(clusterId).get(indexRand);
             }
-
             if (!replicaEnough && !allowColdRead && clusterToBackends.containsKey(clusterId)) {
                 backendId = clusterToBackends.get(clusterId).get(0);
             }
@@ -214,8 +213,7 @@ public class CloudReplica extends Replica {
 
         if (clusterToBackends.containsKey(clusterId)) {
             long backendId = clusterToBackends.get(clusterId).get(0);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-            if (be != null && be.isQueryAvailable()) {
+            if (!needChangeBackend(backendId)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("backendId={} ", backendId);
                 }
@@ -224,6 +222,19 @@ public class CloudReplica extends Replica {
         }
 
         return hashReplicaToBe(clusterId, false);
+    }
+
+    private boolean needChangeBackend(long backendId) {
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (be == null || be.isQueryDisabled() || be.isShutDown()) {
+            return true;
+        }
+
+        if (be.isQueryAvailable()) {
+            return false;
+        }
+
+        return System.currentTimeMillis() - be.getLastUpdateMs() >= Config.cloud_tablet_relocate_delay_second * 1000L;
     }
 
     public long hashReplicaToBe(String clusterId, boolean isBackGround) {
