@@ -173,7 +173,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
                 // set hive query options
             } else {
                 // TODO: support other table types
