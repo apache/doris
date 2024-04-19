@@ -1519,15 +1519,17 @@ PipelineXFragmentContext::collect_realtime_load_channel_profile_x() const {
         return nullptr;
     }
 
-    for (auto& runtime_state : _task_runtime_states) {
-        if (runtime_state->runtime_profile() == nullptr) {
-            continue;
+    for (auto& runtime_states : _task_runtime_states) {
+        for (auto& runtime_state : runtime_states) {
+            if (runtime_state->runtime_profile() == nullptr) {
+                continue;
+            }
+
+            auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
+
+            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
+            this->_runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
-
-        auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-
-        runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
-        this->_runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
