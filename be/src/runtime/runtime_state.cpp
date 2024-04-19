@@ -531,9 +531,6 @@ Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilte
                                                       bool need_local_merge,
                                                       doris::IRuntimeFilter** producer_filter,
                                                       bool build_bf_exactly) {
-    // If runtime filter need to be local merged, `build_bf_exactly` will lead to bloom filters with
-    // different size need to be merged which is not allowed.
-    // So if `need_local_merge` is true, we will disable `build_bf_exactly`.
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_local_merge_producer_filter(
                 desc, query_options(), producer_filter, build_bf_exactly);
