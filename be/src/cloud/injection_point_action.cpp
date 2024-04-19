@@ -68,21 +68,26 @@ void register_suites() {
     });
     suite_map.emplace("test_storage_vault", [] {
         auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("HdfsFileWriter::appendv_delay", [](auto&&) {
+        sp->set_call_back("HdfsFileWriter::append_hdfs_file_delay", [](auto&&) {
             std::srand(static_cast<unsigned int>(std::time(nullptr)));
             int random_sleep_time_second = std::rand() % 10 + 1;
             std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
         });
-        sp->set_call_back("HdfsFileWriter::appendv_error", [](auto&& args) {
+        sp->set_call_back("HdfsFileWriter::append_hdfs_file_error", [](auto&& args) {
             auto& [_, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
             should_ret = true;
         });
-        sp->set_call_back("HdfsFileWriter::close_hdfsFlush", [](auto&& args) {
+        sp->set_call_back("HdfsFileWriter::hdfsFlush", [](auto&& args) {
             auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
             ret_value = -1;
             should_ret = true;
         });
-        sp->set_call_back("HdfsFileWriter::close_hdfsCloseFile", [](auto&& args) {
+        sp->set_call_back("HdfsFileWriter::hdfsCloseFile", [](auto&& args) {
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
+            ret_value = -1;
+            should_ret = true;
+        });
+        sp->set_call_back("HdfsFileWriter::hdfeSync", [](auto&& args) {
             auto& [ret_value, should_ret] = *try_any_cast<std::pair<int, bool>*>(args.back());
             ret_value = -1;
             should_ret = true;

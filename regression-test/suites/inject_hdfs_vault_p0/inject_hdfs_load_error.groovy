@@ -81,27 +81,27 @@ suite("inject_hdfs_load_error") {
         }
 
         for (int j = 1; j < 5; j++) {
-            triggerInject("HdfsFileWriter::close_hdfsFlush", "set", "return_error")
+            triggerInject("HdfsFileWriter::hdfsFlush", "set", "return_error")
             expectExceptionLike({
                 load_table(j)
             }, "failed to flush hdfs file")
-            triggerInject("HdfsFileWriter::close_hdfsFlush", "clear")
+            triggerInject("HdfsFileWriter::hdfsFlush", "clear")
         }
 
         for (int j = 1; j < 5; j++) {
-            triggerInject("HdfsFileWriter::close_hdfsCloseFile", "set", "return_error")
+            triggerInject("HdfsFileWriter::hdfsCloseFile", "set", "return_error")
             expectExceptionLike({
                 load_table(j)
             }, "Write hdfs file failed")
-            triggerInject("HdfsFileWriter::close_hdfsCloseFile", "clear")
+            triggerInject("HdfsFileWriter::hdfsCloseFile", "clear")
         }
 
         for (int j = 1; j < 5; j++) {
-            triggerInject("HdfsFileWriter::appendv_error", "set", "return_error")
+            triggerInject("HdfsFileWriter::append_hdfs_file_error", "set", "return_error")
             expectExceptionLike({
                 load_table(j)
             }, "write hdfs file failed")
-            triggerInject("HdfsFileWriter::appendv_error", "clear")
+            triggerInject("HdfsFileWriter::append_hdfs_file_error", "clear")
         }
 
     } finally {
