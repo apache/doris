@@ -97,6 +97,7 @@ statementBase
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
         (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
         (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
