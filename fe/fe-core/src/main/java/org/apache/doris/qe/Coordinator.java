@@ -406,6 +406,7 @@ public class Coordinator implements CoordInterface {
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
+        this.queryOptions.setEnablePipelineXEngine(SessionVariable.enablePipelineEngine());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -447,6 +448,7 @@ public class Coordinator implements CoordInterface {
 
     public void setExecPipEngine(boolean vec) {
         this.queryOptions.setEnablePipelineEngine(vec);
+        this.queryOptions.setEnablePipelineXEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -3847,6 +3849,7 @@ public class Coordinator implements CoordInterface {
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
                     params.query_options.setEnablePipelineEngine(true);
+                    params.query_options.setEnablePipelineXEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

@@ -1628,6 +1628,8 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    DCHECK(_state);
+    DCHECK(_state->query_options().__isset.dry_run_query);
     if (_state->query_options().dry_run_query) {
         return status;
     }

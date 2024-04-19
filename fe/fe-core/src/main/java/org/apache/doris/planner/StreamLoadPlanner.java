@@ -329,6 +329,7 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         //load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setEnablePipelineXEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
@@ -565,6 +566,7 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         //load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setEnablePipelineXEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
