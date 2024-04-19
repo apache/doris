@@ -149,7 +149,7 @@ suite("test_workload_sched_policy") {
     }
     assertEquals("parallel_pipeline_task_num", result3[0][0])
     assertEquals("33", result3[0][1])
-
+    
     sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '10000');"
 
     sql "drop workload schedule policy if exists test_set_var_policy;"
@@ -179,6 +179,28 @@ suite("test_workload_sched_policy") {
         sql "alter workload schedule policy test_cancel_query_policy properties('workload_group'='invalid_gorup');"
         exception "unknown workload group"
     }
+
+    // test alter policy property
+    sql "drop user if exists test_alter_policy_user"
+    sql "CREATE USER 'test_alter_policy_user'@'%' IDENTIFIED BY '12345';"
+    sql "drop workload schedule policy if exists test_alter_policy;"
+    sql "create workload schedule policy test_alter_policy conditions(username='test_alter_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=0') properties('workload_group'='normal');"
+    qt_select_alter_1 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('workload_group'='');"
+    qt_select_alter_2 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('enabled'='false');"
+    qt_select_alter_3 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('priority'='9');"
+    qt_select_alter_4 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('workload_group'='normal');"
+    qt_select_alter_5 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "drop user test_alter_policy_user"
+    sql "drop workload schedule policy test_alter_policy"
 
     // daemon thread alter test
     def thread1 = new Thread({
