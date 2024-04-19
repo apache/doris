@@ -39,6 +39,7 @@ public:
     void process_row(size_t row_idx) override;
     void process_close() override;
     void get_value(MutableColumnPtr& column) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
     Status close() override {
         if (_jni_ctx) {
             RETURN_IF_ERROR(_jni_ctx->close());

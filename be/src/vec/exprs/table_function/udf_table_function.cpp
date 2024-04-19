@@ -24,6 +24,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/jni_connector.h"
@@ -168,5 +169,31 @@ void UDFTableFunction::get_value(MutableColumnPtr& column) {
             column->insert_from(*_array_column_detail.nested_col, pos);
         }
     }
+}
+
+int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    size_t pos = _array_offset + _cur_offset;
+    if (current_empty()) {
+        column->insert_default();
+        max_step = 1;
+    } else {
+        if (_is_nullable) {
+            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+            auto nested_column = nullable_column->get_nested_column_ptr();
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
+            size_t old_size = nullmap_column->size();
+            nullmap_column->resize(old_size + max_step);
+            memcpy(nullmap_column->get_data().data() + old_size,
+                   _array_column_detail.nested_nullmap_data + pos * sizeof(UInt8),
+                   max_step * sizeof(UInt8));
+        } else {
+            column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
+        }
+    }
+    forward(max_step);
+    return max_step;
 }
 } // namespace doris::vectorized
