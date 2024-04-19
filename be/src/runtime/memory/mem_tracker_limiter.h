@@ -232,6 +232,12 @@ public:
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
 
+#ifndef NDEBUG
+    void add_address_sanitizers(void* buf, size_t size);
+    void remove_address_sanitizers(void* buf, size_t size);
+    std::string print_address_sanitizers();
+#endif
+
     std::string debug_string() override {
         std::stringstream msg;
         msg << "limit: " << _limit << "; "
@@ -274,6 +280,16 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+
+#ifndef NDEBUG
+    struct AddressSanitizer {
+        size_t size;
+        std::string stack_trace;
+    };
+
+    std::mutex _address_sanitizers_mtx;
+    std::unordered_map<void*, AddressSanitizer> _address_sanitizers;
+#endif
 };
 
 inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {

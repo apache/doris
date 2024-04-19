@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.Types.PUniqueId;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -83,6 +84,7 @@ public class SqlCacheContext {
     private volatile List<String> colLabels;
 
     private volatile PUniqueId cacheKeyMd5;
+    private volatile ResultSet resultSetInFe;
 
     public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
@@ -376,6 +378,14 @@ public class SqlCacheContext {
 
     public void setOriginSql(String originSql) {
         this.originSql = originSql.trim();
+    }
+
+    public Optional<ResultSet> getResultSetInFe() {
+        return Optional.ofNullable(resultSetInFe);
+    }
+
+    public void setResultSetInFe(ResultSet resultSetInFe) {
+        this.resultSetInFe = resultSetInFe;
     }
 
     /** FullTableName */
