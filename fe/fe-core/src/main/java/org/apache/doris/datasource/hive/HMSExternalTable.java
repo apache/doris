@@ -580,13 +580,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> getHiveSchema() {
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<Column> columns;
-        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        List<FieldSchema> schema = client.getSchema(dbName, name);
+        Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
-            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
+            String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
+            tmpSchema.add(new Column(fieldName,
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, field.getComment(), true, -1));
+                    true, defaultValue, field.getComment(), true, -1));
         }
         columns = tmpSchema;
         return columns;

@@ -163,6 +163,11 @@ public class HMSCachedClientTest implements HMSCachedClient {
     }
 
     @Override
+    public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
+        return new HashMap<>();
+    }
+
+    @Override
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
         return null;
     }
