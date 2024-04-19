@@ -24,56 +24,45 @@
 // PL-SQL uses Print to print variable values in an unformatted format, and JDBC cannot easily obtain them. Real results.
 suite("test_plsql_routine") {
     def dbName = "plsql_routine"
+    sql "drop database if exists ${dbName}"
+    sql """DROP PROCEDURE test_plsql_routine1"""
+    sql """DROP PROC test_plsql_routine2"""
+    sql """DROP PROC test_plsql_routine3"""
+    sql """DROP PROC test_plsql_routine4"""
+    sql """DROP PROC test_plsql_routine5"""
+
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "use ${dbName}"
-    def tableName = "plsql_tbl_4"
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql """
-        create table ${tableName} (id int, name varchar(20)) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
-        properties ("replication_num"="1");
-        """
 
-    sql """
-        CREATE OR REPLACE PROCEDURE routine_insert(IN id int, IN name STRING)
-        BEGIN
-            INSERT INTO ${tableName} VALUES(id, name);
-        END;
-        """
-    sql """call routine_insert(111, "plsql111")"""
-    sql """call routine_insert(222, "plsql222")"""
-    sql """call routine_insert(333, "plsql333")"""
-    sql """call routine_insert(111, "plsql333")"""
-    qt_select "select sum(id), count(1) from ${tableName}"
+    def procedure_body = "BEGIN DECLARE a int = 1; print a; END;"
+    def select_routines_count = """select count(*) from information_schema.routines where routine_schema=\"${dbName}\";"""
+    def select_routines_fixed_value_column = """select SPECIFIC_NAME,ROUTINE_CATALOG,ROUTINE_SCHEMA,ROUTINE_NAME,ROUTINE_TYPE
+            ,DTD_IDENTIFIER,ROUTINE_BODY,ROUTINE_DEFINITION,EXTERNAL_NAME,EXTERNAL_NAME,EXTERNAL_LANGUAGE,PARAMETER_STYLE
+            ,IS_DETERMINISTIC,SQL_DATA_ACCESS,SQL_PATH,SECURITY_TYPE,SQL_MODE,ROUTINE_COMMENT,DEFINER,CHARACTER_SET_CLIENT
+            ,COLLATION_CONNECTION,DATABASE_COLLATION from information_schema.routines where routine_schema=\"${dbName}\" 
+            order by SPECIFIC_NAME;"""
 
-    sql """
-        CREATE OR REPLACE PROCEDURE routine_cursor_select(IN id_arg INT, IN name_arg STRING) 
-        BEGIN
-        DECLARE a INT;
-        DECLARE b, c STRING;
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine1() ${procedure_body} """
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine2() ${procedure_body} """
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine3() ${procedure_body} """
 
-        DECLARE cur1 CURSOR FOR select * from ${tableName} where id=id_arg limit 5;
-        OPEN cur1;
-        read_loop: LOOP
-            FETCH cur1 INTO a, b;
-            IF(SQLCODE != 0) THEN
-                LEAVE read_loop;
-            END IF;
-            print a, b;
-        END LOOP;
+    sql """select * from information_schema.routines where routine_schema=\"${dbName}\";"""
+    qt_select """${select_routines_count}"""
+    qt_select """${select_routines_fixed_value_column}"""
 
-        CLOSE cur1;
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine4() ${procedure_body} """
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine5() ${procedure_body} """
 
-        END;
-        """
+    qt_select """${select_routines_count}"""
+    qt_select """${select_routines_fixed_value_column}"""
 
-    qt_select "select count(*) from information_schema.routines where routine_schema=\"${dbName}\";"
-    sql """select * from information_schema.routines;"""
-    sql """call routine_cursor_select(111, "plsql111")"""
-    sql """call routine_cursor_select(111, "plsql333")"""
-    sql """SHOW CREATE PROCEDURE routine_cursor_select;"""
-    // TODO call show command before drop
-    sql """DROP PROCEDURE routine_cursor_select"""
-    sql """DROP PROC routine_insert"""
-    sql "DROP DATABASE ${dbName}"
-    // TODO call show command after drop
+    sql """DROP PROCEDURE test_plsql_routine1"""
+
+    qt_select """${select_routines_count}"""
+    qt_select """${select_routines_fixed_value_column}"""
+
+    sql """ CREATE OR REPLACE PROCEDURE test_plsql_routine1() ${procedure_body} """
+
+    qt_select """${select_routines_count}"""
+    qt_select """${select_routines_fixed_value_column}"""
 }
