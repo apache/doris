@@ -2714,6 +2714,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_preheating_enabled = true;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_tablet_relocate_delay_second = 0;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
