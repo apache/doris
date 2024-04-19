@@ -141,6 +141,7 @@ public class HiveTableSink extends DataSink {
         if (insertCtx.isPresent()) {
             HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
+            context.setWritePath(writeTempPath);
         }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
