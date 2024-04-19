@@ -121,9 +121,13 @@ public class PartitionTableInfo {
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
                                          boolean isEnableMergeOnWrite, boolean isExternal) {
-        if (!column.isKey()
-                && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
-            throw new AnalysisException("The partition column could not be aggregated column");
+        if (!column.isKey()) { // value column
+            if (!column.getAggType().equals(AggregateType.NONE)) { // agg column
+                throw new AnalysisException("The partition column could not be aggregated column");
+            }
+            if (isEnableMergeOnWrite) { // MoW table
+                throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+            }
         }
         if (column.getType().isFloatLikeType()) {
             throw new AnalysisException("Floating point type column can not be partition column");
