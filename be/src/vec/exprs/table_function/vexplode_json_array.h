@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 
@@ -46,40 +47,26 @@ struct ParsedData {
     static std::string true_value;
     static std::string false_value;
 
-    // The number parsed from json array
-    // the `_backup` saved the real number entity.
-    std::vector<void*> _data;
-    std::vector<StringRef> _data_string;
     std::vector<int64_t> _backup_int;
     std::vector<double> _backup_double;
-    std::vector<std::string> _backup_string;
-    std::vector<bool> _string_nulls;
+    std::vector<StringRef> _backup_string;
+    std::vector<UInt8> _values_null_flag;
+    ExplodeJsonArrayType _data_type;
     char tmp_buf[128] = {0};
 
-    void* get_value(ExplodeJsonArrayType type, int64_t offset, bool real = false) {
-        switch (type) {
-        case ExplodeJsonArrayType::INT:
-        case ExplodeJsonArrayType::DOUBLE:
-            return _data[offset];
-        case ExplodeJsonArrayType::JSON:
-        case ExplodeJsonArrayType::STRING:
-            return _string_nulls[offset] ? nullptr
-                   : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
-                                         : &_data_string[offset];
-        default:
-            return nullptr;
-        }
+    Status set_type(ExplodeJsonArrayType type);
+    int set_output(rapidjson::Document& document);
+    Status insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
+                                          int64_t cur_offset);
+    const char* get_null_flag_address(int cur_offset) {
+        return reinterpret_cast<const char*>(_values_null_flag.data() + cur_offset);
     }
-
-    int64 get_value_length(ExplodeJsonArrayType type, int64_t offset) {
-        if ((type == ExplodeJsonArrayType::STRING || type == ExplodeJsonArrayType::JSON) &&
-            !_string_nulls[offset]) {
-            return _backup_string[offset].size();
-        }
-        return 0;
+    void reset() {
+        _backup_int.clear();
+        _backup_double.clear();
+        _backup_string.clear();
+        _values_null_flag.clear();
     }
-
-    int set_output(ExplodeJsonArrayType type, rapidjson::Document& document);
 };
 
 class VExplodeJsonArrayTableFunction final : public TableFunction {
@@ -93,6 +80,7 @@ public:
     void process_row(size_t row_idx) override;
     void process_close() override;
     void get_value(MutableColumnPtr& column) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
     ParsedData _parsed_data;
