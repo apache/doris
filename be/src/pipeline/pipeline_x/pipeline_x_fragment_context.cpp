@@ -1253,7 +1253,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                      print_plan_node_type(tnode.node_type));
     }
 
-
     return Status::OK();
 }
 // NOLINTEND(readability-function-cognitive-complexity)
