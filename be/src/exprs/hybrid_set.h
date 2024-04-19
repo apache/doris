@@ -421,7 +421,7 @@ public:
     void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
                                   size_t end) {
         for (size_t i = start; i < end; i++) {
-            if (nullmap != nullptr || !nullmap[i]) {
+            if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i).to_string());
             } else {
                 _contains_null = true;
@@ -583,7 +583,7 @@ public:
     void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
                                   size_t end) {
         for (size_t i = start; i < end; i++) {
-            if (nullmap != nullptr || !nullmap[i]) {
+            if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i));
             } else {
                 _contains_null = true;
