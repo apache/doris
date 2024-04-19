@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -602,6 +606,30 @@ public class StructInfo {
                         .collect(Collectors.toList()));
             }
             return olapScan;
+        }
+    }
+
+    /**Collect partitions which scan used according to given table */
+    public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan, Map<Long, Set<PartitionItem>>> {
+        @Override
+        public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
+                Map<Long, Set<PartitionItem>> context) {
+            TableIf table = catalogRelation.getTable();
+            if (!context.containsKey(table.getId())) {
+                return catalogRelation;
+            }
+            // Only support check olap partition currently
+            if (catalogRelation instanceof LogicalOlapScan) {
+                LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
+                PartitionInfo partitionInfo = logicalOlapScan.getTable().getPartitionInfo();
+                logicalOlapScan.getSelectedPartitionIds().stream()
+                        .map(partitionInfo::getItem)
+                        .forEach(partitionItem -> context.computeIfPresent(table.getId(), (key, oldValue) -> {
+                            oldValue.add(partitionItem);
+                            return oldValue;
+                        }));
+            }
+            return catalogRelation;
         }
     }
 }

@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
@@ -28,20 +30,14 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.InvalidPartitionRemover;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.QueryScanPartitionsCollector;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
-import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
-import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
-import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
-import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -80,6 +76,8 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -253,7 +251,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }, rewrittenPlan, queryPlan);
             // check the partitions used by rewritten plan is valid or not
             Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionsQueryUsed =
-                    calcInvalidPartitions(rewrittenPlan, materializationContext, cascadesContext);
+                    calcUsedInvalidMvPartitions(rewrittenPlan, materializationContext, cascadesContext);
             // All partition used by query is valid
             if (invalidPartitionsQueryUsed.isEmpty()) {
                 rewrittenPlan = normalizeExpressions(rewrittenPlan, queryPlan);
@@ -271,6 +269,26 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             if (!invalidPartitionsQueryUsed.isEmpty() && cascadesContext.getConnectContext().getSessionVariable()
                     .isEnableMaterializedViewUnionRewrite()) {
+                // if mv can not offer valid partition data for query, bail out union rewrite
+                Map<Long, Set<PartitionItem>> mvRelatedTablePartitionMap = new LinkedHashMap<>();
+                invalidPartitionsQueryUsed.keySet().forEach(invalidPartition ->
+                        mvRelatedTablePartitionMap.put(invalidPartition.key().getRelatedTableInfo().getTableId(),
+                                new HashSet<>()));
+                queryPlan.accept(new QueryScanPartitionsCollector(), mvRelatedTablePartitionMap);
+                Set<PartitionKeyDesc> partitionKeyDescSetQueryUsed = mvRelatedTablePartitionMap.values().stream()
+                        .flatMap(Collection::stream)
+                        .map(PartitionItem::toPartitionKeyDesc)
+                        .collect(Collectors.toSet());
+                Set<PartitionKeyDesc> mvInvalidPartitionKeyDescSet = new HashSet<>();
+                for (Map.Entry<Pair<MTMVPartitionInfo, PartitionInfo>, Collection<Partition>> entry :
+                        invalidPartitionsQueryUsed.asMap().entrySet()) {
+                    entry.getValue().forEach(invalidPartition -> mvInvalidPartitionKeyDescSet.add(
+                            entry.getKey().value().getItem(invalidPartition.getId()).toPartitionKeyDesc()));
+                }
+                if (mvInvalidPartitionKeyDescSet.containsAll(partitionKeyDescSetQueryUsed)) {
+                    // mv can not offer data for query, bail out
+                    continue;
+                }
                 // construct filter on originalPlan
                 Map<TableIf, Set<Expression>> invalidPartitionFilterMap;
                 try {
@@ -300,19 +318,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // exec by mistake
                 queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                         (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
-                // Partition prune after adding filter on origin plan
-                RewriteJob partitionPrunerJob = Rewriter.topDown(
-                        new PruneOlapScanPartition(),
-                        new PruneEmptyPartition(),
-                        new PruneFileScanPartition(),
-                        new PushConjunctsIntoJdbcScan(),
-                        new PushConjunctsIntoOdbcScan(),
-                        new PushConjunctsIntoEsScan()
-                );
-                // TODO Prune partition, this should only use the partition prune, if use all rbo rules will cause
-                //  infinite loop, this should search and locate accurately in the future
+                // rbo rewrite after adding filter on origin plan
                 queryPlanWithUnionFilter = rewriteByRules(cascadesContext, context -> {
-                    Rewriter.getCteChildrenRewriter(context, Lists.newArrayList(partitionPrunerJob)).execute();
+                    Rewriter.getWholeTreeRewriter(context).execute();
                     return context.getRewritePlan();
                 }, queryPlanWithUnionFilter, queryPlan);
                 // For rewrittenPlan which contains materialized view should remove invalid partition ids
@@ -414,7 +422,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      *
      * @return the invalid partition name set
      */
-    protected Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> calcInvalidPartitions(Plan rewrittenPlan,
+    protected Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> calcUsedInvalidMvPartitions(
+            Plan rewrittenPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
         // check partition is valid or not
@@ -436,18 +445,19 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 .map(Partition::getId)
                 .collect(Collectors.toSet());
         // get partitions query used
-        Set<Long> queryUsedPartitionIdSet = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
+        Set<Long> mvPartitionSetQueryUsed = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
                         && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
                 .stream()
                 .map(node -> ((LogicalOlapScan) node).getSelectedPartitionIds())
                 .flatMap(Collection::stream)
                 .collect(Collectors.toSet());
         // get invalid partition ids
-        queryUsedPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
+        Set<Long> invalidMvPartitionIdSet = new HashSet<>(mvPartitionSetQueryUsed);
+        invalidMvPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
         ImmutableMultimap.Builder<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionMapBuilder =
                 ImmutableMultimap.builder();
         Pair<MTMVPartitionInfo, PartitionInfo> partitionInfo = Pair.of(mvCustomPartitionInfo, mvPartitionInfo);
-        queryUsedPartitionIdSet.forEach(invalidPartitionId ->
+        invalidMvPartitionIdSet.forEach(invalidPartitionId ->
                         invalidPartitionMapBuilder.put(partitionInfo, mtmv.getPartition(invalidPartitionId)));
         return invalidPartitionMapBuilder.build();
     }
