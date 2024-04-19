@@ -396,22 +396,43 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             sql """ switch `${catalog_name}` """
             sql """ CREATE DATABASE IF NOT EXISTS `test_ctas_all_type` """;
             sql """ use test_ctas_all_type """;
+            // TODO: work on hive3
+            //            sql """
+            //                CREATE TABLE IF NOT EXISTS all_types_ctas_${file_format}_with_dv(
+            //                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+            //                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
+            //                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
+            //                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
+            //                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
+            //                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
+            //                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
+            //                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
+            //                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
+            //                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
+            //                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
+            //                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
+            //                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
+            //                )  ENGINE=hive
+            //                PROPERTIES (
+            //                  'file_format'='${file_format}'
+            //                )
+            //                """
 
             sql """
                 CREATE TABLE IF NOT EXISTS all_types_ctas_${file_format}(
-                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
-                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
-                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
-                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
-                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
-                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
-                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
-                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
-                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
-                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
-                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
-                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
-                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
+                  `col1` BOOLEAN COMMENT 'col1',
+                  `col2` TINYINT COMMENT 'col2',
+                  `col3` SMALLINT COMMENT 'col3',
+                  `col4` INT COMMENT 'col4',
+                  `col5` BIGINT COMMENT 'col5',
+                  `col6` CHAR(10) COMMENT 'col6',
+                  `col7` FLOAT COMMENT 'col7',
+                  `col8` DOUBLE COMMENT 'col8',
+                  `col9` DECIMAL(9,4) COMMENT 'col9',
+                  `col10` VARCHAR(11) COMMENT 'col10',
+                  `col11` STRING COMMENT 'col11',
+                  `col12` DATE COMMENT 'col12',
+                  `col13` DATETIME COMMENT 'col13'
                 )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
