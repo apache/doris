@@ -2077,7 +2077,7 @@ public class Coordinator implements CoordInterface {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2090,7 +2090,7 @@ public class Coordinator implements CoordInterface {
                             }
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 

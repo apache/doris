@@ -547,6 +547,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STATS = "enable_stats";
 
+    public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1074,7 +1076,6 @@ public class SessionVariable implements Serializable, Writable {
         this.maxJoinNumberOfReorder = maxJoinNumberOfReorder;
     }
 
-
     @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
     private int maxJoinNumBushyTree = 8;
 
@@ -1116,6 +1117,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
+
+    @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
+            description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
+                    + "系统会将这个算子的并发度调整为1，以减少简单查询的扇出",
+                    "When a ScanNode has no filter conditions and the limit value is less than this threshold, "
+                            + "the system will adjust the concurrency of this operator to 1 "
+                            + "to reduce the fan-out of simple queries"})
+    public long limitRowsForSingleInstance = 10000;
 
     public boolean isEnableLeftZigZag() {
         return enableLeftZigZag;
