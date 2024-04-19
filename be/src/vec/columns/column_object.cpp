@@ -45,6 +45,7 @@
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -55,6 +56,7 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -67,6 +69,7 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/json/path_in_data.h"
 
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -148,6 +151,84 @@ public:
     }
 };
 
+// Visitor that allows to get type of scalar field
+// but include contain complex field.This is a faster version
+// for FieldVisitorToScalarType which does not support complex field.
+class SimpleFieldVisitorToScarlarType : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
+    }
+    size_t operator()(const UInt64& x) {
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const Int64& x) {
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const JsonbField& x) {
+        type = TypeIndex::JSONB;
+        return 1;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 1;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        type = TypeId<NearestFieldType<T>>::value;
+        return 1;
+    }
+    void get_scalar_type(DataTypePtr* data_type) const {
+        WhichDataType which(type);
+#define DISPATCH(TYPE)                                         \
+    if (which.idx == TypeIndex::TYPE) {                        \
+        *data_type = std::make_shared<DataTypeNumber<TYPE>>(); \
+        return;                                                \
+    }
+        FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+        if (which.is_string()) {
+            *data_type = std::make_shared<DataTypeString>();
+            return;
+        }
+        if (which.is_json()) {
+            *data_type = std::make_shared<DataTypeJsonb>();
+            return;
+        }
+        if (which.is_nothing()) {
+            *data_type = std::make_shared<DataTypeNothing>();
+            return;
+        }
+    }
+    bool contain_nulls() const { return have_nulls; }
+
+    bool need_convert_field() const { return false; }
+
+private:
+    TypeIndex type = TypeIndex::Nothing;
+    bool have_nulls;
+};
+
 /// Visitor that allows to get type of scalar field
 /// or least common type of scalars in array.
 /// More optimized version of FieldToDataType.
@@ -220,8 +301,10 @@ private:
 };
 
 } // namespace
-void get_field_info(const Field& field, FieldInfo* info) {
-    FieldVisitorToScalarType to_scalar_type_visitor;
+
+template <typename Visitor>
+void get_field_info_impl(const Field& field, FieldInfo* info) {
+    Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
     DataTypePtr type = nullptr;
     to_scalar_type_visitor.get_scalar_type(&type);
@@ -232,6 +315,14 @@ void get_field_info(const Field& field, FieldInfo* info) {
             to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(), field),
     };
+}
+
+void get_field_info(const Field& field, FieldInfo* info) {
+    if (field.is_complex_field()) {
+        get_field_info_impl<FieldVisitorToScalarType>(field, info);
+    } else {
+        get_field_info_impl<SimpleFieldVisitorToScarlarType>(field, info);
+    }
 }
 
 ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
@@ -316,8 +407,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (data.empty()) {
         add_new_column_part(create_array_of_type(std::move(base_type), value_dim, is_nullable));
     } else if (!least_common_base_type->equals(*base_type) && !is_nothing(base_type)) {
-        if (!schema_util::is_conversion_required_between_integers(*base_type,
-                                                                  *least_common_base_type)) {
+        if (schema_util::is_conversion_required_between_integers(*base_type,
+                                                                 *least_common_base_type)) {
             get_least_supertype<LeastSupertypeOnError::Jsonb>(
                     DataTypes {std::move(base_type), least_common_base_type}, &base_type);
             type_changed = true;
@@ -676,14 +767,12 @@ void ColumnObject::try_insert(const Field& field) {
         return;
     }
     const auto& object = field.get<const VariantMap&>();
-    phmap::flat_hash_set<std::string> inserted;
     size_t old_size = size();
     for (const auto& [key_str, value] : object) {
         PathInData key;
         if (!key_str.empty()) {
             key = PathInData(key_str);
         }
-        inserted.insert(key_str);
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
             if (!succ) {
@@ -699,7 +788,7 @@ void ColumnObject::try_insert(const Field& field) {
         subcolumn->insert(value);
     }
     for (auto& entry : subcolumns) {
-        if (!inserted.contains(entry->path.get_path())) {
+        if (old_size == entry->data.size()) {
             entry->data.insertDefault();
         }
     }
