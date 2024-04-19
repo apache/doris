@@ -37,7 +37,6 @@ import java.io.IOException;
  * hll_union.
  *
  */
-@SuppressWarnings("deprecation")
 @Description(name = "hll_union", value = "_FUNC_(expr) - Calculate the grouped hll"
         + " union , Returns an doris hll representation of a column.")
 public class HllUnionUDAF extends AbstractGenericUDAFResolver {

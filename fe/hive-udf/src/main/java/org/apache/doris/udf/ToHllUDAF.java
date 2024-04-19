@@ -39,7 +39,6 @@ import java.io.IOException;
  * ToHll.
  *
  */
-@SuppressWarnings("deprecation")
 @Description(name = "to_hll", value = "_FUNC_(expr) - Returns an doris hll representation of a column.")
 public class ToHllUDAF extends AbstractGenericUDAFResolver {
 

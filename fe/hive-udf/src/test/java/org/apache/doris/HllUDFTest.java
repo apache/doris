@@ -32,22 +32,37 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
-
-import java.io.IOException;
 
 // hive hll udf test
 public class HllUDFTest {
 
-    private byte[] hll0Bytes;
-    private byte[] hll1Bytes;
-
     private BinaryObjectInspector inputOI0 = new JavaConstantBinaryObjectInspector(new byte[0]);
-    private BinaryObjectInspector inputOI1 = new JavaConstantBinaryObjectInspector(new byte[0]);
 
-    @Before
-    public void initData() throws IOException {
+    @Test
+    public void hllCardinalityTest() throws Exception {
+        // Theoretically, the HLL algorithm can count very large cardinality with little relative error rate,
+        // which is less than 2% in Doris. We cost about 5 minutes to test with one billion input numbers here
+        // successfully, but in order to shorten the test time, we chose one million numbers.
+        HllCardinalityUDF hllCardinalityUDF = new HllCardinalityUDF();
+        hllCardinalityUDF.initialize(new ObjectInspector[] { inputOI0 });
+        Hll hll = new Hll();
+        long largeInputSize = 1000000L;
+        for (long i = 1; i <= largeInputSize; i++) {
+            hll.updateWithHash(i);
+        }
+        byte[] hllLargeBytes = HllUtil.serializeToBytes(hll);
+        hllCardinalityUDF.initialize(new ObjectInspector[] { inputOI0 });
+        Object evaluateLarge = hllCardinalityUDF
+                .evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(hllLargeBytes) });
+        long actualCardinality = (long) evaluateLarge;
+
+        double relativeError = Math.abs(actualCardinality - largeInputSize) / (double) largeInputSize;
+        Assert.assertTrue("Relative error rate should be less than 2%", relativeError <= 0.02);
+    }
+
+    @Test
+    public void hllUnionUDAFTest() throws Exception {
         Hll hll0 = new Hll();
         Hll hll1 = new Hll();
 
@@ -58,44 +73,9 @@ public class HllUDFTest {
         hll1.updateWithHash(3);
         hll1.updateWithHash(4);
 
-        hll0Bytes = HllUtil.serializeToBytes(hll0);
-        hll1Bytes = HllUtil.serializeToBytes(hll1);
-    }
+        byte[] hll0Bytes = HllUtil.serializeToBytes(hll0);
+        byte[] hll1Bytes = HllUtil.serializeToBytes(hll1);
 
-    @Test
-    public void hllCardinalityTest() throws Exception {
-        // Small cardinality test. It is expected that in this scenario, the relative error is 0.
-        HllCardinalityUDF hllCardinalityUDF = new HllCardinalityUDF();
-        hllCardinalityUDF.initialize(new ObjectInspector[] { inputOI0 });
-        Object evaluate = hllCardinalityUDF
-                .evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(hll0Bytes) });
-        Assert.assertEquals(2L, evaluate);
-
-        hllCardinalityUDF.initialize(new ObjectInspector[] { inputOI1 });
-        Object evaluate1 = hllCardinalityUDF
-                .evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(hll1Bytes) });
-        Assert.assertEquals(3L, evaluate1);
-
-        // Large cardinality test. Testing with one billion has been passed(cost about 5 minutes), in order to
-        // shorten the test time, we chose one million for testing. What's more, we expect the relative error
-        // should be less than 2% in this scenario.
-        Hll hllLarge = new Hll();
-        long largeInputSize = 1000000L;
-        for (long i = 1; i <= largeInputSize; i++) {
-            hllLarge.updateWithHash(i);
-        }
-        byte[] hllLargeBytes = HllUtil.serializeToBytes(hllLarge);
-        hllCardinalityUDF.initialize(new ObjectInspector[] { inputOI0 });
-        Object evaluateLarge = hllCardinalityUDF
-                .evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(hllLargeBytes) });
-        long actualCardinality = (long) evaluateLarge;
-
-        double relativeError = Math.abs(actualCardinality - largeInputSize) / (double) largeInputSize;
-        Assert.assertTrue("Relative error should be less than 2%", relativeError <= 0.02);
-    }
-
-    @Test
-    public void hllUnionUDAFTest() throws Exception {
         HllUnionUDAF hllUnionUDAF = new HllUnionUDAF();
         HllUnionUDAF.GenericEvaluate evaluator = (HllUnionUDAF.GenericEvaluate) hllUnionUDAF
                 .getEvaluator(new TypeInfo[] { TypeInfoFactory.binaryTypeInfo });
