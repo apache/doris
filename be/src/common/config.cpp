@@ -1028,6 +1028,7 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "4"); // 4MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");

@@ -1074,6 +1074,7 @@ DECLARE_mInt64(s3_write_buffer_size);
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
+DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load

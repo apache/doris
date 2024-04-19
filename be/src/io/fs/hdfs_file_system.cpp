@@ -106,9 +106,9 @@ Status HdfsFileSystem::init() {
 }
 
 Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
-                                        const FileWriterOptions*) {
+                                        const FileWriterOptions* opts) {
     _fs_handle->inc_ref();
-    auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name);
+    auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name, opts);
     if (res.has_value()) {
         *writer = std::move(res).value();
         return Status::OK();
