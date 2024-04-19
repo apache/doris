@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -80,17 +81,17 @@ public class AnotherDemoTest {
 
     // generate all port from valid ports
     private static void getPorts() {
-        fe_http_port = UtFrameUtils.findValidPort();
-        fe_rpc_port = UtFrameUtils.findValidPort();
-        fe_query_port = UtFrameUtils.findValidPort();
-        fe_arrow_flight_sql_port = UtFrameUtils.findValidPort();
-        fe_edit_log_port = UtFrameUtils.findValidPort();
+        fe_http_port = UnitTestUtil.findValidPort();
+        fe_rpc_port = UnitTestUtil.findValidPort();
+        fe_query_port = UnitTestUtil.findValidPort();
+        fe_arrow_flight_sql_port = UnitTestUtil.findValidPort();
+        fe_edit_log_port = UnitTestUtil.findValidPort();
 
-        be_heartbeat_port = UtFrameUtils.findValidPort();
-        be_thrift_port = UtFrameUtils.findValidPort();
-        be_brpc_port = UtFrameUtils.findValidPort();
-        be_http_port = UtFrameUtils.findValidPort();
-        be_arrow_flight_sql_port = UtFrameUtils.findValidPort();
+        be_heartbeat_port = UnitTestUtil.findValidPort();
+        be_thrift_port = UnitTestUtil.findValidPort();
+        be_brpc_port = UnitTestUtil.findValidPort();
+        be_http_port = UnitTestUtil.findValidPort();
+        be_arrow_flight_sql_port = UnitTestUtil.findValidPort();
     }
 
     @Test

@@ -43,6 +43,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
@@ -74,7 +75,6 @@ import org.junit.BeforeClass;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -326,24 +326,8 @@ public abstract class DorisHttpTestCase {
 
     @BeforeClass
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-            }
-        }
-
+        HTTP_PORT = UnitTestUtil.findValidPort();
+        URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
         FeConstants.runningUnitTest = true;
         httpServer = new HttpServer();
         httpServer.setPort(HTTP_PORT);
