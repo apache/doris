@@ -2735,21 +2735,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        String dynamicUnit = dynamicProperty.getTimeUnit();
-                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
-                        for (Expr autoExpr : autoExprs) {
-                            Expr func = (FunctionCallExpr) autoExpr;
-                            for (Expr child : func.getChildren()) {
-                                if (child instanceof LiteralExpr) {
-                                    String autoUnit = ((LiteralExpr) child).getStringValue();
-                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
-                                        throw new AnalysisException(
-                                                "If support auto partition and dynamic partition at same time, "
-                                                        + "they must have the same interval unit.");
-                                    }
-                                }
-                            }
-                        }
+                        throw new AnalysisException(
+                                "Can't use Dynamic Partition and Auto Partition at the same time");
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
