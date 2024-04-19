@@ -79,8 +79,8 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 #include "util/debug_points.h"
+#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -2032,9 +2032,7 @@ void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     LOG(INFO) << "clean trash start";
-    DBUG_EXECUTE_IF("clean_trash_callback_sleep", {
-        sleep(100);
-    })
+    DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })
     static_cast<void>(engine.start_trash_sweep(nullptr, true));
     static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
     LOG(INFO) << "clean trash finish";
