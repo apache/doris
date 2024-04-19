@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -85,7 +86,7 @@ public class AutoBucketUtils {
     public static int getBucketsNum(long partitionSize) {
         int bucketsNumByPartitionSize = convertParitionSizeToBucketsNum(partitionSize);
         int bucketsNumByBE = getBucketsNumByBEDisks();
-        int bucketsNum = Math.min(128, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
+        int bucketsNum = Math.min(Config.autobucket_max_buckets, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
         int beNum = getBENum();
         logger.debug("AutoBucketsUtil: bucketsNumByPartitionSize {}, bucketsNumByBE {}, bucketsNum {}, beNum {}",
                 bucketsNumByPartitionSize, bucketsNumByBE, bucketsNum, beNum);
