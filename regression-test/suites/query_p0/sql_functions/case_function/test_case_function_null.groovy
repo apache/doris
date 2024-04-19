@@ -188,7 +188,7 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
 
     qt_sql_case1 """
         SELECT SUM(
-            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.000 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             WHEN CASE (NULL IN (NULL))
@@ -199,7 +199,7 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
     """
 
     qt_sql_case2 """
-        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.000 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             END)
@@ -211,7 +211,7 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
 
     qt_sql_case1 """
         SELECT SUM(
-            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.000 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             WHEN CASE (NULL IN (NULL))
@@ -222,7 +222,7 @@ suite("test_case_function_null", "query,p0,arrow_flight_sql") {
     """
 
     qt_sql_case2 """
-        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.000 AS BOOLEAN)))
             WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
             THEN (- (+ case_null2.c0))
             END)
