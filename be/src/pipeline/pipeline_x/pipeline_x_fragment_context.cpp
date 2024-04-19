@@ -932,16 +932,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
 
-    if (tnode.node_type == TPlanNodeType::OLAP_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::JDBC_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::FILE_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::ES_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::ES_HTTP_SCAN_NODE) {
-        DCHECK_EQ(request.__isset.parallel_instances,
-                  find_with_default(request.per_node_shared_scans, op->node_id(), false))
-                << "query-id=" << print_id(request.query_id);
-    }
-
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
@@ -1264,6 +1254,16 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     default:
         return Status::InternalError("Unsupported exec type in pipelineX: {}",
                                      print_plan_node_type(tnode.node_type));
+    }
+
+    if (tnode.node_type == TPlanNodeType::OLAP_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::JDBC_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::FILE_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::ES_SCAN_NODE ||
+        tnode.node_type == TPlanNodeType::ES_HTTP_SCAN_NODE) {
+        DCHECK_EQ(request.__isset.parallel_instances,
+                  find_with_default(request.per_node_shared_scans, op->node_id(), false))
+                << "query-id=" << print_id(request.query_id);
     }
 
     return Status::OK();
