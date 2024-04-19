@@ -118,9 +118,11 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
     _tasks.clear();
     if (!_task_runtime_states.empty()) {
-        for (auto& runtime_state : _task_runtime_states) {
-            _call_back(runtime_state.get(), &st);
-            runtime_state.reset();
+        for (auto& runtime_states : _task_runtime_states) {
+            for (auto& runtime_state : runtime_states) {
+                _call_back(runtime_state.get(), &st);
+                runtime_state.reset();
+            }
         }
     }
     _runtime_state.reset();
@@ -164,7 +166,8 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     }
 }
 
-Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
+Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
+                                         ThreadPool* thread_pool) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }

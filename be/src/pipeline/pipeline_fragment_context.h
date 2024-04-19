@@ -87,7 +87,7 @@ public:
 
     Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
-    virtual Status prepare(const doris::TPipelineFragmentParams& request) {
+    virtual Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
     }
 
@@ -167,7 +167,7 @@ protected:
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    std::atomic<int> _total_tasks = 0;
 
     int32_t _next_operator_builder_id = 10000;
 

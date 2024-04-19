@@ -92,7 +92,7 @@ public:
     //    bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
     // Prepare global information including global states and the unique operator tree shared by all pipeline tasks.
-    Status prepare(const doris::TPipelineFragmentParams& request) override;
+    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool) override;
 
     Status submit() override;
 
@@ -119,7 +119,8 @@ public:
 
 private:
     void _close_fragment_instance() override;
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
+    Status _build_pipeline_x_tasks(const doris::TPipelineFragmentParams& request,
+                                   ThreadPool* thread_pool);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
@@ -233,7 +234,7 @@ private:
 
     std::vector<TUniqueId> _fragment_instance_ids;
     // Local runtime states for each task
-    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
+    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 
