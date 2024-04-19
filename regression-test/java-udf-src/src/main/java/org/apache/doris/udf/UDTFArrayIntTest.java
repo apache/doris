@@ -15,30 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.udf;
 
-#include <gen_cpp/Types_types.h>
+import java.util.ArrayList;
 
-#include <functional>
-#include <memory>
-#include <string>
-#include <unordered_map>
-
-#include "common/status.h"
-
-namespace doris {
-class ObjectPool;
-
-namespace vectorized {
-class TableFunction;
-
-class TableFunctionFactory {
-public:
-    TableFunctionFactory() = delete;
-    static Status get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn);
-
-    const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
-            _function_map;
-};
-} // namespace vectorized
-} // namespace doris
+public class UDTFArrayIntTest {
+    public ArrayList<Integer> evaluate(ArrayList<Integer> val) {
+        if (val == null) return null;
+        ArrayList<Integer> result = new ArrayList<>();
+        for (int i = 0; i < val.size(); i = i + 2) {
+            result.add(val.get(i));
+        }
+        return val;
+    }
+}
