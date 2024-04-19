@@ -26,6 +26,7 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -54,22 +55,25 @@ public class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
 
     private final MTMV mtmv;
-    // Should use stmt id generator in query context
-    private final Plan mvScanPlan;
     private final List<Table> baseTables;
     private final List<Table> baseViews;
     // Group ids that are rewritten by this mv to reduce rewrite times
-    private final Set<GroupId> matchedGroups = new HashSet<>();
-    // generate form mv scan plan
+    private final Set<GroupId> matchedFailGroups = new HashSet<>();
+    private final Set<GroupId> matchedSuccessGroups = new HashSet<>();
+    // if rewrite by mv fail, record the reason, if success the failReason should be empty.
+    // The key is the query belonged group expression objectId, the value is the fail reason
+    private final Map<ObjectId, Pair<String, String>> failReason = new LinkedHashMap<>();
+    // Should regenerate when materialization is already rewritten successfully because one query may hit repeatedly
+    // make sure output is different in multi using
+    private Plan mvScanPlan;
+    // generated expressions form mv scan plan
     private ExpressionMapping mvExprToMvScanExprMapping;
+    private List<? extends Expression> mvPlanOutputShuttledExpressions;
     private boolean available = true;
     // the mv plan from cache at present, record it to make sure query rewrite by mv is right when cache change.
     private Plan mvPlan;
     // mark rewrite success or not
     private boolean success = false;
-    // if rewrite by mv fail, record the reason, if success the failReason should be empty.
-    // The key is the query belonged group expression objectId, the value is the fail reason
-    private final Map<ObjectId, Pair<String, String>> failReason = new LinkedHashMap<>();
     private boolean enableRecordFailureDetail = false;
     private StructInfo structInfo;
 
@@ -95,13 +99,13 @@ public class MaterializationContext {
             this.available = false;
             return;
         }
+        this.mvPlanOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
+                mtmvCache.getOriginalPlan().getOutput(),
+                mtmvCache.getOriginalPlan(),
+                new BitSet());
         // mv output expression shuttle, this will be used to expression rewrite
-        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
-                ExpressionUtils.shuttleExpressionWithLineage(
-                        mtmvCache.getOriginalPlan().getOutput(),
-                        mtmvCache.getOriginalPlan(),
-                        new BitSet()),
-                mvScanPlan.getExpressions());
+        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
+                this.mvScanPlan.getExpressions());
         // copy the plan from cache, which the plan in cache may change
         this.mvPlan = mtmvCache.getLogicalPlan();
         List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
@@ -115,11 +119,30 @@ public class MaterializationContext {
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
-        return this.matchedGroups.contains(groupId);
+        return this.matchedFailGroups.contains(groupId) || this.matchedSuccessGroups.contains(groupId);
     }
 
-    public void addMatchedGroup(GroupId groupId) {
-        matchedGroups.add(groupId);
+    public void addMatchedGroup(GroupId groupId, boolean rewriteSuccess) {
+        if (rewriteSuccess) {
+            this.matchedSuccessGroups.add(groupId);
+        } else {
+            this.matchedFailGroups.add(groupId);
+        }
+    }
+
+    /**
+     * Try to generate scan plan for materialized view
+     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
+     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * should be different
+     */
+    public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
+        if (!this.matchedSuccessGroups.isEmpty()) {
+            this.mvScanPlan = MaterializedViewUtils.generateMvScanPlan(this.mtmv, cascadesContext);
+            // mv output expression shuttle, this will be used to expression rewrite
+            this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
+                    this.mvScanPlan.getExpressions());
+        }
     }
 
     public MTMV getMTMV() {
@@ -173,7 +196,8 @@ public class MaterializationContext {
     public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> failureReasonSupplier) {
         // record it's rewritten
         if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
-            this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
+            this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId(),
+                    false);
         }
         // once success, do not record the fail reason
         if (this.success) {

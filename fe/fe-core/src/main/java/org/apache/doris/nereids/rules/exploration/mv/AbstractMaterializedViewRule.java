@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -94,6 +95,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (checkIfRewritten(queryPlan, context)) {
                 continue;
             }
+            context.tryReGenerateMvScanPlan(cascadesContext);
             // check mv plan is valid or not
             if (!checkPattern(context.getStructInfo())) {
                 context.recordFailReason(context.getStructInfo(),
@@ -482,6 +484,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 || residualCompensatePredicates == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
+        if (equalCompensateConjunctions.stream().anyMatch(expr -> expr.containsType(AggregateFunction.class))
+                || rangeCompensatePredicates.stream().anyMatch(expr -> expr.containsType(AggregateFunction.class))
+                || residualCompensatePredicates.stream().anyMatch(expr ->
+                expr.containsType(AggregateFunction.class))) {
+            return SplitPredicate.INVALID_INSTANCE;
+        }
         return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(equalCompensateConjunctions),
                 rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
@@ -558,7 +566,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected void recordIfRewritten(Plan plan, MaterializationContext context) {
         context.setSuccess(true);
         if (plan.getGroupExpression().isPresent()) {
-            context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+            context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
         }
     }
 

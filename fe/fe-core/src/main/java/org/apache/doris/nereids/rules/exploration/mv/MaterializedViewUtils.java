@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
@@ -155,6 +158,27 @@ public class MaterializedViewUtils {
         }
         // if plan doesn't belong to any group, construct it directly
         return ImmutableList.of(StructInfo.of(plan));
+    }
+
+    /**
+     * Generate scan plan for materialized view
+     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
+     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * should be different
+     */
+    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                cascadesContext.getStatementContext().getNextRelationId(),
+                materializedView,
+                ImmutableList.of(materializedView.getQualifiedDbName()),
+                // this must be empty, or it will be used to sample
+                Lists.newArrayList(),
+                Lists.newArrayList(),
+                Optional.empty());
+        mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
+        List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
+                .collect(Collectors.toList());
+        return new LogicalProject<Plan>(mvProjects, mvScan);
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {

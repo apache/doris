@@ -190,11 +190,18 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     true,
                     queryStructInfo.getTableBitSet());
             if (!rewrittenQueryExpressions.isEmpty()) {
-                return new LogicalProject<>(
-                        rewrittenQueryExpressions.stream().map(NamedExpression.class::cast)
-                                .collect(Collectors.toList()),
-                        tempRewritedPlan);
-
+                List<NamedExpression> projects = new ArrayList<>();
+                for (Expression expression : rewrittenQueryExpressions) {
+                    if (expression.containsType(AggregateFunction.class)) {
+                        materializationContext.recordFailReason(queryStructInfo,
+                                "rewritten expression contains aggregate functions when group equals aggregate rewrite",
+                                () -> String.format("aggregate functions = %s\n", rewrittenQueryExpressions));
+                        return null;
+                    }
+                    projects.add(expression instanceof NamedExpression
+                            ? (NamedExpression) expression : new Alias(expression));
+                }
+                return new LogicalProject<>(projects, tempRewritedPlan);
             }
             // if fails, record the reason and then try to roll up aggregate function
             materializationContext.recordFailReason(queryStructInfo,
