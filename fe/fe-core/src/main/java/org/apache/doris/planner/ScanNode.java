@@ -746,8 +746,9 @@ public abstract class ScanNode extends PlanNode {
         return Integer.MAX_VALUE;
     }
 
-    public boolean shouldUseOneInstance() {
-        return hasLimit() && conjuncts.isEmpty();
+    public boolean shouldUseOneInstance(ConnectContext ctx) {
+        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
+        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
