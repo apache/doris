@@ -790,6 +790,8 @@ message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
     repeated StorageVaultPB storage_vault = 3;
+    optional string default_storage_vault_id = 4;
+    optional string default_storage_vault_name = 5;
 };
 
 message CreateTabletsRequest {

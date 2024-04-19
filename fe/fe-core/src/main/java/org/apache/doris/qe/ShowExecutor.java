@@ -3066,6 +3066,7 @@ public class ShowExecutor {
 
     private void handleShowStorageVault() throws AnalysisException {
         ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
+        // [vault name, vault id, vault properties, isDefault]
         List<List<String>> rows;
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
@@ -3073,6 +3074,9 @@ public class ShowExecutor {
             rows = resp.getStorageVaultList().stream()
                             .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
+            if (resp.hasDefaultStorageVaultId()) {
+                StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
+            }
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }
