@@ -217,8 +217,8 @@ public:
 
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
-        if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
-            return TUniqueId();
+        if (label.find("#Id=") == std::string::npos) {
+            return {};
         }
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
