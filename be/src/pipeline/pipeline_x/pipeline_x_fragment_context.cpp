@@ -230,9 +230,6 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
 
     _need_local_merge = request.__isset.parallel_instances;
-    DCHECK_EQ(request.__isset.parallel_instances,
-              request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty())
-            << "query_id=" << print_id(_query_id);
 
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
