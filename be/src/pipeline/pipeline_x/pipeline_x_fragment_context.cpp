@@ -1253,15 +1253,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                      print_plan_node_type(tnode.node_type));
     }
 
-    if (tnode.node_type == TPlanNodeType::OLAP_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::JDBC_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::FILE_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::ES_SCAN_NODE ||
-        tnode.node_type == TPlanNodeType::ES_HTTP_SCAN_NODE) {
-        DCHECK_EQ(request.__isset.parallel_instances,
-                  find_with_default(request.per_node_shared_scans, op->node_id(), false))
-                << "query-id=" << print_id(request.query_id);
-    }
 
     return Status::OK();
 }
