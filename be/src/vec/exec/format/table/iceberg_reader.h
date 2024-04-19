@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -32,7 +31,6 @@
 #include "table_format_reader.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_dictionary.h"
-#include "vec/columns/column_string.h"
 
 namespace tparquet {
 class KeyValue;
@@ -53,6 +51,9 @@ struct IOContext;
 struct TypeDescriptor;
 
 namespace vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 class Block;
 class GenericReader;
 class ShardedKVCache;
@@ -125,7 +126,7 @@ private:
     Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
     void _gen_file_col_names();
     void _gen_new_colname_to_value_range();
-    std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
+    static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
     RuntimeProfile* _profile;
     RuntimeState* _state;

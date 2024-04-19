@@ -226,15 +226,19 @@ public:
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         LOG(FATAL) << "ReaderFunctionData do not support add_range_single_place";
+        __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
         LOG(FATAL) << "ReaderFunctionData do not support merge";
+        __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
         LOG(FATAL) << "ReaderFunctionData do not support serialize";
+        __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
         LOG(FATAL) << "ReaderFunctionData do not support deserialize";
+        __builtin_unreachable();
     }
 
 private:

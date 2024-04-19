@@ -93,6 +93,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
     if (!offsets_concrete) {
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
+        __builtin_unreachable();
     }
 
     if (!offsets_concrete->empty() && data) {
@@ -114,6 +115,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     if (!data->empty()) {
         LOG(FATAL) << "Not empty data passed to ColumnArray, but no offsets passed";
+        __builtin_unreachable();
     }
 
     offsets = ColumnOffsets::create();
@@ -239,6 +241,7 @@ void ColumnArray::insert_data(const char* pos, size_t length) {
 
         if (pos != end)
             LOG(FATAL) << "Incorrect length argument for method ColumnArray::insert_data";
+        __builtin_unreachable();
     }
 
     get_offsets().push_back(get_offsets().back() + elems);
@@ -1101,6 +1104,7 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     }
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
     if (limit == 0) {
         return ColumnArray::create(data);
