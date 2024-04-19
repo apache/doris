@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import org.apache.commons.text.StringSubstitutor;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.UserIdentity;
@@ -34,6 +33,8 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
+
+import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

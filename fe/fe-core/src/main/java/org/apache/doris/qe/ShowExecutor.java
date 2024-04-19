@@ -2418,7 +2418,9 @@ public class ShowExecutor {
                             ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
         } else {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getSingleJobInfo(showStmt.getJobId()));
+                            ((CloudEnv) Env.getCurrentEnv())
+                                    .getCacheHotspotMgr()
+                                    .getSingleJobInfo(showStmt.getJobId()));
         }
     }
 

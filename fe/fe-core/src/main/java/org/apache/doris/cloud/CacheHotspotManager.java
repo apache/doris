@@ -1,5 +1,4 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -18,9 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Database;
@@ -56,6 +52,10 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.commons.lang3.tuple.Triple;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -333,7 +333,8 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     private Long getFileCacheUsedBytes(String clusterName) throws RuntimeException {
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(clusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
         for (Backend backend : backends) {
             Long fileCacheSize = backend.getfileCacheCapactiyBytes();
@@ -373,7 +374,8 @@ public class CacheHotspotManager extends MasterDaemon {
         } else {
             partitions.addAll(table.getPartitions());
         }
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getBackendsByClusterName(dstClusterName);
         Long totalFileCache = getFileCacheUsedBytes(dstClusterName);
         Long warmUpTotalFileCache = 0L;
         List<Partition> warmUpPartitions = new ArrayList<>();
@@ -475,7 +477,8 @@ public class CacheHotspotManager extends MasterDaemon {
             }
         }
         Collections.reverse(tablets);
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getBackendsByClusterName(dstClusterName);
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
         for (Backend backend : backends) {
             Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
@@ -588,7 +591,8 @@ public class CacheHotspotManager extends MasterDaemon {
             } else {
                 partitions.addAll(table.getPartitions());
             }
-            List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName(dstClusterName);
+            List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .getBackendsByClusterName(dstClusterName);
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
                 warmUpTotalFileCache += partition.getDataSize(true);

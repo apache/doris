@@ -403,7 +403,7 @@ public class EditLog {
                 }
                 case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                     CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
-                   ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
+                    ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
                     break;
                 }
                 case OperationType.OP_DELETE_REPLICA: {

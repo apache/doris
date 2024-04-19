@@ -76,7 +76,6 @@ S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
     return _rate_limiters[static_cast<size_t>(type)].get();
 }
 
-
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:
     DorisAWSLogger() : _log_level(Aws::Utils::Logging::LogLevel::Info) {}
