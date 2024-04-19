@@ -708,7 +708,8 @@ public abstract class ScanNode extends PlanNode {
         return isKeySearch() || !enableShardScan;
     }
 
-    public boolean shouldUseOneInstance() {
-        return hasLimit() && conjuncts.isEmpty();
+    public boolean shouldUseOneInstance(ConnectContext ctx) {
+        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
+        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 }
