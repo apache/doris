@@ -333,6 +333,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                                                    RuntimeState* state) {
     Status st;
     Status result_status;
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+                    { status = Status::InternalError(""); });
     if (status.ok()) {
         // commit txn
         TLoadTxnCommitRequest request;
@@ -368,6 +370,13 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 },
                 10000L);
         result_status = Status::create<false>(result.status);
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
+            std ::string msg = "abort txn";
+            LOG(INFO) << "debug promise set: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+            return status;
+        });
     }
     std::shared_ptr<LoadBlockQueue> load_block_queue;
     {
@@ -392,7 +401,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st",
                     { st = Status::InternalError(""); });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
