@@ -1281,6 +1281,8 @@ DECLARE_mInt64(hive_sink_max_file_size);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
+DECLARE_mBool(ignore_schema_change_check);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
