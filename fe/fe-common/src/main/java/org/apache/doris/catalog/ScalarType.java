@@ -623,7 +623,7 @@ public class ScalarType extends Type {
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    stringBuilder.append("VARCHAR(*)");
+                    return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("VARCHAR").append("(").append(len).append(")");
                 } else {
