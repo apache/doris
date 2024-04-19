@@ -41,6 +41,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
+            """
+            sql """
             CREATE TABLE IF NOT EXISTS clean_trash_db1.reason (
                 r_reason_sk bigint not null,
                 r_reason_id char(16) not null,
@@ -51,7 +53,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.date_dim (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.date_dim (
                 d_date_sk bigint not null,
                 d_date_id char(16) not null,
                 d_date date,
@@ -86,7 +89,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.warehouse (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.warehouse (
                 w_warehouse_sk bigint not null,
                 w_warehouse_id char(16) not null,
                 w_warehouse_name varchar(20),
@@ -107,7 +111,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.catalog_sales (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.catalog_sales (
                 cs_item_sk bigint not null,
                 cs_order_number bigint not null,
                 cs_sold_date_sk bigint,
@@ -149,7 +154,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             "replication_num" = "1",
             "colocate_with" = "catalog"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.call_center (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.call_center (
             cc_call_center_sk bigint not null,
             cc_call_center_id char(16) not null,
             cc_rec_start_date date,
@@ -187,8 +193,9 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
+            """
 
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.inventory (
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.inventory (
                 inv_date_sk bigint not null,
                 inv_item_sk bigint not null,
                 inv_warehouse_sk bigint,
@@ -199,6 +206,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
+            """
+            sql """
             CREATE TABLE IF NOT EXISTS clean_trash_db1.catalog_returns (
             cr_item_sk bigint not null,
             cr_order_number bigint not null,
@@ -234,8 +243,9 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             "replication_num" = "1",
             "colocate_with" = "catalog"
             );
+            """
 
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.household_demographics (
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.household_demographics (
                 hd_demo_sk bigint not null,
                 hd_income_band_sk bigint,
                 hd_buy_potential char(15),
@@ -247,7 +257,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.customer_address (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.customer_address (
                 ca_address_sk bigint not null,
                 ca_address_id char(16) not null,
                 ca_street_number char(10),
@@ -267,7 +278,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.income_band (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.income_band (
                 ib_income_band_sk bigint not null,
                 ib_lower_bound integer,
                 ib_upper_bound integer
@@ -276,8 +288,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(ib_income_band_sk) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.catalog_page (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.catalog_page (
             cp_catalog_page_sk bigint not null,
             cp_catalog_page_id char(16) not null,
             cp_start_date_sk integer,
@@ -293,7 +305,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.item (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.item (
                 i_item_sk bigint not null,
                 i_item_id char(16) not null,
                 i_rec_start_date date,
@@ -321,8 +334,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(i_item_sk) BUCKETS 12
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.web_returns (
+            ); """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.web_returns (
                 wr_item_sk bigint not null,
                 wr_order_number bigint not null,
                 wr_returned_date_sk bigint,
@@ -353,8 +366,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1",
             "colocate_with" = "web"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.web_site (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.web_site (
                 web_site_sk bigint not null,
                 web_site_id char(16) not null,
                 web_rec_start_date date,
@@ -386,8 +399,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(web_site_sk) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.promotion (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.promotion (
                 p_promo_sk bigint not null,
                 p_promo_id char(16) not null,
                 p_start_date_sk bigint,
@@ -412,8 +425,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(p_promo_sk) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.web_sales (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.web_sales (
                 ws_item_sk bigint not null,
                 ws_order_number bigint not null,
                 ws_sold_date_sk bigint,
@@ -454,8 +467,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1",
             "colocate_with" = "web"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.store (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.store (
                 s_store_sk bigint not null,
                 s_store_id char(16) not null,
                 s_rec_start_date date,
@@ -491,7 +504,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1"
             );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.time_dim (
+            """
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.time_dim (
                 t_time_sk bigint not null,
                 t_time_id char(16) not null,
                 t_time integer,
@@ -507,8 +521,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(t_time_sk) BUCKETS 12
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.web_page (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.web_page (
                     wp_web_page_sk bigint not null,
                     wp_web_page_id char(16) not null,
                     wp_rec_start_date date,
@@ -528,8 +542,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(wp_web_page_sk) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.store_returns (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.store_returns (
                 sr_item_sk bigint not null,
                 sr_ticket_number bigint not null,
                 sr_returned_date_sk bigint,
@@ -556,8 +570,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             properties (
             "replication_num" = "1",
             "colocate_with" = "store"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.store_sales (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.store_sales (
                 ss_item_sk bigint not null,
                 ss_ticket_number bigint not null,
                 ss_sold_date_sk bigint,
@@ -587,8 +601,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             PROPERTIES (
             "replication_num" = "1",
             "colocate_with" = "store"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.ship_mode (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.ship_mode (
                 sm_ship_mode_sk bigint not null,
                 sm_ship_mode_id char(16) not null,
                 sm_type char(30),
@@ -600,8 +614,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(sm_ship_mode_sk) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.customer (
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.customer (
                 c_customer_sk bigint not null,
                 c_customer_id char(16) not null,
                 c_current_cdemo_sk bigint,
@@ -625,8 +639,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(c_customer_id) BUCKETS 12
             PROPERTIES (
             "replication_num" = "1"
-            );
-            CREATE TABLE IF NOT EXISTS clean_trash_db1.dbgen_version
+            );"""
+            sql """CREATE TABLE IF NOT EXISTS clean_trash_db1.dbgen_version
             (
                 dv_version                varchar(16)                   ,
                 dv_create_date            date                          ,
@@ -637,8 +651,7 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             DISTRIBUTED BY HASH(dv_version) BUCKETS 1
             PROPERTIES (
             "replication_num" = "1"
-            );
-        """
+            );"""
 
         GetDebugPoint().enableDebugPointForAllBEs("clean_trash_callback_sleep")
         sql """ADMIN CLEAN TRASH"""
@@ -646,7 +659,7 @@ suite("test_admin_clean_trash", "nonConcurrent") {
         sql """create database clean_trash_db2"""
 
         sql """
-            CREATE TABLE IF NOT EXISTS `clean_trash_db2.customer` (
+            CREATE TABLE IF NOT EXISTS clean_trash_db2.customer (
             `c_custkey` int(11) NOT NULL COMMENT "",
             `c_name` varchar(26) NOT NULL COMMENT "",
             `c_address` varchar(41) NOT NULL COMMENT "",
@@ -666,9 +679,8 @@ suite("test_admin_clean_trash", "nonConcurrent") {
             "storage_format" = "DEFAULT"
             )
         """
-        GetDebugPoint().disableDebugPointForAllBEs("clean_trash_callback_sleep")
-
     } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("clean_trash_callback_sleep")
         sql """DROP database if EXISTS clean_trash_db1 force"""
         sql """DROP database if EXISTS clean_trash_db2 force"""
     }
