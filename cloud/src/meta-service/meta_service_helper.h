@@ -155,7 +155,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         finish_rpc(#func_name, ctrl, response);                                          \
         closure_guard.reset(nullptr);                                                    \
         if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {     \
-            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                     \
+            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us() / 1000);              \
         }                                                                                \
     });
 
