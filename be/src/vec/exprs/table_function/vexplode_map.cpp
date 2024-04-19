@@ -129,21 +129,29 @@ int VExplodeMapTableFunction::get_value(MutableColumnPtr& column, int max_step) 
         column->insert_default();
         max_step = 1;
     } else {
+        ColumnStruct* struct_column = nullptr;
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-            auto* nested_column =
+            struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
             auto* nullmap_column =
                     assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-
-            nested_column->insert_range_from(*_map_detail.map_col, pos, max_step);
-            size_t old_size = nullmap_column->size();
-            nullmap_column->resize(old_size + max_step);
-            memcpy(nullmap_column->get_data().data() + old_size,
-                   _map_detail.map_nullmap_data + pos * sizeof(UInt8), max_step * sizeof(UInt8));
+            // here nullmap_column insert max_step many defaults as if MAP[row_idx] is NULL
+            // will be not update value, _cur_size = 0, means current_empty;
+            // so here could insert directly
+            nullmap_column->insert_many_defaults(max_step);
         } else {
-            column->insert_range_from(*_map_detail.map_col, pos, max_step);
+            struct_column = assert_cast<ColumnStruct*>(column.get());
         }
+        if (!struct_column || struct_column->tuple_size() != 2) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "only support map column explode to two column, but given:  ",
+                            struct_column->tuple_size());
+        }
+        struct_column->get_column(0).insert_range_from(_map_detail.map_col->get_keys(), pos,
+                                                       max_step);
+        struct_column->get_column(1).insert_range_from(_map_detail.map_col->get_values(), pos,
+                                                       max_step);
     }
     forward(max_step);
     return max_step;
