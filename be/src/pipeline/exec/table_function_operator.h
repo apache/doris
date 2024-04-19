@@ -56,6 +56,13 @@ public:
     ~TableFunctionLocalState() override = default;
 
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override {
+        for (auto* fn : _fns) {
+            RETURN_IF_ERROR(fn->close());
+        }
+        RETURN_IF_ERROR(PipelineXLocalState<>::close(state));
+        return Status::OK();
+    }
     void process_next_child_row();
     Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
@@ -74,7 +81,7 @@ private:
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
-    int64_t _cur_child_offset = 0;
+    int64_t _cur_child_offset = -1;
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;

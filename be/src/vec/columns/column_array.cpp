@@ -416,7 +416,7 @@ void ColumnArray::insert(const Field& x) {
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
-    DCHECK(n < src_.size());
+    DCHECK_LT(n, src_.size());
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
