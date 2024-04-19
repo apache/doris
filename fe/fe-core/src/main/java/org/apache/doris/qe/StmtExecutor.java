@@ -1173,6 +1173,7 @@ public class StmtExecutor {
 
         boolean preparedStmtReanalyzed = false;
         PrepareStmtContext preparedStmtCtx = null;
+        boolean needSetPrepareStmt = false;
         if (parsedStmt instanceof ExecuteStmt) {
             ExecuteStmt execStmt = (ExecuteStmt) parsedStmt;
             preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
@@ -1196,6 +1197,7 @@ public class StmtExecutor {
             // continue analyze
             preparedStmtReanalyzed = true;
             preparedStmtCtx.stmt.analyze(analyzer);
+            needSetPrepareStmt = preparedStmtCtx.stmt.isPointQuery();
         }
 
         // yiguolei: insert stmt's grammar analysis will write editlog,
@@ -1206,6 +1208,9 @@ public class StmtExecutor {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
+        if (needSetPrepareStmt) {
+            analyzer.setPrepareStmt(true);
+        }
 
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
