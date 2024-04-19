@@ -521,6 +521,7 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_block_load_timer, stats.block_load_ns);
     COUNTER_UPDATE(olap_parent->_block_load_counter, stats.blocks_load);
     COUNTER_UPDATE(olap_parent->_block_fetch_timer, stats.block_fetch_ns);
+    COUNTER_UPDATE(olap_parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
     COUNTER_UPDATE(olap_parent->_block_convert_timer, stats.block_convert_ns);
 
     COUNTER_UPDATE(olap_parent->_raw_rows_counter, stats.raw_rows_read);

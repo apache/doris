@@ -160,8 +160,8 @@ public class RuntimeFilterTranslator {
             if (node instanceof HashJoinNode) {
                 origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
             } else {
-                //bitmap rf requires isBroadCast=false, it always requires merge filter
-                origFilter.setIsBroadcast(false);
+                // nested loop join
+                origFilter.setIsBroadcast(true);
             }
             boolean isLocalTarget = scanNodeList.stream().allMatch(e -> e.getFragmentId().equals(node.getFragmentId()));
             for (int i = 0; i < targetExprList.size(); i++) {

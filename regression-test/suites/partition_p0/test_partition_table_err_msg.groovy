@@ -72,7 +72,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("10000-01-01 00:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "date literal [10000-01-01 00:00:00] is invalid"
+        exception "date/datetime literal [10000-01-01 00:00:00] is invalid"
     }
     test {
         sql """
@@ -91,8 +91,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("9999-12-31 24:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "date literal [9999-12-31 24:00:00] is invalid: Text '9999-12-31 24:00:00' could not be parsed: " +
-                "Invalid value for HourOfDay (valid values 0 - 23): 24"
+        exception "date/datetime literal [9999-12-31 24:00:00] is invalid"
     }
     test {
         sql """

@@ -109,9 +109,9 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // `advanced = false` when current block finished
-    void copy_rows(Block* block, bool advanced = true);
+    Status copy_rows(Block* block, bool advanced = true);
 
-    void copy_rows(BlockView* view, bool advanced = true);
+    Status copy_rows(BlockView* view, bool advanced = true);
 
     RowLocation current_row_location() {
         DCHECK(_record_rowids);
@@ -195,13 +195,7 @@ public:
               _is_reverse(is_reverse),
               _merged_rows(merged_rows) {}
 
-    ~VMergeIterator() override {
-        while (!_merge_heap.empty()) {
-            auto ctx = _merge_heap.top();
-            _merge_heap.pop();
-            delete ctx;
-        }
-    }
+    ~VMergeIterator() override = default;
 
     Status init(const StorageReadOptions& opts) override;
 
@@ -233,7 +227,7 @@ private:
             _block_row_locations.resize(_block_row_max);
         }
         size_t row_idx = 0;
-        VMergeIteratorContext* pre_ctx = nullptr;
+        std::shared_ptr<VMergeIteratorContext> pre_ctx;
         while (_get_size(block) < _block_row_max) {
             if (_merge_heap.empty()) {
                 break;
@@ -246,11 +240,11 @@ private:
                 ctx->add_cur_batch();
                 if (pre_ctx != ctx) {
                     if (pre_ctx) {
-                        pre_ctx->copy_rows(block);
+                        RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                     }
                     pre_ctx = ctx;
                 }
-                pre_ctx->set_pre_ctx_same(ctx);
+                pre_ctx->set_pre_ctx_same(ctx.get());
                 if (UNLIKELY(_record_rowids)) {
                     _block_row_locations[row_idx] = ctx->current_row_location();
                 }
@@ -258,14 +252,14 @@ private:
                 if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                     // current block finished, ctx not advance
                     // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                    ctx->copy_rows(block, false);
+                    RETURN_IF_ERROR(ctx->copy_rows(block, false));
                     pre_ctx = nullptr;
                 }
             } else if (_merged_rows != nullptr) {
                 (*_merged_rows)++;
                 // need skip cur row, so flush rows in pre_ctx
                 if (pre_ctx) {
-                    pre_ctx->copy_rows(block);
+                    RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                     pre_ctx = nullptr;
                 }
             }
@@ -273,9 +267,6 @@ private:
             RETURN_IF_ERROR(ctx->advance());
             if (ctx->valid()) {
                 _merge_heap.push(ctx);
-            } else {
-                // Release ctx earlier to reduce resource consumed
-                delete ctx;
             }
         }
         if (!_merge_heap.empty()) {
@@ -296,14 +287,15 @@ private:
     const Schema* _schema = nullptr;
 
     struct VMergeContextComparator {
-        bool operator()(const VMergeIteratorContext* lhs, const VMergeIteratorContext* rhs) const {
+        bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
+                        const std::shared_ptr<VMergeIteratorContext>& rhs) const {
             return lhs->compare(*rhs);
         }
     };
 
-    using VMergeHeap =
-            std::priority_queue<VMergeIteratorContext*, std::vector<VMergeIteratorContext*>,
-                                VMergeContextComparator>;
+    using VMergeHeap = std::priority_queue<std::shared_ptr<VMergeIteratorContext>,
+                                           std::vector<std::shared_ptr<VMergeIteratorContext>>,
+                                           VMergeContextComparator>;
 
     VMergeHeap _merge_heap;
 

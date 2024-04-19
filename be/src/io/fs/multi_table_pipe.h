@@ -103,6 +103,9 @@ private:
 
     std::mutex _pipe_map_lock;
     std::unordered_map<TUniqueId /*instance id*/, std::shared_ptr<io::StreamLoadPipe>> _pipe_map;
+
+    uint32_t _row_threshold = config::multi_table_batch_plan_threshold;
+    uint32_t _wait_tables_threshold = config::multi_table_max_wait_tables;
 };
 } // namespace io
 } // end namespace doris

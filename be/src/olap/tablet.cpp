@@ -1889,13 +1889,14 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
     set_last_failure_time(this, compaction, 0);
 }
 
-std::vector<Version> Tablet::get_all_versions() {
+std::vector<Version> Tablet::get_all_local_versions() {
     std::vector<Version> local_versions;
     {
-        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        for (const auto& it : _rs_version_map) {
-            local_versions.emplace_back(it.first);
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (rs->is_local()) {
+                local_versions.emplace_back(version);
+            }
         }
     }
     std::sort(local_versions.begin(), local_versions.end(),

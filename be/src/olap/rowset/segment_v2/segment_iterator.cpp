@@ -2070,6 +2070,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
+    if (_can_opt_topn_reads()) {
+        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    }
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2444,7 +2447,16 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
-        _column_predicate_info->column_name = expr->expr_name();
+        if (_column_predicate_info->column_name.empty()) {
+            _column_predicate_info->column_name = expr->expr_name();
+        } else {
+            // If column name already exists, create a new ColumnPredicateInfo
+            // if expr is columnA > columnB, then column name will exist, in this situation, we need to add it to _column_pred_in_remaining_vconjunct
+            auto new_column_pred_info = std::make_shared<ColumnPredicateInfo>();
+            new_column_pred_info->column_name = expr->expr_name();
+            _column_pred_in_remaining_vconjunct[new_column_pred_info->column_name].push_back(
+                    *new_column_pred_info);
+        }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_value = v_literal_expr->value();
@@ -2509,6 +2521,22 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     std::set<uint32_t> delete_columns_set;
     _opts.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     return delete_columns_set.contains(cid);
+}
+
+bool SegmentIterator::_can_opt_topn_reads() const {
+    if (_opts.topn_limit <= 0) {
+        return false;
+    }
+
+    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
+        return false;
+    }
+
+    if (!_col_predicates.empty() || !_col_preds_except_leafnode_of_andnode.empty()) {
+        return false;
+    }
+
+    return true;
 }
 
 } // namespace segment_v2

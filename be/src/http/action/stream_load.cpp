@@ -454,8 +454,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    // timezone first. if not, try time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {

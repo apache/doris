@@ -80,6 +80,7 @@ struct RowsetReaderContext {
     bool is_key_column_group = false;
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
+    size_t topn_limit = 0;
 };
 
 } // namespace doris

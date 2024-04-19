@@ -907,5 +907,12 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 
+    public Map<String, LiteralExpr> getUserVars() {
+        return userVars;
+    }
+
+    public void setUserVars(Map<String, LiteralExpr> userVars) {
+        this.userVars = userVars;
+    }
 }
 

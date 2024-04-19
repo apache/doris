@@ -153,4 +153,56 @@ suite("test_create_view") {
             select *, array_map(x->x>0,k3) from view_baseall order by k1;
     """
     qt_test_view_5 """ select * from test_view8 order by k1; """
+
+    sql """DROP TABLE IF EXISTS view_column_name_test"""
+    sql """
+     CREATE TABLE IF NOT EXISTS view_column_name_test
+    (
+        `timestamp` DATE NOT NULL ,
+        `type` TINYINT NOT NULL ,
+        `error_code` INT  ,
+        `error_msg` VARCHAR(300) ,
+        `op_id` BIGINT  ,
+        `op_time` DATETIME  ,
+        `target` float ,
+        `source` double,
+        `lost_cost` decimal(12,2),
+        `remark` string ,
+        `op_userid` LARGEINT ,
+        `plate` SMALLINT,
+        `iscompleted` boolean 
+    )
+    DISTRIBUTED BY HASH(`type`) BUCKETS 1
+    PROPERTIES ('replication_num' = '1');
+    """
+
+     sql """ drop view if exists xxx;"""
+    sql """CREATE VIEW
+            `xxx` COMMENT 'VIEW' AS
+            WITH
+            CHENGBENJIA AS (
+                SELECT
+                RN
+                FROM
+                (
+                    SELECT
+                    row_number() OVER (
+                        PARTITION BY `A`.`timestamp`,
+                        `A`.`type`
+                        ORDER BY
+                        CAST(
+                            concat(
+                            CAST(`A`.`error_msg` AS VARCHAR(*)),
+                            CAST(`A`.`remark` AS VARCHAR(*))
+                            ) AS INT
+                        ) DESC NULLS LAST
+                    ) AS `RN`
+                    FROM
+                    view_column_name_test A
+                ) A
+            )
+            SELECT
+            * from CHENGBENJIA;"""
+    sql """select * from xxx;"""
+    sql """ drop view if exists xxx;"""
 }

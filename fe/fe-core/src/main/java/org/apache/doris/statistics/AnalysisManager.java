@@ -583,10 +583,10 @@ public class AnalysisManager implements Writable {
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
-        return findShowAnalyzeResult(analysisJobInfoMap.values(), stmt);
+        return findShowAnalyzeResult(stmt);
     }
 
-    protected List<AnalysisInfo> findShowAnalyzeResult(Collection<AnalysisInfo> analysisInfos, ShowAnalyzeStmt stmt) {
+    private List<AnalysisInfo> findShowAnalyzeResult(ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
         TableIf tbl = null;
@@ -594,8 +594,8 @@ public class AnalysisManager implements Writable {
             tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
         }
         long tblId = tbl == null ? -1 : tbl.getId();
-        synchronized (analysisInfos) {
-            return analysisInfos.stream()
+        synchronized (analysisJobInfoMap) {
+            return analysisJobInfoMap.values().stream()
                 .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
                 .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
                 .filter(a -> tblName == null || a.tblId == tblId)

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -160,7 +161,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return true;
         }
         if (expression.children().isEmpty()) {
-            return false;
+            return expression instanceof VirtualSlotReference;
         }
         for (Expression child : expression.children()) {
             if (child instanceof Literal) {
@@ -415,9 +416,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
         for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    continue;
-                }
                 if (baseSlot.toSql().equalsIgnoreCase(
                         org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(
                             normalizeName(mvSlot.getName())))) {
@@ -427,11 +425,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 }
             }
             if (!isPushed) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    mvNameToMvSlot.put(normalizeName(
-                            org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvSlot.getName())),
-                            mvSlot);
-                }
                 mvNameToMvSlot.put(normalizeName(mvSlot.getName()), mvSlot);
             }
         }

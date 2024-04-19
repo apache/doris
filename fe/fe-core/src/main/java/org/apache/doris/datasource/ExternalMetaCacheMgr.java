@@ -54,6 +54,7 @@ public class ExternalMetaCacheMgr {
     // hudi partition manager
     private final HudiPartitionMgr hudiPartitionMgr;
     private ExecutorService executor;
+    private ExecutorService rowCountExecutor;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
@@ -66,9 +67,13 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "ExternalMetaCacheMgr", 120, true);
+        rowCountExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "ExternalMetaCacheMgr", 120, true);
         hudiPartitionMgr = HudiPartitionMgr.get(executor);
         fsCache = new FileSystemCache(executor);
-        rowCountCache = new ExternalRowCountCache(executor,
+        rowCountCache = new ExternalRowCountCache(rowCountExecutor,
                 Config.external_cache_expire_time_minutes_after_access * 60, null);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();

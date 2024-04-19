@@ -58,6 +58,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
@@ -206,6 +207,14 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             return Status::OK();
         }
 
+        bool exists = false;
+        RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << index_file_path.native() << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index path: {} not exist.", index_file_path.native());
+        }
+
         if (!dir) {
             dir = new DorisCompoundReader(
                     DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
@@ -264,10 +273,15 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     auto index_file_path = index_dir / index_file_name;
 
     try {
+        int32_t slop = 0;
         std::vector<std::string> analyse_result;
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             analyse_result.emplace_back(search_str);
         } else {
+            if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+                RETURN_IF_ERROR(PhraseQuery::parser_slop(search_str, slop));
+            }
+
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
             inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(_index_meta.properties()));
@@ -319,6 +333,9 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 str_tokens += token;
                 str_tokens += " ";
             }
+            if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+                str_tokens += " " + std::to_string(slop);
+            }
 
             auto* cache = InvertedIndexQueryCache::instance();
             InvertedIndexQueryCache::CacheKey cache_key;
@@ -349,6 +366,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                         phrase_query->add(term);
                         _CLDECDELETE(term);
                     }
+                    phrase_query->setSlop(slop);
                     query.reset(phrase_query);
                     res = normal_index_search(stats, query_type, index_searcher,
                                               null_bitmap_already_read, query, term_match_bitmap);

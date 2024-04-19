@@ -536,13 +536,6 @@ public class ExpressionUtils {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
-    public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {
-        while (expression instanceof Cast) {
-            expression = ((Cast) expression).child();
-        }
-        return cls.isInstance(expression);
-    }
-
     public static Expression getExpressionCoveredByCast(Expression expression) {
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();

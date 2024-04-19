@@ -76,6 +76,11 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void outfile_write_success(google::protobuf::RpcController* controller,
+                               const POutfileWriteSuccessRequest* request,
+                               POutfileWriteSuccessResult* result,
+                               google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,
