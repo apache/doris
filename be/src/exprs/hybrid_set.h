@@ -203,23 +203,27 @@ public:
     virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
                             doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
                                      doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_negative";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                                      const doris::vectorized::NullMap& null_map,
                                      doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                               const doris::vectorized::NullMap& null_map,
                                               doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
+        __builtin_unreachable();
     }
 
     class IteratorBase {
@@ -421,7 +425,7 @@ public:
     void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
                                   size_t end) {
         for (size_t i = start; i < end; i++) {
-            if (nullmap != nullptr || !nullmap[i]) {
+            if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i).to_string());
             } else {
                 _contains_null = true;
@@ -583,7 +587,7 @@ public:
     void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
                                   size_t end) {
         for (size_t i = start; i < end; i++) {
-            if (nullmap != nullptr || !nullmap[i]) {
+            if (nullmap == nullptr || !nullmap[i]) {
                 _set.insert(col.get_data_at(i));
             } else {
                 _contains_null = true;

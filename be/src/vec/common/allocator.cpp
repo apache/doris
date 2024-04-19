@@ -192,6 +192,30 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
+#ifndef NDEBUG
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(void* buf,
+                                                                               size_t size) const {
+#ifdef BE_TEST
+    if (!doris::ExecEnv::ready()) {
+        return;
+    }
+#endif
+    doris::thread_context()->thread_mem_tracker()->add_address_sanitizers(buf, size);
+}
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizers(
+        void* buf, size_t size) const {
+#ifdef BE_TEST
+    if (!doris::ExecEnv::ready()) {
+        return;
+    }
+#endif
+    doris::thread_context()->thread_mem_tracker()->remove_address_sanitizers(buf, size);
+}
+#endif
+
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {
     return alloc_impl(size, alignment);

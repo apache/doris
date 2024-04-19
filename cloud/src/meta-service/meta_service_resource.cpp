@@ -278,6 +278,10 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     }
 
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
+    if (instance.has_default_storage_vault_id()) {
+        response->set_default_storage_vault_id(instance.default_storage_vault_id());
+        response->set_default_storage_vault_name(instance.default_storage_vault_name());
+    }
 }
 
 // The next available vault id would be max(max(obj info id), max(vault id)) + 1.

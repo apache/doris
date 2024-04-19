@@ -102,7 +102,6 @@ public class PartitionDesc {
     // 1. partition by list (column) : now support one slotRef
     // 2. partition by range(column/function(column)) : support slotRef and some
     // special function eg: date_trunc, date_floor/ceil
-    // not only for auto partition. maybe we should check for project partitiion also
     public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition,
             boolean isAutoPartition)
             throws AnalysisException {
@@ -206,16 +205,27 @@ public class PartitionDesc {
                         throw new AnalysisException(
                                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
-                    if (this instanceof RangePartitionDesc && isAutoCreatePartitions && columnDef.isAllowNull()) {
-                        throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
-                    }
-                    if (this instanceof RangePartitionDesc && partitionExprs != null) {
-                        if (partitionExprs.get(0) instanceof FunctionCallExpr) {
-                            if (!columnDef.getType().isDateType()) {
-                                throw new AnalysisException(
-                                        "Auto range partition needs Date/DateV2/"
-                                                + "Datetime/DatetimeV2 column as partition column"
-                                                + partitionExprs.get(0).toSql());
+                    if (this instanceof RangePartitionDesc && isAutoCreatePartitions) {
+                        if (columnDef.isAllowNull()) {
+                            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+                        }
+                        if (partitionExprs != null) {
+                            for (Expr expr : partitionExprs) {
+                                if (!(expr instanceof FunctionCallExpr) || !RANGE_PARTITION_FUNCTIONS
+                                        .contains(((FunctionCallExpr) expr).getFnName().getFunction())) {
+                                    throw new AnalysisException(
+                                            "auto create partition only support slotRef and "
+                                                    + "date_trunc/date_floor/date_ceil function in range partitions. "
+                                                    + expr.toSql());
+                                }
+                            }
+                            if (partitionExprs.get(0) instanceof FunctionCallExpr) {
+                                if (!columnDef.getType().isDateType()) {
+                                    throw new AnalysisException(
+                                            "Auto range partition needs Date/DateV2/"
+                                                    + "Datetime/DatetimeV2 column as partition column but got"
+                                                    + partitionExprs.get(0).toSql());
+                                }
                             }
                         }
                     }

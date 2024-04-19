@@ -122,6 +122,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);

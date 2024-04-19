@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -36,6 +38,16 @@ class HDFSCommonBuilder;
 class THdfsParams;
 
 namespace io {
+
+namespace hdfs_bvar {
+extern bvar::LatencyRecorder hdfs_read_latency;
+extern bvar::LatencyRecorder hdfs_write_latency;
+extern bvar::LatencyRecorder hdfs_create_dir_latency;
+extern bvar::LatencyRecorder hdfs_open_latency;
+extern bvar::LatencyRecorder hdfs_close_latency;
+extern bvar::LatencyRecorder hdfs_flush_latency;
+extern bvar::LatencyRecorder hdfs_hsync_latency;
+}; // namespace hdfs_bvar
 
 class HdfsHandler {
 public:

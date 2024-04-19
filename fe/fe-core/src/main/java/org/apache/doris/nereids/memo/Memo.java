@@ -581,16 +581,6 @@ public class Memo {
         return group;
     }
 
-    // This function is used to copy new group expression
-    // It's used in DPHyp after construct new group expression
-    public Group copyInGroupExpression(GroupExpression newGroupExpression) {
-        Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
-                newGroupExpression.getPlan().getLogicalProperties());
-        groups.put(newGroup.getGroupId(), newGroup);
-        groupExpressions.put(newGroupExpression, newGroupExpression);
-        return newGroup;
-    }
-
     private CopyInResult rewriteByNewGroupExpression(Group targetGroup, Plan newPlan,
             GroupExpression newGroupExpression) {
         if (targetGroup == null) {

@@ -33,6 +33,42 @@ suite("order_by_bind_priority") {
         sql "select abs(sum(c1)) as c1, c1,sum(c2) as c2 from t_order_by_bind_priority group by c1 order by sum(c1)+c2 asc;"
         exception "c2 should be grouped by."
     }
+    sql """drop table if exists table_20_undef_partitions2_keys3_properties4_distributed_by58"""
+    sql """
+        create table table_20_undef_partitions2_keys3_properties4_distributed_by58 (
+        pk int,
+        col_int_undef_signed int   ,
+        col_int_undef_signed2 int
+        ) engine=olap
+        DUPLICATE KEY(pk, col_int_undef_signed)
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into table_20_undef_partitions2_keys3_properties4_distributed_by58(pk,col_int_undef_signed,col_int_undef_signed2) values (0,-8777,null),
+        (1,-127,30240),(2,null,null),(3,-10008,-54),(4,3618,2881),(5,null,16155),(6,null,null),(7,null,null),(8,-29433,-4654),(9,-13909,29600),(10,10450,8105),
+        (11,null,null),(12,88,88),(13,null,null),(14,74,14138),(15,23,63),(16,4418,-24598),(17,-22950,99),(18,null,null),(19,2,null);
+    """
+    sql "sync;"
 
+    qt_test_multi_slots_in_agg_func_bind_first """
+        SELECT
+        SIGN( SUM(col_int_undef_signed) ) + 3 AS col_int_undef_signed,
+        pk - 5 pk ,
+        pk pk ,
+        ABS( MIN(col_int_undef_signed) ) AS col_int_undef_signed,
+        MAX(col_int_undef_signed2) col_int_undef_signed2,
+        col_int_undef_signed2 col_int_undef_signed2
+        FROM
+        table_20_undef_partitions2_keys3_properties4_distributed_by58 tbl_alias1
+        GROUP BY
+        pk,
+        col_int_undef_signed2
+        ORDER BY
+        col_int_undef_signed,
+        pk - 5,
+        pk,
+        col_int_undef_signed2 ;
+    """
 
 }
