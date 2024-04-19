@@ -86,7 +86,10 @@ public class PartitionInfo implements Writable {
     protected Map<Long, TTabletType> idToTabletType;
 
     // the enable automatic partition will hold this, could create partition by expr result
+    @SerializedName("PartitionExprs")
     protected ArrayList<Expr> partitionExprs;
+
+    @SerializedName("IsAutoCreatePartitions")
     protected boolean isAutoCreatePartitions;
 
     public PartitionInfo() {
