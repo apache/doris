@@ -40,7 +40,7 @@ suite("test_autobucket") {
 
     sql "drop table if exists autobucket_test"
 
-
+    // set min to 5
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '5')"
     sql "drop table if exists autobucket_test_min_buckets"
     result = sql """
@@ -60,9 +60,11 @@ suite("test_autobucket") {
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
     assertEquals(Integer.valueOf(result.get(0).get(8)), 5)
+    // set back to default
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '1')"
     sql "drop table if exists autobucket_test_min_buckets"
 
+    // set max to 4
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '4')"
     sql "drop table if exists autobucket_test_max_buckets"
     result = sql """
@@ -82,5 +84,7 @@ suite("test_autobucket") {
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
     assertEquals(Integer.valueOf(result.get(0).get(8)), 4)
+    // set back to default
+    sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '128')"
     sql "drop table if exists autobucket_test_max_buckets"
 }
