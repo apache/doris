@@ -439,6 +439,7 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
     auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
+        DCHECK(state);
         auto finish_st = _finish_group_commit_load(db_id, table_id, label, txn_id,
                                                    state->fragment_instance_id(), *status, state);
         if (!finish_st.ok()) {

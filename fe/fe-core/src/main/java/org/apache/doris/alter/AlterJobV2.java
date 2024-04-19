@@ -31,6 +31,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /*
  * Version 2 of AlterJob, for replacing the old version of AlterJob.
@@ -98,6 +100,9 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "watershedTxnId")
     protected long watershedTxnId = -1;
 
+    // save failed task after retry three times, tablet -> backends
+    @SerializedName(value = "failedTabletBackends")
+    protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
 
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {

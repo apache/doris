@@ -412,6 +412,7 @@ message PKafkaMetaProxyRequest {
 
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+    optional int64 timeout_secs = 2;
 };
 
 message PKafkaMetaProxyResult {
@@ -930,6 +931,12 @@ message PFetchRemoteSchemaResponse {
     optional TabletSchemaPB merged_schema = 2;
 }
 
+message PAlterVaultSyncRequest {
+}
+
+message PAlterVaultSyncResponse {
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -979,5 +986,6 @@ service PBackendService {
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
+    rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
 };
 

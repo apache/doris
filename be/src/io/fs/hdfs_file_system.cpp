@@ -106,9 +106,9 @@ Status HdfsFileSystem::init() {
 }
 
 Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
-                                        const FileWriterOptions*) {
+                                        const FileWriterOptions* opts) {
     _fs_handle->inc_ref();
-    auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name);
+    auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name, opts);
     if (res.has_value()) {
         *writer = std::move(res).value();
         return Status::OK();
@@ -276,8 +276,7 @@ Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_fi
         left_len -= read_len;
     }
 
-    LOG(INFO) << "finished to write file: " << local_file << ", length: " << file_len;
-    return Status::OK();
+    return hdfs_writer->close();
 }
 
 Status HdfsFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
@@ -320,8 +319,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 
         RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
     }
-
-    return Status::OK();
+    return local_writer->close();
 }
 
 } // namespace doris::io

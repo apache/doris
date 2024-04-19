@@ -663,26 +663,47 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 linked_success_files.push_back(snapshot_segment_file_path);
 
-                for (const auto& index : tablet_schema.indexes()) {
-                    if (index.index_type() != IndexType::INVERTED) {
-                        continue;
+                if (tablet_schema.get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index : tablet_schema.indexes()) {
+                        if (index.index_type() != IndexType::INVERTED) {
+                            continue;
+                        }
+                        auto index_id = index.index_id();
+                        auto index_file = ref_tablet->get_segment_index_filepath(
+                                rowset_id, segment_index, index_id);
+                        auto snapshot_segment_index_file_path =
+                                fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
+                                            segment_index, index_id);
+                        VLOG_DEBUG << "link " << index_file << " to "
+                                   << snapshot_segment_index_file_path;
+                        res = io::global_local_filesystem()->link_file(
+                                index_file, snapshot_segment_index_file_path);
+                        if (!res.ok()) {
+                            LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
+                                         << ", dest=" << snapshot_segment_index_file_path << "]";
+                            break;
+                        }
+                        linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
-                    auto index_id = index.index_id();
-                    auto index_file = ref_tablet->get_segment_index_filepath(
-                            rowset_id, segment_index, index_id);
-                    auto snapshot_segment_index_file_path =
-                            fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
-                                        segment_index, index_id);
-                    VLOG_DEBUG << "link " << index_file << " to "
-                               << snapshot_segment_index_file_path;
-                    res = io::global_local_filesystem()->link_file(
-                            index_file, snapshot_segment_index_file_path);
-                    if (!res.ok()) {
-                        LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
-                                     << ", dest=" << snapshot_segment_index_file_path << "]";
-                        break;
+                } else {
+                    if (tablet_schema.has_inverted_index()) {
+                        auto index_file =
+                                InvertedIndexDescriptor::get_index_file_name(segment_file_path);
+                        auto snapshot_segment_index_file_path =
+                                fmt::format("{}/{}_{}.binlog-index", schema_full_path, rowset_id,
+                                            segment_index);
+                        VLOG_DEBUG << "link " << index_file << " to "
+                                   << snapshot_segment_index_file_path;
+                        res = io::global_local_filesystem()->link_file(
+                                index_file, snapshot_segment_index_file_path);
+                        if (!res.ok()) {
+                            LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
+                                         << ", dest=" << snapshot_segment_index_file_path << "]";
+                            break;
+                        }
+                        linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
-                    linked_success_files.push_back(snapshot_segment_index_file_path);
                 }
             }
 

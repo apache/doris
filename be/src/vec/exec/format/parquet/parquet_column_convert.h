@@ -30,9 +30,9 @@
 namespace doris::vectorized::parquet {
 
 struct ConvertParams {
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false, we should set local time zone
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
     cctz::time_zone* ctz = nullptr;
     size_t offset_days = 0;
     int64_t second_mask = 1;
@@ -72,8 +72,13 @@ struct ConvertParams {
         const auto& schema = field_schema->parquet_schema;
         if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
             const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-            if (timestamp_info.isAdjustedToUTC) {
+            if (!timestamp_info.isAdjustedToUTC) {
                 // should set timezone to utc+0
+                // Reference: https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#instant-semantics-timestamps-normalized-to-utc
+                // If isAdjustedToUTC = false, the reader should display the same value no mater what local time zone is. For example:
+                // When a timestamp is stored as `1970-01-03 12:00:00`,
+                // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
+                // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
                 ctz = const_cast<cctz::time_zone*>(&utc0);
             }
             const auto& time_unit = timestamp_info.unit;

@@ -105,6 +105,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -182,6 +183,8 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -454,6 +457,8 @@ public class Env {
     private Auth auth;
     private AccessControllerManager accessManager;
 
+    private AuthenticatorManager authenticatorManager;
+
     private DomainResolver domainResolver;
 
     private TabletSchedulerStat stat;
@@ -529,6 +534,8 @@ public class Env {
     private InsertOverwriteManager insertOverwriteManager;
 
     private DNSCache dnsCache;
+
+    private final NereidsSqlCacheManager sqlCacheManager;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -692,7 +699,7 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
-        this.storageVaultMgr = new StorageVaultMgr();
+        this.storageVaultMgr = new StorageVaultMgr(systemInfo);
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
@@ -700,6 +707,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
+        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfig());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -766,6 +774,9 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
+        this.sqlCacheManager = new NereidsSqlCacheManager(
+                Config.sql_cache_manage_num, Config.cache_last_version_interval_second
+        );
     }
 
     public static void destroyCheckpoint() {
@@ -823,6 +834,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public AuthenticatorManager getAuthenticatorManager() {
+        return authenticatorManager;
     }
 
     public MTMVService getMtmvService() {
@@ -1545,6 +1560,10 @@ public class Env {
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                         SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
+                if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                }
             }
         }
 
@@ -3522,7 +3541,7 @@ public class Env {
             // Storage Vault
             if (!olapTable.getStorageVaultName().isEmpty()) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
                 sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
@@ -5111,7 +5130,7 @@ public class Env {
 
     // Switch catalog of this sesseion.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
-        CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
+        CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
         if (catalogIf == null) {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
@@ -6090,6 +6109,10 @@ public class Env {
 
     public MasterDaemon getTabletStatMgr() {
         return tabletStatMgr;
+    }
+
+    public NereidsSqlCacheManager getSqlCacheManager() {
+        return sqlCacheManager;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

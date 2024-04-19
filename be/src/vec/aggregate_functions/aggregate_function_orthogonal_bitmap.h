@@ -33,6 +33,7 @@
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -44,7 +45,6 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-class ColumnString;
 class IColumn;
 } // namespace vectorized
 } // namespace doris

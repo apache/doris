@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -39,9 +38,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,20 +72,15 @@ public class RuntimeFilterTranslator {
     }
 
     private class RuntimeFilterExpressionTranslator extends ExpressionTranslator {
-        Map<Slot, Expr> slotExprMap;
+        SlotRef targetSlotRef;
 
-        RuntimeFilterExpressionTranslator(Map<Slot, Expr> slotExprMap) {
-            this.slotExprMap = slotExprMap;
+        RuntimeFilterExpressionTranslator(SlotRef targetSlotRef) {
+            this.targetSlotRef = targetSlotRef;
         }
 
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-            Expr expr = slotExprMap.get(slotReference);
-            if (expr instanceof SlotRef) {
-                return expr;
-            } else {
-                throw new AnalysisException("cannot find SlotRef for " + slotReference);
-            }
+            return targetSlotRef;
         }
     }
 
@@ -110,8 +104,8 @@ public class RuntimeFilterTranslator {
         for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
             Slot curTargetSlot = filter.getTargetSlots().get(i);
             Expression curTargetExpression = filter.getTargetExpressions().get(i);
-            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
-            if (target == null) {
+            SlotRef targetSlotRef = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
+            if (targetSlotRef == null) {
                 context.setTargetNullCount();
                 hasInvalidTarget = true;
                 break;
@@ -119,12 +113,15 @@ public class RuntimeFilterTranslator {
             ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
             Expr targetExpr;
             if (curTargetSlot.equals(curTargetExpression)) {
-                targetExpr = target;
+                targetExpr = targetSlotRef;
             } else {
                 // map nereids target slot to original planner slot
-                Map<Slot, Expr> slotMap = Maps.newHashMap();
-                slotMap.put(curTargetSlot, target);
-                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(slotMap);
+                Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
+                        "target expression is invalid, input slot num > 1; filter :" + filter);
+                Slot slotInTargetExpression = curTargetExpression.getInputSlots().iterator().next();
+                Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot)
+                        || curTargetSlot.equals(context.getAliasTransferMap().get(slotInTargetExpression).second));
+                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(targetSlotRef);
                 targetExpr = curTargetExpression.accept(translator, ctx);
             }
 
@@ -132,7 +129,7 @@ public class RuntimeFilterTranslator {
             if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                 targetExpr = new CastExpr(src.getType(), targetExpr);
             }
-            SlotRef targetSlot = target.getSrcSlotRef();
+            SlotRef targetSlot = targetSlotRef.getSrcSlotRef();
             TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
             SlotId targetSlotId = targetSlot.getSlotId();
             scanNodeList.add(scanNode);
