@@ -51,6 +51,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -121,8 +122,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
             _call_back(runtime_state.get(), &st);
             runtime_state.reset();
         }
-    } else {
-        _call_back(nullptr, &st);
     }
     _runtime_state.reset();
     _runtime_filter_states.clear();
@@ -366,6 +365,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                             thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
@@ -376,6 +376,11 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
                                                    output_exprs));
         }
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        _sink.reset(new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc));
         break;
     }
     case TDataSinkType::HIVE_TABLE_SINK: {
@@ -541,7 +546,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     _runtime_state->runtime_filter_wait_infinitely();
             filterparams->runtime_filter_wait_time_ms =
                     _runtime_state->runtime_filter_wait_time_ms();
-            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_exec();
+            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_x_exec();
             filterparams->execution_timeout = _runtime_state->execution_timeout();
 
             filterparams->exec_env = ExecEnv::GetInstance();

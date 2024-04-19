@@ -256,11 +256,11 @@ public:
         read_pod_binary(is_set_contains_null, buf);
         data.value->change_contains_null_value(is_set_contains_null);
         read_pod_binary(data.init, buf);
-        size_t size;
+        UInt64 size;
         read_var_uint(size, buf);
 
         T element;
-        for (size_t i = 0; i < size; ++i) {
+        for (UInt64 i = 0; i < size; ++i) {
             read_int_binary(element, buf);
             data.value->insert(static_cast<void*>(&element));
         }
@@ -484,11 +484,11 @@ public:
         read_pod_binary(is_set_contains_null, buf);
         data.value->change_contains_null_value(is_set_contains_null);
         read_pod_binary(data.init, buf);
-        size_t size;
+        UInt64 size;
         read_var_uint(size, buf);
 
         StringRef element;
-        for (size_t i = 0; i < size; ++i) {
+        for (UInt64 i = 0; i < size; ++i) {
             element = read_string_binary_into(*arena, buf);
             data.value->insert((void*)element.data, element.size);
         }

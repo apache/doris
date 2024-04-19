@@ -79,13 +79,14 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 
-#define ORPHAN_TRACKER_CHECK()                                                 \
-    DCHECK(!doris::config::enable_memory_orphan_check ||                       \
-           doris::thread_context()->thread_mem_tracker()->label() != "Orphan") \
+#define ORPHAN_TRACKER_CHECK()                                                  \
+    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
+           doris::thread_context()->thread_mem_tracker()->label() != "Orphan")  \
             << doris::memory_orphan_check_msg
 
-#define MEMORY_ORPHAN_CHECK() \
-    DCHECK(!doris::config::enable_memory_orphan_check) << doris::memory_orphan_check_msg;
+#define MEMORY_ORPHAN_CHECK()                                                 \
+    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check) \
+            << doris::memory_orphan_check_msg;
 #else
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) (void)0
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) (void)0
@@ -200,7 +201,7 @@ public:
 
     void consume_memory(const int64_t size) const {
 #ifdef USE_MEM_TRACKER
-        DCHECK(!doris::config::enable_memory_orphan_check ||
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
 #endif
