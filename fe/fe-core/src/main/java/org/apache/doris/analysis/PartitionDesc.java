@@ -185,9 +185,13 @@ public class PartitionDesc {
             boolean found = false;
             for (ColumnDef columnDef : columnDefs) {
                 if (columnDef.getName().equals(partitionCol)) {
-                    if (!columnDef.isKey() && (columnDef.getAggregateType() != AggregateType.NONE
-                            || enableUniqueKeyMergeOnWrite)) {
-                        throw new AnalysisException("The partition column could not be aggregated column");
+                    if (!columnDef.isKey()) {
+                        if (columnDef.getAggregateType() != AggregateType.NONE) {
+                            throw new AnalysisException("The partition column could not be aggregated column");
+                        }
+                        if (enableUniqueKeyMergeOnWrite) {
+                            throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+                        }
                     }
                     if (columnDef.getType().isFloatingPointType()) {
                         throw new AnalysisException("Floating point type column can not be partition column");
