@@ -47,8 +47,6 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
 
     _array_column =
             block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
-    LOG(INFO) << "block dump:" << block->dump_structure();
-    LOG(INFO) << block->dump_data();
     if (!extract_column_array_info(*_array_column, _detail)) {
         return Status::NotSupported("column type {} not supported now",
                                     block->get_by_position(value_column_idx).column->get_name());
