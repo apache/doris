@@ -1159,7 +1159,7 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionJsonbContains<Impl>>(); }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
+        return make_nullable(std::make_shared<DataTypeUInt8>());
     }
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
@@ -1167,6 +1167,7 @@ public:
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1243,7 +1244,8 @@ struct JsonbContainsUtil {
             res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
         }
 
-        block.replace_by_position(result, std::move(res));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
 };

@@ -1784,9 +1784,9 @@ visible_functions = {
         [['json_length'], 'INT', ['JSONB'], 'ALWAYS_NULLABLE'],
         [['json_length'], 'INT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_length'], 'INT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
-        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB'], 'DEPEND_ON_ARGUMENT'],
-        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
-        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB', 'STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB'], 'ALWAYS_NULLABLE'],
+        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['json_contains'], 'BOOLEAN', ['JSONB', 'JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_depth'], 'INT', ['JSONB'], 'DEPEND_ON_ARGUMENT'],
 
         # Json functions
