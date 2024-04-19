@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("inject_hdfs_load_error") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
@@ -31,22 +33,27 @@ suite("inject_hdfs_load_error") {
     """
 
     try {
-        String backend_id;
+        String backendId;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
+        backendId = backendId_to_backendIP.keySet()[0]
         def be_host = backendId_to_backendIP.get(backendId)
         def be_http_port = backendId_to_backendHttpPort.get(backendId)
 
         def tableName = "inject_select_error_table"
         
-        def triggerInject = { op, name, behavior ->
+        // op = {set, apply_suite, clear}, behavior = {sleep, return, return_ok, return_error}
+        // name = {point_name}, code = {return_error return code}, duration = {sleep duration}
+        // value is code for return_error, duration for sleep
+        // internal error is 6
+        def triggerInject = { name, op, behavior, value ->
             // trigger compactions for all tablets in ${tableName}
             StringBuilder sb = new StringBuilder();
+            // /api/injection_point/{op}/{name}
             sb.append("curl -X POST http://${be_host}:${be_http_port}")
-            sb.append("/api/injection_point/{$op}/{$name}/{$behavior}")
+            sb.append("/api/injection_point/${op}/${name}/${behavior}/${value}")
 
             String command = sb.toString()
             logger.info(command)
@@ -54,7 +61,7 @@ suite("inject_hdfs_load_error") {
             code = process.waitFor()
             err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
             out = process.getText()
-            logger.info("enable inject, op ${op}, name ${name}, behavior {$behavior}")
+            logger.info("enable inject, op ${op}, name ${name}, behavior ${behavior}, value ${value}")
             assertEquals(code, 0)
             return out
         }
@@ -63,7 +70,7 @@ suite("inject_hdfs_load_error") {
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
             C_CUSTKEY     INTEGER NOT NULL,
-            C_NAME        VARCHAR(25) NOT NULL
+            C_NAME        INTEGER NOT NULL
             )
             DUPLICATE KEY(C_CUSTKEY, C_NAME)
             DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
@@ -75,7 +82,7 @@ suite("inject_hdfs_load_error") {
         def load_table = { cnt ->
             for (int i = 0; i < cnt; i++) {
                 sql """
-                    insert into ${tableName} values(i, '${i}');
+                    insert into ${tableName} values(${i}, '${i}');
                 """
             }
         }
@@ -85,11 +92,11 @@ suite("inject_hdfs_load_error") {
         }
 
         for (int j = 1; j < 5; j++) {
-            triggerInject("HdfsFileReader:read_error", "set", "return_error")
+            triggerInject("HdfsFileReader:read_error", "set", "return_error", 6)
             expectExceptionLike({
                 load_table(j)
             }, "Read hdfs file failed")
-            triggerInject("HdfsFileReader:read_error", "clear")
+            triggerInject("HdfsFileReader:read_error", "clear", "valid", 0)
         }
 
     } finally {
