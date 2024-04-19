@@ -377,4 +377,15 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertEquals(6, decimalV2Type.getScale());
         }
     }
+
+    @Test
+    void testParseExprDepthWidth() {
+        String sql = "SELECT 1+2 = 3 from t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(sql).child(0);
+        System.out.println(logicalPlan);
+        // alias (1 + 2 = 3)
+        Assertions.assertEquals(4, logicalPlan.getExpressions().get(0).getDepth());
+        Assertions.assertEquals(3, logicalPlan.getExpressions().get(0).getWidth());
+    }
 }

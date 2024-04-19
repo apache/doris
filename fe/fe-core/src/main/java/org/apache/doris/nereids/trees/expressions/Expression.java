@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -42,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -53,12 +55,40 @@ import java.util.stream.Collectors;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> implements ExpressionTrait {
 
+    private final int depth;
+    private final int width;
+
     protected Expression(Expression... children) {
         super(children);
+        depth = Arrays.stream(children)
+                .mapToInt(e -> e.depth)
+                .max().orElse(0) + 1;
+        width = Arrays.stream(children)
+                .mapToInt(e -> e.width)
+                .sum() + (children.length == 0 ? 1 : 0);
+        checkLimit();
     }
 
     protected Expression(List<Expression> children) {
         super(Optional.empty(), children);
+        depth = children.stream()
+                .mapToInt(e -> e.depth)
+                .max().orElse(0) + 1;
+        width = children.stream()
+                .mapToInt(e -> e.width)
+                .sum() + (children.isEmpty() ? 1 : 0);
+        checkLimit();
+    }
+
+    private void checkLimit() {
+        if (depth > Config.expr_depth_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum depth of an "
+                    + "expression tree (%s).", Config.expr_depth_limit));
+        }
+        if (width > Config.expr_children_limit) {
+            throw new AnalysisException(String.format("Exceeded the maximum children of an "
+                    + "expression tree (%s).", Config.expr_children_limit));
+        }
     }
 
     public Alias alias(String alias) {
@@ -124,6 +154,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     @Override
     public Expression child(int index) {
         return children.get(index);
+    }
+
+    public int getWidth() {
+        return width;
+    }
+
+    public int getDepth() {
+        return depth;
     }
 
     @Override
