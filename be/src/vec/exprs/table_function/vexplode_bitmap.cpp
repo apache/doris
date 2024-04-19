@@ -107,4 +107,32 @@ void VExplodeBitmapTableFunction::process_close() {
     _value_column = nullptr;
 }
 
+int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    // should dispose the empty status, forward one step
+    if (current_empty()) {
+        column->insert_default();
+        max_step = 1;
+    } else {
+        ColumnInt64* target = nullptr;
+        if (_is_nullable) {
+            target = assert_cast<ColumnInt64*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                    ->insert_many_defaults(max_step);
+        } else {
+            target = assert_cast<ColumnInt64*>(column.get());
+        }
+        auto origin_size = target->size();
+        target->resize(origin_size + max_step);
+        auto target_data = target->get_data().data();
+        for (int i = 0; i < max_step; ++i) {
+            target_data[i + origin_size] = **_cur_iter;
+            ++(*_cur_iter);
+        }
+    }
+    TableFunction::forward(max_step);
+    return max_step;
+}
 } // namespace doris::vectorized
