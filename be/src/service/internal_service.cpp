@@ -64,6 +64,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -673,28 +674,30 @@ void PInternalServiceImpl::outfile_write_success(google::protobuf::RpcController
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
+        st = FileFactory::create_file_writer(
                 FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
                 ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name);
-        using T = std::decay_t<decltype(res)>;
-        if (!res.has_value()) [[unlikely]] {
-            st = std::forward<T>(res).error();
+                file_options.broker_properties, file_name, 0, _file_writer_impl);
+        if (!st.ok()) {
+            LOG(WARNING) << "Outfile write success file failed when create file writer , errmsg = "
+                         << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
 
-        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
         // must write somthing because s3 file writer can not writer empty file
         st = _file_writer_impl->append({"success"});
         if (!st.ok()) {
-            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            LOG(WARNING) << "outfile write success file failed when write success, errmsg = " << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
+
         st = _file_writer_impl->close();
         if (!st.ok()) {
-            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            LOG(WARNING) << "outfile write success file failed when close file writer, errmsg = "
+                         << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
