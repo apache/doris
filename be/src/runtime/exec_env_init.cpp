@@ -110,6 +110,7 @@
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
+Status init_jemalloc_hooks();
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
@@ -396,8 +397,12 @@ Status ExecEnv::_init_mem_env() {
     thread_context()->thread_mem_tracker_mgr->init();
     _env_thread_context = thread_context();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
-        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(USE_JEMALLOC)
     init_hook();
+#else
+    RETURN_IF_ERROR(init_jemalloc_hooks());
+#endif
 #endif
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {

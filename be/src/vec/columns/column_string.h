@@ -99,9 +99,9 @@ private:
     template <bool positive>
     struct lessWithCollation;
 
-    ColumnStr<T>() = default;
+    ColumnStr() = default;
 
-    ColumnStr<T>(const ColumnStr<T>& src)
+    ColumnStr(const ColumnStr& src)
             : offsets(src.offsets.begin(), src.offsets.end()),
               chars(src.chars.begin(), src.chars.end()) {}
 

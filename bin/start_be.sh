@@ -340,15 +340,15 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 # echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
-if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+if [[ -z ${MALLOC_CONF} ]]; then
+    MALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
 fi
 
-if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+if [[ -z ${MALLOC_PROF_PRFIX} ]]; then
+    export MALLOC_CONF="${MALLOC_CONF},prof_prefix:"
 else
-    JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
-    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
+    MALLOC_PROF_PRFIX="${DORIS_HOME}/log/${MALLOC_PROF_PRFIX}"
+    export MALLOC_CONF="${MALLOC_CONF},prof_prefix:${MALLOC_PROF_PRFIX}"
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
