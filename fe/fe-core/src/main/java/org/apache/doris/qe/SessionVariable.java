@@ -461,6 +461,9 @@ public class SessionVariable implements Serializable, Writable {
     );
 
     public static final String ENABLE_STATS = "enable_stats";
+
+    public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1354,6 +1357,14 @@ public class SessionVariable implements Serializable, Writable {
             description = {"when it's true show processlist statement list all fe's connection",
                     "当变量为true时，show processlist命令展示所有fe的连接"})
     public boolean showAllFeConnection = false;
+
+    @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
+            description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
+                    + "系统会将这个算子的并发度调整为1，以减少简单查询的扇出",
+                    "When a ScanNode has no filter conditions and the limit value is less than this threshold, "
+                            + "the system will adjust the concurrency of this operator to 1 "
+                            + "to reduce the fan-out of simple queries"})
+    public long limitRowsForSingleInstance = 10000;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
