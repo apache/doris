@@ -41,7 +41,6 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
-import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -171,7 +170,7 @@ class Suite implements GroovyInterceptable {
             String threadName = null, boolean daemon = false, Closure<T> actionSupplier) {
         def executorService = Executors.newFixedThreadPool(1, new ThreadFactory() {
             @Override
-            Thread newThread(@NotNull Runnable r) {
+            Thread newThread(Runnable r) {
                 def thread = new Thread(r, name)
                 thread.setDaemon(daemon)
                 return thread
