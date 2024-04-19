@@ -989,7 +989,7 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                row.add(String.valueOf(table.getRowCount()));
+                row.add(String.valueOf(table.getCachedRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
@@ -2545,7 +2545,7 @@ public class ShowExecutor {
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
         if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
         } else {
             resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }

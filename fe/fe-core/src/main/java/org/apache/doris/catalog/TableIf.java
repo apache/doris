@@ -160,6 +160,11 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the row count from cache,
+    // If miss, just return 0
+    // This is used for external table, because for external table, the fetching row count may be expensive
+    long getCachedRowCount();
+
     long fetchRowCount();
 
     long getDataLength();
