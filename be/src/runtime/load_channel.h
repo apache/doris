@@ -100,22 +100,19 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
-    std::shared_ptr<TabletsChannel> get_load_channel(int64_t index_id) {
-        std::lock_guard<std::mutex> l(_lock);
-        return _tablets_channels[index_id];
-    }
-
     void flush_memtable_async(int64_t index_id, int64_t tablet_id) {
-        auto channel = get_load_channel(index_id);
-        if (channel != nullptr) {
-            channel->flush_memtable_async(tablet_id);
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _tablets_channels.find(index_id);
+        if (it != _tablets_channels.end()) {
+            it->second->flush_memtable_async(tablet_id);
         }
     }
 
     void wait_flush(int64_t index_id, int64_t tablet_id) {
-        auto channel = get_load_channel(index_id);
-        if (channel != nullptr) {
-            channel->wait_flush(tablet_id);
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _tablets_channels.find(index_id);
+        if (it != _tablets_channels.end()) {
+            it->second->wait_flush(tablet_id);
         }
     }
 
