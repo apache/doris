@@ -17,27 +17,18 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-
-import com.google.common.collect.Lists;
-
-import java.util.stream.Collectors;
 
 /**
  * The cache for materialized view cache
@@ -70,27 +61,17 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        unboundMvPlan = unboundMvPlan.accept(new DefaultPlanVisitor<LogicalPlan, Void>() {
-            // convert to table sink to eliminate sort under table sink, because sort under result sink can not be
-            // eliminated
-            @Override
-            public LogicalPlan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink,
-                    Void context) {
-                return new UnboundTableSink<>(mtmv.getFullQualifiers(),
-                        mtmv.getBaseSchema().stream().map(Column::getName).collect(Collectors.toList()),
-                        Lists.newArrayList(),
-                        mtmv.getPartitions().stream().map(Partition::getName).collect(Collectors.toList()),
-                        unboundResultSink.child());
-            }
-        }, null);
+        // Can not convert to table sink, because use the same column from different table when self join
+        // the out slot is wrong
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
-        // eliminate logicalTableSink because sink operator is useless in query rewrite by materialized view
-        Plan mvPlan = planner.getCascadesContext().getRewritePlan().accept(new DefaultPlanRewriter<Object>() {
+        // Eliminate unbound result sink because sink operator is useless in query rewrite by materialized view
+        // and the top sort can also be removed
+        Plan mvPlan = planner.plan((LogicalPlan) unboundMvPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
-            public Plan visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, Object context) {
-                return logicalTableSink.child().accept(this, context);
+            public Plan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, Object context) {
+                return unboundResultSink.child().accept(this, context);
             }
-        }, null);
+        }, null), PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         return new MTMVCache(mvPlan, originPlan);
     }
 }
