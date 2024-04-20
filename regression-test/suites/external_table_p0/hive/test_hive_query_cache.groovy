@@ -71,6 +71,7 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
         sql """switch ${catalog_name}"""
 
         sql """set enable_fallback_to_original_planner=false"""
+        sql """set enable_sql_cache=false;"""
 
         def tpch_1sf_q09 = """
             select
