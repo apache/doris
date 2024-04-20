@@ -1500,6 +1500,14 @@ public class Config extends ConfigBase {
     public static int max_dynamic_partition_num = 500;
 
     /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+     @ConfField(mutable = true, masterOnly = true)
+     public static String multi_partition_name_prefix = "p_";
+
+    /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
      * to avoid creating too many partitions at one time.
      * The number is determined by "start" and "end" in the multi partition parameters.
