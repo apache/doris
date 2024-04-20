@@ -613,9 +613,9 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                 _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
                 _pending_batches_num++;
                 VLOG_DEBUG << "VOlapTableSink:" << _parent << " VNodeChannel:" << this
-                       << " pending_batches_bytes:" << _pending_batches_bytes
-                       << " jobid:" << std::to_string(_state->load_job_id())
-                       << " loadinfo:" << _load_info;
+                           << " pending_batches_bytes:" << _pending_batches_bytes
+                           << " jobid:" << std::to_string(_state->load_job_id())
+                           << " loadinfo:" << _load_info;
             }
             _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
             _cur_add_block_request.clear_tablet_ids();
