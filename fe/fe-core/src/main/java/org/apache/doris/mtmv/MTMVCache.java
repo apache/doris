@@ -24,7 +24,9 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * The cache for materialized view cache
@@ -67,21 +71,20 @@ public class MTMVCache {
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
-        // Eliminate unbound result sink because sink operator is useless in query rewrite by materialized view
+        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
-        Plan mvPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-        // Remove result sink
-        mvPlan = mvPlan.accept(new DefaultPlanRewriter<Object>() {
+        Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
             public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
                 return logicalResultSink.child().accept(this, context);
             }
         }, null);
-        // Optimize by rules
+        // Optimize by rules to remove top sort
         CascadesContext cascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
                 PhysicalProperties.ANY);
         mvPlan = MaterializedViewUtils.rewriteByRules(cascadesContext, context -> {
-            Rewriter.getWholeTreeRewriter(context).execute();
+            Rewriter.getCteChildrenRewriter(cascadesContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new)));
             return context.getRewritePlan();
         }, mvPlan, mvPlan);
         return new MTMVCache(mvPlan, originPlan);
