@@ -124,7 +124,7 @@ public class PrivPredicate {
         this.op = op;
     }
 
-    private static PrivPredicate of(PrivBitSet privs, Operator op) {
+    public static PrivPredicate of(PrivBitSet privs, Operator op) {
         final PrivPredicate predicate = new PrivPredicate(privs, op);
         return predicate;
     }
