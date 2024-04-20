@@ -1417,7 +1417,7 @@ public class Config extends ConfigBase {
      * The default prefix is "p_".
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static String multi_partition_name_prefix = "p_";
+    public static String multi_partition_name_prefix = "p";
 
     /**
      * Control the max num of backup/restore job per db
