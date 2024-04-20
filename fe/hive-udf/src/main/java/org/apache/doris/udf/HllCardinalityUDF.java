@@ -30,8 +30,12 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 
 import java.io.IOException;
 
-@Description(name = "hll_cardinality", value = "a _FUNC_ b - Returns the number of distinct integers"
-        + " added to the hll (e.g., number of bits set)")
+/**
+ * HllCardinality.
+ *
+ */
+@Description(name = "hll_cardinality", value = "a _FUNC_ b - Returns the number of distinct elements"
+        + " added to the hll")
 public class HllCardinalityUDF extends GenericUDF {
     private transient BinaryObjectInspector inputOI;
 

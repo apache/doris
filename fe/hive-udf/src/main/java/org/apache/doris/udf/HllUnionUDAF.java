@@ -34,7 +34,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import java.io.IOException;
 
 /**
- * hll_union.
+ * HllUnion.
  *
  */
 @Description(name = "hll_union", value = "_FUNC_(expr) - Calculate the grouped hll"
