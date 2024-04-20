@@ -98,8 +98,9 @@ Status HdfsFileWriter::close() {
         }
 
         if (ret != 0) {
-            return Status::InternalError("failed to sync hdfs file. fs_name={} path={} : {}",
-                                         _fs_name, _path.native(), hdfs_error());
+            return Status::InternalError(
+                    "failed to sync hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
+                    _path.native(), hdfs_error(), bytes_appended());
         }
     }
 
@@ -112,8 +113,9 @@ Status HdfsFileWriter::close() {
     _hdfs_file = nullptr;
     if (ret != 0) {
         return Status::InternalError(
-                "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error());
+                "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
+                BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
+                bytes_appended());
     }
     hdfs_file_created_total << 1;
     return Status::OK();
@@ -185,8 +187,9 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
                     hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size());
         }
         if (written_bytes < 0) {
-            return Status::InternalError("write hdfs failed. fs_name: {}, path: {}, error: {}",
-                                         _fs_name, _path.native(), hdfs_error());
+            return Status::InternalError(
+                    "write hdfs failed. fs_name: {}, path: {}, error: {}, file_size={}", _fs_name,
+                    _path.native(), hdfs_error(), bytes_appended());
         }
         hdfs_bytes_written_total << written_bytes;
         content.remove_prefix(written_bytes);
@@ -245,7 +248,8 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
 // Call this method when there is no more data to write.
 Status HdfsFileWriter::finalize() {
     if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}", _path.native());
+        return Status::InternalError("finalize closed file: {}, file_size={}", _path.native(),
+                                     bytes_appended());
     }
     if (_batch_buffer.size() != 0) {
         RETURN_IF_ERROR(_flush_buffer());
@@ -254,8 +258,9 @@ Status HdfsFileWriter::finalize() {
     // Flush buffered data to HDFS without waiting for HDFS response
     int ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
     if (ret != 0) {
-        return Status::InternalError("failed to flush hdfs file. fs_name={} path={} : {}", _fs_name,
-                                     _path.native(), hdfs_error());
+        return Status::InternalError(
+                "failed to flush hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
+                _path.native(), hdfs_error(), bytes_appended());
     }
 
     return Status::OK();
