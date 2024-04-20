@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,8 +36,8 @@ public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRu
 
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(
-                logicalJoin(any(), any()).thenApplyMultiNoThrow(ctx -> {
+        return ImmutableList.of(logicalJoin(any().when(LogicalPlan.class::isInstance),
+                any().when(LogicalPlan.class::isInstance)).thenApplyMultiNoThrow(ctx -> {
                     LogicalJoin<Plan, Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN));
