@@ -180,7 +180,8 @@ public class CacheHotspotManagerUtils {
 
     private static void execCreateDatabase() throws Exception {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                new DbName(null, ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME)),
+                new DbName(null,
+                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME)),
                 null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
