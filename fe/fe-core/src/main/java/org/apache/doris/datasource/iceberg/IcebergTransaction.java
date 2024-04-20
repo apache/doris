@@ -133,10 +133,6 @@ public class IcebergTransaction implements Transaction {
 
     }
 
-    public long getUpdateCnt() {
-        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
-    }
-
     public static class CommitTaskData {
         private final String path;
         private final long fileSizeInBytes;
