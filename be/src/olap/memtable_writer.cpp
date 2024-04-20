@@ -151,7 +151,12 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    // In order to avoid repeated ATTACH, use SWITCH here. have two calling paths:
+    // 1. call by local, from `VTabletWriterV2::_write_memtable`, has been ATTACH Load memory tracker
+    // into thread context, ATTACH cannot be repeated here.
+    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`, no ATTACH because LoadChannelMgr
+    // not know Load context.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
