@@ -500,6 +500,9 @@ struct TReportExecStatusParams {
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
   27: optional TQueryProfile query_profile
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
 }
 
 struct TFeResult {
