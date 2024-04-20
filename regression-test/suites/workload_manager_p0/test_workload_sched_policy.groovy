@@ -32,7 +32,7 @@ suite("test_workload_sched_policy") {
     // 2 create set policy
     sql "create workload schedule policy set_action_policy " +
             "conditions(username='root') " +
-            "actions(set_session_variable 'workload_group=normal');"
+            "actions(set_session_variable 'workload_group=normal') properties('enabled'='false');"
 
     // 3 create policy run in fe
     sql "create workload schedule policy fe_policy " +
@@ -52,7 +52,7 @@ suite("test_workload_sched_policy") {
             "'priority'='10' " +
             ");"
 
-    qt_select_policy_tvf "select name,condition,action,priority,enabled,version from workload_schedule_policy() where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
+    qt_select_policy_tvf "select name,condition,action,priority,enabled,version from information_schema.workload_schedule_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test_alter
     sql "alter workload schedule policy fe_policy properties('priority'='2', 'enabled'='false');"
@@ -112,7 +112,7 @@ suite("test_workload_sched_policy") {
     sql "drop workload schedule policy fe_policy;"
     sql "drop workload schedule policy be_policy;"
 
-    qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from workload_schedule_policy() where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
+    qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from information_schema.workload_schedule_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test workload schedule policy
     sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '500');"
