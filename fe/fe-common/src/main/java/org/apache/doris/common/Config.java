@@ -2684,7 +2684,7 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = true;
+    public static boolean cloud_preheating_enabled = false;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
