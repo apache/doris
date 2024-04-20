@@ -104,7 +104,7 @@ suite("runtime_filter") {
     """
     //do not push rf inside recursive ctes
     // rule OR_EXPANSION genereates recursive ctes
-    qt_rqg """
+    order_qt_rqg """
     SELECT
         *
     FROM
