@@ -247,9 +247,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
-    // only support nereids
-    if (local_state._shared_state->empty_right_table_need_probe_dispose &&
-        !Base::_projections.empty()) {
+    if (local_state._shared_state->empty_right_table_need_probe_dispose) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         // we could get the result is probe table + null-column(if need output)
         // If we use a short-circuit strategy, should return block directly by add additional null data.
@@ -257,6 +255,12 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         if (local_state._probe_eos && block_rows == 0) {
             *eos = local_state._probe_eos;
             return Status::OK();
+        }
+
+        vectorized::Block temp_block;
+        //get probe side output column
+        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+            temp_block.insert(local_state._probe_block.get_by_position(i));
         }
 
         //create build side null column, if need output
@@ -269,8 +273,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
-            local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),
-                                             _right_table_column_names[i]});
+            temp_block.insert({std::move(nullable_column), make_nullable(type),
+                               _right_table_column_names[i]});
         }
         if (_is_outer_join) {
             reinterpret_cast<vectorized::ColumnUInt8*>(
@@ -286,7 +290,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
-                                                                 &local_state._probe_block, false));
+                                                                 &temp_block, false));
+        temp_block.clear();
         local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
         return Status::OK();
     }
