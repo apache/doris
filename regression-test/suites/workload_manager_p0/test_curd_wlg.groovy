@@ -301,21 +301,21 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
     Thread.sleep(10000)
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test insert into select will go to queue
     test {
-        sql "insert into ${table_name2} select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "insert into ${table_name2} select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test create table as select will go to queue
     test {
-        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
