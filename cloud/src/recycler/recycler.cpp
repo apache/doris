@@ -1864,7 +1864,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
             return -1;
         }
         if ((recycle_txn_pb.has_immediate() && recycle_txn_pb.immediate()) ||
-            (recycle_txn_pb.creation_time() + config::label_keep_max_second <= current_time)) {
+            (recycle_txn_pb.creation_time() + config::label_keep_max_second * 1000L <=
+             current_time)) {
             LOG_INFO("found recycle txn").tag("key", hex(k));
             num_expired++;
         } else {
