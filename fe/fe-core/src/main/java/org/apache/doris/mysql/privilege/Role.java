@@ -424,8 +424,8 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
         PrivBitSet savedPrivs = PrivBitSet.of();
-        // Workload groups do not support global usage_priv, so only global admin_priv and usage_priv are checked.
-        if (checkGlobalInternal(PrivPredicate.ADMIN, savedPrivs)
+        // usage priv not in global, but grant_priv may in global
+        if (checkGlobalInternal(wanted, savedPrivs)
                 || checkWorkloadGroupInternal(workloadGroupName, wanted, savedPrivs)) {
             return true;
         }
@@ -522,18 +522,7 @@ public class Role implements Writable, GsonPostProcessable {
         if (privs.isEmpty()) {
             return;
         }
-        // grant privs to user
-        switch (resourcePattern.getPrivLevel()) {
-            case GLOBAL:
-                grantGlobalPrivs(privs);
-                break;
-            case RESOURCE:
-                grantResourcePrivs(resourcePattern.getResourceName(), privs);
-                break;
-            default:
-                Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
-        }
-
+        grantResourcePrivs(resourcePattern.getResourceName(), privs);
     }
 
     private void grantPrivs(WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs) throws DdlException {
