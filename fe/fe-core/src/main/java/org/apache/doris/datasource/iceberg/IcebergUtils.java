@@ -53,6 +53,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -572,5 +573,15 @@ public class IcebergUtils {
             LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
         }
         return -1;
+    }
+
+    public static String getFileFormat(Table table) {
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) {
+            return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+        } else {
+            return snapshot.summary().getOrDefault(
+                    TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        }
     }
 }
