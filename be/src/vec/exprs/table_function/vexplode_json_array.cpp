@@ -29,6 +29,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -268,7 +269,7 @@ void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
     if (current_empty()) {
         column->insert_default();
     } else {
-        static_cast<void>(_parsed_data.insert_result_from_parsed_data(column, 1, _cur_offset));
+        static_cast<void>(get_value(column, 1));
     }
 }
 
@@ -282,7 +283,7 @@ int VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column, int max_
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
             RETURN_IF_ERROR(
-                    _parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset));
+                    _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset));
 
             auto* nullmap_column =
                     assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
