@@ -42,6 +42,8 @@ std::shared_ptr<TxnKv> txn_kv;
 
 void init_txn_kv() {
     config::fdb_cluster_file_path = "fdb.cluster";
+    // UT may be run without fdb, it will take unnecessary time with the default value
+    config::fdb_txn_timeout_ms = 500;
     txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     int ret = txn_kv->init();
