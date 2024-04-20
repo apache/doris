@@ -75,7 +75,8 @@ private:
     std::vector<JobMeta> _finish_job;
     std::thread _download_thread;
     bool _closed {false};
-    CloudStorageEngine& _engine;
+    // the attribute for compile in ut
+    [[maybe_unused]] CloudStorageEngine& _engine;
 };
 
 } // namespace doris
