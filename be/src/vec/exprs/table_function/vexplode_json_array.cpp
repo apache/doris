@@ -93,10 +93,10 @@ int ParsedData::set_output(rapidjson::Document& document) {
         break;
     }
     case ExplodeJsonArrayType::STRING: {
-        int32_t wbytes = 0;
         _data_string_ref.clear();
         _backup_string.clear();
         _values_null_flag.clear();
+        int32_t wbytes = 0;
         for (auto& v : document.GetArray()) {
             switch (v.GetType()) {
             case rapidjson::Type::kStringType: {
@@ -107,7 +107,7 @@ int ParsedData::set_output(rapidjson::Document& document) {
                 // Because the address of the string stored in `_backup_string` may
                 // change each time `emplace_back()` is called.
             }
-            case rapidjson::Type::kNumberType:
+            case rapidjson::Type::kNumberType: {
                 if (v.IsUint()) {
                     wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", v.GetUint());
                 } else if (v.IsInt()) {
@@ -125,6 +125,7 @@ int ParsedData::set_output(rapidjson::Document& document) {
                 // Because the address of the string stored in `_backup_string` may
                 // change each time `emplace_back()` is called.
                 break;
+            }
             case rapidjson::Type::kFalseType:
                 _backup_string.emplace_back(true_value);
                 _values_null_flag.emplace_back(false);
@@ -134,11 +135,11 @@ int ParsedData::set_output(rapidjson::Document& document) {
                 _values_null_flag.emplace_back(false);
                 break;
             case rapidjson::Type::kNullType:
-                _backup_string.emplace_back("", 0);
+                _backup_string.emplace_back();
                 _values_null_flag.emplace_back(true);
                 break;
             default:
-                _backup_string.emplace_back("", 0);
+                _backup_string.emplace_back();
                 _values_null_flag.emplace_back(true);
                 break;
             }
@@ -162,7 +163,7 @@ int ParsedData::set_output(rapidjson::Document& document) {
                 _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
                 _values_null_flag.emplace_back(false);
             } else {
-                _backup_string.emplace_back("", 0);
+                _backup_string.emplace_back();
                 _values_null_flag.emplace_back(true);
             }
         }

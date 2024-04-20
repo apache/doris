@@ -47,9 +47,9 @@ struct ParsedData {
     static std::string true_value;
     static std::string false_value;
 
+    std::vector<StringRef> _data_string_ref;
     std::vector<int64_t> _backup_int;
     std::vector<double> _backup_double;
-    std::vector<StringRef> _data_string_ref;
     std::vector<std::string> _backup_string;
     std::vector<UInt8> _values_null_flag;
     ExplodeJsonArrayType _data_type;
