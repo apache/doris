@@ -1414,7 +1414,7 @@ public class Config extends ConfigBase {
     /**
      * Use this parameter to set the partition name prefix for multi partition,
      * Only multi partition takes effect, not dynamic partitions.
-     * The default prefix is "p_".
+     * The default prefix is "p".
      */
     @ConfField(mutable = true, masterOnly = true)
     public static String multi_partition_name_prefix = "p";
