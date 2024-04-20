@@ -18,14 +18,17 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -66,12 +69,21 @@ public class MTMVCache {
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         // Eliminate unbound result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
-        Plan mvPlan = planner.plan((LogicalPlan) unboundMvPlan.accept(new DefaultPlanRewriter<Object>() {
+        Plan mvPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+        // Remove result sink
+        mvPlan = mvPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
-            public Plan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, Object context) {
-                return unboundResultSink.child().accept(this, context);
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
             }
-        }, null), PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        }, null);
+        // Optimize by rules
+        CascadesContext cascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                PhysicalProperties.ANY);
+        mvPlan = MaterializedViewUtils.rewriteByRules(cascadesContext, context -> {
+            Rewriter.getWholeTreeRewriter(context).execute();
+            return context.getRewritePlan();
+        }, mvPlan, mvPlan);
         return new MTMVCache(mvPlan, originPlan);
     }
 }
