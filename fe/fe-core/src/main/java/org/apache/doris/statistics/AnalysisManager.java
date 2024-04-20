@@ -669,7 +669,7 @@ public class AnalysisManager implements Writable {
                     }
                 }
                 tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(tableId, indexId, column);
+                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
             }
         }
         tableStats.updatedTime = 0;

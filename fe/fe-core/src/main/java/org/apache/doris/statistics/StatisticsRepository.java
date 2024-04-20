@@ -78,8 +78,7 @@ public class StatisticsRepository {
             + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, ${min}, ${max}, ${dataSize}, NOW())";
 
     private static final String DELETE_TABLE_STATISTICS_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + "${tblName}" + " WHERE ${condition} AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'"
-            + " AND `table_id` = '${tblId}'";
+            + "." + "${tblName}" + " WHERE ${condition} AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
 
     private static final String FETCH_RECENT_STATS_UPDATED_COL =
             "SELECT * FROM "

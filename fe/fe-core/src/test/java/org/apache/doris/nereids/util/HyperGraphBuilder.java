@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -199,11 +200,13 @@ public class HyperGraphBuilder {
             GroupExpression groupExpression = group.getLogicalExpression();
             if (groupExpression.getPlan() instanceof LogicalOlapScan) {
                 LogicalOlapScan scan = (LogicalOlapScan) groupExpression.getPlan();
+                OlapTable table = scan.getTable();
                 Statistics stats = injectRowcount((LogicalOlapScan) groupExpression.getPlan());
                 for (Expression expr : stats.columnStatistics().keySet()) {
                     SlotReference slot = (SlotReference) expr;
                     Env.getCurrentEnv().getStatisticsCache().putCache(
-                            new StatisticsCacheKey(scan.getTable().getId(), -1, slot.getName()),
+                            new StatisticsCacheKey(table.getDatabase().getCatalog().getId(),
+                                    table.getDatabase().getId(), table.getId(), -1, slot.getName()),
                             stats.columnStatistics().get(expr));
                 }
             }
