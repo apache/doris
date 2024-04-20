@@ -49,7 +49,8 @@ struct ParsedData {
 
     std::vector<int64_t> _backup_int;
     std::vector<double> _backup_double;
-    std::vector<StringRef> _backup_string;
+    std::vector<StringRef> _data_string_ref;
+    std::vector<std::string> _backup_string;
     std::vector<UInt8> _values_null_flag;
     ExplodeJsonArrayType _data_type;
     char tmp_buf[128] = {0};
@@ -66,6 +67,7 @@ struct ParsedData {
         _backup_double.clear();
         _backup_string.clear();
         _values_null_flag.clear();
+        _data_string_ref.clear();
     }
 };
 
