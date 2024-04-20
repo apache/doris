@@ -246,9 +246,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionsQueryUsed =
                     calcUsedInvalidMvPartitions(rewrittenPlan, materializationContext, cascadesContext);
             // All partition used by query is valid
-            if (invalidPartitionsQueryUsed.isEmpty()) {
-                rewrittenPlan = normalizeExpressions(rewrittenPlan, queryPlan);
-            }
             if (!invalidPartitionsQueryUsed.isEmpty() && !cascadesContext.getConnectContext().getSessionVariable()
                     .isEnableMaterializedViewUnionRewrite()) {
                 materializationContext.recordFailReason(queryStructInfo,
@@ -260,6 +257,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         .collect(Collectors.toSet())));
                 continue;
             }
+            boolean partitionValid = invalidPartitionsQueryUsed.isEmpty();
             if (checkCanUnionRewrite(invalidPartitionsQueryUsed, queryPlan, cascadesContext)) {
                 // construct filter on originalPlan
                 Map<TableIf, Set<Expression>> filterOnOriginPlan;
@@ -300,7 +298,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         ImmutableList.of(),
                         false,
                         children);
+                partitionValid = true;
             }
+            if (!partitionValid) {
+                materializationContext.recordFailReason(queryStructInfo,
+                        "materialized view partition is invalid union fail",
+                        () -> String.format("invalidPartitionsQueryUsed =  %s,\n query plan = %s",
+                                invalidPartitionsQueryUsed, queryPlan.treeString()));
+                continue;
+            }
+            rewrittenPlan = normalizeExpressions(rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
@@ -338,7 +345,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             entry.getValue().forEach(invalidPartition -> mvInvalidPartitionKeyDescSet.add(
                     entry.getKey().value().getItem(invalidPartition.getId()).toPartitionKeyDesc()));
         }
-        return mvInvalidPartitionKeyDescSet.containsAll(partitionKeyDescSetQueryUsed);
+        return !mvInvalidPartitionKeyDescSet.containsAll(partitionKeyDescSetQueryUsed);
     }
 
     // Normalize expression such as nullable property and output slot id
