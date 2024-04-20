@@ -95,7 +95,6 @@ public class S3URI {
      *
      * @param location fully qualified URI
      */
-
     public static S3URI create(String location) throws UserException {
         return create(location, false, false);
     }
@@ -108,7 +107,6 @@ public class S3URI {
             throws UserException {
         return new S3URI(location, isPathStyle, forceParsingByStandardUri);
     }
-
 
     private S3URI(String location, boolean isPathStyle, boolean forceParsingByStandardUri) throws UserException {
         if (Strings.isNullOrEmpty(location)) {

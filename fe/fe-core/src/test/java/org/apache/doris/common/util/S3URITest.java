@@ -128,6 +128,32 @@ public class S3URITest {
     }
 
     @Test
+    public void testCOSVirtualHostStyle() throws UserException {
+        String p1 = "https://my-bucket.cos.ap-beijing.myqcloud.com/resources/doc.txt";
+        boolean isPathStyle = false;
+        boolean forceParsingStandardUri = false;
+        S3URI uri1 = S3URI.create(p1, isPathStyle, forceParsingStandardUri);
+
+        Assert.assertEquals("my-bucket", uri1.getBucket());
+        Assert.assertEquals("resources/doc.txt", uri1.getKey());
+        Assert.assertEquals("cos.ap-beijing.myqcloud.com", uri1.getEndpoint().get());
+        Assert.assertEquals("ap-beijing", uri1.getRegion().get());
+    }
+
+    @Test
+    public void testOBSVirtualHostStyle() throws UserException {
+        String p1 = "https://my-bucket.obs.cn-north-4.myhuaweicloud.com/test_obs/000000_0";
+        boolean isPathStyle = false;
+        boolean forceParsingStandardUri = false;
+        S3URI uri1 = S3URI.create(p1, isPathStyle, forceParsingStandardUri);
+
+        Assert.assertEquals("my-bucket", uri1.getBucket());
+        Assert.assertEquals("test_obs/000000_0", uri1.getKey());
+        Assert.assertEquals("obs.cn-north-4.myhuaweicloud.com", uri1.getEndpoint().get());
+        Assert.assertEquals("cn-north-4", uri1.getRegion().get());
+    }
+
+    @Test
     public void testEncodedString() throws UserException {
         String p1 = "s3://bucket/path%20to%20file?txt=hello%20world&partNumber=77&partNumber=88";
         boolean isPathStyle = false;
