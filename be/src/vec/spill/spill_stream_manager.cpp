@@ -208,9 +208,15 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
 }
 
 void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    auto gc_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
-                              std::filesystem::path(stream->get_spill_dir()).filename().string());
-    (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
+    auto query_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                 print_id(stream->query_id()));
+    auto st = io::global_local_filesystem()->create_directory(query_dir);
+    if (st.ok()) {
+        auto gc_dir =
+                fmt::format("{}/{}", query_dir,
+                            std::filesystem::path(stream->get_spill_dir()).filename().string());
+        (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
+    }
 }
 
 void SpillStreamManager::gc(int64_t max_file_count) {
@@ -267,18 +273,20 @@ void SpillStreamManager::gc(int64_t max_file_count) {
     }
 }
 
-void SpillStreamManager::cleanup_query(TUniqueId query_id) {
-    for (auto& [_, store] : _spill_store_map) {
-        std::string query_spill_dir =
-                fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
-        bool exists = false;
-        auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
-        if (status.ok() && exists) {
-            auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
-                                      print_id(query_id));
-            (void)io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
+void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
+    (void)get_async_task_thread_pool()->submit_func([this, query_id] {
+        for (auto& [_, store] : _spill_store_map) {
+            std::string query_spill_dir =
+                    fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
+            bool exists = false;
+            auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
+            if (status.ok() && exists) {
+                auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
+                                          print_id(query_id));
+                (void)io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
+            }
         }
-    }
+    });
 }
 
 SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,

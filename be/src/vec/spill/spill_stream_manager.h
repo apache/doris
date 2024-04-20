@@ -108,7 +108,7 @@ public:
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
-    void cleanup_query(TUniqueId query_id);
+    void async_cleanup_query(TUniqueId query_id);
 
     void gc(int64_t max_file_count);
 

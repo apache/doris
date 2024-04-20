@@ -168,7 +168,7 @@ QueryContext::~QueryContext() {
     file_scan_range_params_map.clear();
     obj_pool.clear();
 
-    _exec_env->spill_stream_mgr()->cleanup_query(_query_id);
+    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
 
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
