@@ -81,7 +81,7 @@ class Suite implements GroovyInterceptable {
     final Logger logger = LoggerFactory.getLogger(this.class)
 
     // set this in suite to determine which hive docker to use
-    String hivePrefix
+    String hivePrefix = "hive2"
 
     final List<Closure> successCallbacks = new Vector<>()
     final List<Closure> failCallbacks = new Vector<>()

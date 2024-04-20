@@ -17,12 +17,7 @@
 
 suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-      if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
-        return;
-    }
-
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def file_formats = ["parquet", "orc"]
 
         def test_db = { String catalog_name ->
@@ -689,9 +684,9 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
 
         try {
-            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_ddl"
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+            String catalog_name = "test_hive_ddl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
