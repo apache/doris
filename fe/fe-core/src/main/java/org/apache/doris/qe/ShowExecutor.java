@@ -2560,8 +2560,9 @@ public class ShowExecutor {
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            TableIf tableIf) throws AnalysisException {
-        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+            TableIf tableIf) {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(
+                tableIf.getDatabase().getCatalog().getId(), tableIf.getDatabase().getId(), tableIf.getId());
         // row[4] is index id, row[5] is column name.
         for (ResultRow row : resultRows) {
             String indexName = tableIf.getName();
@@ -2606,7 +2607,9 @@ public class ShowExecutor {
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
-                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                            StatisticsRepository.queryColumnStatisticsByName(
+                                    tableIf.getDatabase().getCatalog().getId(),
+                                    tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
