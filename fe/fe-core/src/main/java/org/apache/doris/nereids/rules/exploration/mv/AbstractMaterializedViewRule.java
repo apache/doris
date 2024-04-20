@@ -38,10 +38,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.QueryScanPartiti
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
-import org.apache.doris.nereids.trees.copier.DeepCopierContext;
-import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -56,10 +53,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -69,7 +64,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -82,7 +76,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -244,7 +237,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
-            rewrittenPlan = rewriteByRules(cascadesContext,
+            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     context -> {
                         Rewriter.getWholeTreeRewriter(context).execute();
                         return context.getRewritePlan();
@@ -267,34 +260,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         .collect(Collectors.toSet())));
                 continue;
             }
-            if (!invalidPartitionsQueryUsed.isEmpty() && cascadesContext.getConnectContext().getSessionVariable()
-                    .isEnableMaterializedViewUnionRewrite()) {
-                // if mv can not offer valid partition data for query, bail out union rewrite
-                Map<Long, Set<PartitionItem>> mvRelatedTablePartitionMap = new LinkedHashMap<>();
-                invalidPartitionsQueryUsed.keySet().forEach(invalidPartition ->
-                        mvRelatedTablePartitionMap.put(invalidPartition.key().getRelatedTableInfo().getTableId(),
-                                new HashSet<>()));
-                queryPlan.accept(new QueryScanPartitionsCollector(), mvRelatedTablePartitionMap);
-                Set<PartitionKeyDesc> partitionKeyDescSetQueryUsed = mvRelatedTablePartitionMap.values().stream()
-                        .flatMap(Collection::stream)
-                        .map(PartitionItem::toPartitionKeyDesc)
-                        .collect(Collectors.toSet());
-                Set<PartitionKeyDesc> mvInvalidPartitionKeyDescSet = new HashSet<>();
-                for (Map.Entry<Pair<MTMVPartitionInfo, PartitionInfo>, Collection<Partition>> entry :
-                        invalidPartitionsQueryUsed.asMap().entrySet()) {
-                    entry.getValue().forEach(invalidPartition -> mvInvalidPartitionKeyDescSet.add(
-                            entry.getKey().value().getItem(invalidPartition.getId()).toPartitionKeyDesc()));
-                }
-                if (mvInvalidPartitionKeyDescSet.containsAll(partitionKeyDescSetQueryUsed)) {
-                    // mv can not offer data for query, bail out
-                    continue;
-                }
+            if (checkCanUnionRewrite(invalidPartitionsQueryUsed, queryPlan, cascadesContext)) {
                 // construct filter on originalPlan
-                Map<TableIf, Set<Expression>> invalidPartitionFilterMap;
+                Map<TableIf, Set<Expression>> filterOnOriginPlan;
                 try {
-                    invalidPartitionFilterMap = Predicates.constructFilterByPartitions(invalidPartitionsQueryUsed,
+                    filterOnOriginPlan = Predicates.constructFilterByPartitions(invalidPartitionsQueryUsed,
                             queryToViewSlotMapping);
-                    if (invalidPartitionFilterMap.isEmpty()) {
+                    if (filterOnOriginPlan.isEmpty()) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "construct invalid partition filter on query fail",
                                 () -> String.format("the invalid partitions used by query is %s, query plan is %s",
@@ -312,23 +284,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                     queryStructInfo.getOriginalPlan().treeString()));
                     continue;
                 }
-                // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-                Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), invalidPartitionFilterMap);
-                // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
-                // exec by mistake
-                queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
-                        (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
-                // rbo rewrite after adding filter on origin plan
-                queryPlanWithUnionFilter = rewriteByRules(cascadesContext, context -> {
-                    Rewriter.getWholeTreeRewriter(context).execute();
-                    return context.getRewritePlan();
-                }, queryPlanWithUnionFilter, queryPlan);
                 // For rewrittenPlan which contains materialized view should remove invalid partition ids
                 List<Plan> children = Lists.newArrayList(
                         rewrittenPlan.accept(new InvalidPartitionRemover(), Pair.of(materializationContext.getMTMV(),
                                 invalidPartitionsQueryUsed.values().stream()
                                         .map(Partition::getId).collect(Collectors.toSet()))),
-                        queryPlanWithUnionFilter);
+                        StructInfo.addFilterOnTableScan(queryPlan, filterOnOriginPlan, cascadesContext));
                 // Union query materialized view and source table
                 rewrittenPlan = new LogicalUnion(Qualifier.ALL,
                         queryPlan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
@@ -355,41 +316,29 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewriteResults;
     }
 
-    /**
-     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
-     * rules
-     */
-    protected Plan rewriteByRules(
-            CascadesContext cascadesContext,
-            Function<CascadesContext, Plan> planRewriter,
-            Plan rewrittenPlan, Plan originPlan) {
-        List<Slot> originOutputs = originPlan.getOutput();
-        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
-            return null;
+    private boolean checkCanUnionRewrite(Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition>
+            invalidPartitionsQueryUsed, Plan queryPlan, CascadesContext cascadesContext) {
+        if (invalidPartitionsQueryUsed.isEmpty()
+                || !cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewUnionRewrite()) {
+            return false;
         }
-        // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
-        // origin plan slot order
-        List<ExprId> originalRewrittenPlanExprIds =
-                rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
-        // run rbo job on mv rewritten plan
-        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
-                cascadesContext.getStatementContext(), rewrittenPlan,
-                cascadesContext.getCurrentJobContext().getRequiredProperties());
-        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
-        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
-        for (Slot slot : rewrittenPlan.getOutput()) {
-            exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
+        // if mv can not offer valid partition data for query, bail out union rewrite
+        Map<Long, Set<PartitionItem>> mvRelatedTablePartitionMap = new LinkedHashMap<>();
+        invalidPartitionsQueryUsed.keySet().forEach(invalidPartition ->
+                mvRelatedTablePartitionMap.put(invalidPartition.key().getRelatedTableInfo().getTableId(),
+                        new HashSet<>()));
+        queryPlan.accept(new QueryScanPartitionsCollector(), mvRelatedTablePartitionMap);
+        Set<PartitionKeyDesc> partitionKeyDescSetQueryUsed = mvRelatedTablePartitionMap.values().stream()
+                .flatMap(Collection::stream)
+                .map(PartitionItem::toPartitionKeyDesc)
+                .collect(Collectors.toSet());
+        Set<PartitionKeyDesc> mvInvalidPartitionKeyDescSet = new HashSet<>();
+        for (Map.Entry<Pair<MTMVPartitionInfo, PartitionInfo>, Collection<Partition>> entry :
+                invalidPartitionsQueryUsed.asMap().entrySet()) {
+            entry.getValue().forEach(invalidPartition -> mvInvalidPartitionKeyDescSet.add(
+                    entry.getKey().value().getItem(invalidPartition.getId()).toPartitionKeyDesc()));
         }
-        List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
-                .map(Slot::getExprId).collect(Collectors.toList());
-        // If project order doesn't change, return rewrittenPlan directly
-        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds)) {
-            return rewrittenPlan;
-        }
-        // If project order change, return rewrittenPlan with reordered projects
-        return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
-                .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
-                rewrittenPlan);
+        return mvInvalidPartitionKeyDescSet.containsAll(partitionKeyDescSetQueryUsed);
     }
 
     // Normalize expression such as nullable property and output slot id
