@@ -109,8 +109,8 @@ private:
 
 class ReportWorker {
 public:
-    ReportWorker(std::string name, const TMasterInfo& master_info, int report_interval_s,
-                 std::function<void()> callback);
+    ReportWorker(std::string name, std::string abbrev_name, const TMasterInfo& master_info,
+                 int report_interval_s, std::function<void()> callback);
 
     ~ReportWorker();
 
@@ -123,6 +123,7 @@ public:
 
 private:
     std::string _name;
+    std::string _abbrev_name;
     scoped_refptr<Thread> _thread;
 
     std::mutex _mtx;

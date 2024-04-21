@@ -490,6 +490,7 @@ TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
                                std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
+                      .set_abbrev_name(name)
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
                       .build(&_thread_pool);
@@ -525,6 +526,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
+                      .set_abbrev_name(fmt::format("NP.{}", name))
                       .set_min_threads(normal_worker_count)
                       .set_max_threads(normal_worker_count)
                       .build(&_normal_pool);
@@ -534,6 +536,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
     CHECK(st.ok()) << name << ": " << st;
 
     st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
+                 .set_abbrev_name(fmt::format("HP.{}", name))
                  .set_min_threads(high_prior_worker_conut)
                  .set_max_threads(high_prior_worker_conut)
                  .build(&_high_prior_pool);
@@ -641,9 +644,10 @@ void PriorTaskWorkerPool::high_prior_loop() {
     }
 }
 
-ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int report_interval_s,
+ReportWorker::ReportWorker(std::string name, std::string abbrev_name,
+                           const TMasterInfo& master_info, int report_interval_s,
                            std::function<void()> callback)
-        : _name(std::move(name)) {
+        : _name(std::move(name)), _abbrev_name(std::move(name)) {
     auto report_loop = [this, &master_info, report_interval_s, callback = std::move(callback)] {
         auto& engine = ExecEnv::GetInstance()->storage_engine();
         engine.register_report_listener(this);
@@ -674,7 +678,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
         engine.deregister_report_listener(this);
     };
 
-    auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
+    auto st = Thread::create("ReportWorker", _abbrev_name, report_loop, &_thread);
     CHECK(st.ok()) << _name << ": " << st;
 }
 
@@ -1684,7 +1688,7 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
 }
 
 PublishVersionWorkerPool::PublishVersionWorkerPool(StorageEngine& engine)
-        : TaskWorkerPool("PUBLISH_VERSION", config::publish_version_worker_count,
+        : TaskWorkerPool("PUB_VER", config::publish_version_worker_count,
                          [this](const TAgentTaskRequest& task) { publish_version_callback(task); }),
           _engine(engine) {}
 

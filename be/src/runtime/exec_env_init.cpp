@@ -175,22 +175,26 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     TimezoneUtils::load_timezones_to_cache();
 
     static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                              .set_abbrev_name("SendBatch")
                               .set_min_threads(config::send_batch_thread_pool_thread_num)
                               .set_max_threads(config::send_batch_thread_pool_thread_num)
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                              .set_abbrev_name("BuffReadPref")
                               .set_min_threads(16)
                               .set_max_threads(64)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
+                              .set_abbrev_name("SendTBStats")
                               .set_min_threads(8)
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
+                              .set_abbrev_name("S3FileUpload")
                               .set_min_threads(16)
                               .set_max_threads(64)
                               .build(&_s3_file_upload_thread_pool));
@@ -199,17 +203,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
     static_cast<void>(ThreadPoolBuilder("SendReportThreadPool")
+                              .set_abbrev_name("SendRept")
                               .set_min_threads(config::fragment_pool_thread_num_min)
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_send_report_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("JoinNodeThreadPool")
+                              .set_abbrev_name("JoinNode")
                               .set_min_threads(config::fragment_pool_thread_num_min)
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
     static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+                              .set_abbrev_name("LazyRelMem")
                               .set_min_threads(1)
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
@@ -323,14 +330,14 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler =
-            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
-    _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
+    _without_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGRP");
+    _without_group_task_scheduler =
+            new pipeline::TaskScheduler(this, _without_group_block_scheduler, t_queue,
+                                        "WithoutGroupTaskSchePool", "PipeNoGRP", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
     RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
+    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGlobal");
     RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();

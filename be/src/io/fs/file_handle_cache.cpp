@@ -135,8 +135,8 @@ FileHandleCache::~FileHandleCache() {
 }
 
 Status FileHandleCache::init() {
-    return Thread::create("file-handle-cache", "File Handle Timeout",
-                          &FileHandleCache::_evict_handles_loop, this, &_eviction_thread);
+    return Thread::create("file-handle-cache", "file_hdl_to", &FileHandleCache::_evict_handles_loop,
+                          this, &_eviction_thread);
 }
 
 Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fname, int64_t mtime,

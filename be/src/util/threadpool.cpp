@@ -53,10 +53,16 @@ private:
 
 ThreadPoolBuilder::ThreadPoolBuilder(string name)
         : _name(std::move(name)),
+          _abbrev_name(_name),
           _min_threads(0),
           _max_threads(std::thread::hardware_concurrency()),
           _max_queue_size(std::numeric_limits<int>::max()),
           _idle_timeout(std::chrono::milliseconds(500)) {}
+
+ThreadPoolBuilder& ThreadPoolBuilder::set_abbrev_name(std::string_view name) {
+    _abbrev_name = std::move(name);
+    return *this;
+}
 
 ThreadPoolBuilder& ThreadPoolBuilder::set_min_threads(int min_threads) {
     CHECK_GE(min_threads, 0);
@@ -236,6 +242,7 @@ bool ThreadPoolToken::need_dispatch() {
 
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
         : _name(builder._name),
+          _abbrev_name(builder._abbrev_name),
           _min_threads(builder._min_threads),
           _max_threads(builder._max_threads),
           _max_queue_size(builder._max_queue_size),
@@ -608,7 +615,7 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
-    return Thread::create("thread pool", strings::Substitute("$0 [worker]", _name),
+    return Thread::create("thread pool", strings::Substitute("TP-$0", _abbrev_name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
 

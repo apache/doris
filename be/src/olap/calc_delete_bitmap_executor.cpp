@@ -66,6 +66,7 @@ Status CalcDeleteBitmapToken::wait() {
 
 void CalcDeleteBitmapExecutor::init() {
     static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+                              .set_abbrev_name("TbltCalcDel")
                               .set_min_threads(1)
                               .set_max_threads(config::calc_delete_bitmap_max_thread)
                               .build(&_thread_pool));

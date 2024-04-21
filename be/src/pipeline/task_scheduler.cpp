@@ -54,7 +54,8 @@ BlockedTaskScheduler::BlockedTaskScheduler(std::string name)
 Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
-            "BlockedTaskScheduler", _name, [this]() { this->_schedule(); }, &_thread));
+            "BlockedTaskScheduler", strings::Substitute("BTS-$0", _name),
+            [this]() { this->_schedule(); }, &_thread));
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -207,6 +208,7 @@ Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
+                            .set_abbrev_name(_abbrev_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
                             .set_max_queue_size(0)

@@ -120,10 +120,10 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
 
     // clang-format off
     _workers[TTaskType::ALTER_INVERTED_INDEX] = std::make_unique<TaskWorkerPool>(
-        "ALTER_INVERTED_INDEX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_inverted_index_callback(engine, task); });
+        "ALT_INV_IDX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_inverted_index_callback(engine, task); });
 
     _workers[TTaskType::CHECK_CONSISTENCY] = std::make_unique<TaskWorkerPool>(
-        "CHECK_CONSISTENCY", config::check_consistency_worker_count, [&engine](auto&& task) { return check_consistency_callback(engine, task); });
+        "CHK_CONSIST", config::check_consistency_worker_count, [&engine](auto&& task) { return check_consistency_callback(engine, task); });
 
     _workers[TTaskType::UPLOAD] = std::make_unique<TaskWorkerPool>(
             "UPLOAD", config::upload_worker_count, [&engine, exec_env](auto&& task) { return upload_callback(engine, exec_env, task); });
@@ -132,22 +132,22 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "DOWNLOAD", config::download_worker_count, [&engine, exec_env](auto&& task) { return download_callback(engine, exec_env, task); });
 
     _workers[TTaskType::MAKE_SNAPSHOT] = std::make_unique<TaskWorkerPool>(
-            "MAKE_SNAPSHOT", config::make_snapshot_worker_count, [&engine](auto&& task) { return make_snapshot_callback(engine, task); });
+            "MAKE_SNAP", config::make_snapshot_worker_count, [&engine](auto&& task) { return make_snapshot_callback(engine, task); });
 
     _workers[TTaskType::RELEASE_SNAPSHOT] = std::make_unique<TaskWorkerPool>(
-            "RELEASE_SNAPSHOT", config::release_snapshot_worker_count, [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
+            "RELEASE_SNAP", config::release_snapshot_worker_count, [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
 
     _workers[TTaskType::MOVE] = std::make_unique<TaskWorkerPool>(
             "MOVE", 1, [&engine, exec_env](auto&& task) { return move_dir_callback(engine, exec_env, task); });
 
     _workers[TTaskType::COMPACTION] = std::make_unique<TaskWorkerPool>(
-            "SUBMIT_TABLE_COMPACTION", 1, [&engine](auto&& task) { return submit_table_compaction_callback(engine, task); });
+            "SUB_TCOMPACT", 1, [&engine](auto&& task) { return submit_table_compaction_callback(engine, task); });
 
     _workers[TTaskType::PUSH_STORAGE_POLICY] = std::make_unique<TaskWorkerPool>(
-            "PUSH_STORAGE_POLICY", 1, [&engine](auto&& task) { return push_storage_policy_callback(engine, task); });
+            "PUSH_POLICY", 1, [&engine](auto&& task) { return push_storage_policy_callback(engine, task); });
 
     _workers[TTaskType::PUSH_COOLDOWN_CONF] = std::make_unique<TaskWorkerPool>(
-            "PUSH_COOLDOWN_CONF", 1, [&engine](auto&& task) { return push_cooldown_conf_callback(engine, task); });
+            "PUSH_CFG", 1, [&engine](auto&& task) { return push_cooldown_conf_callback(engine, task); });
 
     _workers[TTaskType::CREATE] = std::make_unique<TaskWorkerPool>(
             "CREATE_TABLE", config::create_tablet_worker_count, [&engine](auto&& task) { return create_tablet_callback(engine, task); });
@@ -158,56 +158,57 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::PUBLISH_VERSION] = std::make_unique<PublishVersionWorkerPool>(engine);
 
     _workers[TTaskType::CLEAR_TRANSACTION_TASK] = std::make_unique<TaskWorkerPool>(
-            "CLEAR_TRANSACTION_TASK", config::clear_transaction_task_worker_count, [&engine](auto&& task) { return clear_transaction_task_callback(engine, task); });
+            "CLEAR_TXN", config::clear_transaction_task_worker_count, [&engine](auto&& task) { return clear_transaction_task_callback(engine, task); });
 
     _workers[TTaskType::PUSH] = std::make_unique<PushTaskWorkerPool>(engine);
 
     _workers[TTaskType::UPDATE_TABLET_META_INFO] = std::make_unique<TaskWorkerPool>(
-            "UPDATE_TABLET_META_INFO", 1, [&engine](auto&& task) { return update_tablet_meta_callback(engine, task); });
+            "UPD_TABLETMT", 1, [&engine](auto&& task) { return update_tablet_meta_callback(engine, task); });
 
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
-            "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
+            "ALT_TABLET", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
 
     _workers[TTaskType::CLONE] = std::make_unique<TaskWorkerPool>(
             "CLONE", config::clone_worker_count, [&engine, &master_info = _master_info](auto&& task) { return clone_callback(engine, master_info, task); });
 
     _workers[TTaskType::STORAGE_MEDIUM_MIGRATE] = std::make_unique<TaskWorkerPool>(
-            "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
+            "STG_MED_MIGR", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
 
     _workers[TTaskType::GC_BINLOG] = std::make_unique<TaskWorkerPool>(
             "GC_BINLOG", 1, [&engine](auto&& task) { return gc_binlog_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
+            "REPORT_TASK", "RPT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+            "REPORT_DISK_STATE", "RPT_DSTATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
+            "REPORT_OLAP_TABLE", "RPT_TABLET", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
     // clang-format on
 }
 
 void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::PUSH] = std::make_unique<TaskWorkerPool>(
-            "PUSH", config::delete_worker_count,
+            "CLOUD_PUSH", config::delete_worker_count,
             [&engine](auto&& task) { cloud_push_callback(engine, task); });
     // TODO(plat1ko): SUBMIT_TABLE_COMPACTION worker
 
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
-            "ALTER_TABLE", config::alter_tablet_worker_count,
+            "ALT_TABLET", config::alter_tablet_worker_count,
             [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); });
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
-            "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
+            "CALC_DELMAP", config::calc_delete_bitmap_worker_count,
             [&engine](auto&& task) { return calc_delete_bimtap_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds,
+            "REPORT_TASK", "RPT_TASK", _master_info, config::report_task_interval_seconds,
             [&master_info = _master_info] { report_task_callback(master_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
+            "REPORT_DISK_STATE", "RPT_DSTATE", _master_info,
+            config::report_disk_state_interval_seconds,
             [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 }
 

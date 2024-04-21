@@ -392,39 +392,37 @@ void Daemon::wg_mem_used_refresh_thread() {
 void Daemon::start() {
     Status st;
     st = Thread::create(
-            "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
+            "Daemon", "tc_gc", [this]() { this->tcmalloc_gc_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+    st = Thread::create(
+            "Daemon", "mem_maint", [this]() { this->memory_maintenance_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
-            &_threads.emplace_back());
+            "Daemon", "mem_gc", [this]() { this->memory_gc_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "memory_gc_thread", [this]() { this->memory_gc_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memtable_memory_limiter_tracker_refresh_thread",
+            "Daemon", "memlim_tracker",
             [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
         st = Thread::create(
-                "Daemon", "calculate_metrics_thread",
-                [this]() { this->calculate_metrics_thread(); }, &_threads.emplace_back());
+                "Daemon", "calc_metrics", [this]() { this->calculate_metrics_thread(); },
+                &_threads.emplace_back());
         CHECK(st.ok()) << st;
     }
     st = Thread::create(
-            "Daemon", "je_purge_dirty_pages_thread",
-            [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
+            "Daemon", "je_purge_dirty", [this]() { this->je_purge_dirty_pages_thread(); },
+            &_threads.emplace_back());
     st = Thread::create(
-            "Daemon", "query_runtime_statistics_thread",
+            "Daemon", "query_rt_stats",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     st = Thread::create(
-            "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
+            "Daemon", "wg_mem_refresh", [this]() { this->wg_mem_used_refresh_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }

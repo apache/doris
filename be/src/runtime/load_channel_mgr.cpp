@@ -207,7 +207,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 
 Status LoadChannelMgr::_start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
-            "LoadChannelMgr", "cancel_timeout_load_channels",
+            "LoadChannelMgr", "clean_load_chan",
             [this]() {
                 while (!_stop_background_threads_latch.wait_for(
                         std::chrono::seconds(START_BG_INTERVAL))) {

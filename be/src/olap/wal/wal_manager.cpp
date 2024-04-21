@@ -49,6 +49,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
           _first_replay(true) {
     _wal_dirs = strings::Split(wal_dir_list, ";", strings::SkipWhitespace());
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
+                              .set_abbrev_name("GrpComRepWal")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_relay_wal_threads)
                               .build(&_thread_pool));
@@ -159,7 +160,7 @@ Status WalManager::_init_wal_dirs_info() {
 #endif
     }
     return Thread::create(
-            "WalMgr", "update_wal_dir_info",
+            "WalMgr", "upd_wal_info",
             [this]() { static_cast<void>(this->_update_wal_dir_info_thread()); },
             &_update_wal_dirs_info_thread);
 }

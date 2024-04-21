@@ -108,7 +108,7 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
 
     TMasterInfo master_info;
     std::atomic_int count {0};
-    ReportWorker worker("test", master_info, 1, [&] { ++count; });
+    ReportWorker worker("test", "test", master_info, 1, [&] { ++count; });
 
     worker.notify(); // Not received heartbeat yet, ignore
     std::this_thread::sleep_for(100ms);

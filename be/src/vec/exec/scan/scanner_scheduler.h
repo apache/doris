@@ -101,10 +101,12 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl) {
+    SimplifiedScanScheduler(std::string sched_name, std::string abbrev_name,
+                            CgroupCpuCtl* cgroup_cpu_ctl) {
         _is_stop.store(false);
         _cgroup_cpu_ctl = cgroup_cpu_ctl;
-        _sched_name = sched_name;
+        _sched_name = std::move(sched_name);
+        _abbrev_name = std::move(abbrev_name);
     }
 
     ~SimplifiedScanScheduler() {
@@ -120,6 +122,7 @@ public:
 
     Status start(int max_thread_num, int min_thread_num, int queue_size) {
         RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name)
+                                .set_abbrev_name(_abbrev_name)
                                 .set_min_threads(min_thread_num)
                                 .set_max_threads(max_thread_num)
                                 .set_max_queue_size(queue_size)
@@ -176,6 +179,7 @@ private:
     std::atomic<bool> _is_stop;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _sched_name;
+    std::string _abbrev_name;
 };
 
 } // namespace doris::vectorized

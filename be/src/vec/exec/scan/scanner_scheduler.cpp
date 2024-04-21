@@ -104,10 +104,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
             std::max(_remote_thread_pool_max_size, config::doris_scanner_thread_pool_thread_num);
     _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
             _remote_thread_pool_max_size, config::doris_remote_scanner_thread_pool_queue_size,
-            "RemoteScanThreadPool");
+            "RemoteScan");
 
     // 3. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
+                              .set_abbrev_name("LimitedScan")
                               .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)

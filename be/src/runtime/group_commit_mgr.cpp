@@ -477,6 +477,7 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
 
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
     static_cast<void>(ThreadPoolBuilder("GroupCommitThreadPool")
+                              .set_abbrev_name("GrpCommit")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_insert_threads)
                               .build(&_thread_pool));

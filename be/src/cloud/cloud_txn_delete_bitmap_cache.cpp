@@ -42,7 +42,7 @@ CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {
 
 Status CloudTxnDeleteBitmapCache::init() {
     auto st = Thread::create(
-            "CloudTxnDeleteBitmapCache", "clean_txn_dbm_thread",
+            "CloudTxnDeleteBitmapCache", "clean_txn_dbm",
             [this]() { this->_clean_thread_callback(); }, &_clean_thread);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create thread for CloudTxnDeleteBitmapCache, error: " << st;

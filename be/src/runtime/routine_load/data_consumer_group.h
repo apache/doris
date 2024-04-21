@@ -47,7 +47,7 @@ public:
 
     DataConsumerGroup(size_t consumer_num)
             : _grp_id(UniqueId::gen_uid()),
-              _thread_pool(consumer_num, consumer_num, "data_consumer"),
+              _thread_pool(consumer_num, consumer_num, "DataConsumer"),
               _counter(0) {}
 
     virtual ~DataConsumerGroup() { _consumers.clear(); }

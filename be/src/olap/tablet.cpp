@@ -173,6 +173,7 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
     for (size_t i = 0; i < _executor_nums; i++) {
         std::unique_ptr<PriorityThreadPool> pool;
         static_cast<void>(ThreadPoolBuilder("WriteCooldownMetaExecutor")
+                                  .set_abbrev_name("WCldMetaExec")
                                   .set_min_threads(1)
                                   .set_max_threads(1)
                                   .set_max_queue_size(std::numeric_limits<int>::max())

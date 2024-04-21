@@ -61,7 +61,7 @@ void ResultBufferMgr::stop() {
 
 Status ResultBufferMgr::init() {
     RETURN_IF_ERROR(Thread::create(
-            "ResultBufferMgr", "cancel_timeout_result", [this]() { this->cancel_thread(); },
+            "ResultBufferMgr", "cancel_result", [this]() { this->cancel_thread(); },
             &_clean_thread));
     return Status::OK();
 }

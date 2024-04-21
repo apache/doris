@@ -40,8 +40,8 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     // start the reaper thread for gc the expired context
     CHECK(Thread::create(
-                  "ExternalScanContextMgr", "gc_expired_context",
-                  [this]() { this->gc_expired_context(); }, &_keep_alive_reaper)
+                  "ExternalScanContextMgr", "gc_exp_ctx", [this]() { this->gc_expired_context(); },
+                  &_keep_alive_reaper)
                   .ok());
 
     REGISTER_HOOK_METRIC(active_scan_context_count, [this]() {

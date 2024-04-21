@@ -367,6 +367,7 @@ public:
         _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
         static_cast<void>(_env->wal_mgr()->init());
         static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                                  .set_abbrev_name("SendBatch")
                                   .set_min_threads(1)
                                   .set_max_threads(5)
                                   .set_max_queue_size(100)

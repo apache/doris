@@ -75,12 +75,13 @@ private:
 class TaskScheduler {
 public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
-                  std::shared_ptr<TaskQueue> task_queue, std::string name,
+                  std::shared_ptr<TaskQueue> task_queue, std::string name, std::string abbrev_name,
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _blocked_task_scheduler(std::move(b_scheduler)),
               _shutdown(false),
-              _name(name),
+              _name(std::move(name)),
+              _abbrev_name(std::move(abbrev_name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
@@ -100,6 +101,7 @@ private:
     std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
     std::atomic<bool> _shutdown;
     std::string _name;
+    std::string _abbrev_name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);

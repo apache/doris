@@ -86,7 +86,9 @@ Status SpillStreamManager::init() {
         store->update_spill_data_usage(spill_data_size);
 
         std::unique_ptr<ThreadPool> io_pool;
+        std::string abbrev_name = fmt::format("SpillIO-{}", pool_idx);
         static_cast<void>(ThreadPoolBuilder(fmt::format("SpillIOThreadPool-{}", pool_idx++))
+                                  .set_abbrev_name(abbrev_name)
                                   .set_min_threads(spill_io_thread_count)
                                   .set_max_threads(spill_io_thread_count)
                                   .set_max_queue_size(config::spill_io_thread_pool_queue_size)
@@ -94,13 +96,14 @@ Status SpillStreamManager::init() {
         path_to_io_thread_pool_[path] = std::move(io_pool);
     }
     static_cast<void>(ThreadPoolBuilder("SpillAsyncTaskThreadPool")
+                              .set_abbrev_name("SpillAsync")
                               .set_min_threads(config::spill_async_task_thread_pool_thread_num)
                               .set_max_threads(config::spill_async_task_thread_pool_thread_num)
                               .set_max_queue_size(config::spill_async_task_thread_pool_queue_size)
                               .build(&async_task_thread_pool_));
 
     RETURN_IF_ERROR(Thread::create(
-            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
+            "Spill", "spill_gc", [this]() { this->_spill_gc_thread_callback(); },
             &_spill_gc_thread));
     LOG(INFO) << "spill gc thread started";
     return Status::OK();
