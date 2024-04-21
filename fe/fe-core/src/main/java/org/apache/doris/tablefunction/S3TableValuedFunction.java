@@ -65,9 +65,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         forwardCompatibleDeprecatedKeys(otherProps);
 
-        String usePathStyle = getOrDefaultAndRemove(otherProps, PropertyConverter.USE_PATH_STYLE, "false");
+        String usePathStyle = getOrDefaultAndRemove(otherProps, PropertyConverter.USE_PATH_STYLE,
+                PropertyConverter.USE_PATH_STYLE_DEFAULT_VALUE);
         String forceParsingByStandardUri = getOrDefaultAndRemove(otherProps,
-                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI, "false");
+                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
+                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE);
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
