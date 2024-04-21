@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
@@ -83,6 +84,10 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
         // If be is gracefully stop, then k_doris_exist is set to true
         heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
+        heartbeat_result.backend_info.__set_fragment_executing_count(
+                get_fragment_executing_count());
+        heartbeat_result.backend_info.__set_fragment_last_active_time(
+                get_fragment_last_active_time());
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
@@ -216,8 +221,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.backend_id) {
         _master_info->__set_backend_id(master_info.backend_id);
+        BackendOptions::set_backend_id(master_info.backend_id);
     }
-
     if (master_info.__isset.frontend_infos) {
         ExecEnv::GetInstance()->update_frontends(master_info.frontend_infos);
     } else {

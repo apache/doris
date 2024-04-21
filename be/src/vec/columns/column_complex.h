@@ -82,6 +82,7 @@ public:
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
+            __builtin_unreachable();
         }
     }
 
@@ -129,6 +130,7 @@ public:
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
+        __builtin_unreachable();
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
@@ -258,15 +260,14 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                                        const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "scatter not implemented";
-        __builtin_unreachable();
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector, begin,
+                                                                          end);
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -359,6 +360,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

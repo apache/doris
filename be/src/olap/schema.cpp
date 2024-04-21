@@ -67,7 +67,7 @@ void Schema::_copy_from(const Schema& other) {
     }
 }
 
-void Schema::_init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
+void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                    size_t num_key_columns) {
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
@@ -81,7 +81,7 @@ void Schema::_init(const std::vector<TabletColumn>& cols, const std::vector<Colu
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
-        _cols[cid] = FieldFactory::create(cols[cid]);
+        _cols[cid] = FieldFactory::create(*cols[cid]);
 
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte

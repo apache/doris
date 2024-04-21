@@ -233,4 +233,30 @@ TEST(HashFuncTest, StructTypeTest) {
     std::cout << crc_hashes[0] << std::endl;
 }
 
+TEST(HashFuncTest, StructTypeTestWithSepcificValueCrcHash) {
+    DataTypePtr n1 = std::make_shared<DataTypeInt64>();
+    DataTypePtr s1 = std::make_shared<DataTypeString>();
+    DataTypes dataTypes;
+    dataTypes.push_back(n1);
+    dataTypes.push_back(s1);
+
+    Tuple t;
+    t.push_back(Int64(1));
+    t.push_back(String("hello"));
+
+    DataTypePtr a = std::make_shared<DataTypeStruct>(dataTypes);
+    std::cout << a->get_name() << std::endl;
+    MutableColumnPtr struct_mutable_col = a->create_column();
+    struct_mutable_col->insert(t);
+
+    uint32_t hash_val = 0;
+    struct_mutable_col->update_crc_with_value(0, 1, hash_val, nullptr);
+
+    for (int i = 0; i < 100; ++i) {
+        uint32_t should_same_hash_val = 0;
+        struct_mutable_col->update_crc_with_value(0, 1, should_same_hash_val, nullptr);
+        EXPECT_EQ(hash_val, should_same_hash_val);
+    }
+}
+
 } // namespace doris::vectorized

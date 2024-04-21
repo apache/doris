@@ -58,9 +58,8 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _vfn_ctxs.push_back(ctx);
 
         auto root = ctx->root();
-        const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(root->fn(), _pool, &fn));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
@@ -93,6 +92,7 @@ Status VTableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 bool VTableFunctionNode::_is_inner_and_empty() {
     for (int i = 0; i < _fn_num; i++) {
         // if any table function is not outer and has empty result, go to next child row
+        // if it's outer function, will be insert into NULL
         if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
             return true;
         }

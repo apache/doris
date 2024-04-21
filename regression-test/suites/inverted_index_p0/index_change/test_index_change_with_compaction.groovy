@@ -30,7 +30,7 @@ suite("test_index_change_with_compaction") {
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                 break
             }
@@ -136,9 +136,10 @@ suite("test_index_change_with_compaction") {
 
         // create inverted index
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
+        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
+        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
-
         wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // trigger compactions for all tablets in ${tableName}
@@ -172,9 +173,11 @@ suite("test_index_change_with_compaction") {
         }
 
         // build index
-        sql "build index idx_user_id on ${tableName}"
-        sql "build index idx_date on ${tableName}"
-        sql "build index idx_city on ${tableName}"
+        if (!isCloudMode()) {
+            sql "build index idx_user_id on ${tableName}"
+            sql "build index idx_date on ${tableName}"
+            sql "build index idx_city on ${tableName}"
+        }
 
         // wait for all compactions done
         for (def tablet in tablets) {

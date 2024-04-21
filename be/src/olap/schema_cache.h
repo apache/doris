@@ -65,10 +65,10 @@ public:
         if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = cache()->lookup(schema_key);
+        auto* lru_handle = lookup(schema_key);
         if (lru_handle) {
-            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)cache()->value(lru_handle);
+            Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+            auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
                 return value->tablet_schema;
@@ -86,7 +86,7 @@ public:
         if (!instance() || key.empty()) {
             return;
         }
-        CacheValue* value = new CacheValue;
+        auto* value = new CacheValue;
         if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
             value->type = Type::TABLET_SCHEMA;
             value->tablet_schema = schema;
@@ -94,19 +94,18 @@ public:
             value->type = Type::SCHEMA;
             value->schema = schema;
         }
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            CacheValue* cache_value = (CacheValue*)value;
-            delete cache_value;
-        };
-        auto lru_handle =
-                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
-        cache()->release(lru_handle);
+
+        auto lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
+        release(lru_handle);
     }
 
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SCHEMA_CACHE) {}
+
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

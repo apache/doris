@@ -36,6 +36,7 @@
 #include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vhive_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/volap_table_sink.h"
 #include "vec/sink/volap_table_sink_v2.h"
@@ -150,15 +151,19 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
-            if (config::is_cloud_mode()) {
-                return Status::InternalError(
-                        "memtable on sink node is not supported in cloud mode");
-            }
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
         }
+        break;
+    }
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        if (!thrift_sink.__isset.hive_table_sink) {
+            return Status::InternalError("Missing hive table sink.");
+        }
+        sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
@@ -295,15 +300,19 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
-            if (config::is_cloud_mode()) {
-                return Status::InternalError(
-                        "memtable on sink node is not supported in cloud mode");
-            }
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !config::is_cloud_mode()) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
         }
+        break;
+    }
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        if (!thrift_sink.__isset.hive_table_sink) {
+            return Status::InternalError("Missing hive table sink.");
+        }
+        sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
         break;
     }
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
@@ -321,6 +330,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         RETURN_IF_ERROR(status);
         break;
     }
+
     default: {
         std::stringstream error_msg;
         std::map<int, const char*>::const_iterator i =
@@ -354,23 +364,4 @@ Status DataSink::init(const TDataSink& thrift_sink) {
 Status DataSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
-
-bool DataSink::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 } // namespace doris

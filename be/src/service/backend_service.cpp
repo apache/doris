@@ -23,6 +23,7 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -103,15 +104,29 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     const auto& local_tablet = arg->local_tablet;
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
+    SCOPED_ATTACH_TASK(mem_tracker);
+
     auto& request = arg->request;
 
     TStatus tstatus;
+    std::vector<std::string> download_success_files;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
         LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
             engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
                                             local_tablet_uid);
+            // delete all successfully downloaded files
+            LOG(WARNING) << "will delete downloaded success files due to error " << tstatus;
+            std::vector<io::Path> paths;
+            for (const auto& file : download_success_files) {
+                paths.emplace_back(file);
+                LOG(WARNING) << "will delete downloaded success file " << file << " due to error";
+            }
+            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
+            LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
         }
 
         if (ingest_binlog_tstatus) {
@@ -228,7 +243,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 
     // Step 5.2: check data capacity
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(),
-                                          0); // NOLINT(bugprone-fold-init-type)
+                                          0ULL); // NOLINT(bugprone-fold-init-type)
     if (!local_tablet->can_add_binlog(total_size)) {
         LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
                      << ", tablet=" << local_tablet->tablet_id();
@@ -253,10 +268,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
                                  local_segment_path);
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
-                                    estimate_timeout](HttpClient* client) {
+                                    estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_segment_path));
+            download_success_files.push_back(local_segment_path);
 
             std::error_code ec;
             // Check file length
@@ -286,8 +302,157 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         }
     }
 
-    // Step 6: create rowset && calculate delete bitmap && commit
-    // Step 6.1: create rowset
+    // Step 6: get all segment index files
+    // Step 6.1: get all segment index files size
+    std::vector<std::string> segment_index_file_urls;
+    std::vector<uint64_t> segment_index_file_sizes;
+    std::vector<std::string> segment_index_file_names;
+    auto tablet_schema = rowset_meta->tablet_schema();
+    if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : tablet_schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
+            auto index_id = index.index_id();
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, index_id);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
+                        index_id, index.get_index_suffix());
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    } else {
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            if (tablet_schema->has_inverted_index()) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, -1);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto local_segment_path = BetaRowset::segment_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    }
+
+    // Step 6.2: check data capacity
+    uint64_t total_index_size =
+            std::accumulate(segment_index_file_sizes.begin(), segment_index_file_sizes.end(),
+                            0ULL); // NOLINT(bugprone-fold-init-type)
+    if (!local_tablet->can_add_binlog(total_index_size)) {
+        LOG(WARNING) << "failed to add binlog, no enough space, total_index_size="
+                     << total_index_size << ", tablet=" << local_tablet->tablet_id();
+        status = Status::InternalError("no enough space");
+        status.to_thrift(&tstatus);
+        return;
+    }
+
+    // Step 6.3: get all segment index files
+    DCHECK(segment_index_file_sizes.size() == segment_index_file_names.size());
+    DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
+    for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
+        auto segment_index_file_size = segment_index_file_sizes[i];
+        auto get_segment_index_file_url = segment_index_file_urls[i];
+
+        uint64_t estimate_timeout =
+                segment_index_file_size / config::download_low_speed_limit_kbps / 1024;
+        if (estimate_timeout < config::download_low_speed_time) {
+            estimate_timeout = config::download_low_speed_time;
+        }
+
+        auto local_segment_index_path = segment_index_file_names[i];
+        LOG(INFO) << fmt::format("download segment index file from {} to {}",
+                                 get_segment_index_file_url, local_segment_index_path);
+        auto get_segment_index_file_cb = [&get_segment_index_file_url, &local_segment_index_path,
+                                          segment_index_file_size, estimate_timeout,
+                                          &download_success_files](HttpClient* client) {
+            RETURN_IF_ERROR(client->init(get_segment_index_file_url));
+            client->set_timeout_ms(estimate_timeout * 1000);
+            RETURN_IF_ERROR(client->download(local_segment_index_path));
+            download_success_files.push_back(local_segment_index_path);
+
+            std::error_code ec;
+            // Check file length
+            uint64_t local_index_file_size =
+                    std::filesystem::file_size(local_segment_index_path, ec);
+            if (ec) {
+                LOG(WARNING) << "download index file error" << ec.message();
+                return Status::IOError("can't retrive file_size of {}, due to {}",
+                                       local_segment_index_path, ec.message());
+            }
+            if (local_index_file_size != segment_index_file_size) {
+                LOG(WARNING) << "download index file length error"
+                             << ", get_segment_index_file_url=" << get_segment_index_file_url
+                             << ", index_file_size=" << segment_index_file_size
+                             << ", local_index_file_size=" << local_index_file_size;
+                return Status::InternalError("downloaded index file size is not equal");
+            }
+            return io::global_local_filesystem()->permission(local_segment_index_path,
+                                                             io::LocalFileSystem::PERMS_OWNER_RW);
+        };
+
+        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_cb);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get segment index file from " << get_segment_index_file_url
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+    }
+
+    // Step 7: create rowset && calculate delete bitmap && commit
+    // Step 7.1: create rowset
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
                                           local_tablet->tablet_path(), rowset_meta, &rowset);
@@ -302,7 +467,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         return;
     }
 
-    // Step 6.2 calculate delete bitmap before commit
+    // Step 7.2 calculate delete bitmap before commit
     auto calc_delete_bitmap_token = engine.calc_delete_bitmap_executor()->create_token();
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
     RowsetIdUnorderedSet pre_rowset_ids;
@@ -337,7 +502,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         static_cast<void>(calc_delete_bitmap_token->wait());
     }
 
-    // Step 6.3: commit txn
+    // Step 7.3: commit txn
     Status commit_txn_status = engine.txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
@@ -374,8 +539,8 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 BackendService::~BackendService() = default;
 
 Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server) {
-    auto service = std::make_shared<BackendService>(engine, exec_env);
+                                      std::unique_ptr<ThriftServer>* server,
+                                      std::shared_ptr<doris::BackendService> service) {
     service->_agent_server->start_workers(engine, exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
@@ -1003,6 +1168,31 @@ void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
     LOG(ERROR) << "warm_up_tablets is not implemented";
     response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
+}
+
+void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                                  const TGetRealtimeExecStatusRequest& request) {
+    if (!request.__isset.id) {
+        LOG_WARNING("Invalidate argument, id is empty");
+        response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+    }
+
+    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
+    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+            request.id, report_exec_status_params.get());
+
+    if (!st.ok()) {
+        response.__set_status(st.to_thrift());
+        return;
+    }
+
+    report_exec_status_params->__set_query_id(TUniqueId());
+
+    response.__set_status(Status::OK().to_thrift());
+    response.__set_report_exec_status_params(*report_exec_status_params);
+    return;
 }
 
 } // namespace doris

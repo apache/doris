@@ -46,6 +46,12 @@ public class PhysicalProperties {
 
     public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
+    public static PhysicalProperties TABLET_ID_SHUFFLE
+            = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
+
+    public static PhysicalProperties SINK_RANDOM_PARTITIONED
+            = new PhysicalProperties(DistributionSpecTableSinkRandomPartitioned.INSTANCE);
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
@@ -82,11 +88,13 @@ public class PhysicalProperties {
                 .map(SlotReference.class::cast)
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
-        return createHash(partitionedSlots, shuffleType);
+        return partitionedSlots.isEmpty() ? PhysicalProperties.GATHER : createHash(partitionedSlots, shuffleType);
     }
 
     public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
-        return new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
+        return orderedShuffledColumns.isEmpty()
+                ? PhysicalProperties.GATHER
+                : new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
     }
 
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {

@@ -39,7 +39,6 @@ public class StatisticConstants {
     public static final int ID_LEN = 4096;
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
-
     /**
      * Bucket count fot column_statistics and analysis_job table.
      */

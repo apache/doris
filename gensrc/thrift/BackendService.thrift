@@ -24,6 +24,7 @@ include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
+include "FrontendService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -68,6 +69,8 @@ struct TRoutineLoadTask {
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     16: optional bool is_multi_table
     17: optional bool memtable_on_sink_node;
+    18: optional string qualified_user
+    19: optional string cloud_cluster
 }
 
 struct TKafkaMetaProxyRequest {
@@ -258,17 +261,16 @@ struct TWorkloadGroupInfo {
   7: optional bool enable_memory_overcommit
   8: optional bool enable_cpu_hard_limit
   9: optional i32 scan_thread_num
-}
-
-struct TWorkloadMoveQueryToGroupAction {
-    1: optional Types.TUniqueId query_id
-    2: optional i64 workload_group_id
+  10: optional i32 max_remote_scan_thread_num
+  11: optional i32 min_remote_scan_thread_num
+  12: optional i32 spill_threshold_low_watermark
+  13: optional i32 spill_threshold_high_watermark
 }
 
 enum TWorkloadMetricType {
     QUERY_TIME
-    SCAN_ROWS
-    SCAN_BYTES
+    BE_SCAN_ROWS
+    BE_SCAN_BYTES
 }
 
 enum TCompareOperator {
@@ -303,12 +305,12 @@ struct TWorkloadSchedPolicy {
     5: optional bool enabled
     6: optional list<TWorkloadCondition> condition_list
     7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
-    2: optional TWorkloadMoveQueryToGroupAction move_action
-    3: optional TWorkloadSchedPolicy workload_sched_policy
+    2: optional TWorkloadSchedPolicy workload_sched_policy
 }
 
 struct TPublishTopicRequest {
@@ -317,6 +319,16 @@ struct TPublishTopicRequest {
 
 struct TPublishTopicResult {
     1: required Status.TStatus status
+}
+
+struct TGetRealtimeExecStatusRequest {
+    // maybe query id or other unique id
+    1: optional Types.TUniqueId id
+}
+
+struct TGetRealtimeExecStatusResponse {
+    1: optional Status.TStatus status
+    2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
 service BackendService {
@@ -387,4 +399,6 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 }

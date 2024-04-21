@@ -503,6 +503,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return i;
     }
 
+    @Override
+    public int getNumInstances() {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
+                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        }
+        return scanRangeLocations.size();
+    }
+
     protected abstract TFileType getLocationType() throws UserException;
 
     protected abstract TFileType getLocationType(String location) throws UserException;

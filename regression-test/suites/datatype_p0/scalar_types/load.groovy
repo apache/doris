@@ -302,6 +302,60 @@ suite("test_scalar_types_load", "p0") {
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
             `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
 
+    // define unique key table2 enable mow
+    testTable = "tbl_scalar_types_unique2_bitmapindex"
+    sql "DROP TABLE IF EXISTS ${testTable}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${testTable} (
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            INDEX idx_c_bool (c_bool) USING BITMAP,
+            INDEX idx_c_tinyint (c_tinyint) USING BITMAP,
+            INDEX idx_c_smallint (c_smallint) USING BITMAP,
+            INDEX idx_c_int (c_int) USING BITMAP,
+            INDEX idx_c_bigint (c_bigint) USING BITMAP,
+            INDEX idx_c_largeint (c_largeint) USING BITMAP,
+            INDEX idx_c_decimal (c_decimal) USING BITMAP,
+            INDEX idx_c_decimalv3 (c_decimalv3) USING BITMAP,
+            INDEX idx_c_date (c_date) USING BITMAP,
+            INDEX idx_c_datetime (c_datetime) USING BITMAP,
+            INDEX idx_c_datev2 (c_datev2) USING BITMAP,
+            INDEX idx_c_datetimev2 (c_datetimev2) USING BITMAP,
+            INDEX idx_c_char (c_char) USING BITMAP,
+            INDEX idx_c_varchar (c_varchar) USING BITMAP,
+            INDEX idx_c_string (c_string) USING BITMAP
+        ) ENGINE=OLAP
+        UNIQUE KEY(`c_datetimev2`, `c_bigint`, `c_decimalv3`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`c_bigint`) BUCKETS 10
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
+        """
+
+    // insert data into unique key table2 2 times
+    sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
+            `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
+            `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
+            `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
+    sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
+            `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
+            `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
+            `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
+
 
     // define dup key table with index
     testTable = "tbl_scalar_types_dup_inverted_index"

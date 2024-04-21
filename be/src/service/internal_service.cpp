@@ -26,6 +26,7 @@
 #include <butil/iobuf.h>
 #include <fcntl.h>
 #include <fmt/core.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -39,6 +40,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <vec/exec/vjdbc_connector.h>
 
 #include <algorithm>
 #include <exception>
@@ -57,6 +59,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exec/rowid_fetcher.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -180,25 +183,6 @@ private:
     T* _request = nullptr;
     google::protobuf::Closure* _done = nullptr;
 };
-
-template <typename T>
-concept CanCancel = requires(T* response) { response->mutable_status(); };
-
-template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
-    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
-                 << pool.get_info();
-}
-
-template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
-}
 
 PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
@@ -549,6 +533,9 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         const auto& fragment_list = t_request.params_list;
+        if (fragment_list.empty()) {
+            return Status::InternalError("Invalid TPipelineFragmentParamsList!");
+        }
         MonotonicStopWatch timer;
         timer.start();
         for (const TPipelineFragmentParams& fragment : fragment_list) {
@@ -584,19 +571,23 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
-        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                 has_cancel_reason
-                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                         : "INTERNAL_ERROR");
         if (request->has_fragment_id()) {
             TUniqueId query_id;
             query_id.__set_hi(request->query_id().hi());
             query_id.__set_lo(request->query_id().lo());
+            LOG(INFO) << fmt::format(
+                    "Cancel query {}, reason: {}", print_id(query_id),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_fragment(
                     query_id, request->fragment_id(),
                     has_cancel_reason ? request->cancel_reason()
                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
         } else {
+            LOG(INFO) << fmt::format(
+                    "Cancel instance {}, reason: {}", print_id(tid),
+                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                      : "INTERNAL_ERROR");
             _exec_env->fragment_mgr()->cancel_instance(
                     tid, has_cancel_reason ? request->cancel_reason()
                                            : PPlanFragmentCancelReason::INTERNAL_ERROR);
@@ -618,6 +609,89 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalService::outfile_write_success(google::protobuf::RpcController* controller,
+                                             const POutfileWriteSuccessRequest* request,
+                                             POutfileWriteSuccessResult* result,
+                                             google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "outfile write success file";
+        brpc::ClosureGuard closure_guard(done);
+        TResultFileSink result_file_sink;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->result_file_sink().data());
+            uint32_t len = request->result_file_sink().size();
+            st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        TResultFileSinkOptions file_options = result_file_sink.file_options;
+        std::stringstream ss;
+        ss << file_options.file_path << file_options.success_file_name;
+        std::string file_name = ss.str();
+        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
+            // For local file writer, the file_path is a local dir.
+            // Here we do a simple security verification by checking whether the file exists.
+            // Because the file path is currently arbitrarily specified by the user,
+            // Doris is not responsible for ensuring the correctness of the path.
+            // This is just to prevent overwriting the existing file.
+            bool exists = true;
+            st = io::global_local_filesystem()->exists(file_name, &exists);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            if (exists) {
+                st = Status::InternalError("File already exists: {}", file_name);
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        auto&& res = FileFactory::create_file_writer(
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
+                ExecEnv::GetInstance(), file_options.broker_addresses,
+                file_options.broker_properties, file_name,
+                {
+                        .write_file_cache = false,
+                        .sync_file_data = false,
+                });
+        using T = std::decay_t<decltype(res)>;
+        if (!res.has_value()) [[unlikely]] {
+            st = std::forward<T>(res).error();
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
+        // must write somthing because s3 file writer can not writer empty file
+        st = _file_writer_impl->append({"success"});
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = _file_writer_impl->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
@@ -656,6 +730,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
+
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("{}#{}", params.format_type, params.file_type));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
@@ -699,13 +778,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            static_cast<void>(
-                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -766,9 +849,8 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     }
 }
 
-Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                                                PTabletKeyLookupResponse* response) {
-    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
+Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                            PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -779,10 +861,10 @@ Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* r
     return Status::OK();
 }
 
-void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
-                                             const PTabletKeyLookupRequest* request,
-                                             PTabletKeyLookupResponse* response,
-                                             google::protobuf::Closure* done) {
+void PInternalService::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                         const PTabletKeyLookupRequest* request,
+                                         PTabletKeyLookupResponse* response,
+                                         google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
@@ -791,6 +873,65 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::test_jdbc_connection(google::protobuf::RpcController* controller,
+                                            const PJdbcTestConnectionRequest* request,
+                                            PJdbcTestConnectionResult* result,
+                                            google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "test jdbc connection";
+        brpc::ClosureGuard closure_guard(done);
+        TTableDescriptor table_desc;
+        vectorized::JdbcConnectorParam jdbc_param;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
+            uint32_t len = request->jdbc_table().size();
+            st = deserialize_thrift_msg(buf, &len, false, &table_desc);
+            if (!st.ok()) {
+                LOG(WARNING) << "test jdbc connection failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+        TJdbcTable jdbc_table = (table_desc.jdbcTable);
+        jdbc_param.catalog_id = jdbc_table.catalog_id;
+        jdbc_param.driver_class = jdbc_table.jdbc_driver_class;
+        jdbc_param.driver_path = jdbc_table.jdbc_driver_url;
+        jdbc_param.driver_checksum = jdbc_table.jdbc_driver_checksum;
+        jdbc_param.jdbc_url = jdbc_table.jdbc_url;
+        jdbc_param.user = jdbc_table.jdbc_user;
+        jdbc_param.passwd = jdbc_table.jdbc_password;
+        jdbc_param.query_string = request->query_str();
+        jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
+        jdbc_param.use_transaction = false;
+        jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
+        jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;
+        jdbc_param.connection_pool_max_life_time = jdbc_table.connection_pool_max_life_time;
+        jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
+        jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
+
+        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
+        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+
+        st = jdbc_connector->test_connection();
+        st.to_protobuf(result->mutable_status());
+
+        Status clean_st = jdbc_connector->clean_datasource();
+        if (!clean_st.ok()) {
+            LOG(WARNING) << "Failed to clean JDBC datasource: " << clean_st.msg();
+        }
+        Status close_st = jdbc_connector->close();
+        if (!close_st.ok()) {
+            LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
+        }
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
         return;
     }
 }
@@ -835,24 +976,24 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
 
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
-                column_ids.insert(col.unique_id());
+                column_ids.insert(col->unique_id());
             }
             filter_set.insert(std::move(column_ids));
 
             if (id_to_column.empty()) {
                 for (const auto& col : columns) {
-                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                    id_to_column.insert(std::pair {col->unique_id(), col.get()});
                 }
             } else {
                 for (const auto& col : columns) {
-                    auto it = id_to_column.find(col.unique_id());
-                    if (it == id_to_column.end() || *(it->second) != col) {
+                    auto it = id_to_column.find(col->unique_id());
+                    if (it == id_to_column.end() || *(it->second) != *col) {
                         ColumnPB prev_col_pb;
                         ColumnPB curr_col_pb;
                         if (it != id_to_column.end()) {
                             it->second->to_schema_pb(&prev_col_pb);
                         }
-                        col.to_schema_pb(&curr_col_pb);
+                        col->to_schema_pb(&curr_col_pb);
                         std::stringstream ss;
                         ss << "consistency check failed: index{ " << index_id << " }"
                            << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
@@ -883,7 +1024,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         entry->set_index_id(index_id);
         auto col_name_to_id = entry->mutable_col_name_to_id();
         for (const auto& column : columns) {
-            (*col_name_to_id)[column.name()] = column.unique_id();
+            (*col_name_to_id)[column->name()] = column->unique_id();
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
@@ -1021,6 +1162,7 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
+        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
             if (!kafka_request.partition_id_for_latest_offsets().empty()) {
@@ -1028,7 +1170,8 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_latest_offsets_for_partitions(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1044,7 +1187,8 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_partition_offsets_for_times(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1126,9 +1270,36 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "merge meet error" << st.to_string();
-        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::send_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSendFilterSizeRequest* request,
+                                        ::doris::PSendFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::sync_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSyncFilterSizeRequest* request,
+                                        ::doris::PSyncFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1548,6 +1719,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                       << ", txn_id=" << rowset_meta->txn_id();
 
+        auto tablet_scheme = rowset_meta->tablet_schema();
         for (auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
@@ -1585,15 +1757,27 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
                     auto suffix_path = index_size.suffix_path();
-                    std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
-                                                                         suffix_path);
-                    std::string remote_inverted_index_file_url = construct_url(
-                            get_host_port(host, http_port), token, remote_inverted_index_file);
+                    std::string remote_inverted_index_file;
+                    std::string local_inverted_index_file;
+                    std::string remote_inverted_index_file_url;
+                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                        InvertedIndexStorageFormatPB::V1) {
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(remote_file_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                    std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
-                                                                         suffix_path);
+                        local_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_name(local_file_path);
+                    } else {
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                remote_file_path, index_id, suffix_path);
+                        remote_inverted_index_file_url = construct_url(
+                                get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                                local_file_path, index_id, suffix_path);
+                    }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1607,6 +1791,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                                     rowset_meta->tablet_id(), node_id, false);
                         return;
                     }
+
                     VLOG_CRITICAL
                             << "succeed to download inverted index file for slave replica. url="
                             << remote_inverted_index_file_url
@@ -1738,201 +1923,18 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
-template <typename Func>
-auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
-    MonotonicStopWatch watch;
-    watch.start();
-    auto res = fn();
-    *cost += watch.elapsed_time() / 1000 / 1000;
-    return res;
-}
-
-struct IteratorKey {
-    int64_t tablet_id;
-    RowsetId rowset_id;
-    uint64_t segment_id;
-    int slot_id;
-
-    // unordered map std::equal_to
-    bool operator==(const IteratorKey& rhs) const {
-        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
-               segment_id == rhs.segment_id && slot_id == rhs.slot_id;
-    }
-};
-
-struct HashOfIteratorKey {
-    size_t operator()(const IteratorKey& key) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
-        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
-        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
-        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
-        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
-        seed = HashUtil::hash64(&key.slot_id, sizeof(key.slot_id), seed);
-        return seed;
-    }
-};
-
-struct IteratorItem {
-    std::unique_ptr<ColumnIterator> iterator;
-    // for holding the reference of segment to avoid use after release
-    SegmentSharedPtr segment;
-};
-
-Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
-                                        PMultiGetResponse* response) {
-    OlapReaderStatistics stats;
-    vectorized::Block result_block;
-    int64_t acquire_tablet_ms = 0;
-    int64_t acquire_rowsets_ms = 0;
-    int64_t acquire_segments_ms = 0;
-    int64_t lookup_row_data_ms = 0;
-
-    // init desc
-    TupleDescriptor desc(request.desc());
-    std::vector<SlotDescriptor> slots;
-    slots.reserve(request.slots().size());
-    for (const auto& pslot : request.slots()) {
-        slots.push_back(SlotDescriptor(pslot));
-        desc.add_slot(&slots.back());
-    }
-
-    // init read schema
-    TabletSchema full_read_schema;
-    for (const ColumnPB& column_pb : request.column_desc()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
-    }
-
-    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-    // read row by row
-    for (size_t i = 0; i < request.row_locs_size(); ++i) {
-        const auto& row_loc = request.row_locs(i);
-        MonotonicStopWatch watch;
-        watch.start();
-        TabletSharedPtr tablet = scope_timer_run(
-                [&]() {
-                    return _engine.tablet_manager()->get_tablet(row_loc.tablet_id(),
-                                                                true /*include deleted*/);
-                },
-                &acquire_tablet_ms);
-        RowsetId rowset_id;
-        rowset_id.init(row_loc.rowset_id());
-        if (!tablet) {
-            continue;
-        }
-        // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
-        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-                [&]() { return _engine.get_quering_rowset(rowset_id); }, &acquire_rowsets_ms));
-        if (!rowset) {
-            LOG(INFO) << "no such rowset " << rowset_id;
-            continue;
-        }
-        size_t row_size = 0;
-        Defer _defer([&]() {
-            LOG_EVERY_N(INFO, 100)
-                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000
-                    << ", row_size:" << row_size;
-            *response->add_row_locs() = row_loc;
-        });
-        SegmentCacheHandle segment_cache;
-        RETURN_IF_ERROR(scope_timer_run(
-                [&]() {
-                    return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
-                },
-                &acquire_segments_ms));
-        // find segment
-        auto it = std::find_if(segment_cache.get_segments().cbegin(),
-                               segment_cache.get_segments().cend(),
-                               [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
-                                   return seg->id() == row_loc.segment_id();
-                               });
-        if (it == segment_cache.get_segments().end()) {
-            continue;
-        }
-        segment_v2::SegmentSharedPtr segment = *it;
-        GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
-                                        row_loc.segment_id(), row_loc.ordinal_id());
-        // fetch by row store, more effcient way
-        if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->store_row_column());
-            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
-            string* value = response->add_binary_row_data();
-            RETURN_IF_ERROR(scope_timer_run(
-                    [&]() {
-                        return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value);
-                    },
-                    &lookup_row_data_ms));
-            row_size = value->size();
-            continue;
-        }
-
-        // fetch by column store
-        if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(desc.slots(), request.row_locs().size());
-        }
-        VLOG_DEBUG << "Read row location "
-                   << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
-                                  row_location.row_location.rowset_id.to_string(),
-                                  row_location.row_location.segment_id,
-                                  row_location.row_location.row_id);
-        for (int x = 0; x < desc.slots().size(); ++x) {
-            auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
-            vectorized::MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
-            IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
-                                      .rowset_id = rowset_id,
-                                      .segment_id = row_loc.segment_id(),
-                                      .slot_id = desc.slots()[x]->id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
-            if (iterator_item.segment == nullptr) {
-                // hold the reference
-                iterator_map[iterator_key].segment = segment;
-            }
-            segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
-        }
-    }
-    // serialize block if not empty
-    if (!result_block.is_empty_column()) {
-        VLOG_DEBUG << "dump block:" << result_block.dump_data(0, 10)
-                   << ", be_exec_version:" << request.be_exec_version();
-        [[maybe_unused]] size_t compressed_size = 0;
-        [[maybe_unused]] size_t uncompressed_size = 0;
-        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-        RETURN_IF_ERROR(result_block.serialize(be_exec_version, response->mutable_block(),
-                                               &uncompressed_size, &compressed_size,
-                                               segment_v2::CompressionTypePB::LZ4));
-    }
-
-    LOG(INFO) << "Query stats: "
-              << fmt::format(
-                         "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
-                         "io_latency:{}ns, "
-                         "uncompressed_bytes_read:{},"
-                         "bytes_read:{},"
-                         "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                         "lookup_row_data_ms:{}",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms);
-    return Status::OK();
-}
-
-void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
-                                         const PMultiGetRequest* request,
-                                         PMultiGetResponse* response,
-                                         google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
+void PInternalService::multiget_data(google::protobuf::RpcController* controller,
+                                     const PMultiGetRequest* request, PMultiGetResponse* response,
+                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
         signal::set_signal_task_id(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
-        Status st = _multi_get(*request, response);
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+        Status st = RowIdStorageReader::read_by_rowids(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });

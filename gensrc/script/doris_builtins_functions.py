@@ -827,9 +827,11 @@ visible_functions = {
         [['array_repeat'], 'ARRAY_VARCHAR', ['VARCHAR', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_repeat'], 'ARRAY_STRING', ['STRING', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
 
-        [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
@@ -1564,7 +1566,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
-        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1574,6 +1576,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
+        [['quote'], 'VARCHAR', ['VARCHAR'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1610,11 +1613,13 @@ visible_functions = {
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
         [['url_decode'], 'VARCHAR', ['VARCHAR'], ''],
+        [['random_bytes'], 'VARCHAR', ['INT'], ''],
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
+        [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1625,7 +1630,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'STRING', ['INT'], ''],
-        [['repeat'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['repeat'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
@@ -1635,6 +1640,7 @@ visible_functions = {
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
         [['lower', 'lcase'], 'STRING', ['STRING'], ''],
         [['upper', 'ucase'], 'STRING', ['STRING'], ''],
+        [['quote'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING'], ''],
         [['trim'], 'STRING', ['STRING','STRING'], ''],
         [['ltrim'], 'STRING', ['STRING'], ''],
@@ -1664,7 +1670,9 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
-        [['url_decode'], 'STRING', ['STRING'], '']
+        [['url_decode'], 'STRING', ['STRING'], ''],
+        [['random_bytes'], 'STRING', ['INT'], ''],
+        [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
 
@@ -1815,9 +1823,12 @@ visible_functions = {
     #hll function
     "Hll": [
         [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_empty'], 'HLL', [], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['hll_from_base64'], 'HLL', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['hll_from_base64'], 'HLL', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_to_base64'], 'STRING', ['HLL'], '']
     ],
 
 
@@ -1885,7 +1896,11 @@ visible_functions = {
         [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'], ''],
         [['murmur_hash3_32'], 'INT', ['STRING', '...'], ''],
         [['murmur_hash3_64'], 'BIGINT', ['VARCHAR', '...'], ''],
-        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], '']
+        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
+        [['xxhash_32'], 'INT', ['VARCHAR', '...'], ''],
+        [['xxhash_32'], 'INT', ['STRING', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['VARCHAR', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['STRING', '...'], '']
     ],
 
     # aes and base64 function
@@ -2004,7 +2019,10 @@ visible_functions = {
 
     "UUID": [
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
-        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['uuid_to_int'], 'LARGEINT', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['int_to_uuid'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT']
     ],
 
     #ip functions
@@ -2232,6 +2250,7 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
+    'strcmp'
     'append_trailing_char_if_absent',
     'ST_X',
     'ST_Y',

@@ -17,16 +17,15 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_edge_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
-
-class Query;
-class DisjunctionQuery;
-class ConjunctionQuery;
-class PhraseQuery;
-class PhrasePrefixQuery;
-class RegexpQuery;
 
 class QueryFactory {
 public:
@@ -44,6 +43,8 @@ public:
             return std::make_unique<PhrasePrefixQuery>(std::forward<Args>(args)...);
         case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
             return std::make_unique<RegexpQuery>(std::forward<Args>(args)...);
+        case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+            return std::make_unique<PhraseEdgeQuery>(std::forward<Args>(args)...);
         default:
             return nullptr;
         }

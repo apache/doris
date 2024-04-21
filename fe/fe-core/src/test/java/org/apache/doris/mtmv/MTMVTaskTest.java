@@ -28,6 +28,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -37,6 +38,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class MTMVTaskTest {
@@ -84,7 +86,8 @@ public class MTMVTaskTest {
                 minTimes = 0;
                 result = poneId;
 
-                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any);
+                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
+                        (Map<Long, Set<Long>>) any);
                 minTimes = 0;
                 result = true;
 
@@ -101,9 +104,9 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), true);
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions();
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(allPartitionIds, result);
     }
 
@@ -111,30 +114,46 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), false);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions();
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(Lists.newArrayList(poneId), result);
     }
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException {
+        new Expectations() {
+            {
+                mtmvRefreshInfo.getRefreshMethod();
+                minTimes = 0;
+                result = RefreshMethod.AUTO;
+            }
+        };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions();
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertTrue(CollectionUtils.isEmpty(result));
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException {
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(allPartitionIds, result);
     }
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
         new Expectations() {
             {
-                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any);
+                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
+                        (Map<Long, Set<Long>>) any);
                 minTimes = 0;
                 result = false;
             }
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions();
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(allPartitionIds, result);
     }
 
@@ -142,7 +161,8 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemNotSyncAuto() throws AnalysisException {
         new Expectations() {
             {
-                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any);
+                mtmvPartitionUtil
+                        .isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any, (Map<Long, Set<Long>>) any);
                 minTimes = 0;
                 result = false;
 
@@ -150,14 +170,15 @@ public class MTMVTaskTest {
                 minTimes = 0;
                 result = RefreshMethod.AUTO;
 
-                mtmvPartitionUtil.getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableInfo>) any);
+                mtmvPartitionUtil
+                        .getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableInfo>) any, (Map<Long, Set<Long>>) any);
                 minTimes = 0;
                 result = Lists.newArrayList(ptwoId);
             }
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions();
+        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertEquals(Lists.newArrayList(ptwoId), result);
     }
 }

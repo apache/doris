@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -129,12 +128,12 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
     using Self = ColumnVector;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
     struct less;
     struct greater;
@@ -192,10 +191,15 @@ public:
     }
 
     void insert_range_of_integer(T begin, T end) {
-        auto old_size = data.size();
-        data.resize(old_size + (end - begin));
-        for (int i = 0; i < end - begin; i++) {
-            data[old_size + i] = begin + i;
+        if constexpr (std::is_integral_v<T>) {
+            auto old_size = data.size();
+            data.resize(old_size + (end - begin));
+            for (int i = 0; i < end - begin; i++) {
+                data[old_size + i] = begin + i;
+            }
+        } else {
+            LOG(FATAL) << "double column not support insert_range_of_integer";
+            __builtin_unreachable();
         }
     }
 
@@ -239,11 +243,7 @@ public:
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
-            insert_many_in_copy_way(pos, num);
-        } else {
-            insert_many_default_type(pos, num);
-        }
+        insert_many_in_copy_way(pos, num);
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -409,14 +409,13 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                           const IColumn::Selector& selector) const override {
-        return this->template scatter_impl<Self>(num_columns, selector);
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
     }
 
     bool is_fixed_and_contiguous() const override { return true; }

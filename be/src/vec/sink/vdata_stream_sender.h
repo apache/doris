@@ -29,6 +29,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -39,6 +40,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
@@ -48,6 +50,8 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/partitioner.h"
 #include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vrow_distribution.h"
+#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 class ObjectPool;
@@ -65,7 +69,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
-class LocalExchangeChannelDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -160,10 +164,18 @@ protected:
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
                             const HashValueType* __restrict channel_ids, int rows, Block* block,
                             bool eos);
+    template <typename Channels>
+    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
+                                     bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
+    static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
+        return Status::OK();
+    }
+    Status _send_new_partition_batch();
     // Sender instance id, unique within a fragment.
     int _sender_id;
 
@@ -218,9 +230,24 @@ protected:
     segment_v2::CompressionTypePB _compression_type;
 
     bool _only_local_exchange = false;
-    bool _enable_pipeline_exec = false;
 
     BlockSerializer<VDataStreamSender> _serializer;
+
+    // for shuffle data by partition and tablet
+    VRowDistribution _row_distribution;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
+    int64_t _txn_id = -1;
+    RowDescriptor* _tablet_sink_row_desc = nullptr;
+    TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
+    OlapTableLocationParam* _location = nullptr;
+    int64_t _number_input_rows = 0;
+    // reuse to avoid frequent memory allocation and release.
+    std::vector<RowPartTabletIds> _row_part_tablet_ids;
+    vectorized::VExprContextSPtrs _fake_expr_ctxs;
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
 };
 
 template <typename Parent = VDataStreamSender>
@@ -257,6 +284,9 @@ public:
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
+
+    Status init_stub(RuntimeState* state);
+    Status open(RuntimeState* state);
 
     // Asynchronously sends a row batch.
     // Returns the status of the most recently finished transmit_data
@@ -319,7 +349,7 @@ protected:
         if (_local_recvr && !_local_recvr->is_closed()) {
             return true;
         }
-        _receiver_status = Status::EndOfFile("local data stream receiver closed");
+        _receiver_status = Status::OK(); // local data stream receiver closed
         return false;
     }
 
@@ -352,7 +382,7 @@ protected:
     Parent* _parent = nullptr;
 
     const RowDescriptor& _row_desc;
-    TUniqueId _fragment_instance_id;
+    const TUniqueId _fragment_instance_id;
     PlanNodeId _dest_node_id;
 
     // the number of RowBatch.data bytes sent successfully
@@ -368,8 +398,8 @@ protected:
     PUniqueId _finst_id;
     PUniqueId _query_id;
     PBlock _pb_block;
-    std::shared_ptr<PTransmitDataParams> _brpc_request;
-    std::shared_ptr<PBackendService_Stub> _brpc_stub;
+    std::shared_ptr<PTransmitDataParams> _brpc_request = nullptr;
+    std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
@@ -402,12 +432,20 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
                                            int num_channels,
                                            const HashValueType* __restrict channel_ids, int rows,
                                            Block* block, bool eos) {
-    std::vector<uint32_t> channel2rows[num_channels];
-
+    std::vector<std::vector<uint32_t>> channel2rows;
+    channel2rows.resize(num_channels);
     for (uint32_t i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
     }
+    RETURN_IF_ERROR(
+            channel_add_rows_with_idx(state, channels, num_channels, channel2rows, block, eos));
+    return Status::OK();
+}
 
+template <typename Channels>
+Status VDataStreamSender::channel_add_rows_with_idx(
+        RuntimeState* state, Channels& channels, int num_channels,
+        std::vector<std::vector<uint32_t>>& channel2rows, Block* block, bool eos) {
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
@@ -424,7 +462,6 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
             }
         }
     }
-
     return Status::OK();
 }
 
@@ -534,7 +571,7 @@ public:
         return _send_callback;
     }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency();
+    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
 private:
     friend class VDataStreamSender;

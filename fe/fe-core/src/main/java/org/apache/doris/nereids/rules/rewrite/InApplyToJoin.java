@@ -90,7 +90,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
                         new DistributeHint(DistributeType.NONE),
-                        apply.left(), agg);
+                        apply.left(), agg, null);
             }
 
             //in-predicate to equal
@@ -119,7 +119,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         inSubquery.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
                         Lists.newArrayList(), joinConjuncts, markConjuncts,
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
-                        apply.children());
+                        apply.children(), null);
             } else {
                 if (apply.isCorrelated()) {
                     if (inSubquery.isNot()) {
@@ -141,12 +141,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                                     ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                                     : JoinType.LEFT_ANTI_JOIN,
                             Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
-                            apply.getMarkJoinSlotReference(), apply.children());
+                            apply.getMarkJoinSlotReference(), apply.children(), null);
                 } else {
                     return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                             conjuncts,
                             new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
-                            apply.children());
+                            apply.children(), null);
                 }
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

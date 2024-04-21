@@ -132,7 +132,9 @@ struct ToBitmap {
                         continue;
                     }
                 }
-                res_data[i].add(col->get_data()[i]);
+                if (auto value = col->get_data()[i]; value >= 0) {
+                    res_data[i].add(value);
+                }
             }
         }
     }
@@ -280,7 +282,7 @@ struct BitmapFromBase64 {
                 decode_buff.resize(curr_decode_buff_len);
                 last_decode_buff_len = curr_decode_buff_len;
             }
-            int outlen = base64_decode(src_str, src_size, decode_buff.data());
+            auto outlen = base64_decode(src_str, src_size, decode_buff.data());
             if (outlen < 0) {
                 res.emplace_back();
                 null_map[i] = 1;
@@ -1010,8 +1012,8 @@ struct BitmapToBase64 {
             }
             bitmap_val.write_to(ser_buff.data());
 
-            int outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
-                                       chars_data + encoded_offset);
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+                                        chars_data + encoded_offset);
             DCHECK(outlen > 0);
 
             encoded_offset += (int)(4.0 * ceil((double)cur_ser_size / 3.0));

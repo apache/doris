@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -36,14 +35,15 @@ namespace pipeline {
 
 class DistinctStreamingAggOperatorX;
 
-class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeDependency> {
+class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     using Parent = DistinctStreamingAggOperatorX;
-    using Base = PipelineXLocalState<FakeDependency>;
+    using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggLocalState);
     DistinctStreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
 private:
@@ -57,13 +57,21 @@ private:
                                               vectorized::ColumnRawPtrs& key_columns,
                                               const size_t num_rows);
     void _make_nullable_output_key(vectorized::Block* block);
+    bool _should_expand_preagg_hash_tables();
+
+    void _swap_cache_block(vectorized::Block* block) {
+        DCHECK(!_cache_block.is_empty_column());
+        block->swap(_cache_block);
+        _cache_block = block->clone_empty();
+    }
 
     std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
-    int64_t _output_distinct_rows = 0;
     size_t _input_num_rows = 0;
-
+    bool _should_expand_hash_table = true;
+    bool _stop_emplace_flag = false;
+    const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
@@ -71,14 +79,17 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
-    SourceState _child_source_state;
+    bool _child_eos = false;
+    bool _reach_limit = false;
     std::unique_ptr<vectorized::Block> _aggregated_block = nullptr;
-
+    vectorized::Block _cache_block;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 };
 
 class DistinctStreamingAggOperatorX final
@@ -89,14 +100,12 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status pull(RuntimeState* state, vectorized::Block* block,
-                SourceState& source_state) const override;
-    Status push(RuntimeState* state, vectorized::Block* input_block,
-                SourceState source_state) const override;
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
-        if (_needs_finalize) {
+        if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);

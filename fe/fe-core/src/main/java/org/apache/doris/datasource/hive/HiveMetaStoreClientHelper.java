@@ -71,7 +71,6 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -79,7 +78,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
-import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -150,7 +148,7 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
@@ -585,6 +583,97 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * Convert doris type to hive type.
+     */
+    public static String dorisTypeToHiveType(Type dorisType) {
+        if (dorisType.isScalarType()) {
+            PrimitiveType primitiveType = dorisType.getPrimitiveType();
+            switch (primitiveType) {
+                case BOOLEAN:
+                    return "boolean";
+                case TINYINT:
+                    return "tinyint";
+                case SMALLINT:
+                    return "smallint";
+                case INT:
+                    return "int";
+                case BIGINT:
+                    return "bigint";
+                case DATEV2:
+                case DATE:
+                    return "date";
+                case DATETIMEV2:
+                case DATETIME:
+                    return "timestamp";
+                case FLOAT:
+                    return "float";
+                case DOUBLE:
+                    return "double";
+                case CHAR: {
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    return "char(" + scalarType.getLength() + ")";
+                }
+                case VARCHAR:
+                case STRING:
+                    return "string";
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                case DECIMALV2: {
+                    StringBuilder decimalType = new StringBuilder();
+                    decimalType.append("decimal");
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    int precision = scalarType.getScalarPrecision();
+                    if (precision == 0) {
+                        precision = ScalarType.DEFAULT_PRECISION;
+                    }
+                    // decimal(precision, scale)
+                    int scale = scalarType.getScalarScale();
+                    decimalType.append("(");
+                    decimalType.append(precision);
+                    decimalType.append(",");
+                    decimalType.append(scale);
+                    decimalType.append(")");
+                    return decimalType.toString();
+                }
+                default:
+                    throw new HMSClientException("Unsupported primitive type conversion of " + dorisType.toSql());
+            }
+        } else if (dorisType.isArrayType()) {
+            ArrayType dorisArray = (ArrayType) dorisType;
+            Type itemType = dorisArray.getItemType();
+            return "array<" + dorisTypeToHiveType(itemType) + ">";
+        } else if (dorisType.isMapType()) {
+            MapType dorisMap = (MapType) dorisType;
+            Type keyType = dorisMap.getKeyType();
+            Type valueType = dorisMap.getValueType();
+            return "map<"
+                    + dorisTypeToHiveType(keyType)
+                    + ","
+                    + dorisTypeToHiveType(valueType)
+                    + ">";
+        } else if (dorisType.isStructType()) {
+            StructType dorisStruct = (StructType) dorisType;
+            StringBuilder structType = new StringBuilder();
+            structType.append("struct<");
+            ArrayList<StructField> fields = dorisStruct.getFields();
+            for (int i = 0; i < fields.size(); i++) {
+                StructField field = fields.get(i);
+                structType.append(field.getName());
+                structType.append(":");
+                structType.append(dorisTypeToHiveType(field.getType()));
+                if (i != fields.size() - 1) {
+                    structType.append(",");
+                }
+            }
+            structType.append(">");
+            return structType.toString();
+        }
+        throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
+    }
+
+    /**
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
@@ -791,48 +880,18 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
-        if (!krbConfig.isValid()) {
-            // if hive config is not ready, then use hadoop kerberos to login
-            krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        }
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(krbConfig);
-        try {
-            if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
-                return ugi.doAs(action);
-            } else {
-                return action.run();
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+        return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-
         Configuration conf = getConfiguration(table);
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
-        HoodieTableMetaClient metaClient;
-        if (ugi != null) {
-            try {
-                metaClient = ugi.doAs(
-                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
-                                .setConf(conf).setBasePath(hudiBasePath).build());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Cannot get hudi client.", e);
-            }
-        } else {
-            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
-        }
-        return metaClient;
+        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
+                () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {

@@ -105,7 +105,7 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                                 SourceState source_state) {
+                                                 bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -124,12 +124,13 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
                     }
                 },
                 *local_state._shared_state->hash_table_variants));
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -137,22 +138,31 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
 template <bool is_intersect>
 Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetProbeSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     Parent& parent = _parent->cast<Parent>();
-    _dependency->set_cur_child_id(parent._cur_child_id);
+    _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
+    _dependency->block();
+
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
     }
-
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetProbeSinkLocalState<is_intersect>::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
 
     // Add the if check only for compatible with old optimiser
-    if (child_exprs_lists.size() > 1) {
-        _probe_columns.resize(child_exprs_lists[1].size());
+    if (_shared_state->child_quantity > 1) {
+        _probe_columns.resize(_child_exprs.size());
     }
     return Status::OK();
 }
@@ -237,8 +247,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     bool is_need_shrink =
                             arg.hash_table->should_be_shrink(valid_element_in_hash_tbl);
                     if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(
-                                valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
+                        tmp_hash_table->init_buf_size(size_t(
+                                valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
                     }
 
                     arg.init_iterator();
@@ -274,6 +284,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     }
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *hash_table_variants);

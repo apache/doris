@@ -47,7 +47,8 @@ public class EliminateJoinCondition extends OneRewriteRuleFactory {
                     && markJoinConjuncts.size() == join.getMarkJoinConjuncts().size()) {
                 return null;
             }
-            return join.withJoinConjuncts(hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts);
+            return join.withJoinConjuncts(hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                        join.getJoinReorderContext());
         }).toRule(RuleType.ELIMINATE_JOIN_CONDITION);
     }
 }

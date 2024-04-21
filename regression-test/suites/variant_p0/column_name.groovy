@@ -43,5 +43,11 @@ suite("regression_test_variant_column_name", "variant_type"){
     // sql """insert into ${table_name} values (6, '{"\\n123": "t123", "\\\"123": "123"}')"""
     sql """insert into ${table_name} values (7, '{"AA": "UPPER CASE", "aa": "lower case"}')"""
     qt_sql """select cast(v["AA"] as string), cast(v["aa"] as string) from ${table_name} order by k"""
-    
+
+    sql "alter table var_column_name rename column v Tags;  "
+    sql """insert into var_column_name values (1, '{"tag_key1" : 123456}')"""
+    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
+    qt_sql "select * from var_column_name where tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
+    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
+    qt_sql "select * from var_column_name where Tags['tag_key1'] is not null and cast(Tags['tag_key1' ] as text) = '123456' order by k desc limit 1;"    
 }

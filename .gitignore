@@ -81,6 +81,7 @@ samples/doris-demo/remote-udf-cpp-demo/function_server_demo
 
 # FE
 fe/mocked/
+fe/gen/
 fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens

@@ -34,12 +34,14 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/sink/autoinc_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -63,6 +65,7 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
@@ -80,10 +83,11 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class SegmentWriter {
 public:
+    // If `fs` is nullptr, use global local fs
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context);
+                           std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs);
     ~SegmentWriter();
 
     Status init();
@@ -181,8 +185,9 @@ private:
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
-    // Not owned. owned by RowsetWriter
+    // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
@@ -224,7 +229,8 @@ private:
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
-    // record row locations here and used when memtable flush
+    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
+    vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
 } // namespace segment_v2

@@ -50,6 +50,7 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheKey;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.PartitionValueCacheKey;
 import org.apache.doris.mysql.privilege.Auth;
@@ -60,8 +61,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -365,10 +366,6 @@ public class CatalogMgrTest extends TestWithFeService {
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
-        // user2 can grant select_priv to tpch.customer
-        GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
-        auth.grant(user2GrantHiveTable);
 
         showCatalogSql = "SHOW CATALOGS";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
@@ -742,7 +739,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         HMSExternalCatalog hiveCatalog = (HMSExternalCatalog) mgr.getCatalog(catalogName);
         HiveMetaStoreCache metaStoreCache = externalMetaCacheMgr.getMetaStoreCache(hiveCatalog);
-        LoadingCache<FileCacheKey, HiveMetaStoreCache.FileCacheValue> preFileCache = metaStoreCache.getFileCacheRef().get();
+        LoadingCache<FileCacheKey, FileCacheValue> preFileCache = metaStoreCache.getFileCacheRef().get();
 
 
         // 1. properties contains `file.meta.cache.ttl-second`, it should not be equal
@@ -759,8 +756,6 @@ public class CatalogMgrTest extends TestWithFeService {
                 + " (\"type\" = \"hms\", \"hive.metastore.uris\" = \"thrift://172.16.5.9:9083\");";
         mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProp));
         Assertions.assertEquals(preFileCache, metaStoreCache.getFileCacheRef().get());
-
-
     }
 
     @Test

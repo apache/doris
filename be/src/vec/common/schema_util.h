@@ -96,7 +96,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseContext& ctx);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
-void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
+Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -116,8 +116,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
-// inherit index info from it's parent column
-void inherit_tablet_index(TabletSchemaSPtr& schema);
+// inherit attributes like index/agg info from it's parent column
+void inherit_root_attributes(TabletSchemaSPtr& schema);
 
 // Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
 // Block consists of two parts, dynamic part of columns and static part of columns.

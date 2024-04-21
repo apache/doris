@@ -189,7 +189,7 @@ else
 fi
 
 ## set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -280,7 +280,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 #echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
 export AWS_EC2_METADATA_DISABLED=true
 export AWS_MAX_ATTEMPTS=2
 

@@ -19,13 +19,11 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
-#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
-#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -53,6 +51,7 @@ namespace pipeline {
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
+    ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
     // is done or still continuing.
@@ -61,13 +60,16 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
-                            const int fragment_id, int backend_num,
+                            int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb);
+                            report_status_callback report_status_cb);
 
     ~PipelineFragmentContext() override;
+
+    bool is_timeout(const VecDateTimeValue& now) const;
 
     PipelinePtr add_pipeline();
 
@@ -76,10 +78,6 @@ public:
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
-    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state->local_runtime_filter_mgr();
-    }
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
@@ -95,7 +93,7 @@ public:
 
     virtual Status submit();
 
-    virtual void close_if_prepare_failed();
+    virtual void close_if_prepare_failed(Status st);
     virtual void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
@@ -111,11 +109,6 @@ public:
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
     void close_a_pipeline();
-
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
 
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
@@ -163,7 +156,7 @@ protected:
 
     ExecEnv* _exec_env = nullptr;
 
-    bool _prepared = false;
+    std::atomic_bool _prepared = false;
     bool _submitted = false;
 
     std::mutex _status_lock;
@@ -193,9 +186,7 @@ protected:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
-    // This shared ptr is never used. It is just a reference to hold the object.
-    // There is a weak ptr in runtime filter manager to reference this object.
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    QueryThreadContext _query_thread_context;
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer = nullptr;
@@ -218,8 +209,10 @@ protected:
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
 
+    VecDateTimeValue _start_time;
+    int _timeout = -1;
+
 private:
-    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     uint64_t _create_time;

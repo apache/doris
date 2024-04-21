@@ -89,6 +89,19 @@ public class MTMVPartitionInfo {
         this.partitionCol = partitionCol;
     }
 
+    /**
+     * Get the position of relatedCol in the relatedTable partition column
+     *
+     * @return
+     * @throws AnalysisException
+     */
+    public int getRelatedColPos() throws AnalysisException {
+        if (partitionType == MTMVPartitionType.SELF_MANAGE) {
+            throw new AnalysisException("partitionType is: " + partitionType);
+        }
+        return MTMVPartitionUtil.getPos(getRelatedTable(), relatedCol);
+    }
+
     @Override
     public String toString() {
         return "MTMVPartitionInfo{"

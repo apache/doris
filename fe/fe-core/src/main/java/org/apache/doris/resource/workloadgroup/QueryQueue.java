@@ -100,7 +100,6 @@ public class QueryQueue {
     }
 
     public QueueToken getToken() throws UserException {
-
         queueLock.lock();
         try {
             if (LOG.isDebugEnabled()) {
@@ -108,13 +107,16 @@ public class QueryQueue {
             }
             if (currentRunningQueryNum < maxConcurrency) {
                 currentRunningQueryNum++;
-                return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
+                QueueToken retToken = new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
+                retToken.setQueueTimeWhenOfferSuccess();
+                return retToken;
             }
             if (priorityTokenQueue.size() >= maxQueueSize) {
                 throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
             }
             QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
                     "query wait timeout " + queueTimeout + " ms");
+            newQueryToken.setQueueTimeWhenQueueSuccess();
             this.priorityTokenQueue.offer(newQueryToken);
             return newQueryToken;
         } finally {

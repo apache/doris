@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
@@ -162,5 +163,21 @@ public class PaimonExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
+    }
+
+    @Override
+    public long fetchRowCount() {
+        makeSureInitialized();
+        try {
+            long rowCount = 0;
+            List<Split> splits = originTable.newReadBuilder().newScan().plan().splits();
+            for (Split split : splits) {
+                rowCount += split.rowCount();
+            }
+            return rowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to collect row count for db {} table {}", dbName, name, e);
+        }
+        return -1;
     }
 }

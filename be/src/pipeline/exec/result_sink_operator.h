@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -44,18 +43,9 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
-    ~ResultSinkDependency() override = default;
-};
-
-class ResultSinkLocalState final : public PipelineXSinkLocalState<ResultSinkDependency> {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
-    using Base = PipelineXSinkLocalState<ResultSinkDependency>;
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
 
 public:
     ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -72,8 +62,8 @@ private:
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultWriter> _writer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
@@ -85,8 +75,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;

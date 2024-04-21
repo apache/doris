@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -66,13 +67,12 @@ public class MTMVRelationManager implements MTMVHookService {
      * @return
      */
     public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx) {
-        Set<MTMV> res = Sets.newHashSet();
+        Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (!CollectionUtils
-                        .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()))) {
+                if (isMVPartitionValid(mtmv, ctx)) {
                     res.add(mtmv);
                 }
             } catch (AnalysisException e) {
@@ -83,8 +83,14 @@ public class MTMVRelationManager implements MTMVHookService {
         return res;
     }
 
+    @VisibleForTesting
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+        return !CollectionUtils
+                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()));
+    }
+
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {
-        Set<BaseTableInfo> mvInfos = Sets.newHashSet();
+        Set<BaseTableInfo> mvInfos = Sets.newLinkedHashSet();
         for (BaseTableInfo tableInfo : tableInfos) {
             mvInfos.addAll(getMtmvsByBaseTable(tableInfo));
         }

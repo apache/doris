@@ -98,9 +98,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unregisterExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(
+                .registerExternalTableFromEvent(
                             tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
     }
 
@@ -117,9 +117,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unregisterExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(
+                .registerExternalTableFromEvent(
                             tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
 
     }
@@ -156,9 +156,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
                 return;
             }
             //The scope of refresh can be narrowed in the future
-            Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTableFromEvent(tableBefore.getDbName(), tableBefore.getTableName(),
-                                catalogName, eventTime, true);
+            Env.getCurrentEnv().getRefreshManager()
+                    .refreshExternalTableFromEvent(catalogName, tableBefore.getDbName(), tableBefore.getTableName(),
+                            eventTime, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

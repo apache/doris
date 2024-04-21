@@ -266,7 +266,7 @@ public class CacheTest extends TestWithFeService {
                 Assertions.assertEquals(6, columnStatistic.minValue);
                 Assertions.assertEquals(7, columnStatistic.maxValue);
             } else {
-                System.out.println("Cached is not loaded, skip test.");
+                System.out.println("Cache is not loaded, skip test.");
             }
         } catch (Throwable t) {
             t.printStackTrace();

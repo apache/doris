@@ -139,7 +139,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
@@ -217,7 +216,6 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
         if (config::enable_stream_load_record && !config::is_cloud_mode()) {
             str = ctx->prepare_stream_load_record(str);
@@ -377,6 +375,7 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
     }
     // remove stream load context from stream load manager and the resource will be released
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
@@ -475,8 +474,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    // timezone first. if not, try time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
@@ -564,8 +566,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                                       {"MERGE", TMergeType::MERGE}};
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type_str = http_req->header(HTTP_MERGE_TYPE);
-        if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
-            merge_type = merge_type_map.find(merge_type_str)->second;
+        auto iter = merge_type_map.find(merge_type_str);
+        if (iter != merge_type_map.end()) {
+            merge_type = iter->second;
         } else {
             return Status::InvalidArgument("Invalid merge type {}", merge_type_str);
         }
@@ -627,6 +630,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
+    if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
+        request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -646,15 +653,19 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         return plan_status;
     }
     if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
-        size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-            ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-            ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
-            content_length *= 3;
+        // FIXME find a way to avoid chunked stream load write large WALs
+        size_t content_length = 0;
+        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+                content_length *= 3;
+            }
         }
         ctx->put_result.params.__set_content_length(content_length);
     }
@@ -712,10 +723,27 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                     ? 0
+                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (content_length < 0) {
+        std::stringstream ss;
+        ss << "This stream load content length <0 (" << content_length
+           << "), please check your content length.";
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    // allow chunked stream load in flink
+    auto is_chunk = !req->header(HttpHeaders::TRANSFER_ENCODING).empty() &&
+                    req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos;
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") ||
+        (content_length == 0 && !is_chunk)) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
+    }
+    if (is_chunk) {
+        ctx->label = "";
     }
 
     auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
@@ -728,10 +756,11 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
+            if (!load_size_smaller_than_wal_limit(content_length)) {
                 std::stringstream ss;
-                ss << "There is no space for group commit stream load async WAL. WAL dir info: "
+                ss << "There is no space for group commit stream load async WAL. This stream load "
+                      "size is "
+                   << content_length << ". WAL dir info: "
                    << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
                 LOG(WARNING) << ss.str();
                 return Status::Error<EXCEEDED_LIMIT>(ss.str());

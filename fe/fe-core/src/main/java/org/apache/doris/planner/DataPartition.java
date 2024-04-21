@@ -32,8 +32,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -46,40 +44,42 @@ import java.util.List;
  * TODO: better name? just Partitioning?
  */
 public class DataPartition {
-    private static final Logger LOG = LogManager.getLogger(DataPartition.class);
 
     public static final DataPartition UNPARTITIONED = new DataPartition(TPartitionType.UNPARTITIONED);
-
     public static final DataPartition RANDOM = new DataPartition(TPartitionType.RANDOM);
+    public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
 
     private final TPartitionType type;
-
     // for hash partition: exprs used to compute hash value
-    private ImmutableList<Expr> partitionExprs = ImmutableList.of();
+    private ImmutableList<Expr> partitionExprs;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
+                || type == TPartitionType.TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
     }
 
-    public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
-        List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
-        partitionExprs = ImmutableList.copyOf(list);
-    }
-
     public DataPartition(TPartitionType type) {
-        Preconditions.checkState(type == TPartitionType.UNPARTITIONED || type == TPartitionType.RANDOM);
+        Preconditions.checkState(type == TPartitionType.UNPARTITIONED
+                || type == TPartitionType.RANDOM
+                || type == TPartitionType.TABLE_SINK_RANDOM_PARTITIONED
+                || type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
     }
 
     public static DataPartition hashPartitioned(List<Expr> exprs) {
         return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs);
+    }
+
+    public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
+        List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
+        partitionExprs = ImmutableList.copyOf(list);
     }
 
     public boolean isPartitioned() {
@@ -106,16 +106,6 @@ public class DataPartition {
         return result;
     }
 
-    /**
-     * Returns true if 'this' is a partition that is compatible with the
-     * requirements of 's'.
-     * TODO: specify more clearly and implement
-     */
-    public boolean isCompatible(DataPartition s) {
-        // TODO: implement
-        return true;
-    }
-
     public String getExplainString(TExplainLevel explainLevel) {
         StringBuilder str = new StringBuilder();
         str.append(type.toString());
@@ -127,7 +117,7 @@ public class DataPartition {
             for (Expr expr : partitionExprs) {
                 strings.add(expr.toSql());
             }
-            str.append(": " + Joiner.on(", ").join(strings));
+            str.append(": ").append(Joiner.on(", ").join(strings));
         }
         str.append("\n");
         return str.toString();

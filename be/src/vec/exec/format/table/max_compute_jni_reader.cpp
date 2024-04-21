@@ -66,6 +66,8 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
         index++;
     }
     std::map<String, String> params = {{"region", _table_desc->region()},
+                                       {"odps_url", _table_desc->odps_url()},
+                                       {"tunnel_url", _table_desc->tunnel_url()},
                                        {"access_key", _table_desc->access_key()},
                                        {"secret_key", _table_desc->secret_key()},
                                        {"project", _table_desc->project()},

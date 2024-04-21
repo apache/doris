@@ -35,6 +35,7 @@ import com.aliyun.odps.tunnel.TableTunnel;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -55,6 +56,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private boolean enablePublicAccess;
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
     private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
+    private static String odpsUrl;
+    private static String tunnelUrl;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.REGION,
             MCProperties.PROJECT
@@ -64,6 +67,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                                      String comment) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
+        odpsUrl = props.getOrDefault(MCProperties.ODPS_ENDPOINT, "");
+        tunnelUrl = props.getOrDefault(MCProperties.TUNNEL_SDK_ENDPOINT, "");
     }
 
     @Override
@@ -92,16 +97,28 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
         enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS, "false"));
-        String odpsUrl = odpsUrlTemplate.replace("{}", region);
-        if (enablePublicAccess) {
-            odpsUrl = odpsUrl.replace("-inc", "");
-        }
-        odps.setEndpoint(odpsUrl);
+        setOdpsUrl(region);
         odps.setDefaultProject(defaultProject);
         tunnel = new TableTunnel(odps);
-        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
-        if (enablePublicAccess) {
-            tunnelUrl = tunnelUrl.replace("-inc", "");
+        setTunnelUrl(region);
+    }
+
+    private void setOdpsUrl(String region) {
+        if (StringUtils.isEmpty(odpsUrl)) {
+            odpsUrl = odpsUrlTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                odpsUrl = odpsUrl.replace("-inc", "");
+            }
+        }
+        odps.setEndpoint(odpsUrl);
+    }
+
+    private void setTunnelUrl(String region) {
+        if (StringUtils.isEmpty(tunnelUrl)) {
+            tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                tunnelUrl = tunnelUrl.replace("-inc", "");
+            }
         }
         tunnel.setEndpoint(tunnelUrl);
     }
@@ -214,5 +231,13 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+    }
+
+    public String getOdpsUrl() {
+        return odpsUrl;
+    }
+
+    public String getTunnelUrl() {
+        return tunnelUrl;
     }
 }

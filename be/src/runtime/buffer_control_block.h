@@ -48,7 +48,7 @@ class Controller;
 namespace doris {
 
 namespace pipeline {
-class ResultSinkDependency;
+class Dependency;
 } // namespace pipeline
 
 class PFetchDataResult;
@@ -87,7 +87,7 @@ public:
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    virtual Status cancel();
+    virtual void cancel();
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -152,9 +152,9 @@ public:
 
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
 
-    Status cancel() override;
+    void cancel() override;
 
-    void set_dependency(std::shared_ptr<pipeline::ResultSinkDependency> result_sink_dependency);
+    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 
 private:
     void _update_dependency();
@@ -162,7 +162,7 @@ private:
     void _update_batch_queue_empty() override;
 
     std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency;
+    std::shared_ptr<pipeline::Dependency> _result_sink_dependency;
 };
 
 } // namespace doris

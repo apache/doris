@@ -47,9 +47,11 @@ public:
                        const RowDescriptor* output_row_descriptor,
                        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
                        int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                       std::shared_ptr<pipeline::ScanDependency> dependency)
+                       std::shared_ptr<pipeline::Dependency> dependency,
+                       const int num_parallel_instances)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
-                                         limit_, max_bytes_in_blocks_queue, 1, local_state) {
+                                         limit_, max_bytes_in_blocks_queue, num_parallel_instances,
+                                         local_state) {
         _dependency = dependency;
     }
 
@@ -75,12 +77,12 @@ public:
 protected:
     void _set_scanner_done() override {
         if (_dependency) {
-            _dependency->set_scanner_done();
+            _dependency->set_always_ready();
         }
     }
 
 private:
-    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
 };
 
 } // namespace doris::pipeline

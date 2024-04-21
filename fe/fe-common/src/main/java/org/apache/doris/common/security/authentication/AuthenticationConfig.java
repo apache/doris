@@ -17,12 +17,9 @@
 
 package org.apache.doris.common.security.authentication;
 
-import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
 
-@Data
 public abstract class AuthenticationConfig {
-
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
@@ -31,7 +28,10 @@ public abstract class AuthenticationConfig {
     public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
     public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
 
-    private boolean isValid;
+    /**
+     * @return true if the config is valid, otherwise false.
+     */
+    public abstract boolean isValid();
 
     /**
      * get kerberos config from hadoop conf

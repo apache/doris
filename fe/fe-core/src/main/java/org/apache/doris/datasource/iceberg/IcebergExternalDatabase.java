@@ -21,42 +21,14 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(IcebergExternalDatabase.class);
 
     public IcebergExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.ICEBERG);
     }
 
     @Override
-    protected IcebergExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected IcebergExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
-    }
-
-    @Override
-    public void dropTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop table [{}]", tableName);
-        }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("drop table [{}] failed", tableName);
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void createTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
-        tableNameToId.put(tableName, tableId);
-        IcebergExternalTable table = new IcebergExternalTable(tableId, tableName, name,
-                (IcebergExternalCatalog) extCatalog);
-        idToTbl.put(tableId, table);
     }
 }

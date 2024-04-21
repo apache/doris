@@ -41,12 +41,12 @@ public:
 };
 
 class SelectOperatorX;
-class SelectLocalState final : public PipelineXLocalState<FakeDependency> {
+class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SelectLocalState);
 
     SelectLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~SelectLocalState() = default;
 
 private:
@@ -59,13 +59,13 @@ public:
                     const DescriptorTbl& descs)
             : StreamingOperatorX<SelectLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
+    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                                block->columns()));
-        local_state.reached_limit(block, source_state);
+        local_state.reached_limit(block, eos);
         return Status::OK();
     }
 

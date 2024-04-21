@@ -40,7 +40,7 @@ Status SchemaScanOperator::open(RuntimeState* state) {
 
 Status SchemaScanOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    static_cast<void>(_node->close(state));
+    RETURN_IF_ERROR(_node->close(state));
     return Status::OK();
 }
 
@@ -48,7 +48,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
@@ -69,6 +69,9 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     return _schema_scanner->start(state);
 }
 
@@ -209,8 +212,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) {
+Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
@@ -244,7 +246,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
             RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
 
             if (schema_eos) {
-                source_state = SourceState::FINISHED;
+                *eos = true;
                 break;
             }
 
@@ -267,9 +269,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                     local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
-    } while (block->rows() == 0 && source_state != SourceState::FINISHED);
+    } while (block->rows() == 0 && !*eos);
 
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 

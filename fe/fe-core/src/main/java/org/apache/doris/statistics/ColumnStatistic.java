@@ -58,7 +58,7 @@ public class ColumnStatistic {
             .build();
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
-            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.AGG_STATE, Type.JSONB,
+            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.JSONB,
             Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
     );
 
@@ -199,7 +199,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics.", e);
+            LOG.warn("Failed to deserialize column statistics. Row [{}]", row, e);
             return ColumnStatistic.UNKNOWN;
         }
     }

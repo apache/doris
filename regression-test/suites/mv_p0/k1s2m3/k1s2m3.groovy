@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k1s2m3") {
+    sql "set enable_fallback_to_original_planner = false"
 
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -115,4 +116,19 @@ suite ("k1s2m3") {
     qt_select_mv "select count(k2) from d_table where k3 = 1;"
 
     qt_select_star "select * from d_table order by k1;"
+
+    test {
+        sql "create materialized view k1s2m3 as select K1,sum(k2*k3)+1 from d_table group by k1;"
+        exception "cannot be included outside aggregate"
+    }
+
+    test {
+        sql "create materialized view k1s2m3 as select K1,abs(sum(k2*k3)+1) from d_table group by k1;"
+        exception "cannot be included outside aggregate"
+    }
+
+    test {
+        sql "create materialized view k1s2m3 as select K1,sum(abs(sum(k2*k3)+1)) from d_table group by k1;"
+        exception "aggregate function cannot contain aggregate parameters"
+    }
 }

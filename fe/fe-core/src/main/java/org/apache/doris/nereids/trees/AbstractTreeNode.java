@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees;
 
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.
@@ -30,15 +33,24 @@ import java.util.List;
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
     protected final List<NODE_TYPE> children;
-    // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
-    // https://github.com/apache/doris/pull/9807#discussion_r884829067
+
+    // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
+    // state is necessary. e.g. the rewrite framework need distinguish whether the plan is created by
+    // rules, the framework can set this field to a state variable to quickly judge without new big plan.
+    // we should avoid using it as much as possible, because mutable state is easy to cause bugs and
+    // difficult to locate.
+    private MutableState mutableState = EmptyMutableState.INSTANCE;
 
     protected AbstractTreeNode(NODE_TYPE... children) {
-        this.children = ImmutableList.copyOf(children);
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
     }
 
     protected AbstractTreeNode(List<NODE_TYPE> children) {
-        this.children = ImmutableList.copyOf(children);
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
     }
 
     @Override
@@ -49,6 +61,16 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     @Override
     public List<NODE_TYPE> children() {
         return children;
+    }
+
+    @Override
+    public <T> Optional<T> getMutableState(String key) {
+        return mutableState.get(key);
+    }
+
+    @Override
+    public void setMutableState(String key, Object state) {
+        this.mutableState = this.mutableState.set(key, state);
     }
 
     public int arity() {

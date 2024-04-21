@@ -413,7 +413,7 @@ public class GraphSimplifier {
                     .mapToObj(i -> graph.getJoinEdge(i).getJoin().getHashJoinConjuncts())
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
-            join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions);
+            join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions, null);
         }
 
         JoinEdge newEdge = new JoinEdge(join, edge.getIndex(),

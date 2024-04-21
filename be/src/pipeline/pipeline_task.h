@@ -17,17 +17,16 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -266,7 +265,7 @@ public:
         }
         // If enable_debug_log_timeout_secs <= 0, then disable the log
         if (_pipeline_task_watcher.elapsed_time() >
-            config::enable_debug_log_timeout_secs * 1000l * 1000l * 1000l) {
+            config::enable_debug_log_timeout_secs * 1000L * 1000L * 1000L) {
             _has_exceed_timeout = true;
             return true;
         }
@@ -286,7 +285,9 @@ public:
         }
     }
 
-    RuntimeState* runtime_state() { return _state; }
+    RuntimeState* runtime_state() const { return _state; }
+
+    std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
 protected:
     void _finish_p_dependency() {

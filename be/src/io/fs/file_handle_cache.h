@@ -138,18 +138,14 @@ public:
 
         /// Set function can be used if the Accessor is used as in/out parameter.
         void set(FileHandleCachePartition::CacheType::Accessor&& cache_accessor);
-        void set_fs(FileSystemSPtr fs) { _fs = fs; }
 
         /// Interface mimics LruMultiCache::Accessor's interface, handles metrics
         CachedHdfsFileHandle* get();
         void release();
         void destroy();
 
-        FileSystemSPtr fs() const { return _fs; }
-
     private:
         FileHandleCachePartition::CacheType::Accessor _cache_accessor;
-        FileSystemSPtr _fs;
     };
 
     /// Instantiates the cache with `capacity` split evenly across NUM_PARTITIONS

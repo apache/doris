@@ -31,7 +31,7 @@ suite("test_queries_tvf","p0,external,tvf,external_docker") {
 
     sql """select * from ${table_name};"""
 
-    def res = sql """ select QueryId from active_queries() where `Sql` like "%${table_name}%"; """
+    def res = sql """ select query_id from information_schema.active_queries where `sql` like "%${table_name}%"; """
     logger.info("res = " + res)
     assertTrue(res.size() >= 0 && res.size() <= 2);
 }

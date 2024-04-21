@@ -176,7 +176,7 @@ public class BrokerStorageTest {
         Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
         Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
         Assert.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
-        Assert.assertEquals(Status.OK, fileSystem.list(bucket + basePath  + "_list/*", result));
+        Assert.assertEquals(Status.OK, fileSystem.globList(bucket + basePath  + "_list/*", result));
         Assert.assertEquals(3, result.size());
     }
 

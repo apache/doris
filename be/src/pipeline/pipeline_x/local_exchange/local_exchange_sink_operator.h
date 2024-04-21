@@ -17,18 +17,9 @@
 
 #pragma once
 
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
-
-struct LocalExchangeSinkDependency final : public Dependency {
-public:
-    using SharedState = LocalExchangeSharedState;
-    LocalExchangeSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeSinkDependency", true, query_ctx) {}
-    ~LocalExchangeSinkDependency() override = default;
-};
 
 class Exchanger;
 class ShuffleExchanger;
@@ -36,10 +27,9 @@ class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
 class LocalExchangeSinkOperatorX;
-class LocalExchangeSinkLocalState final
-        : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
+class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<LocalExchangeSinkDependency>;
+    using Base = PipelineXSinkLocalState<LocalExchangeSharedState>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSinkLocalState);
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -47,6 +37,8 @@ public:
     ~LocalExchangeSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
 
 private:
@@ -68,6 +60,7 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
+    bool _release_count = false;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -149,8 +142,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
     friend class LocalExchangeSinkLocalState;

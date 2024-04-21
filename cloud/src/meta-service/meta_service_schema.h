@@ -30,4 +30,13 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
 // Return true if parse success
 [[nodiscard]] bool parse_schema_value(const ValueBuf& buf, doris::TabletSchemaCloudPB* schema);
 
+// Writes schema dictionary metadata to RowsetMetaCloudPB
+void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
+                       Transaction* txn, RowsetMetaCloudPB* rowset_meta);
+
+// Read schema from dictionary metadata, modified to rowset_metas
+void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
+                           int64_t index_id, Transaction* txn,
+                           google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>* rowset_metas);
+
 } // namespace doris::cloud

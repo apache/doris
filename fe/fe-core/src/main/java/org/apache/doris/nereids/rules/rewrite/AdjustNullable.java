@@ -133,7 +133,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
         }
         List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
-        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts).recomputeLogicalProperties();
+        return join.withJoinConjuncts(hashConjuncts, otherConjuncts, markConjuncts,
+                    join.getJoinReorderContext()).recomputeLogicalProperties();
     }
 
     @Override
@@ -267,11 +268,19 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     }
 
     private <T extends Expression> List<T> updateExpressions(List<T> inputs, Map<ExprId, Slot> replaceMap) {
-        return inputs.stream().map(i -> updateExpression(i, replaceMap)).collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<T> result = ImmutableList.builderWithExpectedSize(inputs.size());
+        for (T input : inputs) {
+            result.add(updateExpression(input, replaceMap));
+        }
+        return result.build();
     }
 
     private <T extends Expression> Set<T> updateExpressions(Set<T> inputs, Map<ExprId, Slot> replaceMap) {
-        return inputs.stream().map(i -> updateExpression(i, replaceMap)).collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<T> result = ImmutableSet.builderWithExpectedSize(inputs.size());
+        for (T input : inputs) {
+            result.add(updateExpression(input, replaceMap));
+        }
+        return result.build();
     }
 
     private Map<ExprId, Slot> collectChildrenOutputMap(LogicalPlan plan) {

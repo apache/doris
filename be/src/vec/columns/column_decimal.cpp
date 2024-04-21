@@ -236,6 +236,7 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(size, scale);
@@ -296,10 +297,10 @@ void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {} are out of bound in "
-                "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {} are out of bound in "
+                               "ColumnDecimal<T>::insert_range_from method (data.size() = {})",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();

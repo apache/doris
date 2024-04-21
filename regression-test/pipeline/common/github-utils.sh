@@ -316,6 +316,10 @@ file_changed_cloud_p0() {
     echo "return no need" && return 1
 }
 
+file_changed_cloud_p1() {
+    file_changed_cloud_p0
+}
+
 file_changed_regression_p0() {
     local all_files
     all_files=$(cat all_files)

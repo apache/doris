@@ -76,6 +76,7 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
 
 Status HierarchicalDataReader::seek_to_first() {
     LOG(FATAL) << "Not implemented";
+    __builtin_unreachable();
 }
 
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
@@ -154,6 +155,7 @@ Status ExtractReader::init(const ColumnIteratorOptions& opts) {
 
 Status ExtractReader::seek_to_first() {
     LOG(FATAL) << "Not implemented";
+    __builtin_unreachable();
 }
 
 Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
@@ -182,7 +184,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     // since some other column may depend on it.
     vectorized::MutableColumnPtr extracted_column;
     RETURN_IF_ERROR(root.extract_root( // trim the root name, eg. v.a.b -> a.b
-            _col.path_info().copy_pop_front(), extracted_column));
+            _col.path_info_ptr()->copy_pop_front(), extracted_column));
 
     if (_target_type_hint != nullptr) {
         variant.create_root(_target_type_hint, _target_type_hint->create_column());

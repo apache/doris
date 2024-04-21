@@ -189,14 +189,26 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
 }
 
 void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env) {
-    // TODO(plat1ko): DELETE worker
-    // TODO(plat1ko): ALTER worker
+    _workers[TTaskType::PUSH] = std::make_unique<TaskWorkerPool>(
+            "PUSH", config::delete_worker_count,
+            [&engine](auto&& task) { cloud_push_callback(engine, task); });
     // TODO(plat1ko): SUBMIT_TABLE_COMPACTION worker
-    // TODO(plat1ko): CALCULATE_DELETE_BITMAP worker
+
+    _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
+            "ALTER_TABLE", config::alter_tablet_worker_count,
+            [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); });
+
+    _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
+            "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
+            [&engine](auto&& task) { return calc_delete_bimtap_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds,
             [&master_info = _master_info] { report_task_callback(master_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
+            [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
@@ -249,6 +261,12 @@ void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
     Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
     status.to_thrift(&t_agent_result.status);
+}
+
+void AgentServer::stop_report_workers() {
+    for (auto& work : _report_workers) {
+        work->stop();
+    }
 }
 
 } // namespace doris

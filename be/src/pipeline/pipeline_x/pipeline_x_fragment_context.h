@@ -53,7 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -96,18 +96,13 @@ public:
 
     Status submit() override;
 
-    void close_if_prepare_failed() override;
+    void close_if_prepare_failed(Status st) override;
     void close_sink() override;
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "") override;
 
     Status send_report(bool) override;
-
-    RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId fragment_instance_id) override {
-        DCHECK(_runtime_filter_mgr_map.contains(fragment_instance_id));
-        return _runtime_filter_mgr_map[fragment_instance_id].get();
-    }
 
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
@@ -116,6 +111,9 @@ public:
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
     [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
+
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
 
     std::string debug_string() override;
 
@@ -169,8 +167,6 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
 
-    bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
     OperatorXPtr _root_op = nullptr;
@@ -192,8 +188,6 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-
-    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
@@ -227,8 +221,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr

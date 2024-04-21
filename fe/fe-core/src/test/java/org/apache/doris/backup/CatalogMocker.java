@@ -213,11 +213,11 @@ public class CatalogMocker {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -263,7 +263,7 @@ public class CatalogMocker {
         olapTable.setIndexMeta(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
                 TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable.addPartition(partition);
-        db.createTable(olapTable);
+        db.registerTable(olapTable);
 
         // 2. mysql table
         Map<String, String> mysqlProp = Maps.newHashMap();
@@ -279,7 +279,7 @@ public class CatalogMocker {
         } catch (DdlException e) {
             e.printStackTrace();
         }
-        db.createTable(mysqlTable);
+        db.registerTable(mysqlTable);
 
         // 3. range partition olap table
         MaterializedIndex baseIndexP1 = new MaterializedIndex(TEST_TBL2_ID, IndexState.NORMAL);
@@ -387,7 +387,7 @@ public class CatalogMocker {
 
         olapTable2.setIndexMeta(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
                                       (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
-        db.createTable(olapTable2);
+        db.registerTable(olapTable2);
 
         return db;
     }

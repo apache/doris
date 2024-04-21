@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical assertNumRows.
@@ -59,9 +60,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(child().getOutput())
-                .build();
+        return child().getOutput().stream().map(o -> o.withNullable(true)).collect(Collectors.toList());
     }
 
     public AssertNumRowsElement getAssertNumRowsElement() {
@@ -94,7 +93,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of(assertNumRowsElement);
+        return ImmutableList.of();
     }
 
     @Override

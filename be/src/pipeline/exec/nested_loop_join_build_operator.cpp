@@ -27,8 +27,8 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
-        : JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
-                                  NestedLoopJoinBuildSinkLocalState>(parent, state) {}
+        : JoinBuildSinkLocalState<NestedLoopJoinSharedState, NestedLoopJoinBuildSinkLocalState>(
+                  parent, state) {}
 
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
@@ -36,14 +36,22 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    _runtime_filters.resize(p._runtime_filter_descs.size());
+    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
+    }
+    return Status::OK();
+}
+
+Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
-    }
-    _runtime_filters.resize(p._runtime_filter_descs.size());
-    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i], false,
-                                                                &_runtime_filters[i], false));
     }
     return Status::OK();
 }
@@ -51,9 +59,11 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
                                                                    int operator_id,
                                                                    const TPlanNode& tnode,
-                                                                   const DescriptorTbl& descs)
+                                                                   const DescriptorTbl& descs,
+                                                                   bool need_local_merge)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
+          _need_local_merge(need_local_merge),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -87,7 +97,7 @@ Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* block,
-                                              SourceState source_state) {
+                                              bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -104,7 +114,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
         }
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
         vectorized::RuntimeFilterBuild<NestedLoopJoinBuildSinkLocalState> rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));

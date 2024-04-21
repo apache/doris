@@ -62,9 +62,10 @@ public class Config extends ConfigBase {
      * sys_log_enable_compress:
      *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
+    @Deprecated // use env var LOG_DIR instead
     @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
             "The path of the FE log file, used to store fe.log"})
-    public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String sys_log_dir = "";
 
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
@@ -101,7 +102,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
             "The path of the FE audit log file, used to store fe.audit.log"})
-    public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
+    public static String audit_log_dir = System.getenv("LOG_DIR");
     @ConfField(description = {"FE 审计日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
             "The maximum number of FE audit log files. "
                     + "After exceeding this number, the oldest log file will be deleted"})
@@ -143,11 +144,11 @@ public class Config extends ConfigBase {
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
-            + "默认为 * 全部允许，如果设置为空责全部不允许",
+            + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
             "The safe path of the JDBC driver. When creating a JDBC Catalog,"
                     + "you can configure multiple files or network paths that are allowed to be used,"
                     + "separated by semicolons"
-                    + "The default is * to allow all, if set to empty, all are not allowed"})
+                    + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
@@ -570,7 +571,7 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     @ConfField(description = {"Spark launcher 日志路径", "Spark launcher log dir"})
-    public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
+    public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
     public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
@@ -702,6 +703,9 @@ public class Config extends ConfigBase {
             "After dropping database(table/partition), you can recover it by using RECOVER stmt.",
             "And this specifies the maximal data retention time. After time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
+
+    @ConfField
+    public static boolean catalog_trash_ignore_min_erase_latency = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 读取的最小字节数。Broker Load 切分文件时，"
@@ -908,7 +912,7 @@ public class Config extends ConfigBase {
      * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
-    public static int max_query_retry_time = 1;
+    public static int max_query_retry_time = 3;
 
     /**
      * The number of point query retries in executor.
@@ -1140,8 +1144,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 5;
@@ -1163,14 +1167,6 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
-
-    /**
-     * If set to true, the insert stmt with processing error will still return a label to user.
-     * And user can use this label to check the load job's status.
-     * The default value is false, which means if insert operation encounter errors,
-     * exception will be thrown to user client directly without load label.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
 
     /**
      * This will limit the max recursion depth of hash distribution pruner.
@@ -1304,7 +1300,11 @@ public class Config extends ConfigBase {
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
+    )
     public static int cache_last_version_interval_second = 30;
 
     /**
@@ -1461,6 +1461,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backup_restore_job_num_per_db = 10;
+
+    /**
+     * whether to ignore table that not support type when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean ignore_backup_not_support_table_type = false;
 
     /**
      * Control the default max num of the instance for a user.
@@ -1697,7 +1703,7 @@ public class Config extends ConfigBase {
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_workload_group = false;
+    public static boolean enable_workload_group = true;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
@@ -1759,7 +1765,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 3;
+    public static int max_be_exec_version = 4;
 
     /**
      * Min data version of backends serialize block.
@@ -1803,16 +1809,27 @@ public class Config extends ConfigBase {
      * And the max number of compute node is controlled by min_backend_num_for_external_table.
      * If set to false, query on external table will assign to any node.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, description = {"如果设置为true，外部表的查询将优先分配给计算节点。",
+            "并且计算节点的最大数量由min_backend_num_for_external_table控制。",
+            "如果设置为false，外部表的查询将分配给任何节点。"
+                    + "如果集群内没有计算节点，则该参数不生效。",
+            "If set to true, query on external table will prefer to assign to compute node. "
+                    + "And the max number of compute node is controlled by min_backend_num_for_external_table. "
+                    + "If set to false, query on external table will assign to any node. "
+                    + "If there is no compute node in cluster, this config takes no effect."})
     public static boolean prefer_compute_node_for_external_table = false;
-    /**
-     * Only take effect when prefer_compute_node_for_external_table is true.
-     * If the compute node number is less than this value, query on external table will try to get some mix node
-     * to assign, to let the total number of node reach this value.
-     * If the compute node number is larger than this value, query on external table will assign to compute node only.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static int min_backend_num_for_external_table = 3;
+
+    @ConfField(mutable = true, description = {"只有当prefer_compute_node_for_external_table为true时生效，"
+            + "如果计算节点数小于这个值，外部表的查询会尝试获取一些混合节点来分配，以使节点总数达到这个值。"
+            + "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1表示只是用当前数量的计算节点",
+            "Only take effect when prefer_compute_node_for_external_table is true. "
+                    + "If the compute node number is less than this value, "
+                    + "query on external table will try to get some mix de to assign, "
+                    + "to let the total number of node reach this value. "
+                    + "If the compute node number is larger than this value, "
+                    + "query on external table will assign to compute de only. "
+                    + "-1 means only use current compute node."})
+    public static int min_backend_num_for_external_table = -1;
 
     /**
      * Max query profile num.
@@ -1901,6 +1918,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
         "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
+        "Max cache number of external table row count"})
+    public static long max_external_table_row_count_cache_num = 100000;
 
     /**
      * Max cache loader thread-pool size.
@@ -1991,6 +2012,20 @@ public class Config extends ConfigBase {
                     + "the old load statement will be degraded."})
     public static boolean enable_nereids_load = false;
 
+    /**
+     * the plan cache num which can be reused for the next query
+     */
+    @ConfField(
+            mutable = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+                "Now default set to 100, this config is used to control the number of "
+                        + "sql cache managed by NereidsSqlCacheManager"
+            }
+    )
+    public static int sql_cache_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2201,6 +2236,16 @@ public class Config extends ConfigBase {
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "启用Hive分桶表",
+            "Enable external hive bucket table"})
+    public static boolean enable_create_hive_bucket_table = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的文件格式",
+            "Default hive file format for creating table."})
+    public static String hive_default_file_format = "orc";
+
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
@@ -2219,14 +2264,30 @@ public class Config extends ConfigBase {
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
+                    + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
+            "Used to force set the replica allocation of the internal table. If the config is not empty, "
+                    + "the replication_num and replication_allocation specified by the user when creating the table "
+                    + "or partitions will be ignored, and the value set by this parameter will be used."
+                    + "This config effect the operations including create tables, create partitions and create "
+                    + "dynamic partitions. This config is recommended to be used only in the test environment"})
+    public static String force_olap_table_replication_allocation = "";
+
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
 
+    @ConfField(mutable = false)
+    public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
+
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
+
+    @ConfField(mutable = true)
+    public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
@@ -2247,11 +2308,6 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
-
-    @ConfField(description = {
-            "是否开启列权限",
-            "Whether to enable col auth"})
-    public static boolean enable_col_auth = false;
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
@@ -2309,16 +2365,28 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(description = {
+    @ConfField(mutable = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为2000",
+    @ConfField(mutable = true, description = {
+        "Auto Buckets中最大的buckets数目",
+        "max buckets of auto bucket"
+    })
+    public static int autobucket_max_buckets = 128;
+
+    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
+            + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
+            + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
+            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
             "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-            + "LRU rules after exceeding the limit, the default value is 2000."})
-    public static int arrow_flight_token_cache_size = 2000;
+            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
+            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
+            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
+            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
+    public static int arrow_flight_token_cache_size = 512;
 
     @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
@@ -2375,9 +2443,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int workload_sched_policy_interval_ms = 10000; // 10s
-
-    @ConfField(mutable = true)
-    public static int workload_action_interval_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;
@@ -2440,7 +2505,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
-    public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
@@ -2496,9 +2561,47 @@ public class Config extends ConfigBase {
     */
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
+
+    @ConfField(description = {"指定 mysql登录身份认证类型",
+            "Specifies the authentication type"},
+            options = {"default", "ldap"})
+    public static String authentication_type = "default";
+
+    @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
+            "Specify the default plugins loading path for the trino-connector catalog"})
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+
+    @ConfField(mutable = true)
+    public static boolean fix_tablet_partition_id_eq_0 = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "倒排索引默认存储格式",
+            "Default storage format of inverted index, the default value is V1."
+    })
+    public static String inverted_index_storage_format = "V1";
+
+    @ConfField(description = {
+            "是否开启 Proxy Protocol 支持",
+            "Whether to enable proxy protocol"
+    })
+    public static boolean enable_proxy_protocol = false;
+    public static int profile_async_collect_expire_time_secs = 5;
+
+    // Used to check compatibility when upgrading.
+    @ConfField
+    public static boolean enable_check_compatibility_mode = false;
+
+    // Do checkpoint after replaying edit logs.
+    @ConfField
+    public static boolean checkpoint_after_check_compatibility = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+
+    @ConfField public static int info_sys_accumulated_file_size = 4;
+    @ConfField public static int warn_sys_accumulated_file_size = 2;
+    @ConfField public static int audit_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String cloud_unique_id = "";
@@ -2513,6 +2616,9 @@ public class Config extends ConfigBase {
 
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     *
+     * If you want to access a group of meta services, separated the endpoints by comma,
+     * like "host-1:port,host-2:port".
      */
     @ConfField
     public static String meta_service_endpoint = "";
@@ -2528,6 +2634,8 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
+    //
+    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 
@@ -2555,6 +2663,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
 
+    @ConfField(mutable = true)
+    public static int get_tablet_stat_batch_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_light_index_change = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
     // to help to acquire a snapshot of partition versions.
@@ -2569,6 +2686,63 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField
+    public static int cloud_txn_tablet_batch_size = 50;
+
+    @ConfField
+    public static int drop_user_notify_ms_max_times = 86400;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_tablet_rebalancer_interval_second = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_partition_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_table_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_cloud_global_balance = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_pre_heating_time_limit_sec = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double cloud_rebalance_percent_threshold = 0.05;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_rebalance_number_threshold = 2;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double cloud_balance_tablet_percent_per_run = 0.05;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_min_balance_tablet_num_per_run = 2;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_preheating_enabled = false;
+
+    @ConfField(mutable = true, masterOnly = false)
+    public static String security_checker_class_name = "";
+
+    @ConfField(mutable = true)
+    public static int mow_insert_into_commit_retry_times = 10;
+
+    @ConfField(mutable = true, description = {"指定S3 Load endpoint白名单, 举例: s3_load_endpoint_white_list=a,b,c",
+            "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
+            + "for example: s3_load_endpoint_white_list=a,b,c"})
+    public static String[] s3_load_endpoint_white_list = {};
+
+    @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
+            "the white list for jdbc driver url, if it is empty, no white list will be set"
+            + "for example: jdbc_driver_url_white_list=a,b,c"
+    })
+    public static String[] jdbc_driver_url_white_list = {};
+
+    @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
+            "Stream_Load When importing, the maximum length of label is limited"})
+    public static int label_regex_length = 128;
 
     //==========================================================================
     //                      end of cloud config

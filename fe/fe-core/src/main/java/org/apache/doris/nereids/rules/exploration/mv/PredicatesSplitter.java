@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -77,6 +78,17 @@ public class PredicatesSplitter {
                 rangePredicates.add(comparisonPredicate);
             } else {
                 residualPredicates.add(comparisonPredicate);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitInPredicate(InPredicate inPredicate, Void context) {
+            if (containOnlyColumnRef(inPredicate.getCompareExpr(), true)
+                    && (ExpressionUtils.isAllLiteral(inPredicate.getOptions()))) {
+                rangePredicates.add(inPredicate);
+            } else {
+                residualPredicates.add(inPredicate);
             }
             return null;
         }

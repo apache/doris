@@ -57,7 +57,7 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     assert(tablet_schema);
     const auto& columns = tablet_schema->columns();
     for (const auto& col : columns) {
-        _convertors.emplace_back(create_olap_column_data_convertor(col));
+        _convertors.emplace_back(create_olap_column_data_convertor(*col));
     }
 }
 
@@ -1073,6 +1073,13 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
                               nullable_column->get_nested_column());
 
     const_cast<ColumnObject&>(variant).finalize_if_not();
+    if (variant.is_null_root()) {
+        auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+        auto root_col = root_type->create_column();
+        root_col->insert_many_defaults(variant.rows());
+        const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
+        variant.check_consistency();
+    }
     auto root_of_variant = variant.get_root();
     auto nullable = assert_cast<const ColumnNullable*>(root_of_variant.get());
     CHECK(nullable);

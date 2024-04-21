@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -43,7 +43,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * logical node to deal with window functions;
@@ -87,8 +86,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow<>(windowExpressions, isChecked, Optional.empty(),
-                Optional.empty(), child);
+        return new LogicalWindow<>(windowExpressions, isChecked, child);
     }
 
     public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
@@ -229,35 +227,51 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Optional.ofNullable(window);
     }
 
-    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, FunctionalDependencies.Builder builder) {
+    private boolean isUnique(NamedExpression namedExpression) {
         if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
-            return;
+            return false;
         }
         WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
         List<Expression> partitionKeys = windowExpr.getPartitionKeys();
         // Now we only support slot type keys
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
-            return;
+            return false;
         }
         ImmutableSet<Slot> slotSet = partitionKeys.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
+        // if partition by keys are uniform or empty, output is unique
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(slotSet)
+                || slotSet.isEmpty()) {
+            if (windowExpr.getFunction() instanceof RowNumber) {
+                return true;
+            }
+        }
+        return false;
+    }
 
+    private boolean isUniform(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return false;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return false;
+        }
+        ImmutableSet<Slot> slotSet = partitionKeys.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
         // if partition by keys are unique, output is uniform
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(slotSet)) {
             if (windowExpr.getFunction() instanceof RowNumber
                     || windowExpr.getFunction() instanceof Rank
                     || windowExpr.getFunction() instanceof DenseRank) {
-                builder.addUniformSlot(namedExpression.toSlot());
+                return true;
             }
         }
-
-        // if partition by keys are uniform, output is unique
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(slotSet)) {
-            if (windowExpr.getFunction() instanceof RowNumber) {
-                builder.addUniqueSlot(namedExpression.toSlot());
-            }
-        }
+        return false;
     }
 
     private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
@@ -279,19 +293,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
-                child(0).getLogicalProperties().getFunctionalDependencies());
-        for (NamedExpression namedExpression : windowExpressions) {
-            updateFuncDepsByWindowExpr(namedExpression, builder);
-        }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);
@@ -301,5 +303,25 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
 
         return builder.build();
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        for (NamedExpression namedExpression : windowExpressions) {
+            if (isUnique(namedExpression)) {
+                fdBuilder.addUniqueSlot(namedExpression.toSlot());
+            }
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        for (NamedExpression namedExpression : windowExpressions) {
+            if (isUniform(namedExpression)) {
+                fdBuilder.addUniformSlot(namedExpression.toSlot());
+            }
+        }
     }
 }

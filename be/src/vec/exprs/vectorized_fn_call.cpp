@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_agg_state.h"
+#include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
@@ -67,12 +68,16 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
                              get_child_names(), _data_type->get_name());
-
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
-            _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            if (_fn.is_udtf_function) {
+                // fake function. it's no use and can't execute.
+                _function = FunctionFake<UDTFImpl>::create();
+            } else {
+                _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            }
         } else {
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "
@@ -136,41 +141,51 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) {
+Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
+                                     doris::vectorized::Block* block, int* result_column_id,
+                                     std::vector<size_t>& args) {
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
 
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
-    vectorized::ColumnNumbers arguments(_children.size());
+    args.resize(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+        args[i] = column_id;
     }
-    RETURN_IF_ERROR(check_constant(*block, arguments));
 
+    RETURN_IF_ERROR(check_constant(*block, args));
     // call function
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     if (_can_fast_execute) {
-        // if not find fast execute result column, means do not need check fast execute again
-        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
-                                         num_columns_without_result, block->rows());
-        if (_can_fast_execute) {
+        auto can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
+                                             num_columns_without_result, block->rows());
+        if (can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
         }
     }
-
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-
     return Status::OK();
+}
+
+Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
+                                                doris::vectorized::Block* block,
+                                                int* result_column_id, std::vector<size_t>& args) {
+    return _do_execute(context, block, result_column_id, args);
+}
+
+Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
+                                 int* result_column_id) {
+    std::vector<size_t> arguments;
+    return _do_execute(context, block, result_column_id, arguments);
 }
 
 // fast_execute can direct copy expr filter result which build by apply index in segment_iterator

@@ -149,12 +149,12 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t,
+        return getTableOrException(tableName, t -> new MetaNotFoundException("table not found, tableName=" + t,
                                                         ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t,
+        return getTableOrException(tableId, t -> new MetaNotFoundException("table not found, tableId=" + t,
                                                         ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
@@ -263,7 +263,18 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 
-    void dropTable(String tableName);
+    /**
+     * register table to memory
+     * @param table created table
+     * @return true if add to memory
+     */
+    boolean registerTable(TableIf table);
+
+    /**
+     * unregister table from memory
+     * @param tableName table name
+     */
+    void unregisterTable(String tableName);
 
     CatalogIf getCatalog();
 

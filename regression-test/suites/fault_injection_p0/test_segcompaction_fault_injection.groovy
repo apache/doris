@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
-suite("test_segcompaction_correctness", "nonConcurrent") {
+suite("test_segcompaction_correctness", "nonConcurrent,p2") {
     def tableName = "segcompaction_correctness_test"
     def create_table_sql = """
                 CREATE TABLE IF NOT EXISTS ${tableName} (

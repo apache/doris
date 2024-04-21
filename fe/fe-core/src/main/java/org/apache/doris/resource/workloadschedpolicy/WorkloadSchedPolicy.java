@@ -46,13 +46,17 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
 
     public static final String ENABLED = "enabled";
     public static final String PRIORITY = "priority";
+    public static final String WORKLOAD_GROUP = "workload_group";
+
     public static final ImmutableSet<String> POLICY_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(ENABLED).add(PRIORITY).build();
+            .add(ENABLED).add(PRIORITY).add(WORKLOAD_GROUP).build();
 
     // used for convert fe type to thrift type
     private static ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
             = new ImmutableMap.Builder<WorkloadMetricType, TWorkloadMetricType>()
-            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME).build();
+            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME)
+            .put(WorkloadMetricType.BE_SCAN_ROWS, TWorkloadMetricType.BE_SCAN_ROWS)
+            .put(WorkloadMetricType.BE_SCAN_BYTES, TWorkloadMetricType.BE_SCAN_BYTES).build();
     private static ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP
             = new ImmutableMap.Builder<WorkloadActionType, TWorkloadActionType>()
             .put(WorkloadActionType.MOVE_QUERY_TO_GROUP, TWorkloadActionType.MOVE_QUERY_TO_GROUP)
@@ -78,6 +82,9 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     @SerializedName(value = "priority")
     private volatile int priority;
 
+    @SerializedName(value = "wgIdList")
+    private List<Long> workloadGroupIdList = new ArrayList<>();
+
     @SerializedName(value = "conditionMetaList")
     List<WorkloadConditionMeta> conditionMetaList;
     // we regard action as a command, map's key is command, map's value is args, so it's a command list
@@ -99,13 +106,18 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     }
 
     public WorkloadSchedPolicy(long id, String name, List<WorkloadCondition> workloadConditionList,
-            List<WorkloadAction> workloadActionList, Map<String, String> properties) throws UserException {
+            List<WorkloadAction> workloadActionList, Map<String, String> properties, List<Long> wgIdList) {
         this.id = id;
         this.name = name;
         this.workloadConditionList = workloadConditionList;
         this.workloadActionList = workloadActionList;
-        // set enable and priority
-        parseAndSetProperties(properties);
+
+        String enabledStr = properties.get(ENABLED);
+        this.enabled = enabledStr == null ? true : Boolean.parseBoolean(enabledStr);
+
+        String priorityStr = properties.get(PRIORITY);
+        this.priority = priorityStr == null ? 0 : Integer.parseInt(priorityStr);
+        this.workloadGroupIdList = wgIdList;
         this.version = 0;
     }
 
@@ -160,12 +172,20 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         return retType;
     }
 
-    public void parseAndSetProperties(Map<String, String> properties) throws UserException {
-        String enabledStr = properties.get(ENABLED);
-        this.enabled = enabledStr == null ? true : Boolean.parseBoolean(enabledStr);
+    public void updateProperty(Map<String, String> property, List<Long> wgIdList) {
+        String enabledStr = property.get(ENABLED);
+        if (enabledStr != null) {
+            this.enabled = Boolean.parseBoolean(enabledStr);
+        }
 
-        String priorityStr = properties.get(PRIORITY);
-        this.priority = priorityStr == null ? 0 : Integer.parseInt(priorityStr);
+        String priorityStr = property.get(PRIORITY);
+        if (priorityStr != null) {
+            this.priority = Integer.parseInt(priorityStr);
+        }
+
+        if (wgIdList.size() > 0) {
+            this.workloadGroupIdList = wgIdList;
+        }
     }
 
     void incrementVersion() {
@@ -190,6 +210,10 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
 
     public long getVersion() {
         return version;
+    }
+
+    public List<Long> getWorkloadGroupIdList() {
+        return this.workloadGroupIdList;
     }
 
     public List<WorkloadConditionMeta> getConditionMetaList() {
@@ -222,6 +246,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         tPolicy.setVersion(version);
         tPolicy.setPriority(priority);
         tPolicy.setEnabled(enabled);
+        tPolicy.setWgIdList(workloadGroupIdList);
 
         List<TWorkloadCondition> condList = new ArrayList();
         for (WorkloadConditionMeta cond : conditionMetaList) {

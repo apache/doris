@@ -171,7 +171,7 @@ public class HashJoinNode extends JoinNodeBase {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        vOutputTupleDesc = outputTuple;
+        this.outputTupleDesc = outputTuple;
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
@@ -199,12 +199,6 @@ public class HashJoinNode extends JoinNodeBase {
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
             Preconditions.checkArgument(eqJoinPredicate instanceof BinaryPredicate);
             BinaryPredicate eqJoin = (BinaryPredicate) eqJoinPredicate;
-            if (eqJoin.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
-                Preconditions.checkArgument(eqJoin.getChildren().size() == 2);
-                if (!eqJoin.getChild(0).isNullable() || !eqJoin.getChild(1).isNullable()) {
-                    eqJoin.setOp(BinaryPredicate.Operator.EQ);
-                }
-            }
             this.eqJoinConjuncts.add(eqJoin);
         }
         this.distrMode = DistributionMode.NONE;
@@ -226,7 +220,7 @@ public class HashJoinNode extends JoinNodeBase {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        vOutputTupleDesc = outputTuple;
+        this.outputTupleDesc = outputTuple;
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
@@ -782,13 +776,8 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (markJoinConjuncts != null) {
             if (eqJoinConjuncts.isEmpty()) {
-                Preconditions.checkState(joinOp == JoinOperator.LEFT_SEMI_JOIN
-                        || joinOp == JoinOperator.LEFT_ANTI_JOIN);
-                if (joinOp == JoinOperator.LEFT_SEMI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN.toThrift();
-                } else if (joinOp == JoinOperator.LEFT_ANTI_JOIN) {
-                    msg.hash_join_node.join_op = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN.toThrift();
-                }
+                Preconditions.checkState(joinOp == JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN
+                        || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN);
                 // because eqJoinConjuncts mustn't be empty in thrift
                 // we have to use markJoinConjuncts instead
                 for (Expr e : markJoinConjuncts) {
@@ -811,26 +800,24 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
-        if (vSrcToOutputSMap != null) {
-            for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                // TODO: Enable it after we support new optimizers
-                // if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                //     msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                // } else
-                msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+        if (useSpecificProjections) {
+            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null && outputTupleDesc != null) {
+                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                    msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                }
+            }
+            if (outputTupleDesc != null) {
+                msg.hash_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
             }
         }
-        if (vOutputTupleDesc != null) {
-            msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            // TODO Enable it after we support new optimizers
-            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
-        }
+
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
         msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
+        msg.hash_join_node.setUseSpecificProjections(useSpecificProjections);
     }
 
     @Override
@@ -873,9 +860,11 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(getRuntimeFilterExplainString(true));
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
-        // todo unify in plan node
-        if (vOutputTupleDesc != null) {
-            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");
+        if (outputTupleDesc != null) {
+            output.append(detailPrefix).append("vec output tuple id: ").append(outputTupleDesc.getId()).append("\n");
+        }
+        if (outputTupleDesc != null) {
+            output.append(detailPrefix).append("output tuple id: ").append(outputTupleDesc.getId()).append("\n");
         }
         if (vIntermediateTupleDescList != null) {
             output.append(detailPrefix).append("vIntermediate tuple ids: ");
@@ -969,5 +958,13 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             return slotRef;
         }
+    }
+
+    @Override
+    public boolean isNullAwareLeftAntiJoin() {
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return true;
+        }
+        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
     }
 }

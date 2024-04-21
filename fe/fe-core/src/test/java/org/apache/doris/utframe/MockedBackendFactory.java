@@ -48,6 +48,8 @@ import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
@@ -192,8 +194,8 @@ public class MockedBackendFactory {
                             if (address == null) {
                                 System.out.println("fe addr thread race, please check it");
                             }
-                            System.out.println(
-                                    "get agent task request. type: " + request.getTaskType() + ", signature: "
+                            System.out.println(backend.getHost() + ":" + backend.getHeartbeatPort() + " "
+                                    + "get agent task request. type: " + request.getTaskType() + ", signature: "
                                     + request.getSignature() + ", fe addr: " + address);
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
                                     request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
@@ -329,7 +331,8 @@ public class MockedBackendFactory {
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
-                System.out.println("receive agent task request. type: " + request.getTaskType() + ", signature: "
+                System.out.println(backend.getHost() + ":" + backend.getHeartbeatPort() + " "
+                        + "receive agent task request. type: " + request.getTaskType() + ", signature: "
                         + request.getSignature());
             }
             return new TAgentResult(new TStatus(TStatusCode.OK));
@@ -452,6 +455,12 @@ public class MockedBackendFactory {
 
         @Override
         public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
                 throws TException {
             return null;
         }

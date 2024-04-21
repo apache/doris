@@ -26,6 +26,7 @@ suite("test_leading") {
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set runtime_filter_mode=OFF'
 
     // create tables
     sql """drop table if exists t1;"""
@@ -793,19 +794,19 @@ suite("test_leading") {
     qt_select68_13 """select /*+ leading(t3 {t2 t1}) */ count(*) from t1 left semi join t2 on c1 = c2 left anti join t3 on c1 = c3 where exists (select 1 from t3 join t4 on c3 = c4);"""
 
     // wrong table name
-    qt_select70_1 """explain shape plan select /*+ leading(t1 t3) */ count(*) from t1 join t2 on c1 = c2;"""
-    qt_select70_2 """explain shape plan select /*+ leading(t1 t5) */ count(*) from t1 join t2 on c1 = c2;"""
+    qt_select70_1 """select /*+ leading(t1 t3) */ count(*) from t1 join t2 on c1 = c2;"""
+    qt_select70_2 """select /*+ leading(t1 t5) */ count(*) from t1 join t2 on c1 = c2;"""
 
     // duplicate table name
-    qt_select71_1 """explain shape plan select /*+ leading(t1 t1 t2) */ count(*) from t1 join t2 on c1 = c2;"""
-    qt_select71_2 """explain shape plan select /*+ leading(t1 t2 t2) */ count(*) from t1 join t2 on c1 = c2;"""
+    qt_select71_1 """select /*+ leading(t1 t1 t2) */ count(*) from t1 join t2 on c1 = c2;"""
+    qt_select71_2 """select /*+ leading(t1 t2 t2) */ count(*) from t1 join t2 on c1 = c2;"""
 
     // different scope
-    qt_select72_1 """explain shape plan select count(*) from t1 join t2 on c1 = c2 where c2 in (select /*+ leading(t4 t3) */ c3 from t3 join t4 on c3 = c4);"""
-    qt_select72_2 """explain shape plan select /*+ leading(t1 t2) */ count(*) from t1 join t2 on c1 = c2 where c2 in (select c3 from t3 join t4 on c3 = c4);"""
+    qt_select72_1 """select count(*) from t1 join t2 on c1 = c2 where c2 in (select /*+ leading(t4 t3) */ c3 from t3 join t4 on c3 = c4);"""
+    qt_select72_2 """select /*+ leading(t1 t2) */ count(*) from t1 join t2 on c1 = c2 where c2 in (select c3 from t3 join t4 on c3 = c4);"""
 
     // multi leading hint
-    qt_select73_1 """explain shape plan select /*+ leading(t1 t2) */ count(*) from t1 join t2 on c1 = c2 where c2 in (select /*+ leading(t4 t3) */ c3 from t3 join t4 on c3 = c4);"""
+    qt_select73_1 """select /*+ leading(t1 t2) */ count(*) from t1 join t2 on c1 = c2 where c2 in (select /*+ leading(t4 t3) */ c3 from t3 join t4 on c3 = c4);"""
 
     // alias
 // inner join + anti join

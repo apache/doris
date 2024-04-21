@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -57,6 +58,10 @@ public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
+    public InternalSchemaInitializer() {
+        super("InternalSchemaInitializer");
+    }
+
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
             return;
@@ -92,8 +97,9 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void modifyTblReplicaCount(Database database, String tblName) {
-        if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
-                && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
+        if (Config.isCloudMode()
+                || Config.min_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
+                || Config.max_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
             return;
         }
         while (true) {
@@ -160,8 +166,8 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, FeConstants.INTERNAL_DB_NAME,
-                null);
+        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+                new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
@@ -183,8 +189,10 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put("replication_num", String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
+                put("storage_vault_name", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(StatisticConstants.STATISTIC_TBL_NAME),
                 engineName, keysDesc, null, distributionDesc,
@@ -206,8 +214,10 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
+                put("storage_vault_name", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(StatisticConstants.HISTOGRAM_TBL_NAME),
                 engineName, keysDesc, null, distributionDesc,
@@ -238,8 +248,10 @@ public class InternalSchemaInitializer extends Thread {
                 put("dynamic_partition.enable", "true");
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
+                put("storage_vault_name", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
                 engineName, keysDesc, partitionDesc, distributionDesc,

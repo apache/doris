@@ -78,18 +78,18 @@ public class DorisPackageRegistry implements PackageRegistry {
     }
 
     private PlsqlPackage findPackage(String name) throws TException {
-        return client.getPlsqlPackage(name.toUpperCase(), ConnectContext.get().getCurrentCatalog().getName(),
-                ConnectContext.get().getDatabase());
+        return client.getPlsqlPackage(name.toUpperCase(), ConnectContext.get().getCurrentCatalog().getId(),
+                ConnectContext.get().getCurrentDbId());
     }
 
     @Override
     public void dropPackage(String name) {
-        client.dropPlsqlPackage(name, ConnectContext.get().getCurrentCatalog().getName(),
-                ConnectContext.get().getDatabase());
+        client.dropPlsqlPackage(name, ConnectContext.get().getCurrentCatalog().getId(),
+                ConnectContext.get().getCurrentDbId());
     }
 
     private void savePackage(String name, String header, String body) {
-        client.addPlsqlPackage(name.toUpperCase(), ConnectContext.get().getCurrentCatalog().getName(),
-                ConnectContext.get().getDatabase(), ConnectContext.get().getQualifiedUser(), header, body);
+        client.addPlsqlPackage(name.toUpperCase(), ConnectContext.get().getCurrentCatalog().getId(),
+                ConnectContext.get().getCurrentDbId(), ConnectContext.get().getQualifiedUser(), header, body);
     }
 }

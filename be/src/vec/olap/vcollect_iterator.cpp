@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
 #include <ostream>
 #include <set>
 #include <utility>
@@ -38,6 +39,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
@@ -93,6 +95,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
     if (use_topn_next()) {
+        rs_splits.rs_reader->set_topn_limit(_topn_limit);
         _rs_splits.push_back(rs_splits);
         return Status::OK();
     }
@@ -305,8 +308,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                 }
             }
 
-            auto col_name = block->get_names()[first_sort_column_idx];
-
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
@@ -417,14 +418,15 @@ Status VCollectIterator::_topn_next(Block* block) {
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
-                auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
+                auto* col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
                 Field new_top;
                 col_ptr->get(last_sorted_row, new_top);
 
                 // update orderby_extrems in query global context
-                auto query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
+                auto* query_ctx = _reader->_reader_context.runtime_state->get_query_ctx();
+                for (int id : _reader->_reader_context.topn_filter_source_node_ids) {
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));
+                }
             }
         } // end of while (read_rows < _topn_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
@@ -468,7 +470,7 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     }
 
     auto st = refresh_current_row();
-    if (_get_data_by_ref && _block_view.size()) {
+    if (_get_data_by_ref && !_block_view.empty()) {
         _ref = _block_view[0];
     } else {
         _ref = {_block, 0, false};
@@ -665,7 +667,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                 break;
             }
         }
-        _heap.reset(new MergeHeap {LevelIteratorComparator(sequence_loc, _is_reverse)});
+        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(sequence_loc, _is_reverse));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
@@ -771,6 +773,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
+    SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_merge_next_timer);
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
     size_t column_count = target_columns.size();
@@ -852,6 +855,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
 }
 
 Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
+    SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_normal_next_timer);
     auto res = _cur_child->next(block);
     if (LIKELY(res.ok())) {
         return Status::OK();

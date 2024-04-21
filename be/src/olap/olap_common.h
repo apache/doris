@@ -369,6 +369,10 @@ struct OlapReaderStatistics {
 
     io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
+
+    int64_t collect_iterator_merge_next_timer = 0;
+    int64_t collect_iterator_normal_next_timer = 0;
+    int64_t delete_bitmap_get_agg_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -458,18 +462,7 @@ struct RowsetId {
     }
 };
 
-// used for hash-struct of hash_map<RowsetId, Rowset*>.
-struct HashOfRowsetId {
-    size_t operator()(const RowsetId& rowset_id) const {
-        size_t seed = 0;
-        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
-        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
-        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
-        return seed;
-    }
-};
-
-using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId>;
 
 // Extract rowset id from filename, return uninitialized rowset id if filename is invalid
 inline RowsetId extract_rowset_id(std::string_view filename) {
@@ -517,3 +510,18 @@ struct RidAndPos {
 using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris
+
+// This intended to be a "good" hash function.  It may change from time to time.
+template <>
+struct std::hash<doris::RowsetId> {
+    size_t operator()(const doris::RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.hi, sizeof(rowset_id.hi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.mi, sizeof(rowset_id.mi),
+                                                 seed);
+        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.lo, sizeof(rowset_id.lo),
+                                                 seed);
+        return seed;
+    }
+};

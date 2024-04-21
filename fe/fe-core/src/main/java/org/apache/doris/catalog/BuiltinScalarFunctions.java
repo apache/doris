@@ -186,7 +186,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllFromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
@@ -198,6 +200,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
@@ -316,8 +319,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
@@ -381,6 +386,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -416,6 +422,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -426,6 +433,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
@@ -483,7 +492,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayProduct.class, "array_product"),
             scalar(ArrayPushBack.class, "Array_pushback"),
             scalar(ArrayPushFront.class, "Array_pushfront"),
-            scalar(ArrayRange.class, "array_range"),
+            scalar(ArrayRange.class, "array_range", "sequence"),
             scalar(ArrayRemove.class, "array_remove"),
             scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
@@ -610,7 +619,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Hex.class, "hex"),
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),
+            scalar(HllFromBase64.class, "hll_from_base64"),
             scalar(HllHash.class, "hll_hash"),
+            scalar(HllToBase64.class, "hll_to_base64"),
             scalar(Hour.class, "hour"),
             scalar(HourCeil.class, "hour_ceil"),
             scalar(HourFloor.class, "hour_floor"),
@@ -622,6 +633,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Initcap.class, "initcap"),
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
+            scalar(InttoUuid.class, "int_to_uuid"),
             scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
             scalar(Ipv4StringToNum.class, "ipv4_string_to_num"),
             scalar(Ipv4StringToNumOrDefault.class, "ipv4_string_to_num_or_default"),
@@ -794,6 +806,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondTimestamp.class, "second_timestamp"),
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
+            scalar(RandomBytes.class, "random_bytes"),
             scalar(Sha1.class, "sha1", "sha"),
             scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
@@ -835,6 +848,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StX.class, "st_x"),
             scalar(StY.class, "st_y"),
             scalar(StartsWith.class, "starts_with"),
+            scalar(Strcmp.class, "strcmp"),
             scalar(StrLeft.class, "strleft"),
             scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),
@@ -861,11 +875,13 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Unhex.class, "unhex"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
+            scalar(Quote.class, "quote"),
             scalar(UrlDecode.class, "url_decode"),
             scalar(User.class, "user"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
             scalar(UuidNumeric.class, "uuid_numeric"),
+            scalar(UuidtoInt.class, "uuid_to_int"),
             scalar(Version.class, "version"),
             scalar(Week.class, "week"),
             scalar(WeekCeil.class, "week_ceil"),
@@ -876,6 +892,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(WeeksDiff.class, "weeks_diff"),
             scalar(WeeksSub.class, "weeks_sub"),
             scalar(WidthBucket.class, "width_bucket"),
+            scalar(XxHash32.class, "xxhash_32"),
+            scalar(XxHash64.class, "xxhash_64"),
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),

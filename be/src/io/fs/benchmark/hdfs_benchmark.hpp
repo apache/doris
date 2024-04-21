@@ -19,6 +19,7 @@
 
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
@@ -45,14 +46,13 @@ public:
         auto file_path = get_file_path(state);
 
         auto start = std::chrono::high_resolution_clock::now();
-        std::shared_ptr<io::FileSystem> fs;
-        io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts;
-        THdfsParams hdfs_params = parse_properties(_conf_map);
-        FileDescription fd;
-        fd.path = file_path;
-        RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, fd, reader_opts, &fs, &reader,
-                                                        nullptr));
+        FileSystemProperties params {
+                .system_type = TFileType::FILE_HDFS,
+                .hdfs_params = parse_properties(_conf_map),
+        };
+        FileDescription fd {.path = file_path};
+        auto reader = DORIS_TRY(FileFactory::create_file_reader(params, fd, reader_opts, nullptr));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -92,10 +92,10 @@ public:
         if (_file_size <= 0) {
             _file_size = 10 * 1024 * 1024; // default 10MB
         }
-        std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                       io::FileSystem::TMP_FS_ID, nullptr));
         RETURN_IF_ERROR(fs->create_file(file_path, &writer));
         return write(state, writer.get());
     }
@@ -115,8 +115,8 @@ public:
         auto file_path = get_file_path(state);
         auto new_file_path = file_path + "_new";
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                       io::FileSystem::TMP_FS_ID, nullptr));
 
         auto start = std::chrono::high_resolution_clock::now();
         RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
@@ -141,9 +141,9 @@ public:
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
 
-        std::shared_ptr<io::HdfsFileSystem> fs;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                       io::FileSystem::TMP_FS_ID, nullptr));
 
         auto start = std::chrono::high_resolution_clock::now();
         bool res = false;

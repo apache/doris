@@ -59,7 +59,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (isTableLevelTask) {
             getTableStats();
         } else {
-            getOrdinaryColumnStats();
+            getColumnStats();
         }
     }
 
@@ -83,8 +83,8 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         job.rowCountDone(this);
     }
 
-    // Get ordinary column stats
-    protected void getOrdinaryColumnStats() throws Exception {
+    // Get column stats
+    protected void getColumnStats() throws Exception {
         StringBuilder sb = new StringBuilder();
         Map<String, String> params = buildStatsParams("NULL");
         params.put("min", getMinFunction());
@@ -129,7 +129,11 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
                 params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
                 params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
             } else {
-                sb.append(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sb.append(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sb.append(DUJ1_ANALYZE_TEMPLATE);
+                }
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
                 params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");

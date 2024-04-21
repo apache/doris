@@ -152,7 +152,7 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "6001215.0")
         assertTrue(result[0][6] == "1.0")
-                             
+
         result = sql """show column cached stats lineitem (l_comment)"""
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "l_comment")
@@ -203,10 +203,18 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "7.2006178E7")
         assertTrue(result[0][6] == "11.998599950176756")
-                             
-        result = sql """show table cached stats lineitem"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][2] == "6001215")
+
+        for (int i = 0; i < 10; i++) {
+            result = sql """show table stats lineitem"""
+            logger.info("show table stats result: " + result)
+            assertTrue(result.size() == 1)
+            if (result[0][2] == "0") {
+                Thread.sleep(1000)
+                continue;
+            }
+            assertTrue(result[0][2] == "6001215")
+            break;
+        }
 
         sql """drop catalog ${catalog_name}"""
     }

@@ -18,11 +18,14 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -32,12 +35,12 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
-#include "task_group/task_group.h"
-#include "util/pretty_printer.h"
+#include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vec/runtime/shared_scanner_controller.h"
+#include "workload_group/workload_group.h"
 
 namespace doris {
 
@@ -61,6 +64,7 @@ struct ReportStatusRequest {
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -70,7 +74,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
+                 bool is_nereids);
 
     ~QueryContext();
 
@@ -106,7 +111,14 @@ public:
     void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
+
+    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
+                                     const std::string& msg);
+    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
+                                   const std::string& msg);
+    void set_pipeline_context(const int fragment_id,
+                              std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
+    void cancel(std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -123,6 +135,8 @@ public:
         std::lock_guard<std::mutex> l(_exec_status_lock);
         return _exec_status;
     }
+
+    void set_execution_dependency_ready();
 
     void set_ready_to_execute_only();
 
@@ -148,9 +162,21 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
+        if (_runtime_predicates.contains(source_node_id)) {
+            return _runtime_predicates[source_node_id];
+        }
+        return _runtime_predicates[0];
+    }
 
-    Status set_task_group(taskgroup::TaskGroupPtr& tg);
+    void init_runtime_predicates(std::vector<int> source_node_ids) {
+        for (int id : source_node_ids) {
+            _runtime_predicates.try_emplace(id);
+        }
+    }
+
+    Status set_workload_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -166,14 +192,11 @@ public:
                _query_options.runtime_filter_wait_infinitely;
     }
 
-    bool enable_pipeline_exec() const {
-        return _query_options.__isset.enable_pipeline_engine &&
-               _query_options.enable_pipeline_engine;
-    }
-
     bool enable_pipeline_x_exec() const {
-        return _query_options.__isset.enable_pipeline_x_engine &&
-               _query_options.enable_pipeline_x_engine;
+        return (_query_options.__isset.enable_pipeline_x_engine &&
+                _query_options.enable_pipeline_x_engine) ||
+               (_query_options.__isset.enable_pipeline_engine &&
+                _query_options.enable_pipeline_engine);
     }
 
     int be_exec_version() const {
@@ -196,6 +219,10 @@ public:
 
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
+    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+        return _remote_scan_task_scheduler;
+    }
+
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
@@ -212,9 +239,40 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
-    int64_t mem_limit() { return _bytes_limit; }
+    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
-public:
+    int64_t mem_limit() const { return _bytes_limit; }
+
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
+    bool is_nereids() const { return _is_nereids; }
+
+    WorkloadGroupPtr workload_group() const { return _workload_group; }
+
+    void inc_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_add(1, std::memory_order_relaxed);
+    }
+    void dec_running_big_mem_op_num() {
+        _running_big_mem_op_num.fetch_sub(1, std::memory_order_relaxed);
+    }
+    int32_t get_running_big_mem_op_num() {
+        return _running_big_mem_op_num.load(std::memory_order_relaxed);
+    }
+
+    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        _weighted_consumption = weighted_consumption;
+        _weighted_limit = weighted_limit;
+    }
+    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
+        std::lock_guard<std::mutex> l(_weighted_mem_lock);
+        weighted_limit = _weighted_limit;
+        weighted_consumption = _weighted_consumption;
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -236,8 +294,6 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
-    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
-    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -248,6 +304,9 @@ private:
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
+    bool _is_pipeline = false;
+    bool _is_nereids = false;
+    std::atomic<int> _running_big_mem_op_num = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -263,11 +322,13 @@ private:
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
 
+    void _init_query_mem_tracker();
+
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
-    vectorized::RuntimePredicate _runtime_predicate;
+    std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
-    taskgroup::TaskGroupPtr _task_group = nullptr;
+    WorkloadGroupPtr _workload_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -279,9 +340,72 @@ private:
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     ThreadPool* _non_pipe_thread_pool = nullptr;
+    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
+    std::mutex _pipeline_map_write_lock;
+
+    std::mutex _weighted_mem_lock;
+    int64_t _weighted_consumption = 0;
+    int64_t _weighted_limit = 0;
+
+    std::mutex _profile_mutex;
+
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // flatten profile of one fragment:
+    // Pipeline 0
+    //      PipelineTask 0
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    //      PipelineTask 1
+    //              Operator 1
+    //              Operator 2
+    //              Scanner
+    // Pipeline 1
+    //      PipelineTask 2
+    //              Operator 3
+    //      PipelineTask 3
+    //              Operator 3
+    // fragment_id -> list<profile>
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
+
+    // instance_id -> profile
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+
+    void _report_query_profile();
+    void _report_query_profile_non_pipeline();
+    void _report_query_profile_x();
+
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+    _collect_realtime_query_profile_x() const;
+
+    std::unordered_map<TUniqueId, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+    _collect_realtime_query_profile_non_pipeline() const;
+
+public:
+    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    void add_fragment_profile_x(
+            int fragment_id,
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
+            std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
+                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+
+    TReportExecStatusParams get_realtime_exec_status_x() const;
+
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 };
 
 } // namespace doris

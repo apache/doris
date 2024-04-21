@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------filter((rk <= 100))
 ----------PhysicalWindow
-------------PhysicalPartitionTopN
+------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalPartitionTopN
 ------------------PhysicalProject

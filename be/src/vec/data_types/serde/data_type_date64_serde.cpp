@@ -160,7 +160,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
 
 void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
+                                                int end, const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {

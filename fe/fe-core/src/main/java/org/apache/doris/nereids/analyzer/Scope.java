@@ -19,14 +19,20 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.LinkedListMultimap;
+import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * The slot range required for expression analyze.
@@ -58,16 +64,21 @@ public class Scope {
     private final List<Slot> slots;
     private final Optional<SubqueryExpr> ownerSubquery;
     private final Set<Slot> correlatedSlots;
+    private final boolean buildNameToSlot;
+    private final Supplier<ListMultimap<String, Slot>> nameToSlot;
 
-    public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
-        this.outerScope = outerScope;
-        this.slots = ImmutableList.copyOf(Objects.requireNonNull(slots, "slots can not be null"));
-        this.ownerSubquery = subqueryExpr;
-        this.correlatedSlots = Sets.newLinkedHashSet();
+    public Scope(List<? extends Slot> slots) {
+        this(Optional.empty(), slots, Optional.empty());
     }
 
-    public Scope(List<Slot> slots) {
-        this(Optional.empty(), slots, Optional.empty());
+    /** Scope */
+    public Scope(Optional<Scope> outerScope, List<? extends Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
+        this.slots = Utils.fastToImmutableList(Objects.requireNonNull(slots, "slots can not be null"));
+        this.ownerSubquery = Objects.requireNonNull(subqueryExpr, "subqueryExpr can not be null");
+        this.correlatedSlots = Sets.newLinkedHashSet();
+        this.buildNameToSlot = slots.size() > 500;
+        this.nameToSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToSlot) : null;
     }
 
     public List<Slot> getSlots() {
@@ -84,5 +95,30 @@ public class Scope {
 
     public Set<Slot> getCorrelatedSlots() {
         return correlatedSlots;
+    }
+
+    /** findSlotIgnoreCase */
+    public List<Slot> findSlotIgnoreCase(String slotName) {
+        if (!buildNameToSlot) {
+            Object[] array = new Object[slots.size()];
+            int filterIndex = 0;
+            for (int i = 0; i < slots.size(); i++) {
+                Slot slot = slots.get(i);
+                if (slot.getName().equalsIgnoreCase(slotName)) {
+                    array[filterIndex++] = slot;
+                }
+            }
+            return (List) Arrays.asList(array).subList(0, filterIndex);
+        } else {
+            return nameToSlot.get().get(slotName.toUpperCase(Locale.ROOT));
+        }
+    }
+
+    private ListMultimap<String, Slot> buildNameToSlot() {
+        ListMultimap<String, Slot> map = LinkedListMultimap.create(slots.size());
+        for (Slot slot : slots) {
+            map.put(slot.getName().toUpperCase(Locale.ROOT), slot);
+        }
+        return map;
     }
 }

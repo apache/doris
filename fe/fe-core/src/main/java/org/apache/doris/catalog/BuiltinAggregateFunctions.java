@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
@@ -64,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -101,6 +104,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(CountByEnum.class, "count_by_enum"),
             agg(Covar.class, "covar", "covar_pop"),
             agg(CovarSamp.class, "covar_samp"),
+            agg(GroupArrayIntersect.class, "group_array_intersect"),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
@@ -118,6 +122,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(MultiDistinctCount.class, "multi_distinct_count"),
             agg(MultiDistinctGroupConcat.class, "multi_distinct_group_concat"),
             agg(MultiDistinctSum.class, "multi_distinct_sum"),
+            agg(MultiDistinctSum0.class, "multi_distinct_sum0"),
             agg(Ndv.class, "approx_count_distinct", "ndv"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
@@ -132,6 +137,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Stddev.class, "stddev_pop", "stddev"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
+            agg(Sum0.class, "sum0"),
             agg(TopN.class, "topn"),
             agg(TopNArray.class, "topn_array"),
             agg(TopNWeighted.class, "topn_weighted"),

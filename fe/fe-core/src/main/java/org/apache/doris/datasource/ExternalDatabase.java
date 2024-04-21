@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -29,6 +30,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -60,7 +63,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-            implements DatabaseIf<T>, Writable, GsonPostProcessable {
+        implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -149,12 +152,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table != null) {
+                table.unsetObjectCreated();
                 tmpTableNameToId.put(table.getName(), table.getId());
                 tmpIdToTbl.put(table.getId(), table);
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
-            T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
+            T table = newExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
         }
@@ -172,6 +176,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         List<String> tableNames;
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames();
+        } else if (name.equals(MysqlDb.DATABASE_NAME)) {
+            tableNames = ExternalMysqlDatabase.listTableNames();
         } else {
             tableNames = extCatalog.listTableNames(null, name);
         }
@@ -190,7 +196,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(tableName, tblId);
-                    T table = getExternalTable(tableName, tblId, extCatalog);
+                    T table = newExternalTable(tableName, tblId, extCatalog);
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addCreateTable(tblId, tableName);
                 }
@@ -205,7 +211,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
-    protected abstract T getExternalTable(String tableName, long tblId, ExternalCatalog catalog);
+    protected abstract T newExternalTable(String tableName, long tblId, ExternalCatalog catalog);
 
     public T getTableForReplay(long tableId) {
         return idToTbl.get(tableId);
@@ -349,10 +355,23 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (Object obj : idToTbl.values()) {
             if (obj instanceof LinkedTreeMap) {
-                ExternalInfoSchemaTable table = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
-                        ExternalInfoSchemaTable.class);
-                tmpIdToTbl.put(table.getId(), (T) table);
-                tableNameToId.put(table.getName(), table.getId());
+                String clazzType = ((LinkedTreeMap<?, ?>) obj).get("clazz").toString();
+                switch (clazzType) {
+                    case "ExternalInfoSchemaTable":
+                        ExternalInfoSchemaTable infoSchemaTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
+                                ExternalInfoSchemaTable.class);
+                        tmpIdToTbl.put(infoSchemaTable.getId(), (T) infoSchemaTable);
+                        tableNameToId.put(infoSchemaTable.getName(), infoSchemaTable.getId());
+                        break;
+                    case "ExternalMysqlTable":
+                        ExternalMysqlTable mysqlTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
+                                ExternalMysqlTable.class);
+                        tmpIdToTbl.put(mysqlTable.getId(), (T) mysqlTable);
+                        tableNameToId.put(mysqlTable.getName(), mysqlTable.getId());
+                        break;
+                    default:
+                        break;
+                }
             } else {
                 Preconditions.checkState(obj instanceof ExternalTable);
                 tmpIdToTbl.put(((ExternalTable) obj).getId(), (T) obj);
@@ -364,8 +383,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
-    public void dropTable(String tableName) {
-        throw new NotImplementedException("dropTable() is not implemented");
+    public void unregisterTable(String tableName) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create table [{}]", tableName);
+        }
+        Long tableId = tableNameToId.remove(tableName);
+        if (tableId == null) {
+            LOG.warn("table [{}] does not exist when drop", tableName);
+            return;
+        }
+        idToTbl.remove(tableId);
+        setLastUpdateTime(System.currentTimeMillis());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
+                extCatalog.getId(), getFullName(), tableName);
     }
 
     @Override
@@ -374,8 +404,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     // Only used for sync hive metastore event
-    public void createTable(String tableName, long tableId) {
-        throw new NotImplementedException("createTable() is not implemented");
+    public boolean registerTable(TableIf tableIf) {
+        long tableId = tableIf.getId();
+        String tableName = tableIf.getName();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create table [{}]", tableName);
+        }
+        tableNameToId.put(tableName, tableId);
+        idToTbl.put(tableId, newExternalTable(tableName, tableId, extCatalog));
+        setLastUpdateTime(System.currentTimeMillis());
+        return true;
     }
 
     @Override

@@ -200,7 +200,7 @@ public:
                       AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
                       nested_function_, arguments) {}
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
         if (!column->is_null_at(row_num)) {
@@ -301,7 +301,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
         const IColumn* nested_columns[number_of_arguments];

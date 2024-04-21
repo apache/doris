@@ -39,7 +39,7 @@ public:
     explicit HeartbeatServer(TMasterInfo* master_info);
     ~HeartbeatServer() override = default;
 
-    virtual void init_cluster_id();
+    void init_cluster_id();
 
     // Master send heartbeat to this server
     //

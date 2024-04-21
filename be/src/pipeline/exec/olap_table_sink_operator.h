@@ -52,13 +52,6 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkLocalState);
     OlapTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(exec_time_counter());
-        SCOPED_TIMER(_open_timer);
-        return Base::open(state);
-    }
-
     Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkOperatorX;
 
@@ -91,12 +84,11 @@ public:
         RETURN_IF_ERROR(Base::open(state));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        return local_state.sink(state, in_block, source_state);
+        return local_state.sink(state, in_block, eos);
     }
 
 private:

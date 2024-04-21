@@ -18,27 +18,35 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.policy.PolicyMgr;
-import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -115,49 +123,85 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     /**
-     * get wherePredicate of policy for logicalRelation.
+     * find related policy for logicalRelation.
      *
      * @param logicalRelation include tableName and dbName
-     * @param connectContext include information about user and policy
+     * @param cascadesContext include information about user and policy
      */
-    public Optional<Expression> getFilter(LogicalRelation logicalRelation, ConnectContext connectContext) {
+    public RelatedPolicy findPolicy(LogicalRelation logicalRelation, CascadesContext cascadesContext) {
         if (!(logicalRelation instanceof CatalogRelation)) {
-            return Optional.empty();
+            return RelatedPolicy.NO_POLICY;
         }
 
-        PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-            return Optional.empty();
+            return RelatedPolicy.NO_POLICY;
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
-        long dbId = catalogRelation.getDatabase().getId();
-        long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getUserPolicies(dbId, tableId, currentUserIdentity);
-        if (policies.isEmpty()) {
-            return Optional.empty();
+        String ctlName = catalogRelation.getDatabase().getCatalog().getName();
+        String dbName = catalogRelation.getDatabase().getFullName();
+        String tableName = catalogRelation.getTable().getName();
+
+        NereidsParser nereidsParser = new NereidsParser();
+        ImmutableList.Builder<NamedExpression> dataMasks
+                = ImmutableList.builderWithExpectedSize(logicalRelation.getOutput().size());
+
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        boolean hasDataMask = false;
+        for (Slot slot : logicalRelation.getOutput()) {
+            Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
+                    currentUserIdentity, ctlName, dbName, tableName, slot.getName());
+            if (dataMaskPolicy.isPresent()) {
+                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
+                Expression childOfAlias
+                        = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
+                Alias alias = new Alias(
+                        StatementScopeIdGenerator.newExprId(),
+                        ImmutableList.of(childOfAlias),
+                        slot.getName(), slot.getQualifier(), false
+                );
+                dataMasks.add(alias);
+                hasDataMask = true;
+            } else {
+                dataMasks.add(slot);
+            }
+            if (sqlCacheContext.isPresent()) {
+                sqlCacheContext.get().addDataMaskPolicy(ctlName, dbName, tableName, slot.getName(), dataMaskPolicy);
+            }
         }
-        return Optional.ofNullable(mergeRowPolicy(policies));
+
+        List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
+                currentUserIdentity, ctlName, dbName, tableName);
+        if (sqlCacheContext.isPresent()) {
+            sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
+        }
+
+        return new RelatedPolicy(
+                Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
+                hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
+        );
     }
 
-    private Expression mergeRowPolicy(List<RowPolicy> policies) {
+    private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
-        for (RowPolicy policy : policies) {
-            String sql = policy.getOriginStmt();
-            NereidsParser nereidsParser = new NereidsParser();
-            CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
-            Optional<Expression> wherePredicate = command.getWherePredicate();
-            if (!wherePredicate.isPresent()) {
-                throw new AnalysisException("Invalid row policy [" + policy.getPolicyName() + "], " + sql);
+        for (RowFilterPolicy policy : policies) {
+            Expression wherePredicate = null;
+            try {
+                wherePredicate = policy.getFilterExpression();
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
             }
             switch (policy.getFilterType()) {
                 case PERMISSIVE:
-                    orList.add(wherePredicate.get());
+                    orList.add(wherePredicate);
                     break;
                 case RESTRICTIVE:
-                    andList.add(wherePredicate.get());
+                    andList.add(wherePredicate);
                     break;
                 default:
                     throw new IllegalStateException("Invalid operator");
@@ -171,6 +215,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return ExpressionUtils.and(andList);
         } else {
             return null;
+        }
+    }
+
+    /** RelatedPolicy */
+    public static class RelatedPolicy {
+        public static final RelatedPolicy NO_POLICY = new RelatedPolicy(Optional.empty(), Optional.empty());
+
+        public final Optional<Expression> rowPolicyFilter;
+        public final Optional<List<NamedExpression>> dataMaskProjects;
+
+        public RelatedPolicy(Optional<Expression> rowPolicyFilter, Optional<List<NamedExpression>> dataMaskProjects) {
+            this.rowPolicyFilter = rowPolicyFilter;
+            this.dataMaskProjects = dataMaskProjects;
         }
     }
 }

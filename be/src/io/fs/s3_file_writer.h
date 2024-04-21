@@ -37,13 +37,16 @@ class S3Client;
 } // namespace Aws::S3
 
 namespace doris {
+struct S3Conf;
+
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs, const FileWriterOptions* opts);
+    S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
+                 const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status close() override;
@@ -51,17 +54,22 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
 
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return _bytes_appended; }
+    bool closed() const override { return _closed; }
+
 private:
     Status _abort();
+    [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
+    Path _path;
     std::string _bucket;
     std::string _key;
-    bool _aborted = false;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
@@ -72,17 +80,19 @@ private:
     std::mutex _completed_lock;
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
-    IFileCache::Key _cache_key;
-    IFileCache* _cache = nullptr;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
+
+    bool _closed = false;
     Status _st;
-    size_t _bytes_written = 0;
+    size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    int64_t _expiration_time;
+    uint64_t _expiration_time;
     bool _is_cold_data;
     bool _write_file_cache;
 };

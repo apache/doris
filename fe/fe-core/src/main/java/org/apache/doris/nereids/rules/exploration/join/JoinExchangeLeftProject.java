@@ -59,7 +59,6 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                 .when(join -> join.left().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint()
                         || join.left().child().hasDistributeHint() || join.right().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left().child();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();
@@ -92,10 +91,10 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), a, c);
+                            new DistributeHint(DistributeType.NONE), a, c, null);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), b, d);
+                            new DistributeHint(DistributeType.NONE), b, d, null);
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
@@ -104,24 +103,10 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE),
-                            left, right);
+                            left, right, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_LEFT_PROJECT);
-    }
-
-    /**
-     * check reorder masks.
-     */
-    public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()
-                || topJoin.getJoinReorderContext().hasLeftAssociate()
-                || topJoin.getJoinReorderContext().hasRightAssociate()
-                || topJoin.getJoinReorderContext().hasExchange()) {
-            return false;
-        } else {
-            return true;
-        }
     }
 }

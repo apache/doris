@@ -24,6 +24,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -48,6 +49,12 @@ public class TurnOffPageCacheForInsertIntoSelect extends PlanPreprocessor {
 
     @Override
     public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> tableSink, StatementContext context) {
+        turnOffPageCache(context);
+        return tableSink;
+    }
+
+    @Override
+    public Plan visitLogicalHiveTableSink(LogicalHiveTableSink<? extends Plan> tableSink, StatementContext context) {
         turnOffPageCache(context);
         return tableSink;
     }

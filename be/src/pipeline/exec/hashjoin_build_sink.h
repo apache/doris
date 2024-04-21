@@ -45,20 +45,11 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
-    ~SharedHashTableDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
-    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
+    using Base = JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -79,6 +70,10 @@ public:
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
+    Status close(RuntimeState* state, Status exec_status) override;
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -90,15 +85,13 @@ protected:
                                 vectorized::ColumnRawPtrs& raw_ptrs,
                                 const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
+    friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    template <typename Parent>
-    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
-                                                           vectorized::Block* block, Parent* parent,
-                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
@@ -114,8 +107,8 @@ protected:
      * so null does not need to be added to the hash table.
      */
     bool _build_side_ignore_null = false;
-    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -145,11 +138,10 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
+        return _is_broadcast_join && !state->get_sink_local_state()
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }
@@ -183,6 +175,8 @@ private:
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
+
+    std::vector<bool> _should_convert_to_nullable;
 
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;

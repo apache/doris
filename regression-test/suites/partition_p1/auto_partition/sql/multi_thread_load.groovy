@@ -74,7 +74,18 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
             def sout = new StringBuilder(), serr = new StringBuilder()
             proc.consumeProcessOutput(sout, serr)
             proc.waitForOrKill(7200000)
-            // logger.info("std out: " + sout + "std err: " + serr)
+            logger.info("std out: " + sout + ", std err: " + serr)
+        }
+        for (int i = 0; i < data_count; i++) {
+            def dir_name = """${dirPath}/${part_type}/${part_type}_${i}"""
+            def directory = new File(dir_name)
+            assertTrue(directory.exists())
+            assertTrue(directory.isDirectory())
+
+            def files = directory.listFiles()
+            assertTrue(files.length == 1)
+            assertTrue(files[0].isFile())
+            logger.info("The file name is: + ${dirPath}/${part_type}/${part_type}_${i}/${files[0].name}")
         }
     }
 
@@ -152,10 +163,6 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
         proc.waitForOrKill(600000) // 10 minutes
     }
 
-    // for (int i = 0; i < data_count; i++) {
-    //     logger.info("try to run " + i + " : " + cm_list[i])
-    //     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[i])})
-    // }
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[0])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[1])})
     load_threads.add(Thread.startDaemon{concurrent_load(cm_list[2])})

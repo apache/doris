@@ -50,44 +50,31 @@ public:
     bool is_pending_finish() const override;
 };
 
-struct ExchangeDataDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
-                           vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, node_id, "DataDependency", query_ctx), _queue(sender_queue) {}
-
-    std::string debug_string(int indentation_level) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer,
-                       "{}, _is_cancelled = {}, _block_queue size = {},_num_remaining_senders = {}",
-                       Dependency::debug_string(indentation_level), _queue->_is_cancelled,
-                       _queue->_block_queue.size(), _queue->_num_remaining_senders);
-        return fmt::to_string(debug_string_buffer);
-    }
-
-private:
-    vectorized::VDataStreamRecvr::SenderQueue* _queue;
-};
-
 class ExchangeSourceOperatorX;
-class ExchangeLocalState final : public PipelineXLocalState<AndDependency> {
+class ExchangeLocalState final : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
 
 public:
-    using Base = PipelineXLocalState<AndDependency>;
+    using Base = PipelineXLocalState<>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
+
+    std::vector<Dependency*> dependencies() const override {
+        std::vector<Dependency*> dep_vec;
+        std::for_each(deps.begin(), deps.end(),
+                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        return dep_vec;
+    }
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
-    std::vector<std::shared_ptr<ExchangeDataDependency>> deps;
+    std::vector<std::shared_ptr<Dependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
 };
@@ -100,8 +87,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
 

@@ -65,9 +65,9 @@ v1	INT	Yes	false	\N	NONE
 create_time	DATETIME	No	true	\N	
 vid	VARCHAR(64)	No	true	\N	
 report_time	DATETIME	Yes	true	\N	
-block_version	INT	Yes	false	\N	NONE
-vehicle_mode	INT	Yes	false	\N	NONE
-usage_mode	INT	Yes	false	\N	NONE
+block_version	INT	Yes	false	\N	REPLACE
+vehicle_mode	INT	Yes	false	\N	REPLACE
+usage_mode	INT	Yes	false	\N	REPLACE
 
 -- !sql --
 2

@@ -84,9 +84,9 @@ public:
         TWorkloadMetricType::type metric_name = t_cond->metric_name;
         if (TWorkloadMetricType::type::QUERY_TIME == metric_name) {
             return std::make_unique<WorkloadConditionQueryTime>(op, str_val);
-        } else if (TWorkloadMetricType::type::SCAN_ROWS == metric_name) {
+        } else if (TWorkloadMetricType::type::BE_SCAN_ROWS == metric_name) {
             return std::make_unique<WorkloadConditionScanRows>(op, str_val);
-        } else if (TWorkloadMetricType::type::SCAN_BYTES == metric_name) {
+        } else if (TWorkloadMetricType::type::BE_SCAN_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;

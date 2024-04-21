@@ -96,15 +96,23 @@ Status UnionSinkOperator::close(RuntimeState* state) {
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    auto& p = _parent->cast<Parent>();
+    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
+    return Status::OK();
+}
+
+Status UnionSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     _child_expr.resize(p._child_expr.size());
-    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }
     return Status::OK();
-};
+}
 
 UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -143,8 +151,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                SourceState source_state) {
+Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -167,7 +174,7 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
                                      _cur_child_id, _get_first_materialized_child_idx(),
                                      children_count());
     }
-    if (UNLIKELY(source_state == SourceState::FINISHED)) {
+    if (UNLIKELY(eos)) {
         //if _cur_child_id eos, need check to push block
         //Now here can't check _output_block rows, even it's row==0, also need push block
         //because maybe sink is eos and queue have none data, if not push block

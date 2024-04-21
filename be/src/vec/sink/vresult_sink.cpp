@@ -88,8 +88,7 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
-            state->execution_timeout()));
+            state->fragment_instance_id(), _buf_size, &_sender, false, state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
@@ -170,11 +169,11 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id()));
+            state->fragment_instance_id());
     return DataSink::close(state, exec_status);
 }
 

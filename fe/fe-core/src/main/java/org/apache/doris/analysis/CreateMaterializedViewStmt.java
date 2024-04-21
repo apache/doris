@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -186,6 +187,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
+            if (selectListItem.isStar()) {
+                throw new AnalysisException("The materialized view not support select star");
+            }
             checkExprValidInMv(selectListItem.getExpr());
         }
     }
@@ -242,8 +246,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void checkPriv() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
-                PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
+                        PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
@@ -266,15 +271,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
-            if (selectListItem.isStar()) {
-                throw new AnalysisException("The materialized view not support select star");
-            }
-
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.hasAutoInc()) {
+                throw new AnalysisException("The materialized view can not involved auto increment column");
             }
 
             if (selectListItemExpr instanceof FunctionCallExpr
@@ -288,6 +293,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // build mv column item
                 mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
             } else {
+                if (!isReplay && selectListItemExpr.containsAggregate()) {
+                    throw new AnalysisException(
+                            "The materialized view's expr calculations cannot be included outside aggregate functions"
+                                    + ", expr: " + selectListItemExpr.toSql());
+                }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
@@ -545,7 +555,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             default:
-                mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                mvAggregateType = AggregateType.GENERIC;
                 if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
                     throw new AnalysisException(
                             "The Materialized-View's generic aggregation not support star or distinct");

@@ -17,6 +17,8 @@
 
 #include "olap/rowset/rowset_meta.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -103,6 +105,10 @@ void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
     _fs = std::move(fs);
 }
 
+bool RowsetMeta::has_variant_type_in_schema() const {
+    return _schema && _schema->num_variant_columns() > 0;
+}
+
 void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const {
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) [[likely]] {
@@ -112,6 +118,7 @@ void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const 
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
         }
     }
+    rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
 }
 
 RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {
@@ -168,6 +175,43 @@ void RowsetMeta::_init() {
         _rowset_id.init(_rowset_meta_pb.rowset_id());
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
+    }
+}
+
+void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
+    _rowset_meta_pb.set_enable_segments_file_size(true);
+    for (auto fsize : seg_file_size) {
+        _rowset_meta_pb.add_segments_file_size(fsize);
+    }
+}
+
+int64_t RowsetMeta::segment_file_size(int seg_id) {
+    DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
+           _rowset_meta_pb.segments_file_size_size() > seg_id)
+            << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
+    return _rowset_meta_pb.enable_segments_file_size()
+                   ? (_rowset_meta_pb.segments_file_size_size() > seg_id
+                              ? _rowset_meta_pb.segments_file_size(seg_id)
+                              : -1)
+                   : -1;
+}
+
+void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
+    set_num_segments(num_segments() + other.num_segments());
+    set_num_rows(num_rows() + other.num_rows());
+    set_data_disk_size(data_disk_size() + other.data_disk_size());
+    set_index_disk_size(index_disk_size() + other.index_disk_size());
+    for (auto&& key_bound : other.get_segments_key_bounds()) {
+        add_segment_key_bounds(key_bound);
+    }
+    if (_rowset_meta_pb.enable_segments_file_size() &&
+        other._rowset_meta_pb.enable_segments_file_size()) {
+        for (auto fsize : other.segments_file_size()) {
+            _rowset_meta_pb.add_segments_file_size(fsize);
+        }
+    }
+    if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+        set_rowset_state(RowsetStatePB::COMMITTED);
     }
 }
 

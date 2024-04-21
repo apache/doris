@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -44,7 +45,8 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                 .applyTopDown(new InferAggNotNull())
                 .matches(
                         logicalAggregate(
-                                logicalFilter().when(filter -> filter.getConjuncts().stream().allMatch(e -> e.isGeneratedIsNotNull))
+                                logicalFilter().when(filter -> filter.getConjuncts().stream()
+                                        .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
                         )
                 );
     }

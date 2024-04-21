@@ -103,4 +103,18 @@ suite("nereids_scalar_fn_N") {
 	qt_sql_nvl_Varchar_Varchar_notnull "select nvl(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_nvl_String_String "select nvl(kstr, kstr) from fn_test order by kstr, kstr"
 	qt_sql_nvl_String_String_notnull "select nvl(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	test{
+		sql"""select ifnull(kstr) from fn_test"""
+		check {result, exception, startTime, endTime ->
+			assertTrue(exception != null)
+			logger.info(exception.message)
+		}
+	}
+	test{
+		sql"""select nvl(kstr) from fn_test"""
+		check {result, exception, startTime, endTime ->
+			assertTrue(exception != null)
+			logger.info(exception.message)
+		}
+	}
 }

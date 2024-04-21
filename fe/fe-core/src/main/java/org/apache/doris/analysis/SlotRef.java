@@ -94,7 +94,7 @@ public class SlotRef extends Expr {
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
@@ -463,6 +463,11 @@ public class SlotRef extends Expr {
     @Override
     public boolean hasAggregateSlot() {
         return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean hasAutoInc() {
+        return desc.getColumn().isAutoInc();
     }
 
     @Override

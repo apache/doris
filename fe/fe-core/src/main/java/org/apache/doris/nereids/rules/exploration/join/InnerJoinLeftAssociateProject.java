@@ -52,7 +52,6 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
                 .when(InnerJoinLeftAssociate::checkReorder)
                 .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.right().child().isMarkJoin())
                 .when(join -> join.right().isAllSlots())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
@@ -77,7 +76,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
                     // new join.
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashConjuncts, newBottomOtherConjuncts, a, b);
+                            newBottomHashConjuncts, newBottomOtherConjuncts, a, b, null);
 
                     // new Project.
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -87,7 +86,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                     Plan right = CBOUtils.newProject(topUsedExprIds, c);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
-                            newTopHashConjuncts, newTopOtherConjuncts, left, right);
+                            newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);

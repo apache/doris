@@ -22,9 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
 import java.time.LocalDateTime;
 
@@ -52,22 +51,19 @@ public class DateV2Literal extends DateLiteral {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusDays(days));
+        return fromJavaDateType(toJavaDateType().plusDays(days));
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
+        return fromJavaDateType(toJavaDateType().plusMonths(months));
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));
+        return fromJavaDateType(toJavaDateType().plusYears(years));
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
@@ -78,18 +74,42 @@ public class DateV2Literal extends DateLiteral {
 
     /**
      * 2020-01-01
-     * @return 2020-01-01 24:00:00
+     * @return 2020-01-01 00:00:00
      */
     public DateTimeV2Literal toBeginOfTheDay() {
-        return new DateTimeV2Literal(year, month, day, 0, 0, 0);
+        return toBeginOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
     }
 
     /**
      * 2020-01-01
      * @return 2020-01-01 00:00:00
      */
+    public DateTimeV2Literal toBeginOfTheDay(DateTimeV2Type dateType) {
+        return new DateTimeV2Literal(dateType, year, month, day, 0, 0, 0, 000000);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 23:59:59
+     */
     public DateTimeV2Literal toEndOfTheDay() {
-        return new DateTimeV2Literal(year, month, day, 24, 0, 0);
+        return toEndOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 23:59:59.9[scale]
+     */
+    public DateTimeV2Literal toEndOfTheDay(DateTimeV2Type dateType) {
+        long microSecond = 0;
+        // eg. scale == 4 -> 999900
+        for (int i = 0; i < 6; ++i) {
+            microSecond *= 10;
+            if (i < dateType.getScale()) {
+                microSecond += 9;
+            }
+        }
+        return new DateTimeV2Literal(dateType, year, month, day, 23, 59, 59, microSecond);
     }
 
     /**

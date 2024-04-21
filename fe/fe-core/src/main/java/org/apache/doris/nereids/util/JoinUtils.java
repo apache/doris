@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -44,7 +45,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -96,8 +99,8 @@ public class JoinUtils {
         Set<ExprId> rightExprIds;
 
         public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
-            leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
-            rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
+            leftExprIds = left.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
+            rightExprIds = right.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
         }
 
         /**
@@ -138,11 +141,20 @@ public class JoinUtils {
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<Slot> leftSlots,
             List<Slot> rightSlots, List<Expression> onConditions) {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        Map<Boolean, List<Expression>> mapper = onConditions.stream().collect(Collectors.groupingBy(
-                expr -> (expr instanceof EqualPredicate) && checker.isHashJoinCondition((EqualPredicate) expr)));
+
+        ImmutableList.Builder<Expression> hashConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        ImmutableList.Builder<Expression> otherConditions = ImmutableList.builderWithExpectedSize(onConditions.size());
+        for (Expression expr : onConditions) {
+            if (expr instanceof EqualPredicate && checker.isHashJoinCondition((EqualPredicate) expr)) {
+                hashConditions.add(expr);
+            } else {
+                otherConditions.add(expr);
+            }
+        }
+
         return Pair.of(
-                mapper.getOrDefault(true, ImmutableList.of()),
-                mapper.getOrDefault(false, ImmutableList.of())
+                hashConditions.build(),
+                otherConditions.build()
         );
     }
 
@@ -289,8 +301,11 @@ public class JoinUtils {
     }
 
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
-        return slots.stream().map(o -> o.withNullable(nullable))
-                .collect(ImmutableList.toImmutableList());
+        Builder<Slot> newSlots = ImmutableList.builderWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
+            newSlots.add(slot.withNullable(nullable));
+        }
+        return newSlots.build();
     }
 
     private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
@@ -381,5 +396,26 @@ public class JoinUtils {
                         .addAll(right.getOutput())
                         .build();
         }
+    }
+
+    public static boolean hasMarkConjuncts(Join join) {
+        return !join.getMarkJoinConjuncts().isEmpty();
+    }
+
+    public static boolean isNullAwareMarkJoin(Join join) {
+        // if mark join's hash conjuncts is empty, we use mark conjuncts as hash conjuncts
+        // and translate join type to NULL_AWARE_LEFT_SEMI_JOIN or NULL_AWARE_LEFT_ANTI_JOIN
+        return join.getHashJoinConjuncts().isEmpty() && !join.getMarkJoinConjuncts().isEmpty();
+    }
+
+    /**
+     * forbid join reorder if top join's condition use mark join slot produced by bottom join
+     */
+    public static boolean checkReorderPrecondition(LogicalJoin<?, ?> top, LogicalJoin<?, ?> bottom) {
+        Set<Slot> markSlots = top.getConditionSlot().stream()
+                .filter(MarkJoinSlotReference.class::isInstance)
+                .collect(Collectors.toSet());
+        markSlots.retainAll(bottom.getOutputSet());
+        return markSlots.isEmpty();
     }
 }

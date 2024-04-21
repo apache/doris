@@ -19,7 +19,6 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
@@ -58,6 +57,8 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String TABLE = "table";
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
+    private static final String ODPS_URL = "odps_url";
+    private static final String TUNNEL_URL = "tunnel_url";
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
@@ -97,15 +98,7 @@ public class MaxComputeJniScanner extends JniScanner {
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
         }
-        ScanPredicate[] predicates = new ScanPredicate[0];
-        if (params.containsKey("push_down_predicates")) {
-            long predicatesAddress = Long.parseLong(params.get("push_down_predicates"));
-            if (predicatesAddress != 0) {
-                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, columnTypes);
-                LOG.info("MaxComputeJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-            }
-        }
-        initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        initTableInfo(columnTypes, requiredFields, batchSize);
     }
 
     public void refreshTableScan() {
@@ -122,7 +115,8 @@ public class MaxComputeJniScanner extends JniScanner {
         String accessKey = Objects.requireNonNull(params.get(ACCESS_KEY), "required property '" + ACCESS_KEY + "'.");
         String secretKey = Objects.requireNonNull(params.get(SECRET_KEY), "required property '" + SECRET_KEY + "'.");
         boolean enablePublicAccess = Boolean.parseBoolean(params.getOrDefault(PUBLIC_ACCESS, "false"));
-        return new MaxComputeTableScan(region, project, table, accessKey, secretKey, enablePublicAccess);
+        return new MaxComputeTableScan(params.get(ODPS_URL), params.get(TUNNEL_URL), region, project, table,
+                accessKey, secretKey, enablePublicAccess);
     }
 
     public String tableUniqKey() {
@@ -130,9 +124,8 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     @Override
-    protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
-                                 int batchSize) {
-        super.initTableInfo(requiredTypes, requiredFields, predicates, batchSize);
+    protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, int batchSize) {
+        super.initTableInfo(requiredTypes, requiredFields, batchSize);
         readColumns = new ArrayList<>();
         readColumnsToId = new HashMap<>();
         for (int i = 0; i < fields.length; i++) {

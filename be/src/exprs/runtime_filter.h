@@ -70,6 +70,7 @@ struct SharedRuntimeFilterContext;
 
 namespace pipeline {
 class RuntimeFilterTimer;
+struct CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -131,8 +132,12 @@ struct RuntimeFilterParams {
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
+
+    bool bloom_filter_size_calculated_by_ndv = false;
+    bool null_aware = false;
 };
-struct FilterFuncBase {
+
+struct RuntimeFilterFuncBase {
 public:
     void set_filter_id(int filter_id) {
         if (_filter_id == -1) {
@@ -144,9 +149,13 @@ public:
 
     bool is_runtime_filter() const { return _filter_id != -1; }
 
-private:
+    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+
+protected:
     int _filter_id = -1;
+    bool _null_aware = false;
 };
+
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
@@ -213,7 +222,7 @@ public:
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
+    SharedRuntimeFilterContext& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
@@ -222,12 +231,15 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
 
+    Status send_filter_size(uint64_t local_filter_size);
+
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
     PrimitiveType column_type() const;
 
     Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                              std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
+                              std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                              bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -254,6 +266,7 @@ public:
     // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
     // if return true , filter is ready to use
     bool await();
+    void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads
     void signal();
@@ -278,16 +291,19 @@ public:
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
                                  RuntimePredicateWrapper** wrapper);
-    void change_to_bloom_filter();
+    Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
                        int64_t start_apply);
 
-    void set_ignored(const std::string& msg);
+    void set_ignored();
 
-    // for ut
-    bool is_bloomfilter();
+    bool get_ignored();
+
+    RuntimeFilterType get_real_type();
+
+    bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
     Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
@@ -346,6 +362,15 @@ public:
     int64_t registration_time() const { return registration_time_; }
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
+    std::string formatted_state() const;
+
+    void set_synced_size(uint64_t global_size);
+
+    void set_dependency(pipeline::CountedFinishDependency* dependency);
+
+    int64_t get_synced_size() const { return _synced_size; }
+
+    bool isset_synced_size() const { return _synced_size != -1; }
 
 protected:
     // serialize _wrapper to protobuf
@@ -362,9 +387,7 @@ protected:
     static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    void _set_push_down() { _is_push_down = true; }
-
-    std::string _format_status() const;
+    void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _get_explain_state_string() const {
         if (_enable_pipeline_exec) {
@@ -425,9 +448,12 @@ protected:
     bool _opt_remote_rf;
     // `_need_local_merge` indicates whether this runtime filter is global on this BE.
     // All runtime filters should be merged on each BE before push_to_remote or publish.
-    const bool _need_local_merge = false;
+    bool _need_local_merge = false;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
+
+    int64_t _synced_size = -1;
+    pipeline::CountedFinishDependency* _dependency = nullptr;
 };
 
 // avoid expose RuntimePredicateWrapper

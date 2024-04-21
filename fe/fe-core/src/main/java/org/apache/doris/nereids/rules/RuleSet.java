@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggr
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFi
 import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
+import org.apache.doris.nereids.rules.implementation.LogicalHiveTableSinkToPhysicalHiveTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
@@ -152,7 +154,8 @@ public class RuleSet {
             new MergeLimits(),
             new PushDownAliasThroughJoin(),
             new PushDownFilterThroughWindow(),
-            new PushDownFilterThroughPartitionTopN()
+            new PushDownFilterThroughPartitionTopN(),
+            new ExpressionOptimization()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -187,6 +190,7 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())

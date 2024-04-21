@@ -45,24 +45,17 @@ public:
     bool can_write() override { return _node->can_write(); }
 };
 
-class AnalyticSinkDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true, query_ctx) {}
-    ~AnalyticSinkDependency() override = default;
-};
-
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSinkDependency> {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -104,8 +97,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};

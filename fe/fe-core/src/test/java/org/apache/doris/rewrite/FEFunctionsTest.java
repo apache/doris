@@ -386,7 +386,7 @@ public class FEFunctionsTest {
                     new StringLiteral("2013-05-17 08:07:05 PM"), new StringLiteral("%Y-%m-%d %r")).getStringValue());
             Assert.assertEquals("2013-05-17 08:07:05", FEFunctions.dateParse(new StringLiteral("2013-05-17 08:07:05"),
                     new StringLiteral("%Y-%m-%d %T")).getStringValue());
-            Assert.assertEquals("2021 52 2022 01", FEFunctions.dateFormat(new DateLiteral("2022-01-01 00:12:42", Type.DATETIMEV2),
+            Assert.assertEquals("2021 52 2021 52", FEFunctions.dateFormat(new DateLiteral("2022-01-01 00:12:42", Type.DATETIMEV2),
                     new StringLiteral("%x %v %X %V")).getStringValue());
             Assert.assertEquals("2023 18 2023 19", FEFunctions.dateFormat(new DateLiteral("2023-05-07 02:41:42", Type.DATETIMEV2),
                     new StringLiteral("%x %v %X %V")).getStringValue());

@@ -348,10 +348,10 @@ template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Parameters start = {}, length = {}, are out of bound in "
-                "ColumnVector<T>::insert_range_from method (data.size() = {}).",
-                start, length, src_vec.data.size());
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameters start = {}, length = {}, are out of bound in "
+                               "ColumnVector<T>::insert_range_from method (data.size() = {}).",
+                               start, length, src_vec.data.size());
     }
 
     size_t old_size = data.size();
@@ -495,6 +495,7 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
 
     if (perm.size() < limit) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

@@ -30,7 +30,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -103,8 +103,5 @@ private:
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);
-    // after _close_task, task maybe destructed.
-    void _close_task(PipelineTask* task, PipelineTaskState state,
-                     Status exec_status = Status::OK());
 };
 } // namespace doris::pipeline
