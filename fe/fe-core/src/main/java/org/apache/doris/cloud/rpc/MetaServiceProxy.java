@@ -226,6 +226,16 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
         try {
