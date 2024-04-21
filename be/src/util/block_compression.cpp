@@ -869,9 +869,9 @@ public:
                 SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                         ExecEnv::GetInstance()->block_compression_mem_tracker());
                 // reuse context buffer if max_len <= MAX_COMPRESSION_BUFFER_FOR_REUSE
-                context->buffer.resize(max_len);
+                context->buffer->resize(max_len);
             }
-            compressed_buf.data = reinterpret_cast<char*>(context->buffer.data());
+            compressed_buf.data = reinterpret_cast<char*>(context->buffer->data());
             compressed_buf.size = max_len;
         }
 
