@@ -1646,7 +1646,7 @@ public class SessionVariable implements Serializable, Writable {
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
                             + "respond to the query"})
-    public boolean enableMaterializedViewUnionRewrite = true;
+    public boolean enableMaterializedViewUnionRewrite = false;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",

@@ -141,20 +141,22 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      */
     protected List<StructInfo> getValidQueryStructInfos(Plan queryPlan, CascadesContext cascadesContext,
             BitSet materializedViewTableSet) {
-        return MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext, materializedViewTableSet)
-                .stream()
-                .filter(queryStructInfo -> {
-                    boolean valid = checkPattern(queryStructInfo);
-                    if (!valid) {
-                        cascadesContext.getMaterializationContexts().forEach(ctx ->
-                                ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
-                                        () -> String.format("query table bitmap is %s, plan is %s",
-                                                queryStructInfo.getTableBitSet(), queryPlan.treeString())
-                                ));
-                    }
-                    return valid;
-                })
-                .collect(Collectors.toList());
+        List<StructInfo> validStructInfos = new ArrayList<>();
+        List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
+                materializedViewTableSet);
+        uncheckedStructInfos.forEach(queryStructInfo -> {
+            boolean valid = checkPattern(queryStructInfo);
+            if (!valid) {
+                cascadesContext.getMaterializationContexts().forEach(ctx ->
+                        ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
+                                () -> String.format("query table bitmap is %s, plan is %s",
+                                        queryStructInfo.getTableBitSet(), queryPlan.treeString())
+                        ));
+            } else {
+                validStructInfos.add(queryStructInfo);
+            }
+        });
+        return validStructInfos;
     }
 
     /**

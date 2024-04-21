@@ -164,6 +164,7 @@ suite ("usercase_union_rewrite") {
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
     sql """insert into orders_user values (5, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
+    sql "SET enable_materialized_view_union_rewrite=true"
     sleep(10 * 1000)
     explain {
         sql("${query_stmt}")

@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
@@ -151,13 +150,19 @@ public class MaterializedViewUtils {
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             structInfoMap.refresh(ownerGroup);
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
-                return queryTableSets.stream()
-                        // Just construct the struct info which mv table set contains all the query table set
-                        .filter(queryTableSet -> materializedViewTableSet.isEmpty()
-                                || StructInfo.containsAll(materializedViewTableSet, queryTableSet))
-                        .map(tableMap -> structInfoMap.getStructInfo(tableMap, tableMap, ownerGroup, plan))
-                        .collect(Collectors.toList());
+                for (BitSet queryTableSet : queryTableSets) {
+                    if (!materializedViewTableSet.isEmpty()
+                            && !StructInfo.containsAll(materializedViewTableSet, queryTableSet)) {
+                        continue;
+                    }
+                    StructInfo structInfo = structInfoMap.getStructInfo(queryTableSet, queryTableSet, ownerGroup, plan);
+                    if (structInfo != null) {
+                        structInfosBuilder.add(structInfo);
+                    }
+                }
+                return structInfosBuilder.build();
             }
         }
         // if plan doesn't belong to any group, construct it directly
@@ -176,8 +181,8 @@ public class MaterializedViewUtils {
                 materializedView,
                 ImmutableList.of(materializedView.getQualifiedDbName()),
                 // this must be empty, or it will be used to sample
-                Lists.newArrayList(),
-                Lists.newArrayList(),
+                ImmutableList.of(),
+                ImmutableList.of(),
                 Optional.empty());
         mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
         List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
