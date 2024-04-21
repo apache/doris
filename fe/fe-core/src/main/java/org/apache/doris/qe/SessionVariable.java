@@ -514,6 +514,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
             = "materialized_view_rewrite_success_candidate_num";
 
+    public static final String ENABLE_MATERIALIZED_VIEW_UNION_REWRITE
+            = "enable_materialized_view_union_rewrite";
+
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
 
@@ -1618,6 +1621,13 @@ public class SessionVariable implements Serializable, Writable {
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_UNION_REWRITE, needForward = true,
+            description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
+                    "When the materialized view is not enough to provide all the data for the query, "
+                            + "whether to allow the union of the base table and the materialized view to "
+                            + "respond to the query"})
+    public boolean enableMaterializedViewUnionRewrite = false;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -3626,6 +3636,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaterializedViewRewriteSuccessCandidateNum() {
         return materializedViewRewriteSuccessCandidateNum;
+    }
+
+    public boolean isEnableMaterializedViewUnionRewrite() {
+        return enableMaterializedViewUnionRewrite;
     }
 
     public int getCreateTablePartitionMaxNum() {

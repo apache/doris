@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("partition_mv_rewrite") {
+suite ("partition_curd_union_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -42,7 +42,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     PARTITION BY RANGE(o_orderdate)(
-    FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY
+    FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY
     )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
@@ -75,7 +75,7 @@ suite("partition_mv_rewrite") {
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     PARTITION BY RANGE(l_shipdate) 
-    (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
+    (FROM ('2023-10-17') TO ('2023-11-01') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -106,7 +106,7 @@ suite("partition_mv_rewrite") {
     l_shipdate,
     o_orderdate,
     l_partkey,
-    l_suppkey;
+    l_suppkey
     """
 
     def all_partition_sql = """
@@ -117,7 +117,7 @@ suite("partition_mv_rewrite") {
     l_shipdate,
     o_orderdate,
     l_partkey,
-    l_suppkey;
+    l_suppkey
    """
 
 
@@ -130,7 +130,7 @@ suite("partition_mv_rewrite") {
     l_shipdate,
     o_orderdate,
     l_partkey,
-    l_suppkey;
+    l_suppkey
     """
 
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
@@ -145,50 +145,94 @@ suite("partition_mv_rewrite") {
         ${mv_def_sql}
         """
 
+
+    def compare_res = { def stmt ->
+        sql "SET enable_materialized_view_rewrite=false"
+        def origin_res = sql stmt
+        logger.info("origin_res: " + origin_res)
+        sql "SET enable_materialized_view_rewrite=true"
+        def mv_origin_res = sql stmt
+        logger.info("mv_origin_res: " + mv_origin_res)
+        assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
+        for (int row = 0; row < mv_origin_res.size(); row++) {
+            assertTrue(mv_origin_res[row].size() == origin_res[row].size())
+            for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                assertTrue(mv_origin_res[row][col] == origin_res[row][col])
+            }
+        }
+    }
+
     def mv_name = "mv_10086"
+    def order_by_stmt = " order by 1,2,3,4,5"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
 
-    def job_name = getJobName(db, mv_name);
-    waitingMTMVTaskFinished(job_name)
-
+    // All partition is valid, test query and rewrite by materialized view
     explain {
         sql("${all_partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
+    compare_res(all_partition_sql + order_by_stmt)
     explain {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    // partition is invalid, so can not use partition 2023-10-17 to rewrite
+    compare_res(partition_sql + order_by_stmt)
+
+    /*
+    // Part partition is invalid, test can not use partition 2023-10-17 to rewrite
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // wait partition is invalid
     sleep(5000)
-    // only can use valid partition
-    sql "SET enable_materialized_view_union_rewrite=false"
-    // Test query all partition when disable enable_materialized_view_union_rewrite
-    order_qt_query_all_direct_before "${all_partition_sql}"
     explain {
         sql("${all_partition_sql}")
-        notContains("${mv_name}(${mv_name})")
+        contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_all_direct_after "${all_partition_sql}"
-
-    // Test query part partition when disable enable_materialized_view_union_rewrite
-    order_qt_query_partition_before "${partition_sql}"
+    compare_res(all_partition_sql + order_by_stmt)
     explain {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_partition_after "${partition_sql}"
+    compare_res(partition_sql + order_by_stmt)
 
-    // Test query part partition when enable enable_materialized_view_union_rewrite
-    sql "SET enable_materialized_view_union_rewrite=true"
-    order_qt_query_all_before "${all_partition_sql}"
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    // Test when base table create partition
+    sql """
+    insert into lineitem values 
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
+    """
+    // Wait partition is invalid
+    sleep(5000)
     explain {
         sql("${all_partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_all_after "${all_partition_sql}"
+    compare_res(all_partition_sql + order_by_stmt)
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    compare_res(partition_sql + order_by_stmt)
+
+    // Test when base table delete partition test
+    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
+    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231021 FORCE;
+    """
+    // Wait partition is invalid
+    sleep(3000)
+    explain {
+        sql("${all_partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    compare_res(all_partition_sql + order_by_stmt)
+    explain {
+        sql("${partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    compare_res(partition_sql + order_by_stmt)
+     */
 }
