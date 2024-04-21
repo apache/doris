@@ -515,8 +515,6 @@ public:
     }
 
     Status compress(const Slice& input, faststring* output) override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->block_compression_mem_tracker());
         std::unique_ptr<Context> context;
         RETURN_IF_ERROR(_acquire_compression_ctx(context));
         bool compress_failed = false;
@@ -846,8 +844,6 @@ public:
     //  https://github.com/facebook/zstd/blob/dev/examples/streaming_compression.c
     Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                     faststring* output) override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->block_compression_mem_tracker());
         std::unique_ptr<CContext> context;
         RETURN_IF_ERROR(_acquire_compression_ctx(context));
         bool compress_failed = false;
