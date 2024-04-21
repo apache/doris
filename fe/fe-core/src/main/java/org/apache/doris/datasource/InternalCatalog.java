@@ -1451,9 +1451,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
                     LOG.info("add partition[{}] which already exists", partitionName);
-                    if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
-                        return;
-                    }
+                    return;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
@@ -1610,7 +1608,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
             storagePolicy = dataProperty.getStoragePolicy();
         }
-        boolean ignoreException = false;
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             List<Long> partitionIds = Lists.newArrayList(partitionId);
@@ -1634,10 +1631,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        ignoreException = true;
+                        LOG.info("add partition[{}] which already exists", partitionName);
+                        return;
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                     }
-                    LOG.info("add partition[{}] which already exists", partitionName);
-                    ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
 
                 // check if meta changed
@@ -1681,6 +1679,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
                 }
+
+
 
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
@@ -1728,9 +1728,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-            if (!ignoreException) {
-                throw e;
-            }
+            throw e;
         }
     }
 
