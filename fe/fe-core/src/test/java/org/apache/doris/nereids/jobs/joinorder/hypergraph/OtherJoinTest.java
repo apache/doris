@@ -56,7 +56,7 @@ public class OtherJoinTest extends TPCHTestBase {
         plan = new LogicalProject(plan.getOutput(), plan);
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("tpch", cascadesContext);
         Plan optimizedPlan = PlanChecker.from(cascadesContext)
                 .dpHypOptimize()
                 .getBestPlanTree();

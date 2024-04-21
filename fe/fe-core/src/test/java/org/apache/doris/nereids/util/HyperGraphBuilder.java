@@ -42,6 +42,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsCacheKey;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -195,12 +196,15 @@ public class HyperGraphBuilder {
         return this;
     }
 
-    public void initStats(CascadesContext context) {
+    public void initStats(String dbName, CascadesContext context) {
         for (Group group : context.getMemo().getGroups()) {
             GroupExpression groupExpression = group.getLogicalExpression();
             if (groupExpression.getPlan() instanceof LogicalOlapScan) {
                 LogicalOlapScan scan = (LogicalOlapScan) groupExpression.getPlan();
                 OlapTable table = scan.getTable();
+                if (Strings.isNullOrEmpty(table.getQualifiedDbName())) {
+                    table.setQualifiedDbName(dbName);
+                }
                 Statistics stats = injectRowcount((LogicalOlapScan) groupExpression.getPlan());
                 for (Expression expr : stats.columnStatistics().keySet()) {
                     SlotReference slot = (SlotReference) expr;
