@@ -1969,4 +1969,126 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     code = MetaServiceCode::OK;
 }
 
+// get txn id by label
+// 1. When the requested status is not empty, return the txnid
+//    corresponding to the status. There may be multiple
+//    requested status, just match one.
+// 2. When the requested status is empty, return the latest txnid.
+void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
+                                 const GetTxnIdRequest* request, GetTxnIdResponse* response,
+                                 ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_txn_id);
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db id";
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "cannot find instance_id with cloud_unique_id="
+           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+    RPC_RATE_LIMIT(get_txn_id)
+    const int64_t db_id = request->db_id();
+    std::string label = request->label();
+    const std::string label_key = txn_label_key({instance_id, db_id, label});
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn. err=" << err << " db_id=" << db_id
+                     << " label=" << label;
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "txn_kv_->create_txn() failed, err=" << err << " label=" << label
+           << " db_id=" << db_id;
+        msg = ss.str();
+        return;
+    }
+
+    std::string label_val;
+    err = txn->get(label_key, &label_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "txn->get failed(), err=" << err << " label=" << label;
+        msg = ss.str();
+        return;
+    }
+
+    if (label_val.size() <= VERSION_STAMP_LEN) {
+        code = MetaServiceCode::TXN_ID_NOT_FOUND;
+        ss << "transaction not found, label=" << label;
+        return;
+    }
+
+    TxnLabelPB label_pb;
+    //label_val.size() > VERSION_STAMP_LEN means label has previous txn ids.
+    if (!label_pb.ParseFromArray(label_val.data(), label_val.size() - VERSION_STAMP_LEN)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        ss << "label_pb->ParseFromString() failed, label=" << label;
+        msg = ss.str();
+        return;
+    }
+    if (label_pb.txn_ids_size() == 0) {
+        code = MetaServiceCode::TXN_ID_NOT_FOUND;
+        ss << "transaction not found, label=" << label;
+        msg = ss.str();
+        return;
+    }
+
+    // find the latest txn
+    if (request->txn_status_size() == 0) {
+        response->set_txn_id(*label_pb.txn_ids().rbegin());
+        return;
+    }
+
+    for (auto& cur_txn_id : label_pb.txn_ids()) {
+        const std::string cur_info_key = txn_info_key({instance_id, db_id, cur_txn_id});
+        std::string cur_info_val;
+        err = txn->get(cur_info_key, &cur_info_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "txn->get() failed, cur_txn_id=" << cur_txn_id << " label=" << label
+               << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            //label_to_idx and txn info inconsistency.
+            code = MetaServiceCode::TXN_ID_NOT_FOUND;
+            ss << "txn->get() failed, cur_txn_id=" << cur_txn_id << " label=" << label
+               << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        TxnInfoPB cur_txn_info;
+        if (!cur_txn_info.ParseFromString(cur_info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "cur_txn_info->ParseFromString() failed, cur_txn_id=" << cur_txn_id
+               << " label=" << label << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        VLOG_DEBUG << "cur_txn_info=" << cur_txn_info.ShortDebugString();
+        for (auto txn_status : request->txn_status()) {
+            if (cur_txn_info.status() == txn_status) {
+                response->set_txn_id(cur_txn_id);
+                return;
+            }
+        }
+    }
+    code = MetaServiceCode::TXN_ID_NOT_FOUND;
+    ss << "transaction not found, label=" << label;
+    msg = ss.str();
+    return;
+}
+
 } // namespace doris::cloud

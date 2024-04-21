@@ -687,6 +687,18 @@ message GetTxnResponse {
     optional TxnInfoPB txn_info = 2;
 }
 
+message GetTxnIdRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional string label = 3;
+    repeated TxnStatusPB txn_status = 4;
+}
+
+message GetTxnIdResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 txn_id = 2;
+}
+
 message GetCurrentMaxTxnRequest {
     optional string cloud_unique_id = 1; // For auth
 }
@@ -1344,6 +1356,7 @@ service MetaService {
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
+    rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
