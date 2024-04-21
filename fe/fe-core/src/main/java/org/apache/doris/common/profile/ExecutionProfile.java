@@ -23,7 +23,6 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
@@ -109,7 +108,7 @@ public class ExecutionProfile {
             fragmentsProfile.addChild(runtimeProfile);
             multiBeProfile.put(fragmentId,
                     new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
-            fragmentIdBeNum.put( fragmentId, 0);
+            fragmentIdBeNum.put(fragmentId, 0);
             seqNoToFragmentId.put(i, fragmentId);
             ++i;
         }
@@ -272,7 +271,6 @@ public class ExecutionProfile {
                     }
 
                     profileNode.update(pipelineProfile.profile);
-                    profileNode.setIsDone();
                     pipelineIdx++;
                     // Duplicate name will be replaced
                     fragmentProfiles.get(fragmentId).addChild(profileNode);

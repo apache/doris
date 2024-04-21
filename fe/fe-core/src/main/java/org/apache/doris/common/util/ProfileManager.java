@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +52,7 @@ import java.io.File;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -78,63 +80,29 @@ public class ProfileManager extends MasterDaemon {
         LOAD,
     }
 
-    public static class ProfileElement {
-        public ProfileElement(Profile profile) {
-            this.profile = profile;
-        }
-
-        private final Profile profile;
-        public Map<String, String> infoStrings = Maps.newHashMap();
-        public MultiProfileTreeBuilder builder = null;
-        public String errMsg = "";
-
-        public StatsErrorEstimator statsErrorEstimator;
-
-        // lazy load profileContent because sometimes profileContent is very large
-        public String getProfileContent() {
-            // Not cache the profile content because it may change during insert
-            // into select statement, we need use this to check process.
-            // And also, cache the content will double usage of the memory in FE.
-            return profile.getProfileByLevel();
-        }
-
-        public String getProfileBrief() {
-            return profile.getProfileBrief();
-        }
-
-        public double getError() {
-            return statsErrorEstimator.getQError();
-        }
-
-        public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
-            this.statsErrorEstimator = statsErrorEstimator;
-        }
-
-        // Store profile to path
-        public void store(String profileStoragePath) {
-            profile.store(profileStoragePath);
-        }
-
-        // Remove profile from disk
-        public void remove() {
-            profile.remove();
-        }
-    }
+    // this variable is assgiened to true the first time the profile is loaded from disk
+    // no futher write operaiton, so no data race
+    boolean isProfileLoaded = false;
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
-
-    // this variable is assgiened to true the first time the profile is loaded from disk
-    // no futher write operaiton, so no data race
-    boolean isProfileLoaded = false;
+    private final ExecutorService fetchRealTimeProfileExecutor;
     private Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
     // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
-    private final ExecutorService fetchRealTimeProfileExecutor;
+    private ProfileManager() {
+        lock = new ReentrantReadWriteLock(true);
+        readLock = lock.readLock();
+        writeLock = lock.writeLock();
+        queryIdToProfileMap = Maps.newHashMap();
+        queryIdToExecutionProfiles = Maps.newHashMap();
+        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(10, 100,
+                "fetch-realtime-profile-pool", true);
+    }
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -148,14 +116,47 @@ public class ProfileManager extends MasterDaemon {
         return INSTANCE;
     }
 
-    private ProfileManager() {
-        lock = new ReentrantReadWriteLock(true);
-        readLock = lock.readLock();
-        writeLock = lock.writeLock();
-        queryIdToProfileMap = Maps.newHashMap();
-        queryIdToExecutionProfiles = Maps.newHashMap();
-        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                10, 100, "fetch-realtime-profile-pool", true);
+    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(TUniqueId queryID,
+            TNetworkAddress targetBackend) {
+        TGetRealtimeExecStatusResponse resp = null;
+        BackendService.Client client = null;
+
+        try {
+            client = ClientPool.backendPool.borrowObject(targetBackend);
+        } catch (Exception e) {
+            LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
+            return resp;
+        }
+
+        try {
+            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
+            req.setId(queryID);
+            resp = client.getRealtimeExecStatus(req);
+        } catch (TException e) {
+            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}", DebugUtil.printId(queryID),
+                    targetBackend.toString(), e);
+            ClientPool.backendPool.invalidateObject(targetBackend, client);
+        } finally {
+            ClientPool.backendPool.returnObject(targetBackend, client);
+        }
+
+        if (!resp.isSetStatus()) {
+            LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}", DebugUtil.printId(queryID));
+            return null;
+        }
+
+        if (resp.getStatus().status_code != TStatusCode.OK) {
+            LOG.warn("Failed to get realtime query exec status, query {} error msg {}", DebugUtil.printId(queryID),
+                    resp.getStatus().toString());
+            return null;
+        }
+
+        if (!resp.isSetReportExecStatusParams()) {
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}", DebugUtil.printId(queryID));
+            return null;
+        }
+
+        return resp;
     }
 
     private ProfileElement createElement(Profile profile) {
@@ -271,51 +272,6 @@ public class ProfileManager extends MasterDaemon {
         return result;
     }
 
-    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
-            TUniqueId queryID, TNetworkAddress targetBackend) {
-        TGetRealtimeExecStatusResponse resp = null;
-        BackendService.Client client = null;
-
-        try {
-            client = ClientPool.backendPool.borrowObject(targetBackend);
-        } catch (Exception e) {
-            LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
-            return resp;
-        }
-
-        try {
-            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
-            req.setId(queryID);
-            resp = client.getRealtimeExecStatus(req);
-        } catch (TException e) {
-            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
-                    DebugUtil.printId(queryID), targetBackend.toString(), e);
-            ClientPool.backendPool.invalidateObject(targetBackend, client);
-        } finally {
-            ClientPool.backendPool.returnObject(targetBackend, client);
-        }
-
-        if (!resp.isSetStatus()) {
-            LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
-                    DebugUtil.printId(queryID));
-            return null;
-        }
-
-        if (resp.getStatus().status_code != TStatusCode.OK) {
-            LOG.warn("Failed to get realtime query exec status, query {} error msg {}",
-                    DebugUtil.printId(queryID), resp.getStatus().toString());
-            return null;
-        }
-
-        if (!resp.isSetReportExecStatusParams()) {
-            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
-                    DebugUtil.printId(queryID));
-            return null;
-        }
-
-        return resp;
-    }
-
     public String getProfile(String queryID) {
         TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(queryID);
         List<TNetworkAddress> involvedBackends = null;
@@ -348,8 +304,8 @@ public class ProfileManager extends MasterDaemon {
                     QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to get real-time profile, query {}, error: {}",
-                        DebugUtil.printId(thriftQueryId), e.getMessage(), e);
+                LOG.warn("Failed to get real-time profile, query {}, error: {}", DebugUtil.printId(thriftQueryId),
+                        e.getMessage(), e);
             }
         }
 
@@ -367,6 +323,16 @@ public class ProfileManager extends MasterDaemon {
             return element.getProfileContent();
         } finally {
             readLock.unlock();
+        }
+    }
+
+    public void cleanProfile() {
+        writeLock.lock();
+        try {
+            queryIdToProfileMap.clear();
+            queryIdToExecutionProfiles.clear();
+        } finally {
+            writeLock.unlock();
         }
     }
 
@@ -510,16 +476,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public void cleanProfile() {
-        writeLock.lock();
-        try {
-            queryIdToProfileMap.clear();
-            queryIdToExecutionProfiles.clear();
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
     // When the query is finished, the profile should be marked as finished
     public void markQueryFinished(TUniqueId queryId) {
         readLock.lock();
@@ -539,26 +495,10 @@ public class ProfileManager extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        createProfileStorageDirIfNecessary();
         loadProfilesFromDiskIfFirstTime();
         storeProfilesToDisk();
         removeBrokenProfiles();
-        removeOutdatedProfiles();
-    }
-
-    private void createProfileStorageDirIfNecessary() {
-        File profileDir = new File(PROFILE_STORAGE_PATH);
-        if (profileDir.exists()) {
-            return;
-        }
-            
-        // create query_id directory
-        if (!profileDir.mkdir()) {
-            LOG.warn("create profile directory {} failed", profileDir.getAbsolutePath());
-            return;
-        } else {
-            LOG.info("Create profile storage {} succeed", PROFILE_STORAGE_PATH);
-        }
+        removeOutdatedProfilesFromDisk();
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
@@ -629,6 +569,20 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
+    private void createProfileStorageDirIfNecessary() {
+        File profileDir = new File(PROFILE_STORAGE_PATH);
+        if (profileDir.exists()) {
+            return;
+        }
+
+        // create query_id directory
+        if (!profileDir.mkdir()) {
+            LOG.warn("create profile directory {} failed", profileDir.getAbsolutePath());
+        } else {
+            LOG.info("Create profile storage {} succeed", PROFILE_STORAGE_PATH);
+        }
+    }
+
     private List<ProfileElement> getProfilesNeedStore() {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
@@ -651,14 +605,16 @@ public class ProfileManager extends MasterDaemon {
                 return;
             }
 
+            createProfileStorageDirIfNecessary();
             List<ProfileElement> profilesToBeStored = Lists.newArrayList();
+
             readLock.lock();
             try {
                 profilesToBeStored = getProfilesNeedStore();
             } finally {
                 readLock.unlock();
             }
-            
+
             // Store profile to disk in parallel
             List<Thread> iothreads = Lists.newArrayList();
 
@@ -678,7 +634,7 @@ public class ProfileManager extends MasterDaemon {
             // or the memory will be exhausted
 
             writeLock.lock();
-            try {    
+            try {
                 for (ProfileElement profileElement : profilesToBeStored) {
                     for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                         this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
@@ -693,42 +649,36 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private List<ProfileElement> getOutdatedProfiles() {
-        final int maxProfilesOnDisk = Config.max_profile_on_disk;
-
-        List<ProfileElement> profilesNeedDeleted = Lists.newArrayList();
+    private List<ProfileElement> getProfilesToBeRemoved() {
+        final int maxProfilesOnDisk = 5;
         // By order of profile storage timestamp
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
-            (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
+                (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
 
         // Collect all profiles that has been stored to disk
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
             if (profileElement.profile.profileHasBeenStoredToDisk()) {
                 profileDeque.add(profileElement);
-            } else if (profileElement.profile.getQueryFinishTimestamp() != Long.MIN_VALUE) {
-                // If the profile is not stored to disk, but the query is finished, we should also
-                // consider it as outdated profile
-                profilesNeedDeleted.add(profileElement);
             }
         });
 
+        List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
+
         while (profileDeque.size() > maxProfilesOnDisk) {
-            profilesNeedDeleted.add(profileDeque.poll());
+            queryIdToBeRemoved.add(profileDeque.poll());
         }
 
-        return profilesNeedDeleted;
+        return queryIdToBeRemoved;
     }
 
     // We can not store all profiles on disk, because the disk space is limited
     // So we need to remove the outdated profiles
-    // Also for profile that should not be stored to disk (typecially the query that is very short)
-    // we should remove them from memory when they are finished
-    private void removeOutdatedProfiles() {
+    private void removeOutdatedProfilesFromDisk() {
         try {
             List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
             readLock.lock();
-            try {    
-                queryIdToBeRemoved = getOutdatedProfiles();
+            try {
+                queryIdToBeRemoved = getProfilesToBeRemoved();
             } finally {
                 readLock.unlock();
             }
@@ -752,7 +702,7 @@ public class ProfileManager extends MasterDaemon {
             }
 
             writeLock.lock();
-            try {    
+            try {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
                     queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
                     TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(
@@ -775,7 +725,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    // all invalid file under profile storage dir will be regarded as broken
     private List<String> getBrokenProfiles() {
         List<String> profilesOnDisk = getOnDiskProfileInfos();
         List<String> brokenProfiles = Lists.newArrayList();
@@ -791,14 +740,14 @@ public class ProfileManager extends MasterDaemon {
             String profileId = "";
 
             try {
-                String timeAndID = profileDirAbsPath.substring(separatorIdx + 1);
-                String[] parsed = Profile.parseProfileFileName(timeAndID);
+                String profileIdAndTimestamp = profileDirAbsPath.substring(separatorIdx + 1);
+                String[] parsed = Profile.parseProfileFileName(profileIdAndTimestamp);
                 if (parsed == null) {
                     LOG.error("Invalid profile directory path: {}", profileDirAbsPath);
                     brokenProfiles.add(profileDirAbsPath);
                     continue;
                 } else {
-                    profileId = parsed[1];
+                    profileId = parsed[0];
                 }
             } catch (Exception e) {
                 LOG.error("Failed to get profile id from path: {}", profileDirAbsPath, e);
@@ -828,12 +777,12 @@ public class ProfileManager extends MasterDaemon {
             Thread iothread = new Thread(() -> {
                 try {
                     File profileDir = new File(brokenProfile);
-                    if (!profileDir.isFile()) {
-                        LOG.warn("Profile {} is not a file", brokenProfile);
+                    if (!profileDir.isDirectory()) {
+                        LOG.warn("Profile path {} is not a directory: {}", brokenProfile);
                         return;
                     }
 
-                    FileUtils.deleteQuietly(profileDir);
+                    FileUtils.deleteDirectory(profileDir);
                     LOG.info("Delete broken profile: {}", brokenProfile);
                 } catch (Exception e) {
                     LOG.error("Failed to delete broken profile: {}", brokenProfile, e);
@@ -849,6 +798,49 @@ public class ProfileManager extends MasterDaemon {
             } catch (InterruptedException e) {
                 LOG.error("Failed to remove broken profile", e);
             }
+        }
+    }
+
+    public static class ProfileElement {
+        public ProfileElement(Profile profile) {
+            this.profile = profile;
+        }
+
+        private final Profile profile;
+        public Map<String, String> infoStrings = Maps.newHashMap();
+        public MultiProfileTreeBuilder builder = null;
+        public String errMsg = "";
+
+        public StatsErrorEstimator statsErrorEstimator;
+
+        // lazy load profileContent because sometimes profileContent is very large
+        public String getProfileContent() {
+            // Not cache the profile content because it may change during insert
+            // into select statement, we need use this to check process.
+            // And also, cache the content will double usage of the memory in FE.
+            return profile.getProfileByLevel();
+        }
+
+        public String getProfileBrief() {
+            return profile.getProfileBrief();
+        }
+
+        public double getError() {
+            return statsErrorEstimator.getQError();
+        }
+
+        public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+            this.statsErrorEstimator = statsErrorEstimator;
+        }
+
+        // Store profile to path
+        public void store(String profileStoragePath) {
+            profile.store(profileStoragePath);
+        }
+
+        // Remove profile from disk
+        public void remove() {
+            profile.remove();
         }
     }
 }

@@ -17,15 +17,21 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
 
+import com.google.common.base.Strings;
+import org.apache.commons.io.FileUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.base.Strings;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -34,20 +40,14 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.util.Map.Entry;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.UUID;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.commons.io.FileUtils;
-import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 
 public class ProfilePersistentTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
+
     @Test
     public void counterBasicTest() {
         TUnit thriftType = TUnit.TIME_NS;
@@ -73,7 +73,7 @@ public class ProfilePersistentTest {
         boolean readFailed = false;
         Counter deserializedCounter = null;
         try {
-             deserializedCounter = Counter.read(input);
+            deserializedCounter = Counter.read(input);
         } catch (Exception e) {
             readFailed = true;
         }
@@ -125,13 +125,13 @@ public class ProfilePersistentTest {
 
         Assert.assertFalse(readFailed);
         Assert.assertEquals(profile.getName(), deserializedProfile.getName());
-        Assert.assertTrue(profile.getCounterTotalTime().equals(deserializedProfile.getCounterTotalTime()));
-        
+        Assert.assertEquals(profile.getCounterTotalTime(), deserializedProfile.getCounterTotalTime());
+
         for (Entry<String, Counter> entry : profile.getCounterMap().entrySet()) {
             String key = entry.getKey();
             Counter counter = entry.getValue();
             Counter deserializedCounter = deserializedProfile.getCounterMap().get(key);
-            Assert.assertTrue(counter.equals(deserializedCounter));
+            Assert.assertEquals(counter, deserializedCounter);
         }
 
         StringBuilder builder1 = new StringBuilder();
@@ -149,7 +149,7 @@ public class ProfilePersistentTest {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(baos);
         boolean writeFailed = false;
-    
+
         try {
             summaryProfile.write(output);
         } catch (Exception e) {
@@ -177,7 +177,7 @@ public class ProfilePersistentTest {
         StringBuilder builder2 = new StringBuilder();
         deserializedSummaryProfile.prettyPrint(builder2);
 
-        Assert.assertFalse(builder1.toString().equals(""));
+        Assert.assertNotEquals("", builder1.toString());
         Assert.assertEquals(builder1.toString(), builder2.toString());
 
         for (Entry<String, String> entry : summaryProfile.getAsInfoStings().entrySet()) {
@@ -189,7 +189,7 @@ public class ProfilePersistentTest {
     }
 
     @Test
-    public void ProfileBasicTest() {
+    public void profileBasicTest() {
         TUniqueId qUniqueId = new TUniqueId();
         UUID uuid = UUID.randomUUID();
         qUniqueId.setHi(uuid.getMostSignificantBits());
@@ -216,7 +216,7 @@ public class ProfilePersistentTest {
         Profile profile = new Profile();
         profile.setId(summaryProfile.getProfileId());
         profile.setSummaryProfile(summaryProfile);
-        
+
         List<ExecutionProfile> executionProfiles = new ArrayList<>();
 
         for (int i = 0; i < 2; i++) {
@@ -233,7 +233,7 @@ public class ProfilePersistentTest {
             executionProfile.addInstanceProfile(new PlanFragmentId(i), qUniqueId, runtimeProfile);
             executionProfiles.add(executionProfile);
         }
-        
+
         for (ExecutionProfile executionProfile : executionProfiles) {
             profile.addExecutionProfile(executionProfile);
         }
@@ -242,27 +242,27 @@ public class ProfilePersistentTest {
         // so we store the original answer to a string
         String profileContentString = profile.getProfileByLevel();
         String currentBinaryWorkingDir = System.getProperty("user.dir");
-        String PROFILE_STORAGE_PATH = currentBinaryWorkingDir + File.separator + "doris-feut-profile";
-        File profileDir = new File(PROFILE_STORAGE_PATH);
+        String profileStoragePath = currentBinaryWorkingDir + File.separator + "doris-feut-profile";
+        File profileDir = new File(profileStoragePath);
         if (!profileDir.exists()) {
             // create query_id directory
             if (!profileDir.mkdir()) {
                 LOG.warn("create profile directory {} failed", profileDir.getAbsolutePath());
-                Assert.assertTrue(false);
+                Assert.fail();
                 return;
             }
         }
 
         try {
-            profile.store(PROFILE_STORAGE_PATH);
+            profile.store(profileStoragePath);
 
-            String profileStoragePath = profile.getProfileStoragePath();
-            Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePath));
+            String profileStoragePathTmp = profile.getProfileStoragePath();
+            Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
 
-            LOG.info("Profile storage path: {}", profileStoragePath);
+            LOG.info("Profile storage path: {}", profileStoragePathTmp);
 
-            Profile deserializedProfile = Profile.read(profileStoragePath);
-            Assert.assertFalse(deserializedProfile == null);
+            Profile deserializedProfile = Profile.read(profileStoragePathTmp);
+            Assert.assertNotNull(deserializedProfile);
             Assert.assertEquals(profileContentString, profile.getProfileByLevel());
             Assert.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
 
@@ -275,7 +275,7 @@ public class ProfilePersistentTest {
                 FileUtils.deleteDirectory(profileDir);
             } catch (Exception e) {
                 LOG.warn("delete profile directory {} failed", profileDir.getAbsolutePath());
-                Assert.assertTrue(false);
+                Assert.fail();
             }
         }
     }

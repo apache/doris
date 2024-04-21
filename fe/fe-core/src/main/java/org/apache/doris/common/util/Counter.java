@@ -18,11 +18,10 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUnit;
 
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,16 +36,24 @@ public class Counter {
     @SerializedName(value = "level")
     private volatile long level;
 
+    public static Counter read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
+    }
+
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
-    public String toString() {
-        return print();
-    }
+    public boolean equals(Object rhs) {
+        if (this == rhs) {
+            return true;
+        }
+        if (rhs == null || getClass() != rhs.getClass()) {
+            return false;
+        }
 
-    public static Counter read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
+        Counter other = (Counter) rhs;
+        return other.value == value && other.type == type && other.level == level;
     }
 
     public long getValue() {
@@ -127,17 +134,8 @@ public class Counter {
         return RuntimeProfile.printCounter(value, getType());
     }
 
-    public boolean equals(Object rhs) {
-        if (this == rhs) {
-            return true;
-        }
-        if (rhs == null || getClass() != rhs.getClass()) {
-            return false;
-        }
-
-        Counter other = (Counter) rhs;
-        return other.value == value && other.type == type && other.level == level;
+    public String toString() {
+        return print();
     }
-
 
 }

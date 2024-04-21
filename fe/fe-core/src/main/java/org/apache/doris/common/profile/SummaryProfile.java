@@ -19,19 +19,18 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -196,7 +195,7 @@ public class SummaryProfile {
             .build();
 
     @SerializedName(value = "summaryProfile")
-    private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);;
+    private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
     @SerializedName(value = "executionSummaryProfile")
     private RuntimeProfile executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
     @SerializedName(value = "parseSqlStartTime")
@@ -813,5 +812,9 @@ public class SummaryProfile {
 
     public void incDeleteDirRecursiveCnt() {
         this.filesystemDeleteDirCnt += 1;
+    }
+
+    public String getTotalTime() {
+        return this.summaryProfile.getInfoString(TOTAL_TIME);
     }
 }

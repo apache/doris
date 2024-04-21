@@ -17,10 +17,9 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
@@ -33,12 +32,11 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataOutput;
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -104,14 +102,6 @@ public class RuntimeProfile {
     @SerializedName(value = "nodeid")
     private int nodeid = -1;
 
-    public static RuntimeProfile read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
-    }
-
-    public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
-    }
-
     public RuntimeProfile() {
         init();
     }
@@ -137,10 +127,18 @@ public class RuntimeProfile {
         init();
     }
 
+    public static RuntimeProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
     private void init() {
         this.infoStringsLock = new ReentrantReadWriteLock();
         this.childLock = new ReentrantReadWriteLock();
-        this.counterLock = new ReentrantReadWriteLock();   
+        this.counterLock = new ReentrantReadWriteLock();
     }
 
     public void setIsCancel(Boolean isCancel) {
