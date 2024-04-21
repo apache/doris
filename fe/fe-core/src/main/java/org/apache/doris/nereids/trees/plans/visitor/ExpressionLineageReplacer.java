@@ -45,12 +45,12 @@ import java.util.stream.Collectors;
  * Get from rewrite plan and can also get from plan struct info, if from plan struct info it depends on
  * the nodes from graph.
  */
-public class ExpressionLineageReplacer extends DefaultPlanVisitor<Void, ExpressionReplaceContext> {
+public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, ExpressionReplaceContext> {
 
     public static final ExpressionLineageReplacer INSTANCE = new ExpressionLineageReplacer();
 
     @Override
-    public Void visit(Plan plan, ExpressionReplaceContext context) {
+    public Expression visit(Plan plan, ExpressionReplaceContext context) {
         List<? extends Expression> expressions = plan.getExpressions();
         Map<ExprId, Expression> targetExpressionMap = context.getExprIdExpressionMap();
         // Filter the namedExpression used by target and collect the namedExpression
@@ -62,7 +62,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Void, Expressi
     }
 
     @Override
-    public Void visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
+    public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
         Group group = groupPlan.getGroup();
         if (group == null) {
             return visit(groupPlan, context);

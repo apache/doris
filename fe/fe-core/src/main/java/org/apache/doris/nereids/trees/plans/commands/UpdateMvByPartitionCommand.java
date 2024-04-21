@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -120,18 +121,27 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, String colName) {
-        Set<Expression> predicates = new HashSet<>();
         UnboundSlot slot = new UnboundSlot(colName);
+        return constructPredicates(partitions, slot);
+    }
+
+    /**
+     * construct predicates for partition items, the min key is the min key of range items.
+     * For list partition or less than partition items, the min key is null.
+     */
+    @VisibleForTesting
+    public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, slot));
+                predicates.add(convertListPartitionToIn(item, colSlot));
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, slot));
+                predicates.add(convertRangePartitionToCompare(item, colSlot));
             }
         }
         return predicates;
@@ -186,7 +196,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return predicate;
     }
 
-    static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {
+    /**
+     * Add predicates on base table when mv can partition update
+     */
+    public static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {
         @Override
         public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<TableIf, Set<Expression>> predicates) {
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
@@ -197,6 +210,17 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         unboundRelation);
             }
             return unboundRelation;
+        }
+
+        @Override
+        public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
+                Map<TableIf, Set<Expression>> predicates) {
+            TableIf table = catalogRelation.getTable();
+            if (predicates.containsKey(table)) {
+                return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.get(table))),
+                        catalogRelation);
+            }
+            return catalogRelation;
         }
     }
 }

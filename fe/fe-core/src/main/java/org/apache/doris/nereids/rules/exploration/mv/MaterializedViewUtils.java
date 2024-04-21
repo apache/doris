@@ -27,6 +27,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -49,15 +50,17 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -147,13 +150,19 @@ public class MaterializedViewUtils {
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             structInfoMap.refresh(ownerGroup);
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
-                return queryTableSets.stream()
-                        // Just construct the struct info which mv table set contains all the query table set
-                        .filter(queryTableSet -> materializedViewTableSet.isEmpty()
-                                || StructInfo.containsAll(materializedViewTableSet, queryTableSet))
-                        .map(tableMap -> structInfoMap.getStructInfo(tableMap, tableMap, ownerGroup, plan))
-                        .collect(Collectors.toList());
+                for (BitSet queryTableSet : queryTableSets) {
+                    if (!materializedViewTableSet.isEmpty()
+                            && !StructInfo.containsAll(materializedViewTableSet, queryTableSet)) {
+                        continue;
+                    }
+                    StructInfo structInfo = structInfoMap.getStructInfo(queryTableSet, queryTableSet, ownerGroup, plan);
+                    if (structInfo != null) {
+                        structInfosBuilder.add(structInfo);
+                    }
+                }
+                return structInfosBuilder.build();
             }
         }
         // if plan doesn't belong to any group, construct it directly
@@ -172,13 +181,50 @@ public class MaterializedViewUtils {
                 materializedView,
                 ImmutableList.of(materializedView.getQualifiedDbName()),
                 // this must be empty, or it will be used to sample
-                Lists.newArrayList(),
-                Lists.newArrayList(),
+                ImmutableList.of(),
+                ImmutableList.of(),
                 Optional.empty());
         mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
         List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new LogicalProject<Plan>(mvProjects, mvScan);
+    }
+
+    /**
+     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
+     * rules
+     */
+    public static Plan rewriteByRules(
+            CascadesContext cascadesContext,
+            Function<CascadesContext, Plan> planRewriter,
+            Plan rewrittenPlan, Plan originPlan) {
+        List<Slot> originOutputs = originPlan.getOutput();
+        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
+            return null;
+        }
+        // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
+        // origin plan slot order
+        List<ExprId> originalRewrittenPlanExprIds =
+                rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
+        // run rbo job on mv rewritten plan
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
+                cascadesContext.getStatementContext(), rewrittenPlan,
+                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
+        for (Slot slot : rewrittenPlan.getOutput()) {
+            exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
+        }
+        List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toList());
+        // If project order doesn't change, return rewrittenPlan directly
+        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds)) {
+            return rewrittenPlan;
+        }
+        // If project order change, return rewrittenPlan with reordered projects
+        return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
+                .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
+                rewrittenPlan);
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
