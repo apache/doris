@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.TestHMSCachedClient;
+import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.LocalDfsFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
@@ -60,6 +61,8 @@ public class HmsCommitTest {
 
     private static HiveMetadataOps hmsOps;
     private static HMSCachedClient hmsClient;
+
+    private static FileSystemProvider fileSystemProvider;
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";
@@ -96,7 +99,8 @@ public class HmsCommitTest {
         } else {
             hmsClient = new TestHMSCachedClient();
         }
-        hmsOps = new HiveMetadataOps(null, hmsClient, fs);
+        hmsOps = new HiveMetadataOps(null, hmsClient);
+        fileSystemProvider = ctx -> fs;
     }
 
     public static void createTestHiveDatabase() {
@@ -363,7 +367,7 @@ public class HmsCommitTest {
     public void commit(String dbName,
                        String tableName,
                        List<THivePartitionUpdate> hivePUs) {
-        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps);
+        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider);
         hmsTransaction.setHivePartitionUpdates(hivePUs);
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());

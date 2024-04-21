@@ -34,6 +34,8 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.FileSystemProvider;
+import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
@@ -147,7 +149,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
-        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps);
+        FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
+                this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider);
         metadataOps = hiveOps;
     }
 

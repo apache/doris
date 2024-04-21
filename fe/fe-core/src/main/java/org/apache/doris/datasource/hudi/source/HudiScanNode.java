@@ -354,7 +354,7 @@ public class HudiScanNode extends HiveScanNode {
                     long fileSize = baseFile.getFileSize();
                     // Need add hdfs host to location
                     LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                    Path splitFilePath = locationPath.toScanRangeLocation();
+                    Path splitFilePath = locationPath.toStorageLocation();
                     splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
                             new String[0], partition.getPartitionValues()));
                 });
