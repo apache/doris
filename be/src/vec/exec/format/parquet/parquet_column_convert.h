@@ -183,7 +183,11 @@ public:
     }
 
     Status convert(ColumnPtr& src_physical_col, TypeDescriptor src_logical_type,
-                   const DataTypePtr& dst_logical_type, ColumnPtr& dst_logical_col) {
+                   const DataTypePtr& dst_logical_type, ColumnPtr& dst_logical_col,
+                   bool is_dict_filter) {
+        if (is_dict_filter) {
+            src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+        }
         if (is_consistent() && _logical_converter->is_consistent()) {
             return Status::OK();
         }
