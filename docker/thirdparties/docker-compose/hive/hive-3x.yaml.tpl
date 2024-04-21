@@ -24,7 +24,7 @@ services:
     environment:
       - CLUSTER_NAME=test
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive3.env
     container_name: ${CONTAINER_UID}hadoop3-namenode
     ports:
       - "${FS_PORT}:8020"
@@ -37,7 +37,7 @@ services:
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive3.env
     environment:
       SERVICE_PRECONDITION: "namenode:9870"
     container_name: ${CONTAINER_UID}hadoop3-datanode
@@ -50,7 +50,7 @@ services:
   hive-server:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive-metastore.env
+      - ./hadoop-hive3-metastore.env
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
       SERVICE_PRECONDITION: "hive-metastore:9083"
@@ -70,7 +70,7 @@ services:
   hive-metastore:
     image: lishizhen/hive:3.1.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive-metastore.env
+      - ./hadoop-hive3-metastore.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
