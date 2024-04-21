@@ -109,7 +109,7 @@ private:
             if (ctx) {
                 LZ4_freeStream(ctx);
             }
-            buffer->reset();
+            buffer.reset();
         }
     };
 
@@ -265,7 +265,7 @@ private:
             if (ctx) {
                 LZ4F_freeCompressionContext(ctx);
             }
-            buffer->reset();
+            buffer.reset();
         }
     };
     class DContext {
