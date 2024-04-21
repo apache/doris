@@ -238,9 +238,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    context -> {
-                        Rewriter.getWholeTreeRewriter(context).execute();
-                        return context.getRewritePlan();
+                    childContext -> {
+                        Rewriter.getWholeTreeRewriter(childContext).execute();
+                        return childContext.getRewritePlan();
                     }, rewrittenPlan, queryPlan);
             // check the partitions used by rewritten plan is valid or not
             Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionsQueryUsed =

@@ -641,7 +641,7 @@ public class StructInfo {
 
     /**Add filter on table scan according to table filter map */
     public static Plan addFilterOnTableScan(Plan queryPlan, Map<TableIf, Set<Expression>> filterOnOriginPlan,
-            CascadesContext cascadesContext) {
+            CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), filterOnOriginPlan);
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
@@ -649,7 +649,7 @@ public class StructInfo {
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        return MaterializedViewUtils.rewriteByRules(cascadesContext, context -> {
+        return MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
         }, queryPlanWithUnionFilter, queryPlan);

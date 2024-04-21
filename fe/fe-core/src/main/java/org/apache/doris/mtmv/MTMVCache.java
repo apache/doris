@@ -80,13 +80,13 @@ public class MTMVCache {
             }
         }, null);
         // Optimize by rules to remove top sort
-        CascadesContext cascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
                 PhysicalProperties.ANY);
-        mvPlan = MaterializedViewUtils.rewriteByRules(cascadesContext, context -> {
-            Rewriter.getCteChildrenRewriter(cascadesContext,
-                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new)));
-            return context.getRewritePlan();
-        }, mvPlan, mvPlan);
+        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+            Rewriter.getCteChildrenRewriter(childContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            return childContext.getRewritePlan();
+        }, mvPlan, originPlan);
         return new MTMVCache(mvPlan, originPlan);
     }
 }
