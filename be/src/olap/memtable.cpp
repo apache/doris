@@ -65,7 +65,7 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
           _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     g_memtable_cnt << 1;
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     // TODO: Support ZOrderComparator in the future

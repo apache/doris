@@ -302,7 +302,9 @@ public:
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
             : query_id(query_id), query_mem_tracker(mem_tracker) {}
 
-    void init() {
+    // Not thread safe, only be called in class constructor, shared_ptr use_count may be
+    // wrong when called by multiple threads, cause crash after object be destroyed prematurely.
+    void init_unlocked() {
 #ifndef BE_TEST
         ORPHAN_TRACKER_CHECK();
         query_id = doris::thread_context()->task_id();
