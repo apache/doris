@@ -264,7 +264,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
-    _tablet_hotspot = new TabletHotspot();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
@@ -313,6 +312,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                 *dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
         _cloud_warm_up_manager =
                 new CloudWarmUpManager(*dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
+        _tablet_hotspot = new TabletHotspot();
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -655,7 +655,11 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
-    SAFE_DELETE(_file_cache_block_downloader);
+    if (config::is_cloud_mode()) {
+        SAFE_DELETE(_file_cache_block_downloader);
+        SAFE_DELETE(_tablet_hotspot);
+        SAFE_DELETE(_cloud_warm_up_manager);
+    }
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -729,8 +733,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
-    SAFE_DELETE(_tablet_hotspot);
-    SAFE_DELETE(_cloud_warm_up_manager);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
