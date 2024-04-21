@@ -70,6 +70,8 @@ int main(int argc, char** argv) {
     cloud::config::txn_store_retry_base_intervals_ms = 1;
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
+    // UT may be run without fdb, it will take unnecessary time with the default value
+    cloud::config::fdb_txn_timeout_ms = 500;
 
     auto sp = cloud::SyncPoint::get_instance();
     sp->enable_processing();
