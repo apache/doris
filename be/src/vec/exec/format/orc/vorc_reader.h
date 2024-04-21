@@ -177,6 +177,12 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+    Status get_parsed_col_name_iceberg_ids(std::vector<std::string>* col_names,
+                                           std::vector<uint64_t>* col_ids);
+    void set_table_col_to_file_col(
+            std::unordered_map<std::string, std::string> table_col_to_file_col) {
+        _table_col_to_file_col = table_col_to_file_col;
+    }
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
         _delete_rows = delete_rows;
     }
@@ -586,6 +592,8 @@ private:
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
+    //for iceberg
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {

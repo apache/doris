@@ -53,6 +53,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/table_format_reader.h"
@@ -110,7 +111,7 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
 }
 
-Status IcebergTableReader::init_reader(
+Status IcebergTableReader::init_reader_for_parquet(
         const std::vector<std::string>& file_col_names,
         const std::unordered_map<int, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
@@ -119,12 +120,13 @@ Status IcebergTableReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    _file_format = Fileformat::PARQUET;
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
     _col_id_name_map = col_id_name_map;
     _file_col_names = file_col_names;
     _colname_to_value_range = colname_to_value_range;
     auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
-    static_cast<void>(_gen_col_name_maps(parquet_meta_kv));
+    static_cast<void>(_gen_col_name_maps_for_parquet(parquet_meta_kv));
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
@@ -133,6 +135,32 @@ Status IcebergTableReader::init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
             not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+
+    return status;
+}
+Status IcebergTableReader::init_reader_for_orc(
+        const std::vector<std::string>& file_col_names,
+        const std::unordered_map<int, std::string>& col_id_name_map,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
+        const std::unordered_map<std::string, int>* colname_to_slot_id,
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    _file_format = Fileformat::ORC;
+    auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
+    _col_id_name_map = col_id_name_map;
+    _file_col_names = file_col_names;
+    _colname_to_value_range = colname_to_value_range;
+
+    RETURN_IF_ERROR(_gen_col_name_maps_for_orc(orc_reader));
+    _gen_file_col_names();
+    _gen_new_colname_to_value_range();
+    orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
+    Status status =
+            orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
+                                    conjuncts, false, tuple_descriptor, row_descriptor,
+                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
 
     return status;
 }
@@ -207,7 +235,9 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
         return Status::OK();
     }
-
+    if (_file_format != Fileformat::PARQUET) {
+        return Status::OK();
+    }
     auto& table_desc = range.table_format_params.iceberg_params;
     auto& version = table_desc.format_version;
     if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
@@ -507,7 +537,8 @@ void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& d
  * 1. col1_new -> col1
  * 2. col1 -> col1_new
  */
-Status IcebergTableReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv) {
+Status IcebergTableReader::_gen_col_name_maps_for_parquet(
+        std::vector<tparquet::KeyValue> parquet_meta_kv) {
     for (int i = 0; i < parquet_meta_kv.size(); ++i) {
         tparquet::KeyValue kv = parquet_meta_kv[i];
         if (kv.key == "iceberg.schema") {
@@ -540,6 +571,36 @@ Status IcebergTableReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> pa
                 }
             }
             break;
+        }
+    }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_gen_col_name_maps_for_orc(OrcReader* orc_reader) {
+    std::vector<std::string> col_names;
+    std::vector<uint64_t> col_ids;
+    RETURN_IF_ERROR(orc_reader->get_parsed_col_name_iceberg_ids(&col_names, &col_ids));
+
+    _table_col_to_file_col.clear();
+    _file_col_to_table_col.clear();
+    _has_iceberg_schema = true;
+
+    for (size_t i = 0; i < col_ids.size(); i++) {
+        auto col_id = col_ids[i];
+        auto& file_col_name = col_names[i];
+
+        if (_col_id_name_map.find(col_id) == _col_id_name_map.end()) {
+            _has_schema_change = true;
+            continue;
+        }
+
+        auto& table_col_name = _col_id_name_map[col_id];
+
+        _table_col_to_file_col.emplace(table_col_name, file_col_name);
+        _file_col_to_table_col.emplace(file_col_name, table_col_name);
+
+        if (table_col_name != file_col_name) {
+            _has_schema_change = true;
         }
     }
     return Status::OK();

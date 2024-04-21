@@ -31,7 +31,7 @@
 #include "table_format_reader.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_dictionary.h"
-
+#include "vec/exec/format/orc/vorc_reader.h"
 namespace tparquet {
 class KeyValue;
 } // namespace tparquet
@@ -88,7 +88,17 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status init_reader(
+    Status init_reader_for_parquet(
+            const std::vector<std::string>& file_col_names,
+            const std::unordered_map<int, std::string>& col_id_name_map,
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const std::unordered_map<std::string, int>* colname_to_slot_id,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+    Status init_reader_for_orc(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
@@ -99,6 +109,7 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
+    enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
 private:
     struct IcebergProfile {
@@ -123,7 +134,8 @@ private:
 
     PositionDeleteRange _get_range(const ColumnString& file_path_column);
 
-    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps_for_parquet(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps_for_orc(OrcReader* orc_reader);
     void _gen_file_col_names();
     void _gen_new_colname_to_value_range();
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
@@ -147,9 +159,9 @@ private:
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // column id to name map. Collect from FE slot descriptor.
     std::unordered_map<int, std::string> _col_id_name_map;
-    // col names in the parquet file
+    // col names in the parquet,orc file
     std::vector<std::string> _all_required_col_names;
-    // col names in table but not in parquet file
+    // col names in table but not in parquet,orc file
     std::vector<std::string> _not_in_file_col_names;
 
     io::IOContext* _io_ctx;
@@ -157,6 +169,7 @@ private:
     bool _has_iceberg_schema = false;
 
     int64_t _remaining_push_down_count;
+    Fileformat _file_format = Fileformat::NONE;
 };
 } // namespace vectorized
 } // namespace doris

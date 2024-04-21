@@ -305,6 +305,17 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
+Status OrcReader::get_parsed_col_name_iceberg_ids(std::vector<std::string>* col_names,
+                                                  std::vector<uint64_t>* col_ids) {
+    RETURN_IF_ERROR(_create_file_reader());
+    auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
+    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+        col_names->emplace_back(get_field_name_lower_case(&root_type, i));
+        col_ids->emplace_back(std::stol(root_type.getSubtype(i)->getAttributeValue("iceberg.id")));
+    }
+    return Status::OK();
+}
+
 Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::vector<std::string> orc_cols;
@@ -722,7 +733,11 @@ Status OrcReader::set_fill_columns(
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
-            auto& expr_name = slot_ref->expr_name();
+            auto expr_name = slot_ref->expr_name();
+            auto iter = _table_col_to_file_col.find(expr_name);
+            if (iter != _table_col_to_file_col.end()) {
+                expr_name = iter->second;
+            }
             predicate_columns.emplace(expr_name,
                                       std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
             if (slot_ref->column_id() == 0) {
@@ -1684,6 +1699,9 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             for (auto& conjunct : _non_dict_filter_conjuncts) {
                 filter_conjuncts.emplace_back(conjunct);
             }
+            for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
+                filter_conjuncts.emplace_back(conjunct);
+            }
             std::vector<IColumn::Filter*> filters;
             if (_delete_rows_filter_ptr) {
                 filters.push_back(_delete_rows_filter_ptr.get());
@@ -1827,6 +1845,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         filter_conjuncts.emplace_back(conjunct);
     }
     for (auto& conjunct : _non_dict_filter_conjuncts) {
+        filter_conjuncts.emplace_back(conjunct);
+    }
+    for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
         filter_conjuncts.emplace_back(conjunct);
     }
     std::vector<IColumn::Filter*> filters;
