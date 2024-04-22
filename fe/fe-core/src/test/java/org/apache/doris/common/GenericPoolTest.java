@@ -228,11 +228,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public void cleanTrash() throws TException {
-            // TODO Auto-generated method stub
-        }
-
-        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }

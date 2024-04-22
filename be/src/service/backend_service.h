@@ -123,8 +123,6 @@ public:
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
-    void clean_trash() override;
-
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;
 
@@ -186,8 +184,6 @@ public:
                                 int64_t last_stream_record_time) override;
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
-
-    void clean_trash() override;
 
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;
