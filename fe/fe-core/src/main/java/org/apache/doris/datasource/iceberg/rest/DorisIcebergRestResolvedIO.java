@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.rest;
 
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.constants.S3Properties.Env;
@@ -218,7 +219,12 @@ public class DorisIcebergRestResolvedIO implements FileIO, HadoopConfigurable {
                     properties.get(S3Properties.Env.TOKEN)));
         }
 
-        FileIO io = new S3FileIO(() -> S3Util.buildS3Client(endpointUri, region, credential));
+        // set use path style
+        String usePathStyle = properties.getOrDefault(
+                PropertyConverter.USE_PATH_STYLE, PropertyConverter.USE_PATH_STYLE_DEFAULT_VALUE);
+        boolean isUsePathStyle = Boolean.parseBoolean(usePathStyle.toLowerCase());
+
+        FileIO io = new S3FileIO(() -> S3Util.buildS3Client(endpointUri, region, credential, isUsePathStyle));
         io.initialize(properties);
         return io;
     }

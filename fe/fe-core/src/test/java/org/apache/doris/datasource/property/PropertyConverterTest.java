@@ -226,13 +226,13 @@ public class PropertyConverterTest extends TestWithFeService {
     public void testS3TVFPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryOld = "select * from s3(\n"
-                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
-                + "  'access_key' = 'akk',\n"
-                + "  'secret_key' = 'skk',\n"
-                + "  'region' = 'us-east-1',\n"
-                + "  'format' = 'parquet',\n"
-                + "  'use_path_style' = 'true'\n"
-                + ") limit 10;";
+                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
+                    + "  'access_key' = 'akk',\n"
+                    + "  'secret_key' = 'skk',\n"
+                    + "  'region' = 'us-east-1',\n"
+                    + "  'format' = 'parquet',\n"
+                    + "  'use_path_style' = 'true'\n"
+                    + ") limit 10;";
         SelectStmt analyzedStmt = createStmt(queryOld);
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
@@ -240,12 +240,12 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 9);
 
         String queryNew = "select * from s3(\n"
-                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
-                + "  's3.access_key' = 'akk',\n"
-                + "  's3.secret_key' = 'skk',\n"
-                + "  'format' = 'parquet',\n"
-                + "  'use_path_style' = 'true'\n"
-                + ") limit 10;";
+                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
+                    + "  's3.access_key' = 'akk',\n"
+                    + "  's3.secret_key' = 'skk',\n"
+                    + "  'format' = 'parquet',\n"
+                    + "  'use_path_style' = 'true'\n"
+                    + ") limit 10;";
         SelectStmt analyzedStmtNew = createStmt(queryNew);
         Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
         TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
