@@ -1450,7 +1450,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
-                    LOG.info("add partition[{}] which already exists", partitionName);
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
                         return;
                     }
@@ -1610,7 +1610,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
             storagePolicy = dataProperty.getStoragePolicy();
         }
-        boolean ignoreException = false;
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             List<Long> partitionIds = Lists.newArrayList(partitionId);
@@ -1633,10 +1637,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        ignoreException = true;
+                        failedCleanCallback.run();
+                        return;
                     }
-                    LOG.info("add partition[{}] which already exists", partitionName);
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
 
@@ -1725,12 +1730,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.writeUnlock();
             }
         } catch (DdlException e) {
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
-            if (!ignoreException) {
-                throw e;
-            }
+            failedCleanCallback.run();
+            throw e;
         }
     }
 
