@@ -279,7 +279,7 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
             doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
     if (query_tokens.empty()) {
-        LOG(WARNING) << fmt::format(
+        VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str, inverted_index_parser_type_to_string(parser_type));

@@ -76,8 +76,7 @@ private:
                 : _partitioner(partitioner) {}
 
         int get_partition(vectorized::Block* block, int position) {
-            uint32_t* partition_ids = (uint32_t*)_partitioner->get_channel_ids();
-            return partition_ids[position];
+            return _partitioner->get_channel_ids().get<uint32_t>()[position];
         }
 
     private:

@@ -128,6 +128,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
@@ -145,6 +146,8 @@ public:
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -175,9 +178,16 @@ public:
     ColumnPtr& get_column_ptr(size_t idx) { return columns[idx]; }
 
     void clear() override {
-        for (auto col : columns) {
+        for (auto& col : columns) {
             col->clear();
         }
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        for (auto& col : columns) {
+            col = col->convert_column_if_overflow();
+        }
+        return IColumn::convert_column_if_overflow();
     }
 };
 

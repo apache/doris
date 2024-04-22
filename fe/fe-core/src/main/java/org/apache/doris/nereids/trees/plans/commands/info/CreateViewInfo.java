@@ -97,15 +97,6 @@ public class CreateViewInfo {
 
     /** init */
     public void init(ConnectContext ctx) throws UserException {
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
-        OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
-        analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
-        List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
-        createFinalCols(outputs);
-    }
-
-    /**validate*/
-    public void validate(ConnectContext ctx) throws UserException {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
@@ -116,6 +107,15 @@ public class CreateViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
+        analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
+        List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
+        createFinalCols(outputs);
+    }
+
+    /**validate*/
+    public void validate(ConnectContext ctx) throws UserException {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);

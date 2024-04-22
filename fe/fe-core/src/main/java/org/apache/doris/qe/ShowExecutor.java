@@ -111,7 +111,6 @@ import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
-import org.apache.doris.analysis.ShowWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
@@ -371,8 +370,6 @@ public class ShowExecutor {
             handleShowResources();
         } else if (stmt instanceof ShowWorkloadGroupsStmt) {
             handleShowWorkloadGroups();
-        } else if (stmt instanceof ShowWorkloadSchedPolicyStmt) {
-            handleShowWorkloadSchedPolicy();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -989,7 +986,7 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                row.add(String.valueOf(table.getRowCount()));
+                row.add(String.valueOf(table.getCachedRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
@@ -1749,15 +1746,25 @@ public class ShowExecutor {
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
+        List<String> utf8mb40900Bin = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add(ctx.getSessionVariable().getCollationConnection());
-        row.add(ctx.getSessionVariable().getCharsetServer());
-        row.add("309");
-        row.add("Yes");
-        row.add("Yes");
-        row.add("1");
-        rows.add(row);
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCollationConnection());
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCharsetServer());
+        utf8mb40900Bin.add("309");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("1");
+        rows.add(utf8mb40900Bin);
+        // ATTN: we must have this collation for compatible with some bi tools
+        List<String> utf8mb3GeneralCi = Lists.newArrayList();
+        // | utf8mb3_general_ci | utf8mb3 | 33 | Yes | Yes | 1 |
+        utf8mb3GeneralCi.add("utf8mb3_general_ci");
+        utf8mb3GeneralCi.add("utf8mb3");
+        utf8mb3GeneralCi.add("33");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("1");
+        rows.add(utf8mb3GeneralCi);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -2111,12 +2118,6 @@ public class ShowExecutor {
         }
         List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo(matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
-    }
-
-    private void handleShowWorkloadSchedPolicy() {
-        ShowWorkloadSchedPolicyStmt showStmt = (ShowWorkloadSchedPolicyStmt) stmt;
-        List<List<String>> workloadSchedInfo = Env.getCurrentEnv().getWorkloadSchedPolicyMgr().getShowPolicyInfo();
-        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadSchedInfo);
     }
 
     private void handleShowExport() throws AnalysisException {
@@ -2545,7 +2546,7 @@ public class ShowExecutor {
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
         if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
         } else {
             resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }
@@ -3078,6 +3079,7 @@ public class ShowExecutor {
 
     private void handleShowStorageVault() throws AnalysisException {
         ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
+        // [vault name, vault id, vault properties, isDefault]
         List<List<String>> rows;
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
@@ -3085,6 +3087,9 @@ public class ShowExecutor {
             rows = resp.getStorageVaultList().stream()
                             .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
+            if (resp.hasDefaultStorageVaultId()) {
+                StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
+            }
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }

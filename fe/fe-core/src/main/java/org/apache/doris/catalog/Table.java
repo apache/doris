@@ -662,4 +662,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
         return Lists.newArrayList();
     }
+
+    @Override
+    public long getCachedRowCount() {
+        return getRowCount();
+    }
 }

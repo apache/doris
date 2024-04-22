@@ -500,6 +500,9 @@ struct TReportExecStatusParams {
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
   27: optional TQueryProfile query_profile
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
 }
 
 struct TFeResult {
@@ -942,6 +945,7 @@ enum TSchemaTableName {
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
+  WORKLOAD_SCHEDULE_POLICY = 5,
 }
 
 struct TMetadataTableRequestParams {

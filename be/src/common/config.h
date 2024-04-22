@@ -1074,6 +1074,7 @@ DECLARE_mInt64(s3_write_buffer_size);
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
+DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
@@ -1110,6 +1111,7 @@ DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
 // FAST: Perform CU lookup using .debug_aranges (might be incomplete).
@@ -1126,7 +1128,7 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
-DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
@@ -1291,6 +1293,8 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 
 // enable injection point in regression-test
 DECLARE_mBool(enable_injection_point);
+
+DECLARE_mBool(ignore_schema_change_check);
 
 #ifdef BE_TEST
 // test s3

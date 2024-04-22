@@ -7,17 +7,12 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((T.l_linenumber = expr_cast(r_regionkey as BIGINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as BIGINT)->[cast(l_linenumber as BIGINT),o_orderkey]
 ------------PhysicalExcept
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[orders] apply RFs: RF0
+------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalProject
+------------------PhysicalOlapScan[orders] apply RFs: RF0
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[region]
@@ -29,21 +24,15 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(l_linenumber),abs(o_orderkey)]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalExcept
+------------PhysicalProject
+--------------PhysicalExcept
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashAgg[LOCAL]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[orders] apply RFs: RF0
+------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[region]
 

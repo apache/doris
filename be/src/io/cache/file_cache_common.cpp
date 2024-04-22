@@ -21,6 +21,7 @@
 #include "io/cache/file_cache_common.h"
 
 #include "common/config.h"
+#include "io/cache/block_file_cache.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
@@ -53,6 +54,16 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
 
 std::string UInt128Wrapper::to_string() const {
     return vectorized::get_hex_uint_lowercase(value_);
+}
+
+FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset,
+                                                                     size_t size) const {
+    CacheContext ctx;
+    ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
+    ctx.expiration_time = _expiration_time;
+    ctx.is_cold_data = _is_cold_data;
+    auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
+    return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
 
 } // namespace doris::io

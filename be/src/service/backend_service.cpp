@@ -105,7 +105,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE, fmt::format("IngestBinlog#TxnId={}", txn_id));
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
     SCOPED_ATTACH_TASK(mem_tracker);
 
     auto& request = arg->request;
@@ -846,11 +846,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
-void BackendService::clean_trash() {
-    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
-    static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
-}
-
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     _engine.tablet_manager()->get_all_tablets_storage_format(&result);
 }
@@ -1106,10 +1101,6 @@ void BaseBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
-}
-
-void BaseBackendService::clean_trash() {
-    LOG(ERROR) << "clean_trash is not implemented";
 }
 
 void BaseBackendService::make_snapshot(TAgentResult& return_value,

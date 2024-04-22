@@ -40,18 +40,6 @@
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vparquet_column_chunk_reader.h"
 
-namespace cctz {
-class time_zone;
-} // namespace cctz
-namespace doris {
-namespace io {
-struct IOContext;
-} // namespace io
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
@@ -577,8 +565,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
     } while (false);
 
-    auto converted_column = doris_column->assume_mutable();
-    return _converter->convert(resolved_column, converted_column);
+    return _converter->convert(resolved_column, _field_schema->type, type, doris_column,
+                               is_dict_filter);
 }
 
 Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_reader,

@@ -51,6 +51,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -121,8 +122,6 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
             _call_back(runtime_state.get(), &st);
             runtime_state.reset();
         }
-    } else {
-        _call_back(nullptr, &st);
     }
     _runtime_state.reset();
     _runtime_filter_states.clear();
@@ -229,9 +228,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
         _query_ctx->init_runtime_predicates({0});
     }
 
-    _need_local_merge =
-            request.__isset.parallel_instances &&
-            (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
+    _need_local_merge = request.__isset.parallel_instances;
+
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
@@ -366,6 +364,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                             thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
@@ -376,6 +375,11 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
                                                    output_exprs));
         }
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        _sink.reset(new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc));
         break;
     }
     case TDataSinkType::HIVE_TABLE_SINK: {
@@ -541,7 +545,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     _runtime_state->runtime_filter_wait_infinitely();
             filterparams->runtime_filter_wait_time_ms =
                     _runtime_state->runtime_filter_wait_time_ms();
-            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_exec();
+            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_x_exec();
             filterparams->execution_timeout = _runtime_state->execution_timeout();
 
             filterparams->exec_env = ExecEnv::GetInstance();
@@ -929,14 +933,13 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
+
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -950,10 +953,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                     "Jdbc scan node is disabled, you can change be config enable_java_support "
                     "to true and restart be.");
         }
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -961,10 +962,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
         op.reset(new FileScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;
@@ -973,10 +972,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case TPlanNodeType::ES_HTTP_SCAN_NODE: {
         op.reset(new EsScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
-            if (request.__isset.parallel_instances) {
-                cur_pipe->set_num_tasks(request.parallel_instances);
-            }
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
             op->set_ignore_data_distribution();
         }
         break;

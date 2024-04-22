@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -88,7 +89,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -638,7 +638,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToMeta.put(newIdxId, origIdxIdToMeta.get(entry.getKey()));
+            MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
+            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -1400,12 +1402,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return dataSize;
     }
 
-    // Get the md5 of signature string of this table with specified partitions.
+    // Get the signature string of this table with specified partitions.
     // This method is used to determine whether the tables have the same schema.
     // Contains:
-    // table name, table type, index name, index schema, short key column count, storage type
-    // bloom filter, partition type and columns, distribution type and columns.
-    // buckets number.
+    // table name, table type, index name, index schema, short key column count, storage type,
+    // bloom filter, partition type and columns, distribution type and columns, buckets number,
+    // indexes and columns.
     public String getSignature(int signatureVersion, List<String> partNames) {
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(name);
@@ -1451,11 +1453,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
 
-        String md5 = DigestUtils.md5Hex(sb.toString());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        // indexes
+        if (this.indexes != null) {
+            Map<String, Index> indexes = Maps.newTreeMap();
+            for (Index idx : this.indexes.getIndexes()) {
+                indexes.put(idx.getIndexName(), idx);
+            }
+            for (Map.Entry<String, Index> entry : indexes.entrySet()) {
+                Index idx = entry.getValue();
+                sb.append(entry.getKey());
+                sb.append(idx.getIndexType());
+                sb.append(Joiner.on(",").join(idx.getColumns()));
+            }
         }
-        return md5;
+
+        String signature = sb.toString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of table {}. signature string: {}", name, sb.toString());
+        }
+        return signature;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
@@ -1584,6 +1600,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             this.indexNameToId.put(indexName, indexId);
             MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
             indexIdToMeta.put(indexId, indexMeta);
+
+            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
+            // saved in OlapTable, because the table restore from snapshot is not reset
+            // the MaterializedIndexMeta correctly.
+            if (indexMeta.getIndexId() != indexId) {
+                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                        + " to the index saved in table {} ({}), reset it to {}",
+                        indexMeta.getIndexId(), indexName, name, id, indexId);
+                indexMeta.resetIndexIdForRestore(indexId);
+            }
         }
 
         // partition and distribution info

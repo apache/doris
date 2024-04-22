@@ -487,8 +487,8 @@ Status ExecEnv::_init_mem_env() {
 
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
-    _lookup_connection_cache = LookupConnectionCache::create_global_instance(
-            config::lookup_connection_cache_bytes_limit);
+    _lookup_connection_cache =
+            LookupConnectionCache::create_global_instance(config::lookup_connection_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -538,6 +538,10 @@ void ExecEnv::init_mem_tracker() {
             std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _point_query_executor_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
+    _block_compression_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =

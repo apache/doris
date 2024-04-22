@@ -14,6 +14,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "backup_restore," +
     "fault_injection_p0," +
     "workload_manager_p1," +
+    "ccr_syncer_p1," +
+    "ccr_mow_syncer_p1," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50

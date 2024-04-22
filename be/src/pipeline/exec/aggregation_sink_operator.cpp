@@ -644,7 +644,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     // In case of : `select * from (select GoodEvent from hits union select CounterID from hits) as h limit 10;`
     // only union with limit: we can short circuit query the pipeline exec engine.
     _can_short_circuit =
-            tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec();
+            tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_x_exec();
 
     TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {

@@ -326,7 +326,7 @@ DEFINE_Int32(storage_page_cache_shard_size, "256");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-DEFINE_Bool(disable_storage_page_cache, "false");
+DEFINE_mBool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
@@ -1028,6 +1028,7 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "4"); // 4MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");
@@ -1059,6 +1060,7 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
+DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1068,8 +1070,8 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
-// default 4GB
-DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
+// default max to 2048 connections
+DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -1161,7 +1163,7 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
-DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_String(spill_storage_root_path, "");
 DEFINE_String(spill_storage_limit, "20%");   // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
 DEFINE_mInt32(spill_gc_file_count, "2000");
@@ -1204,6 +1206,8 @@ DEFINE_Bool(enable_index_compaction, "false");
 
 // enable injection point in regression-test
 DEFINE_mBool(enable_injection_point, "false");
+
+DEFINE_mBool(ignore_schema_change_check, "false");
 
 // clang-format off
 #ifdef BE_TEST

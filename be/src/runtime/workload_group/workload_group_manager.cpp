@@ -183,7 +183,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
     // in process_mem_used.
     // we count these cache memories equally on workload groups.
     double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
-    if (ratio >= 1.25) {
+    if (ratio <= 1.25) {
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
         std::string debug_msg = fmt::format(
                 "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
