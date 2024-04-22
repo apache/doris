@@ -138,10 +138,6 @@ Status SpillSortSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::open(state));
     return _sort_sink_operator->open(state);
 }
-Status SpillSortSinkOperatorX::close(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::close(state));
-    return _sort_sink_operator->close(state);
-}
 Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state) {
     if (!_enable_spill) {
         return Status::OK();

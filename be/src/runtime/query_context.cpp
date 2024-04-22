@@ -26,6 +26,8 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
+#include "util/uid_util.h"
+#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -146,6 +148,8 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
+
+    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
