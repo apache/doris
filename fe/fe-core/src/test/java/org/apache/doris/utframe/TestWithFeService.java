@@ -581,7 +581,6 @@ public abstract class TestWithFeService {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
-        ConnectContext ctx = ConnectContext.get();
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR
                 && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;

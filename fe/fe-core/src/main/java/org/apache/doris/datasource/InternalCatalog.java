@@ -1641,8 +1641,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (singlePartitionDesc.isSetIfNotExists()) {
                         failedCleanCallback.run();
                         return;
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                     }
-                    ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
 
                 // check if meta changed
