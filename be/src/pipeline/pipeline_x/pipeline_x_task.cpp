@@ -258,6 +258,14 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
+
+        /// When a task is cancelled,
+        /// its blocking state will be cleared and it will transition to a ready state (though it is not truly ready).
+        /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
+        if (_fragment_context->is_canceled()) {
+            break;
+        }
+
         if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
