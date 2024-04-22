@@ -105,6 +105,8 @@ public class PushCountIntoUnionAll extends OneRewriteRuleFactory {
                 newLogicalUnionOutputs.add(new SlotReference(ce.getName(), ce.getDataType(), ce.nullable()));
             } else if (ce instanceof SlotReference) {
                 newLogicalUnionOutputs.add(ce);
+            } else {
+                return logicalUnion;
             }
         }
         newLogicalUnion = newLogicalUnion.withNewOutputs(newLogicalUnionOutputs);
