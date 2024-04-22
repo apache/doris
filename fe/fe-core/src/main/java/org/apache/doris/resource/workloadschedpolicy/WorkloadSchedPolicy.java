@@ -172,7 +172,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         return retType;
     }
 
-    public void updateProperty(Map<String, String> property, List<Long> wgIdList) {
+    public void updatePropertyIfNotNull(Map<String, String> property, List<Long> wgIdList) {
         String enabledStr = property.get(ENABLED);
         if (enabledStr != null) {
             this.enabled = Boolean.parseBoolean(enabledStr);
@@ -183,7 +183,11 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
             this.priority = Integer.parseInt(priorityStr);
         }
 
-        if (wgIdList.size() > 0) {
+        String workloadGroupIdStr = property.get(WORKLOAD_GROUP);
+        // workloadGroupIdStr != null means user set workload group property,
+        // then we should overwrite policy's workloadGroupIdList
+        // if workloadGroupIdStr.length == 0, it means the policy should match all query.
+        if (workloadGroupIdStr != null) {
             this.workloadGroupIdList = wgIdList;
         }
     }
