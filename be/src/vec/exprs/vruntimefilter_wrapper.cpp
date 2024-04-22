@@ -114,7 +114,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
 
         if (_null_aware) {
-            change_null_to_true(result_column.column);
+            change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
         }
 
         filter_rows = rows - calculate_false_number(result_column.column);
