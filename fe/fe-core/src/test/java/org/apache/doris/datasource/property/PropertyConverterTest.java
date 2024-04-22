@@ -225,7 +225,7 @@ public class PropertyConverterTest extends TestWithFeService {
     public void testS3TVFPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryOld = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
+                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
                     + "  'access_key' = 'akk',\n"
                     + "  'secret_key' = 'skk',\n"
                     + "  'region' = 'us-east-1',\n"
@@ -239,7 +239,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 9);
 
         String queryNew = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
+                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
                     + "  's3.access_key' = 'akk',\n"
                     + "  's3.secret_key' = 'skk',\n"
                     + "  'format' = 'parquet',\n"
