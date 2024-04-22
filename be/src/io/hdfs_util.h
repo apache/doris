@@ -118,13 +118,13 @@ public:
 
     // This function is thread-safe
     Status get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
-                          HdfsHandler** fs_handle);
+                          std::shared_ptr<HdfsHandler>* fs_handle);
 
 private:
     static constexpr int MAX_CACHE_HANDLE = 64;
 
     std::mutex _lock;
-    std::unordered_map<uint64_t, std::unique_ptr<HdfsHandler>> _cache;
+    std::unordered_map<uint64_t, std::shared_ptr<HdfsHandler>> _cache;
 
     HdfsHandlerCache() = default;
 

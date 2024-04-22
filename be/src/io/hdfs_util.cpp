@@ -103,16 +103,16 @@ void HdfsHandlerCache::_clean_oldest() {
 }
 
 Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
-                                        HdfsHandler** fs_handle) {
+                                        std::shared_ptr<HdfsHandler>* fs_handle) {
     uint64 hash_code = hdfs_hash_code(hdfs_params);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);
         if (it != _cache.end()) {
-            HdfsHandler* handle = it->second.get();
+            std::shared_ptr<HdfsHandler> handle = it->second;
             if (!handle->invalid()) {
                 handle->inc_ref();
-                *fs_handle = handle;
+                *fs_handle = std::move(handle);
                 return Status::OK();
             }
             // fs handle is invalid, erase it.
@@ -129,12 +129,12 @@ Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const st
             _clean_oldest();
         }
         if (_cache.size() < MAX_CACHE_HANDLE) {
-            std::unique_ptr<HdfsHandler> handle = std::make_unique<HdfsHandler>(hdfs_fs, true);
+            std::shared_ptr<HdfsHandler> handle = std::make_shared<HdfsHandler>(hdfs_fs, true);
             handle->inc_ref();
-            *fs_handle = handle.get();
+            *fs_handle = handle;
             _cache[hash_code] = std::move(handle);
         } else {
-            *fs_handle = new HdfsHandler(hdfs_fs, false);
+            *fs_handle = std::make_shared<HdfsHandler>(hdfs_fs, false);
         }
     }
     return Status::OK();

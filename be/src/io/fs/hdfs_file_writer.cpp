@@ -45,7 +45,7 @@ bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_writt
 
 static constexpr size_t MB = 1024 * 1024;
 
-HdfsFileWriter::HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file,
+HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
         : _path(std::move(path)),
           _hdfs_handler(handler),
@@ -72,8 +72,6 @@ HdfsFileWriter::~HdfsFileWriter() {
 
     if (_hdfs_handler->from_cache) {
         _hdfs_handler->dec_ref();
-    } else {
-        delete _hdfs_handler;
     }
     hdfs_file_being_written << -1;
 }
@@ -266,7 +264,7 @@ Status HdfsFileWriter::finalize() {
     return Status::OK();
 }
 
-Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, HdfsHandler* handler,
+Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<HdfsHandler> handler,
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
