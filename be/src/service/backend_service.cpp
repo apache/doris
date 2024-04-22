@@ -843,11 +843,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
-void BackendService::clean_trash() {
-    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
-}
-
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
 }

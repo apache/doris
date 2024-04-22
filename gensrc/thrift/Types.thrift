@@ -222,7 +222,8 @@ enum TTaskType {
     PUSH_COOLDOWN_CONF,
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
-    GC_BINLOG
+    GC_BINLOG,
+    CLEAN_TRASH
 }
 
 enum TStmtType {
