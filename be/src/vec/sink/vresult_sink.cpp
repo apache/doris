@@ -94,11 +94,11 @@ Status VResultSink::prepare(RuntimeState* state) {
     switch (_sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
         if (_binary_row_format) {
-            _writer.reset(new (std::nothrow)
-                                  VMysqlResultWriter<true>(_sender.get(), _output_vexpr_ctxs, _profile));
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
         } else {
-            _writer.reset(new (std::nothrow)
-                                  VMysqlResultWriter<false>(_sender.get(), _output_vexpr_ctxs, _profile));
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
         }
         break;
     default:
