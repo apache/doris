@@ -120,13 +120,15 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     protected Catalog createCatalog() {
-        Options options = new Options();
-        Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-        for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-            options.set(kv.getKey(), kv.getValue());
-        }
-        CatalogContext context = CatalogContext.create(options, getConfiguration());
-        return createCatalogImpl(context);
+        return HadoopUGI.ugiDoAs(authConf, () -> {
+            Options options = new Options();
+            Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
+            for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
+                options.set(kv.getKey(), kv.getValue());
+            }
+            CatalogContext context = CatalogContext.create(options, getConfiguration());
+            return createCatalogImpl(context);
+        });
     }
 
     protected Catalog createCatalogImpl(CatalogContext context) {

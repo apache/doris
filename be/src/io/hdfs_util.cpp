@@ -17,6 +17,7 @@
 
 #include "io/hdfs_util.h"
 
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <ostream>
@@ -66,6 +67,16 @@ uint64 hdfs_hash_code(const THdfsParams& hdfs_params) {
 }
 
 } // namespace
+
+namespace hdfs_bvar {
+bvar::LatencyRecorder hdfs_read_latency("hdfs_read");
+bvar::LatencyRecorder hdfs_write_latency("hdfs_write");
+bvar::LatencyRecorder hdfs_create_dir_latency("hdfs_create_dir");
+bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
+bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
+bvar::LatencyRecorder hdfs_flush_latency("hdfs_flush");
+bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
+}; // namespace hdfs_bvar
 
 void HdfsHandlerCache::_clean_invalid() {
     std::vector<uint64> removed_handle;

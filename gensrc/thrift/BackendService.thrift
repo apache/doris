@@ -24,6 +24,7 @@ include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
+include "FrontendService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -304,6 +305,7 @@ struct TWorkloadSchedPolicy {
     5: optional bool enabled
     6: optional list<TWorkloadCondition> condition_list
     7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
@@ -317,6 +319,16 @@ struct TPublishTopicRequest {
 
 struct TPublishTopicResult {
     1: required Status.TStatus status
+}
+
+struct TGetRealtimeExecStatusRequest {
+    // maybe query id or other unique id
+    1: optional Types.TUniqueId id
+}
+
+struct TGetRealtimeExecStatusResponse {
+    1: optional Status.TStatus status
+    2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
 service BackendService {
@@ -368,8 +380,6 @@ service BackendService {
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
-    oneway void clean_trash();
-
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
 
@@ -387,4 +397,6 @@ service BackendService {
     TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
+
+    TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 }

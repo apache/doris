@@ -211,6 +211,7 @@ void Daemon::memory_maintenance_thread() {
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
+            doris::MemTrackerLimiter::clean_tracker_limiter_group();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
             // Refresh mem tracker each type counter.

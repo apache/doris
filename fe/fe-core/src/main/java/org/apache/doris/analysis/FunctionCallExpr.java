@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -1672,13 +1673,23 @@ public class FunctionCallExpr extends Expr {
                     fn = getTableFunction(fnName.getFunction(), matchFuncChildTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                     if (fn == null) {
-                        throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                        throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
                     }
                     // set param child types
                     fn.setReturnType(((ArrayType) childTypes[0]).getItemType());
                 } else {
                     fn = getTableFunction(fnName.getFunction(), childTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                }
+                // find user defined functions
+                if (fn == null) {
+                    fn = findUdf(fnName, analyzer);
+                    if (fn != null) {
+                        FunctionUtil.checkEnableJavaUdf();
+                        if (!fn.isUDTFunction()) {
+                            throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
+                        }
+                    }
                 }
                 if (fn == null) {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
@@ -2506,7 +2517,7 @@ public class FunctionCallExpr extends Expr {
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
             if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    dbName, PrivPredicate.SELECT)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

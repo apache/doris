@@ -24,7 +24,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.authenticate.MysqlAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -195,7 +194,8 @@ public class MysqlProto {
         }
 
         //  authenticate
-        if (!MysqlAuth.authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+        if (!Env.getCurrentEnv().getAuthenticatorManager()
+                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
         }
 
@@ -234,7 +234,7 @@ public class MysqlProto {
 
             // check catalog and db exists
             if (catalogName != null) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
+                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(catalogName);
                 if (catalogIf == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;

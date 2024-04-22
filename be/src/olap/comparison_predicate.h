@@ -283,6 +283,7 @@ public:
                     } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    __builtin_unreachable();
                 }
             } else {
                 auto* data_array =
@@ -313,6 +314,7 @@ public:
                     } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    __builtin_unreachable();
                 }
             } else {
                 auto* data_array =
@@ -518,6 +520,7 @@ private:
                                                     dict_code);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto* data_array =

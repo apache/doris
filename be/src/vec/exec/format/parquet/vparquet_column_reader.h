@@ -39,17 +39,17 @@
 namespace cctz {
 class time_zone;
 } // namespace cctz
-namespace doris {
-namespace io {
+
+namespace doris::io {
 struct IOContext;
-} // namespace io
-namespace vectorized {
-class ColumnString;
-struct FieldSchema;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::io
 
 namespace doris::vectorized {
+
+struct FieldSchema;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 class ParquetColumnReader {
 public:
@@ -127,6 +127,7 @@ public:
 
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
+        __builtin_unreachable();
     }
 
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
@@ -185,7 +186,7 @@ private:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
-    std::unique_ptr<ParquetConvert::ColumnConvert> _converter = nullptr;
+    std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,

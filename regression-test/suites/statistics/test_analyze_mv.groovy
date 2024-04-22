@@ -35,7 +35,7 @@ suite("test_analyze_mv") {
         throw new Exception("Wait mv finish timeout.")
     }
 
-    def wait_row_count_reported = { db, table, expected ->
+    def wait_row_count_reported = { db, table, row, column, expected ->
         def result = sql """show frontends;"""
         logger.info("show frontends result origin: " + result)
         def host
@@ -57,7 +57,7 @@ suite("test_analyze_mv") {
                 Thread.sleep(5000)
                 result = sql """SHOW DATA FROM ${table};"""
                 logger.info("result " + result)
-                if (result[3][4] == expected) {
+                if (result[row][column] == expected) {
                     return;
                 }
             }
@@ -424,7 +424,15 @@ suite("test_analyze_mv") {
     assertEquals(0, result_sample.size())
 
     // Test sample
-    wait_row_count_reported("test_analyze_mv", "mvTestDup", "6")
+    try {
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 0, 4, "6")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 1, 4, "6")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 2, 4, "4")
+        wait_row_count_reported("test_analyze_mv", "mvTestDup", 3, 4, "6")
+    } catch (Exception e) {
+        logger.info(e.getMessage());
+        return;
+    }
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""

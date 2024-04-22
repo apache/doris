@@ -379,25 +379,38 @@ struct CommonFindOp {
 struct StringFindOp : CommonFindOp<StringRef> {
     static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
                              size_t start) {
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
-
-            for (size_t i = start; i < col.size(); i++) {
-                if (!nullmap[i]) {
+        auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
+                                         size_t start, size_t size) {
+            for (size_t i = start; i < size; i++) {
+                if (nullmap == nullptr || !nullmap[i]) {
                     bloom_filter.add_element(col.get_data_at(i));
                 } else {
                     bloom_filter.set_contain_null();
                 }
             }
+        };
+
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+            if (nullable->get_nested_column().is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(
+                                              nullable->get_nested_column()),
+                                      nullmap.data(), start, nullmap.size());
+            } else {
+                _insert_batch_col_str(
+                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
+            }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < col->size(); i++) {
-                bloom_filter.add_element(col->get_data_at(i));
+            if (column->is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(*column),
+                                      nullptr, start, column->size());
+            } else {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString&>(*column),
+                                      nullptr, start, column->size());
             }
         }
     }

@@ -125,6 +125,9 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
+// Limit kv size of Schema SchemaDictKeyList, default 10MB
+CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
 
@@ -166,5 +169,13 @@ CONF_String(kerberos_ccache_path, "");
 CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 CONF_mBool(enable_distinguish_hdfs_path, "true");
+
+// Declare a selection strategy for those servers have many ips.
+// Note that there should at most one ip match this list.
+// this is a list in semicolon-delimited format, in CIDR notation,
+// e.g. 10.10.10.0/24
+// e.g. 10.10.10.0/24;192.168.0.1/24
+// If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
+CONF_String(priority_networks, "");
 
 } // namespace doris::cloud::config

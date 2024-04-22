@@ -530,10 +530,10 @@ public class AnalysisManager implements Writable {
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
-        return findShowAnalyzeResult(analysisJobInfoMap.values(), stmt);
+        return findShowAnalyzeResult(stmt);
     }
 
-    protected List<AnalysisInfo> findShowAnalyzeResult(Collection<AnalysisInfo> analysisInfos, ShowAnalyzeStmt stmt) {
+    private List<AnalysisInfo> findShowAnalyzeResult(ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
         TableIf tbl = null;
@@ -541,8 +541,8 @@ public class AnalysisManager implements Writable {
             tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
         }
         long tblId = tbl == null ? -1 : tbl.getId();
-        synchronized (analysisInfos) {
-            return analysisInfos.stream()
+        synchronized (analysisJobInfoMap) {
+            return analysisJobInfoMap.values().stream()
                 .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
                 .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
                 .filter(a -> tblName == null || a.tblId == tblId)
@@ -621,7 +621,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
-        StatisticsRepository.dropStatistics(tblId, cols);
+        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, tblId, cols);
     }
 
     public void dropStats(TableIf table) throws DdlException {
@@ -636,7 +636,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
-        StatisticsRepository.dropStatistics(table.getId(), cols);
+        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId,
@@ -669,7 +669,7 @@ public class AnalysisManager implements Writable {
                     }
                 }
                 tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(tableId, indexId, column);
+                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
             }
         }
         tableStats.updatedTime = 0;

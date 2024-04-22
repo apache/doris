@@ -58,7 +58,11 @@ public:
     Status alloc_resource(RuntimeState* state) override {
         SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-        return VExpr::open(_vfn_ctxs, state);
+        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
+        for (auto* fn : _fns) {
+            RETURN_IF_ERROR(fn->open());
+        }
+        return Status::OK();
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     bool need_more_input_data() const { return !_child_block->rows() && !_child_eos; }
@@ -66,6 +70,9 @@ public:
     void release_resource(doris::RuntimeState* state) override {
         if (_num_rows_filtered_counter != nullptr) {
             COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+        }
+        for (auto* fn : _fns) {
+            static_cast<void>(fn->close());
         }
         ExecNode::release_resource(state);
     }
@@ -145,7 +152,7 @@ private:
     std::shared_ptr<Block> _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
-    int64_t _cur_child_offset = 0;
+    int64_t _cur_child_offset = -1;
 
     VExprContextSPtrs _vfn_ctxs;
 

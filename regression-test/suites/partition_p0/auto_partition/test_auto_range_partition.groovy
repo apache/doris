@@ -20,9 +20,8 @@ suite("test_auto_range_partition") {
     sql """
         CREATE TABLE `range_table1` (
         `TIME_STAMP` datetimev2 NOT NULL COMMENT '采集日期'
-        ) ENGINE=OLAP
+        )
         DUPLICATE KEY(`TIME_STAMP`)
-        COMMENT 'OLAP'
         auto partition by range (date_trunc(`TIME_STAMP`, 'day'))
         (
         )
@@ -102,4 +101,74 @@ suite("test_auto_range_partition") {
     result2 = sql "show partitions from right_bound"
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
+
+    sql "drop table if exists week_range"
+    sql """
+        CREATE TABLE `week_range` (
+        `TIME_STAMP` datev2 NOT NULL
+        )
+        DUPLICATE KEY(`TIME_STAMP`)
+        auto partition by range (date_trunc(`TIME_STAMP`, 'week'))
+        (
+        )
+        DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql " insert into week_range values (20240408), (20240409); "
+    def result2 = sql "show partitions from week_range"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 1)
+
+    sql "drop table if exists quarter_range"
+    sql """
+        CREATE TABLE `quarter_range` (
+        `TIME_STAMP` datev2 NOT NULL
+        )
+        DUPLICATE KEY(`TIME_STAMP`)
+        auto partition by range (date_trunc(`TIME_STAMP`, 'quarter'))
+        (
+        )
+        DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql " insert into quarter_range values (20240102), (20240330), (20241001), (20241231); "
+    result2 = sql "show partitions from quarter_range"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 2)
+
+     // partition expr extraction
+
+    sql " drop table if exists isit "
+    sql " drop table if exists isit_src "
+    sql """
+        CREATE TABLE isit (
+            k DATE NOT NULL
+        )
+        AUTO PARTITION BY RANGE (date_trunc(k, 'day'))()
+        DISTRIBUTED BY HASH(k) BUCKETS AUTO
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+    sql """
+        CREATE TABLE isit_src (
+            k DATE NOT NULL
+        )
+        DISTRIBUTED BY HASH(k) BUCKETS AUTO
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+    sql " insert into isit_src values (20201212); "
+    sql " insert into isit select * from isit_src "
+    sql " sync "
+    result2 = sql "show partitions from isit"
+    logger.info("${result2}")
+    def tmp_result = sql "select count() from isit"
+    assertEquals(tmp_result[0][0], 1)
+    qt_sql " select * from isit order by k "
 }

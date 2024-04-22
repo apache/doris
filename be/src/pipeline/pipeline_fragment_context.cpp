@@ -147,8 +147,6 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     if (_runtime_state != nullptr) {
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
-    } else {
-        _call_back(_runtime_state.get(), &st);
     }
     _root_pipeline.reset();
     _pipelines.clear();

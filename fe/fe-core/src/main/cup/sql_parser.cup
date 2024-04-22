@@ -705,7 +705,7 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt, unset_var_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt, unset_default_storage_vault_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
     use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -1150,6 +1150,8 @@ stmt ::=
     | set_stmt:set
     {: RESULT = set; :}
     | unset_var_stmt:stmt
+    {: RESULT = stmt; :}
+    | unset_default_storage_vault_stmt:stmt
     {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
@@ -1801,6 +1803,11 @@ create_stmt ::=
             KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
     {:
         RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
+    :}
+    | KW_CREATE opt_var_type:type KW_TABLES KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
+            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
+    {:
+        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, returnType, intermediateType, properties);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -4091,11 +4098,11 @@ show_param ::=
         RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
-    | KW_CREATE KW_DATABASE ident:db
+    | KW_CREATE KW_DATABASE db_name:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
-    | KW_CREATE KW_SCHEMA ident:db
+    | KW_CREATE KW_SCHEMA db_name:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
@@ -4294,10 +4301,6 @@ show_param ::=
     | KW_WORKLOAD KW_GROUPS opt_wild_where
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
-    :}
-    | KW_WORKLOAD KW_SCHEDULE KW_POLICY
-    {:
-        RESULT = new ShowWorkloadSchedPolicyStmt();
     :}
     | KW_BACKENDS
     {:
@@ -5280,6 +5283,12 @@ unset_var_stmt ::=
         RESULT = new UnsetVariableStmt(type, true);
     :}
     ;
+
+unset_default_storage_vault_stmt ::=
+    KW_UNSET KW_DEFAULT KW_STORAGE KW_VAULT
+    {:
+        RESULT = new UnsetDefaultStorageVaultStmt();
+    :};
 
 user_property_list ::=
     user_property:property

@@ -506,7 +506,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // example: RegularChildrenOutputs is empty
             // "select 1 a, 2 b union all select 3, 4 union all select 10 e, 20 f;"
             for (int i = 0; i < setOperation.getOutput().size(); i++) {
-                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(0));
+                Pair childSlotPair = ctx.getAliasTransferPair(setOperation.getRegularChildOutput(0).get(i));
                 if (childSlotPair != null) {
                     ctx.aliasTransferMapPut(setOperation.getOutput().get(i), childSlotPair);
                 }
@@ -547,12 +547,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         PhysicalRelation cteNode = ctx.getAliasTransferPair(unwrappedSlot).first;
         long buildSideNdv = rf.getBuildSideNdv();
         if (cteNode instanceof PhysicalCTEConsumer && inputPlanNode instanceof PhysicalProject) {
-            PhysicalProject project = (PhysicalProject) inputPlanNode;
+            PhysicalProject<Plan> project = (PhysicalProject<Plan>) inputPlanNode;
             NamedExpression targetExpr = null;
-            for (Object column : project.getProjects()) {
-                NamedExpression alias = (NamedExpression) column;
-                if (cteSlot.getName().equals(alias.getName())) {
-                    targetExpr = alias;
+            for (NamedExpression ne : project.getProjects()) {
+                if (cteSlot.getName().equals(ne.getName())) {
+                    targetExpr = ne;
                     break;
                 }
             }
@@ -576,7 +575,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         ctx.addJoinToTargetMap(rf.getBuilderNode(), targetSlot.getExprId());
                         ctx.setTargetsOnScanNode(scan, targetSlot);
                     }
-
+                    if (targetList.isEmpty()) {
+                        return false;
+                    }
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             rf.getSrcExpr(), targetList, targetExpressions, rf.getType(), rf.getExprOrder(),
                             rf.getBuilderNode(), buildSideNdv, rf.isBloomFilterSizeCalculatedByNdv(),

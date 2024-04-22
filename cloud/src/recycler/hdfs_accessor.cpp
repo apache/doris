@@ -91,7 +91,7 @@ private:
 
         if (conf.has_hdfs_kerberos_principal()) {
             kerberos_login = true;
-            hdfsBuilderSetPrincipal(hdfs_builder_, conf.hdfs_kerberos_keytab().c_str());
+            hdfsBuilderSetPrincipal(hdfs_builder_, conf.hdfs_kerberos_principal().c_str());
         } else if (conf.has_user()) {
             hdfsBuilderSetUserName(hdfs_builder_, conf.user().c_str());
 #ifdef USE_HADOOP_HDFS

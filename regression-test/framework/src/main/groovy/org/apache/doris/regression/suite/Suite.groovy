@@ -43,6 +43,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -55,7 +56,10 @@ import java.sql.PreparedStatement
 import java.sql.ResultSetMetaData
 import java.util.Map;
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
@@ -170,33 +174,63 @@ class Suite implements GroovyInterceptable {
         return SuiteUtils.timer(actionSupplier)
     }
 
-    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
-        def connInfo = context.threadLocalConn.get()
-        return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
-            long startTime = System.currentTimeMillis()
-            def originThreadName = Thread.currentThread().name
-            try {
-                Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
-                if (connInfo != null) {
-                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
-                }
-                context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
-
-                return actionSupplier.call()
-            } catch (Throwable t) {
-                context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
-                throw t
-            } finally {
-                try {
-                    context.closeThreadLocal()
-                } catch (Throwable t) {
-                    logger.warn("Close thread local context failed", t)
-                }
-                long finishTime = System.currentTimeMillis()
-                context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
-                Thread.currentThread().setName(originThreadName)
+    public <T> ListenableFuture<T> extraThread(
+            String threadName = null, boolean daemon = false, Closure<T> actionSupplier) {
+        def executorService = Executors.newFixedThreadPool(1, new ThreadFactory() {
+            @Override
+            Thread newThread(@NotNull Runnable r) {
+                def thread = new Thread(r, name)
+                thread.setDaemon(daemon)
+                return thread
             }
         })
+
+        try {
+            def connInfo = context.threadLocalConn.get()
+            return MoreExecutors.listeningDecorator(executorService).submit(
+                    buildThreadCallable(threadName, connInfo, actionSupplier)
+            )
+        } finally {
+            executorService.shutdown()
+        }
+    }
+
+    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return MoreExecutors.listeningDecorator(context.actionExecutors).submit(
+                buildThreadCallable(threadName, connInfo, actionSupplier)
+        )
+    }
+
+    private <T> Callable<T> buildThreadCallable(String threadName, ConnectionInfo connInfo, Closure<T> actionSupplier) {
+        return new Callable<T>() {
+            @Override
+            T call() throws Exception {
+                long startTime = System.currentTimeMillis()
+                def originThreadName = Thread.currentThread().name
+                try {
+                    Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                    if (connInfo != null) {
+                        context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+                    }
+                    context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
+
+                    return actionSupplier.call()
+                } catch (Throwable t) {
+                    context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
+                    throw t
+                } finally {
+                    try {
+                        context.closeThreadLocal()
+                    } catch (Throwable t) {
+                        logger.warn("Close thread local context failed", t)
+                    }
+                    long finishTime = System.currentTimeMillis()
+                    context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
+                    Thread.currentThread().setName(originThreadName)
+                }
+            }
+        };
     }
 
     public <T> ListenableFuture<T> lazyCheckThread(String threadName = null, Closure<T> actionSupplier) {
@@ -310,6 +344,17 @@ class Suite implements GroovyInterceptable {
         } else {
             return jdbc_sql(sqlStr, isOrder)
         }
+    }
+
+    List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
+        String[] sqls = sqlStr.split(";")
+        def result = new ArrayList<Object>();
+        for (String query : sqls) {
+            if (!query.trim().isEmpty()) {
+                result.add(sql(query, isOrder));
+            }
+        }
+        return result
     }
 
     List<List<Object>> arrow_flight_sql_no_prepared (String sqlStr, boolean isOrder = false){
@@ -567,6 +612,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+        try {
+            userFunction()
+        } catch (Exception e) {
+            if (!e.getMessage().contains(errorMessage)) {
+                throw e
+            }
+        }
+    }
+
     String getBrokerName() {
         String brokerName = context.config.otherConfigs.get("brokerName")
         return brokerName
@@ -628,6 +683,11 @@ class Suite implements GroovyInterceptable {
     boolean enableBrokerLoad() {
         String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
+    }
+
+    String getS3Provider() {
+        String s3Provider = context.config.otherConfigs.get("s3Provider");
+        return s3Provider
     }
 
     String getS3Region() {
@@ -1024,6 +1084,10 @@ class Suite implements GroovyInterceptable {
 
     boolean isCloudMode() {
         return !getFeConfig("cloud_unique_id").isEmpty()
+    }
+
+    boolean enableStoragevault() {
+        return isCloudMode() && context.config.enableStorageVault;
     }
 
     String getFeConfig(String key) {

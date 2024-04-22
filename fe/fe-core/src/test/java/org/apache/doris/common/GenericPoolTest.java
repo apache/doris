@@ -31,6 +31,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.TIngestBinlogRequest;
@@ -228,11 +230,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public void cleanTrash() throws TException {
-            // TODO Auto-generated method stub
-        }
-
-        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
@@ -271,6 +268,12 @@ public class GenericPoolTest {
 
         @Override
         public TWarmUpTabletsResponse warmUpTablets(TWarmUpTabletsRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
+                throws TException {
             return null;
         }
     }

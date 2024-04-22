@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_agg_state.h"
+#include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
@@ -67,12 +68,16 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
                              get_child_names(), _data_type->get_name());
-
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
-            _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            if (_fn.is_udtf_function) {
+                // fake function. it's no use and can't execute.
+                _function = FunctionFake<UDTFImpl>::create();
+            } else {
+                _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            }
         } else {
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "
@@ -158,10 +163,9 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     if (_can_fast_execute) {
-        // if not find fast execute result column, means do not need check fast execute again
-        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
-                                         num_columns_without_result, block->rows());
-        if (_can_fast_execute) {
+        auto can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
+                                             num_columns_without_result, block->rows());
+        if (can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
         }

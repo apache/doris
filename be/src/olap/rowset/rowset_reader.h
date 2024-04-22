@@ -74,6 +74,8 @@ public:
 
     virtual int64_t filtered_rows() = 0;
 
+    virtual uint64_t merged_rows() = 0;
+
     virtual RowsetTypePB type() const = 0;
 
     virtual int64_t newest_write_timestamp() = 0;
@@ -88,6 +90,8 @@ public:
     virtual bool update_profile(RuntimeProfile* profile) = 0;
 
     virtual RowsetReaderSharedPtr clone() = 0;
+
+    virtual void set_topn_limit(size_t topn_limit) = 0;
 };
 
 } // namespace doris

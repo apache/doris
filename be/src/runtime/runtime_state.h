@@ -66,11 +66,6 @@ class RuntimeState {
     ENABLE_FACTORY_CREATOR(RuntimeState);
 
 public:
-    // for ut only
-    RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
-                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
-
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx,
@@ -381,13 +376,11 @@ public:
         }
         return _query_options.be_exec_version;
     }
-    bool enable_pipeline_exec() const {
-        return _query_options.__isset.enable_pipeline_engine &&
-               _query_options.enable_pipeline_engine;
-    }
     bool enable_pipeline_x_exec() const {
-        return _query_options.__isset.enable_pipeline_x_engine &&
-               _query_options.enable_pipeline_x_engine;
+        return (_query_options.__isset.enable_pipeline_x_engine &&
+                _query_options.enable_pipeline_x_engine) ||
+               (_query_options.__isset.enable_pipeline_engine &&
+                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -624,6 +617,10 @@ public:
 
     int task_id() const { return _task_id; }
 
+    void set_task_num(int task_num) { _task_num = task_num; }
+
+    int task_num() const { return _task_num; }
+
 private:
     Status create_error_log_file();
 
@@ -734,6 +731,7 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+    int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 

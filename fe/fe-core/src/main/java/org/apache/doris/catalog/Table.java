@@ -348,7 +348,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
@@ -661,5 +661,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
         return Lists.newArrayList();
+    }
+
+    @Override
+    public long getCachedRowCount() {
+        return getRowCount();
     }
 }

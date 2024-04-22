@@ -440,6 +440,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
         LOG(INFO) << ss.str();
 
         LOG(FATAL) << "not find the instance id";
+        __builtin_unreachable();
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
         if (!_rpc_channel_is_idle[id]) {
@@ -464,6 +465,8 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
         _rpc_channel_is_idle[id] = true;
         _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
     }
+    std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>> empty;
+    swap(empty, _instance_to_broadcast_package_queue[id]);
 }
 
 template <typename Parent>

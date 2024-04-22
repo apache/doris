@@ -146,6 +146,20 @@ public:
         pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
+    void init_rs_meta_resource(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end,
+                               bool is_local) {
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+        if (!is_local) {
+            rowset_meta_pb.set_resource_id("100");
+        }
+        pb1->init_from_pb(rowset_meta_pb);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
+    }
+
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 0);
@@ -393,6 +407,28 @@ TEST_F(TestTablet, cooldown_policy) {
         ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
         ASSERT_EQ(file_size, 84699);
     }
+}
+
+TEST_F(TestTablet, get_local_versions) {
+    // 10 remote rowsets
+    for (int i = 1; i <= 10; i++) {
+        auto ptr = std::make_shared<RowsetMeta>();
+        init_rs_meta_resource(ptr, i, i, false);
+        static_cast<void>(_tablet_meta->add_rs_meta(ptr));
+    }
+
+    // 20 local rowsets
+    for (int i = 11; i <= 30; i++) {
+        auto ptr = std::make_shared<RowsetMeta>();
+        init_rs_meta_resource(ptr, i, i, true);
+        static_cast<void>(_tablet_meta->add_rs_meta(ptr));
+    }
+
+    static_cast<void>(_data_dir->init());
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, _data_dir.get()));
+    static_cast<void>(_tablet->init());
+    const auto& local_versions = _tablet->get_all_local_versions();
+    ASSERT_EQ(local_versions.size(), 20);
 }
 
 } // namespace doris

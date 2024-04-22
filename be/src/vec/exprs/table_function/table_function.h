@@ -58,6 +58,7 @@ public:
     virtual int get_value(MutableColumnPtr& column, int max_step) {
         max_step = std::max(1, std::min(max_step, (int)(_cur_size - _cur_offset)));
         int i = 0;
+        // TODO: this for loop maybe could refactor, and call once get_value function, it's could insert into max_step value once
         for (; i < max_step && !eos(); i++) {
             get_value(column);
             forward();
