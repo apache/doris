@@ -49,7 +49,6 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
 
-    private final String partitionPrefix = "p";
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
@@ -75,6 +74,8 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     );
 
     private final Integer maxAllowedLimit = Config.max_multi_partition_num;
+    //multi_partition_name_prefix default: p
+    private final String partitionPrefix = Config.multi_partition_name_prefix;
 
     public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc,
             Map<String, String> properties) throws AnalysisException {
