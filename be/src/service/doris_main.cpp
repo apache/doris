@@ -411,6 +411,9 @@ int main(int argc, char** argv) {
     }
 
     std::vector<doris::StorePath> spill_paths;
+    if (doris::config::spill_storage_root_path.empty()) {
+        doris::config::spill_storage_root_path = doris::config::storage_root_path;
+    }
     olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
     if (!olap_res) {
         LOG(ERROR) << "parse config spill storage path failed, path="
