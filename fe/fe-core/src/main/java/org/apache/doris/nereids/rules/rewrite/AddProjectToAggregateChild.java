@@ -59,6 +59,9 @@ public class AddProjectToAggregateChild extends OneRewriteRuleFactory {
                 });
                 newOutputs.add(newOutput);
             }
+            if (agg.child() instanceof LogicalProject) {
+                projectOutputs.addAll(((LogicalProject) agg.child()).getProjects());
+            }
             LogicalProject project = new LogicalProject<>(projectOutputs.build(), agg.child());
             return agg.withAggOutputChild(newOutputs.build(), project);
         }).toRule(RuleType.ADD_AGG_PROJECT);

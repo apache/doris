@@ -49,7 +49,7 @@ PhysicalResultSink
 -- !filter_join_inner --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((t1.msg = ''))
+----filter((length(msg) = 0))
 ------PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -320,9 +320,9 @@ PhysicalResultSink
 -- !push_filter_except --
 PhysicalResultSink
 --PhysicalExcept
-----filter((cast(random() as INT) = 2) and (t1.msg = ''))
+----filter((cast(random() as INT) = 2) and (length(msg) = 0))
 ------PhysicalOlapScan[t1]
-----filter((t2.id = 2) and (t2.msg = ''))
+----filter((length(msg) = 0) and (t2.id = 2))
 ------PhysicalOlapScan[t2]
 
 -- !push_filter_except --
@@ -372,6 +372,6 @@ PhysicalResultSink
 ----PhysicalQuickSort[LOCAL_SORT]
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
-----------filter(((t1.msg = '') OR (t1.id = 2)))
+----------filter(((length(msg) = 0) OR (t1.id = 2)))
 ------------PhysicalOlapScan[t1]
 
