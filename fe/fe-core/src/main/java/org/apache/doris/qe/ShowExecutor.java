@@ -71,6 +71,7 @@ import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
+import org.apache.doris.analysis.ShowPrivilegesStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
@@ -190,6 +191,7 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -367,6 +369,8 @@ public class ShowExecutor {
             handleShowGrants();
         } else if (stmt instanceof ShowRolesStmt) {
             handleShowRoles();
+        } else if (stmt instanceof ShowPrivilegesStmt) {
+            handleShowPrivileges();
         } else if (stmt instanceof ShowTrashStmt) {
             handleShowTrash();
         } else if (stmt instanceof ShowTrashDiskStmt) {
@@ -2172,6 +2176,18 @@ public class ShowExecutor {
     private void handleShowRoles() {
         ShowRolesStmt showStmt = (ShowRolesStmt) stmt;
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getRoleInfo();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowPrivileges() {
+        ShowPrivilegesStmt showStmt = (ShowPrivilegesStmt) stmt;
+        List<List<String>> infos = Lists.newArrayList();
+        Privilege[] values = Privilege.values();
+        for (Privilege privilege : values) {
+            if (!privilege.isDeprecated()) {
+                infos.add(Lists.newArrayList(privilege.getName(), privilege.getContext(), privilege.getDesc()));
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
