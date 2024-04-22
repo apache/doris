@@ -245,4 +245,13 @@ suite("merge_aggregate") {
             from mal_test_merge_agg group by k4
         ) t  group by k4;
     """
+
+    qt_test_sum_empty_table """
+        select sum(col1),min(col2),max(col3) from (select sum(a) col1, min(b) col2, max(pk) col3 from mal_test2 group by a) t;
+    """
+
+    qt_test_sum_empty_table_shape """
+        explain shape plan
+        select sum(col1),min(col2),max(col3) from (select sum(a) col1, min(b) col2, max(pk) col3 from mal_test2 group by a) t;
+    """
 }

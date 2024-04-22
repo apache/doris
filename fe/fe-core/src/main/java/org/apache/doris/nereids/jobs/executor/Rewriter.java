@@ -299,7 +299,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             topic("Eliminate GroupBy",
                     topDown(new EliminateGroupBy(),
-                            new MergeAggregate())
+                            new MergeAggregate(),
+                            new AdjustAggregateNullableForEmptySet())
             ),
 
             topic("Eager aggregation",

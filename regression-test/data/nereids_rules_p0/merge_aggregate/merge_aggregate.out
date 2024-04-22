@@ -287,3 +287,13 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[mal_test_merge_agg]
 
+-- !test_sum_empty_table --
+\N	\N	\N
+
+-- !test_sum_empty_table_shape --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[mal_test2]
+
