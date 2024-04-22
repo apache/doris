@@ -22,7 +22,7 @@ suite('test_decommission_with_replica_num_fail') {
 
     def tbl = 'test_decommission_with_replica_num_fail'
     def backends = sql_return_maparray('show backends')
-    def replicaNum = 0
+    int replicaNum = 0
     def targetBackend = null
     for (def be : backends) {
         def alive = be.Alive.toBoolean()
@@ -33,6 +33,11 @@ suite('test_decommission_with_replica_num_fail') {
         }
     }
     assertTrue(replicaNum > 0)
+
+    def forceReplicaNum = getFeConfig('force_olap_table_replication_num') as int
+    if (forceReplicaNum > 0 && forceReplicaNum != replicaNum) {
+        return
+    }
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     sql """
