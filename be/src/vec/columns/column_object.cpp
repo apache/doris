@@ -399,22 +399,30 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         value_dim = 0;
         type_changed = true;
     }
-    if (is_nullable && !is_nothing(base_type)) {
+    // Always expected nullable at present
+    if (!is_nothing(base_type)) {
         base_type = make_nullable(base_type);
     }
-
     const auto& least_common_base_type = least_common_type.get_base();
+    DCHECK(base_type->is_nullable() && least_common_base_type->is_nullable());
+    const auto& nested_common_base_type =
+            static_cast<const DataTypeNullable&>(*least_common_base_type).get_nested_type();
+    const auto& nested_base_type =
+            static_cast<const DataTypeNullable&>(*base_type).get_nested_type();
+
     if (data.empty()) {
         add_new_column_part(create_array_of_type(std::move(base_type), value_dim, is_nullable));
-    } else if (!least_common_base_type->equals(*base_type) && !is_nothing(base_type)) {
-        if (schema_util::is_conversion_required_between_integers(*base_type,
-                                                                 *least_common_base_type)) {
+    } else if (!nested_common_base_type->equals(*nested_base_type) &&
+               !is_nothing(nested_base_type)) {
+        if (schema_util::is_conversion_required_between_integers(*nested_base_type,
+                                                                 *nested_common_base_type)) {
+            LOG_EVERY_N(INFO, 100) << "Conversion between " << base_type->get_name() << " and "
+                                   << least_common_base_type->get_name();
             get_least_supertype<LeastSupertypeOnError::Jsonb>(
-                    DataTypes {std::move(base_type), least_common_base_type}, &base_type);
+                    DataTypes {std::move(nested_base_type), nested_common_base_type}, &base_type);
             type_changed = true;
-            if (is_nullable) {
-                base_type = make_nullable(base_type);
-            }
+            // Always expected nullable at present
+            base_type = make_nullable(base_type);
             if (!least_common_base_type->equals(*base_type)) {
                 add_new_column_part(
                         create_array_of_type(std::move(base_type), value_dim, is_nullable));

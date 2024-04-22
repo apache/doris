@@ -67,7 +67,6 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
-bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
 
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column

@@ -114,31 +114,8 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
     WhichDataType which_rhs(rhs);
     bool is_native_int = which_lhs.is_native_int() && which_rhs.is_native_int();
     bool is_native_uint = which_lhs.is_native_uint() && which_rhs.is_native_uint();
-    return (is_native_int || is_native_uint) &&
-           lhs.get_size_of_value_in_memory() <= rhs.get_size_of_value_in_memory();
-}
-
-bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
-    // We only support signed integers for semi-structure data at present
-    // TODO add unsigned integers
-    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
-    }
-    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
-        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
-    }
-    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
-    }
-    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
-    }
-    return true;
+    return (!is_native_int && !is_native_uint) ||
+           lhs.get_size_of_value_in_memory() > rhs.get_size_of_value_in_memory();
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
