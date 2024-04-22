@@ -84,7 +84,7 @@ public class AddPartitionRecord {
             sb.append(")");
         }
         sb.append("(\"version_info\" = \"");
-        sb.append(partition.getCachedVisibleVersion()).append("\"");
+        sb.append(partition.getVisibleVersion()).append("\"");
         sb.append(");");
         this.sql = sb.toString();
     }

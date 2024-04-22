@@ -511,54 +511,63 @@ TxnErrorCode RangeGetIterator::init() {
 TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res,
                                     const std::vector<std::string>& keys,
                                     const BatchGetOptions& opts) {
+    struct FDBFutureDelete {
+        void operator()(FDBFuture* future) { fdb_future_destroy(future); }
+    };
+
+    res->clear();
     if (keys.empty()) {
         return TxnErrorCode::TXN_OK;
     }
+
     StopWatch sw;
-    std::vector<FDBFuture*> futures;
-    futures.reserve(keys.size());
-    for (const auto& k : keys) {
-        futures.push_back(fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
-        approximate_bytes_ += k.size() * 2;
-    }
+    auto stop_watcher = [&sw](int*) { g_bvar_txn_kv_batch_get << sw.elapsed_us(); };
+    std::unique_ptr<int, decltype(stop_watcher)> defer((int*)0x01, std::move(stop_watcher));
 
-    auto release_futures = [&futures, &sw](int*) {
-        std::for_each(futures.begin(), futures.end(),
-                      [](FDBFuture* fut) { fdb_future_destroy(fut); });
-        g_bvar_txn_kv_batch_get << sw.elapsed_us();
-    };
-    std::unique_ptr<int, decltype(release_futures)> defer((int*)0x01, std::move(release_futures));
-
+    size_t num_keys = keys.size();
     res->reserve(keys.size());
-    DCHECK(keys.size() == futures.size());
-    auto size = futures.size();
-    for (auto i = 0; i < size; ++i) {
-        const auto& fut = futures[i];
-        RETURN_IF_ERROR(await_future(fut));
-        auto err = fdb_future_get_error(fut);
-        if (err) {
-            LOG(WARNING) << __PRETTY_FUNCTION__
-                         << " failed to fdb_future_get_error err=" << fdb_get_error(err)
-                         << " key=" << hex(keys[i]);
-            return cast_as_txn_code(err);
+    std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
+    futures.reserve(opts.concurrency);
+    for (size_t i = 0; i < num_keys; i += opts.concurrency) {
+        size_t size = std::min(i + opts.concurrency, num_keys);
+        for (size_t j = i; j < size; j++) {
+            const auto& k = keys[j];
+            futures.emplace_back(
+                    fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
+            approximate_bytes_ += k.size() * 2;
         }
-        fdb_bool_t found;
-        const uint8_t* ret;
-        int len;
-        err = fdb_future_get_value(fut, &found, &ret, &len);
 
-        if (err) {
-            LOG(WARNING) << __PRETTY_FUNCTION__
-                         << " failed to fdb_future_get_value err=" << fdb_get_error(err)
-                         << " key=" << hex(keys[i]);
-            return cast_as_txn_code(err);
+        size_t num_futures = futures.size();
+        for (auto j = 0; j < num_futures; j++) {
+            FDBFuture* future = futures[j].get();
+            std::string_view key = keys[i + j];
+            RETURN_IF_ERROR(await_future(future));
+            fdb_error_t err = fdb_future_get_error(future);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+            fdb_bool_t found;
+            const uint8_t* ret;
+            int len;
+            err = fdb_future_get_value(future, &found, &ret, &len);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_value err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+            if (!found) {
+                res->push_back(std::nullopt);
+                continue;
+            }
+            res->push_back(std::string((char*)ret, len));
         }
-        if (!found) {
-            res->push_back(std::nullopt);
-            continue;
-        }
-        res->push_back(std::string((char*)ret, len));
+        futures.clear();
     }
+    DCHECK_EQ(res->size(), num_keys);
     return TxnErrorCode::TXN_OK;
 }
 

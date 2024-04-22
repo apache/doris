@@ -253,6 +253,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
         return Status::OK();
     }
     COUNTER_UPDATE(_build_rows_counter, rows);
+    block.replace_if_overflow();
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
@@ -519,7 +520,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                      res_col_ids));
 
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(*in_block));
             COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
             local_state._mem_tracker->consume(in_block->bytes());
             if (local_state._build_side_mutable_block.rows() >
@@ -537,10 +538,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        const bool need_local_merge =
-                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._need_local_merge;
         RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
-                state, local_state._shared_state->build_block->rows(), need_local_merge,
+                state, local_state._shared_state->build_block->rows(),
                 (CountedFinishDependency*)(local_state._finish_dependency.get())));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));

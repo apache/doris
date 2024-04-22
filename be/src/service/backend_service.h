@@ -123,8 +123,6 @@ public:
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
-    void clean_trash() override;
-
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;
 
@@ -136,6 +134,9 @@ public:
 
     void query_ingest_binlog(TQueryIngestBinlogResult& result,
                              const TQueryIngestBinlogRequest& request) override;
+
+    void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                  const TGetRealtimeExecStatusRequest& request) override;
 
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
@@ -186,8 +187,6 @@ public:
                                 int64_t last_stream_record_time) override;
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
-
-    void clean_trash() override;
 
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;

@@ -347,6 +347,21 @@ struct THivePartitionUpdate {
     6: optional i64 file_size
 }
 
+enum TFileContent {
+    DATA = 0,
+    POSITION_DELETES = 1,
+    EQUALITY_DELETES = 2
+}
+
+struct TIcebergCommitData {
+    1: optional string file_path
+    2: optional i64 row_count
+    3: optional i64 file_size
+    4: optional TFileContent file_content
+    5: optional list<string> partition_values 
+    6: optional list<string> referenced_data_files
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink

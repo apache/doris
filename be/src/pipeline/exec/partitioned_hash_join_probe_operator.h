@@ -33,7 +33,7 @@ class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::XXHashPartitioner<LocalExchangeChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>;
 
 class PartitionedHashJoinProbeOperatorX;
 

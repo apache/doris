@@ -73,7 +73,7 @@ public:
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
-    virtual Status open(RuntimeState* state) { return Status::OK(); }
+    virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -128,6 +128,7 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
@@ -163,10 +164,7 @@ public:
                     descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
-            DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
             // common subexpression elimination
-            DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
-                      tnode.intermediate_projections_list.size());
             _intermediate_output_row_descriptor.reserve(
                     tnode.intermediate_output_tuple_id_list.size());
             for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
@@ -402,6 +400,7 @@ public:
     ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
     virtual std::string name_suffix() const {
         return " (id=" + std::to_string(_parent->node_id()) + ")";
@@ -542,6 +541,7 @@ protected:
             std::make_unique<RuntimeProfile>("faker profile");
 
     RuntimeProfile::Counter* _rows_input_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;

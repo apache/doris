@@ -146,10 +146,18 @@ public:
     virtual TxnErrorCode abort() = 0;
 
     struct BatchGetOptions {
-        BatchGetOptions() : snapshot(false) {};
+        BatchGetOptions() : BatchGetOptions(false) {};
+        BatchGetOptions(bool s) : snapshot(s), concurrency(1000) {};
+
+        // if true, `key` will not be included in txn conflict detection this time.
+        //
+        // Default: false
         bool snapshot;
-        // TODO: Avoid consuming too many resources in one batch
-        // int limit = 1000;
+
+        // the maximum number of concurrent requests submitted to fdb at one time.
+        //
+        // Default: 1000
+        int concurrency;
     };
     /**
      * @brief batch get keys

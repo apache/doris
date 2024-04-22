@@ -28,7 +28,6 @@ import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -1968,14 +1967,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     lightSchemaChange = false;
                 } else if (alterClause instanceof CreateIndexClause) {
                     CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
-                    IndexDef indexDef = createIndexClause.getIndexDef();
                     Index index = createIndexClause.getIndex();
                     if (processAddIndex(createIndexClause, olapTable, newIndexes)) {
                         return;
                     }
                     lightSchemaChange = false;
 
-                    if (indexDef.isInvertedIndex()) {
+                    if (index.isLightIndexChangeSupported() && !Config.isCloudMode()) {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         // now only support light index change for inverted index
@@ -1985,6 +1983,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
+                    if (!index.isLightIndexChangeSupported() || Config.isCloudMode()) {
+                        throw new DdlException("BUILD INDEX can not be used since index "
+                                + indexDef.getIndexName() + " with type " + indexDef.getIndexType()
+                                + " does not support light index change or cluster cloud mode "
+                                + Config.isCloudMode() + " is true");
+                    }
+
                     if (!olapTable.isPartitionedTable()) {
                         List<String> specifiedPartitions = indexDef.getPartitionNames();
                         if (!specifiedPartitions.isEmpty()) {
@@ -2034,8 +2039,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    IndexDef.IndexType indexType = found.getIndexType();
-                    if (indexType == IndexType.INVERTED) {
+                    if (found.isLightIndexChangeSupported() && !Config.isCloudMode()) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;

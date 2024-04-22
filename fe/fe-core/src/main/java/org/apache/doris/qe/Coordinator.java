@@ -62,6 +62,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
+import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -405,6 +406,7 @@ public class Coordinator implements CoordInterface {
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
+        this.queryOptions.setEnablePipelineXEngine(SessionVariable.enablePipelineEngine());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -446,6 +448,7 @@ public class Coordinator implements CoordInterface {
 
     public void setExecPipEngine(boolean vec) {
         this.queryOptions.setEnablePipelineEngine(vec);
+        this.queryOptions.setEnablePipelineXEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -903,9 +906,7 @@ public class Coordinator implements CoordInterface {
             // For example: select * from numbers("number"="10") will generate ExchangeNode and
             // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
             // send data until ExchangeNode is ready to receive.
-            boolean twoPhaseExecution = ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().isEnableSinglePhaseExecutionCommitOpt()
-                    ? fragments.size() > 1 && addressToBackendID.size() > 1 : fragments.size() > 1;
+            boolean twoPhaseExecution = fragments.size() > 1;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
@@ -1001,7 +1002,9 @@ public class Coordinator implements CoordInterface {
             // 4. send and wait fragments rpc
             // 4.1 serialize fragment
             // unsetFields() must be called serially.
-            beToPipelineExecCtxs.values().stream().forEach(ctxs -> ctxs.unsetFields());
+            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
+                ctxs.unsetFields();
+            }
             // serializeFragments() can be called in parallel.
             final AtomicLong compressedSize = new AtomicLong(0);
             beToPipelineExecCtxs.values().parallelStream().forEach(ctxs -> {
@@ -1330,7 +1333,7 @@ public class Coordinator implements CoordInterface {
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
-                    DebugUtil.printId(queryId), status.toString());
+                    DebugUtil.printId(queryId), status.getErrorMsg());
         }
 
         updateStatus(status);
@@ -1474,7 +1477,8 @@ public class Coordinator implements CoordInterface {
             } else {
                 queryStatus.setStatus(Status.CANCELLED);
             }
-            LOG.warn("Cancel execution of query {}, this is a outside invoke", DebugUtil.printId(queryId));
+            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                    DebugUtil.printId(queryId), cancelReason.toString());
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -1501,7 +1505,7 @@ public class Coordinator implements CoordInterface {
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
         if (null != receiver) {
-            receiver.cancel(cancelReason.toString());
+            receiver.cancel(cancelReason);
         }
         if (null != pointExec) {
             pointExec.cancel();
@@ -2072,14 +2076,13 @@ public class Coordinator implements CoordInterface {
                                 && context.getSessionVariable().isForceToLocalShuffle();
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                                 .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
-                                        fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
-                                                .scanRangeAssignment.size())) && useNereids);
+                                        addressToBackendID.size())) && useNereids);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2092,7 +2095,7 @@ public class Coordinator implements CoordInterface {
                             }
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2965,8 +2968,7 @@ public class Coordinator implements CoordInterface {
                 && context.getSessionVariable().isForceToLocalShuffle();
         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
                 .allMatch(node -> node.ignoreStorageDataDistribution(context,
-                        fragmentExecParamsMap.get(node.getFragment().getFragmentId())
-                                .scanRangeAssignment.size()))
+                        addressToBackendID.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
                 }) && useNereids);
@@ -3812,10 +3814,15 @@ public class Coordinator implements CoordInterface {
                 int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceExecParams.size());
                 memLimit = queryOptions.getMemLimit() / rate;
             }
-            Set<Integer> topnFilterSources = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
-                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
-                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
+            Set<Integer> topnFilterSources = Sets.newLinkedHashSet();
+            for (ScanNode scanNode : scanNodes) {
+                if (scanNode instanceof OlapScanNode) {
+                    for (SortNode sortNode : ((OlapScanNode) scanNode).getTopnFilterSortNodes()) {
+                        topnFilterSources.add(sortNode.getId().asInt());
+                    }
+                }
+            }
+
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
@@ -3842,6 +3849,7 @@ public class Coordinator implements CoordInterface {
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
                     params.query_options.setEnablePipelineEngine(true);
+                    params.query_options.setEnablePipelineXEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

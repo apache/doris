@@ -25,6 +25,8 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
     def hive_database = "test_hive_multi_partition_mtmv_db"
     def hive_table = "partition2"
 
+    def autogather_off_str = """ set hive.stats.column.autogather = false; """
+    def autogather_on_str = """ set hive.stats.column.autogather = true; """
     def drop_table_str = """ drop table if exists ${hive_database}.${hive_table} """
     def drop_database_str = """ drop database if exists ${hive_database}"""
     def create_database_str = """ create database ${hive_database}"""
@@ -51,6 +53,8 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
     def insert_str5 = """insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="bj") values(5)"""
     def insert_str6 = """insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="sh") values(6)"""
 
+    logger.info("hive sql: " + autogather_off_str)
+    hive_docker """ ${autogather_off_str} """
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
     logger.info("hive sql: " + drop_database_str)
@@ -247,6 +251,8 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
        assertTrue(showPartitionsResult.toString().contains("p_sh"))
        assertFalse(showPartitionsResult.toString().contains("p_tj"))
 
+       logger.info("hive sql: " + autogather_on_str)
+       hive_docker """ ${autogather_on_str} """
        sql """drop materialized view if exists ${mvName};"""
        sql """drop catalog if exists ${catalog_name}"""
 }

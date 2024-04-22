@@ -203,7 +203,7 @@ public class TableFunctionPlanTest {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertTrue(explainString,
-                explainString.contains("No matching function with signature: explode_split(VARCHAR(1), VARCHAR(*))."));
+                explainString.contains("No matching function with signature: explode_split(VARCHAR(1), VARCHAR(65533))."));
     }
 
     // test projection

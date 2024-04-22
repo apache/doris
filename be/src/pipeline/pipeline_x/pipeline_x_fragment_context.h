@@ -104,11 +104,6 @@ public:
 
     Status send_report(bool) override;
 
-    RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId fragment_instance_id) override {
-        DCHECK(_runtime_filter_mgr_map.contains(fragment_instance_id));
-        return _runtime_filter_mgr_map[fragment_instance_id].get();
-    }
-
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
@@ -116,6 +111,9 @@ public:
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
     [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
+
+    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
 
     std::string debug_string() override;
 

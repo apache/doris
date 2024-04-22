@@ -166,12 +166,29 @@ suite("partition_mv_rewrite") {
     // wait partition is invalid
     sleep(5000)
     // only can use valid partition
+    sql "SET enable_materialized_view_union_rewrite=false"
+    // Test query all partition when disable enable_materialized_view_union_rewrite
+    order_qt_query_all_direct_before "${all_partition_sql}"
     explain {
         sql("${all_partition_sql}")
         notContains("${mv_name}(${mv_name})")
     }
+    order_qt_query_all_direct_after "${all_partition_sql}"
+
+    // Test query part partition when disable enable_materialized_view_union_rewrite
+    order_qt_query_partition_before "${partition_sql}"
     explain {
         sql("${partition_sql}")
         contains("${mv_name}(${mv_name})")
     }
+    order_qt_query_partition_after "${partition_sql}"
+
+    // Test query part partition when enable enable_materialized_view_union_rewrite
+    sql "SET enable_materialized_view_union_rewrite=true"
+    order_qt_query_all_before "${all_partition_sql}"
+    explain {
+        sql("${all_partition_sql}")
+        contains("${mv_name}(${mv_name})")
+    }
+    order_qt_query_all_after "${all_partition_sql}"
 }

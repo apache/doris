@@ -541,6 +541,9 @@ public class SelectStmt extends QueryStmt {
         }
         // populate selectListExprs, aliasSMap, groupingSmap and colNames
         if (selectList.isExcept()) {
+            if (needToSql) {
+                originalExpr = new ArrayList<>();
+            }
             List<SelectListItem> items = selectList.getItems();
             TableName tblName = items.get(0).getTblName();
             if (tblName == null) {
@@ -561,10 +564,6 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
-            if (needToSql) {
-                originalExpr = Expr.cloneList(resultExprs);
-            }
-
         } else {
             if (needToSql) {
                 originalExpr = new ArrayList<>();

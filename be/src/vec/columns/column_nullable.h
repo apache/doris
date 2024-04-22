@@ -121,6 +121,10 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
+
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
     void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
@@ -232,7 +236,15 @@ public:
         append_data_by_selector_impl<ColumnNullable>(res, selector);
     }
 
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        nested_column = nested_column->convert_column_if_overflow();
+        return get_ptr();
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(nested_column);
@@ -344,6 +356,7 @@ public:
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column nullable";
+        __builtin_unreachable();
     }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {

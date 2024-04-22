@@ -122,6 +122,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);
@@ -162,28 +163,38 @@ template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
-
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
-    _child_exprs.resize(parent._child_exprs.size());
-    for (size_t i = 0; i < _child_exprs.size(); i++) {
-        RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
-    }
-
-    _shared_state->child_quantity = parent._child_quantity;
-
+    DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     DCHECK(child_exprs_lists.empty() || child_exprs_lists.size() == parent._child_quantity);
     if (child_exprs_lists.empty()) {
         child_exprs_lists.resize(parent._child_quantity);
     }
+    _child_exprs.resize(parent._child_exprs.size());
+    for (size_t i = 0; i < _child_exprs.size(); i++) {
+        RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
+    }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+    _shared_state->child_quantity = parent._child_quantity;
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::open(state));
+
+    auto& parent = _parent->cast<Parent>();
+    DCHECK(parent._cur_child_id == 0);
+    auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
-    for (const auto& ctx : child_exprs_lists[0]) {
+    for (const auto& ctx : child_exprs_lists[parent._cur_child_id]) {
         _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
     }
     _shared_state->hash_table_init();

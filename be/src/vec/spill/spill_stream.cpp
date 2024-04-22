@@ -25,6 +25,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
@@ -86,6 +87,10 @@ void SpillStream::close() {
         (void)reader_->close();
         reader_.reset();
     }
+}
+
+const TUniqueId& SpillStream::query_id() const {
+    return state_->query_id();
 }
 
 const std::string& SpillStream::get_spill_root_dir() const {

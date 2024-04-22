@@ -199,6 +199,7 @@ public:
             }
         } else {
             LOG(FATAL) << "double column not support insert_range_of_integer";
+            __builtin_unreachable();
         }
     }
 
@@ -411,6 +412,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
     }
 
     bool is_fixed_and_contiguous() const override { return true; }
