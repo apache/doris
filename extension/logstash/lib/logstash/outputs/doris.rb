@@ -80,14 +80,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    config :num_as_string, :validate => :boolean, :default => false
    # true means support for reading one json object per line
    config :read_json_by_line, :validate => :boolean, :default => false
-   #  
-
 
    # Custom headers to use
    # format is `headers => ["X-My-Header", "%{host}"]`
    config :headers, :validate => :hash
 
-   config :batch_size, :validate => :number, :default => 100000
+   config :batch_size, :validate => :number, :default => 500000
 
    config :idle_flush_time, :validate => :number, :default => 20
 
@@ -136,7 +134,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       ShortNameResolver.new(ttl: @host_resolve_ttl_sec, logger: @logger))
 
       @request_headers = make_request_headers
-      @logger.info("request headers: ", @request_headers)
 
       buffer_initialize(
       :max_items => @batch_size,
@@ -187,19 +184,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    public
    def flush(events, close=false)
-      documents = ""
-      event_num = 0
-      events.each do |event|
-         documents << event.get("[message]") << "\n"
-         event_num += 1
-      end
-
-      @logger.info("get event num: #{event_num}")
-      @logger.debug("get documents: #{documents}")
-
-      hosts = get_host_addresses()
-
-      @request_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d%H%M%S_%L')
+      documents = events.map { |event| event.get("[message]") }.join("\n")
+      hosts = get_host_addresses
       make_request(documents, hosts, @http_query, 1, hosts.sample)
    end
 
@@ -264,52 +250,28 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    def make_request_headers()
-      headers = @headers || {}
-      headers["Expect"] ||= "100-continue"
-      headers["Content-Type"] ||= "text/plain;charset=utf-8"
-      headers["strict_mode"] ||= @strict_mode
-      headers["Authorization"] = "Basic " + Base64.strict_encode64("#{user}:#{password.value}")
-      # column_separator
-      if @column_separator != ""
-         headers["column_separator"] = @column_separator
-      end
-      # timezone
-      if @timezone != ""
-           headers["timezone"] = @timezone
-      end
-      # partition
-      if @partition.size > 0
-           headers["partition"] ||= @partition
-      end
-      # where
-      if @where != ""
-           headers["where"] ||= @where
-      end
-      # timeout
-      if @timeout != -1
-           headers["timeout"] ||= @timeout
-      end
-      # max_filter_ratio
-      if @max_filter_ratio != -1
-           headers["max_filter_ratio"] ||= @max_filter_ratio
-      end
-      # exec_mem_limit
-      if @exec_mem_limit != -1
-           headers["exec_mem_limit"] ||= @exec_mem_limit
-      end
-      # columns
-      if @columns != ""
-          headers["columns"] ||= @columns
-      end
-      headers["format"] = @format if @format != ""
-      headers["jsonpaths"] = @jsonpaths if @jsonpaths != []
-      headers["json_root"] = @json_root if @json_root != ""
-      headers["fuzzy_parse"] = @fuzzy_parse if @fuzzy_parse != ""
-      headers["num_as_string"] = @num_as_string if @num_as_string != ""
-      headers["read_json_by_line"] = @read_json_by_line if @read_json_by_line != ""
+    headers = @headers || {}
+    headers["Expect"] ||= "100-continue"
+    headers["Content-Type"] ||= "text/plain;charset=utf-8"
+    headers["strict_mode"] ||= @strict_mode
+    headers["Authorization"] = "Basic " + Base64.strict_encode64("#{user}:#{password.value}")
+    headers["column_separator"] = @column_separator unless @column_separator.empty?
+    headers["timezone"] = @timezone unless @timezone.empty?
+    headers["partition"] ||= @partition unless @partition.empty?
+    headers["where"] ||= @where unless @where.empty?
+    headers["timeout"] ||= @timeout unless @timeout == -1
+    headers["max_filter_ratio"] ||= @max_filter_ratio unless @max_filter_ratio == -1
+    headers["exec_mem_limit"] ||= @exec_mem_limit unless @exec_mem_limit == -1
+    headers["columns"] ||= @columns unless @columns.empty?
+    headers["format"] = @format unless @format.empty?
+    headers["jsonpaths"] = @jsonpaths unless @jsonpaths.empty?
+    headers["json_root"] = @json_root unless @json_root.empty?
+    headers["fuzzy_parse"] = @fuzzy_parse unless @fuzzy_parse == ""
+    headers["num_as_string"] = @num_as_string unless @num_as_string == ""
+    headers["read_json_by_line"] = @read_json_by_line unless @read_json_by_line == ""
+    headers
+  end
   
-      headers
-   end
 end # end of class LogStash::Outputs::Doris
 
 
