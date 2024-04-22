@@ -184,10 +184,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(config::buffered_reader_prefetch_thread_pool_min_thread_num)
-                              .set_max_threads(config::buffered_reader_prefetch_thread_pool_max_thread_num)
-                              .build(&_buffered_reader_prefetch_thread_pool));
+    static_cast<void>(
+            ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                    .set_min_threads(config::buffered_reader_prefetch_thread_pool_min_thread_num)
+                    .set_max_threads(config::buffered_reader_prefetch_thread_pool_max_thread_num)
+                    .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
