@@ -790,7 +790,6 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
@@ -866,6 +865,10 @@ public class StmtExecutor {
                             }
                         }
                     }
+                }
+                // If the previous try is timeout, then do not need try again.
+                if (this.coord.isTimeout()) {
+                    isNeedRetry = false;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
