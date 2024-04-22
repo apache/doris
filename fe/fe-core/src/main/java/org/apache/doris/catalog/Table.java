@@ -319,7 +319,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
