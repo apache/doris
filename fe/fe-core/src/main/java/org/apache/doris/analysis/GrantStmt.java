@@ -288,16 +288,9 @@ public class GrantStmt extends DdlStmt {
         if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
             return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, privPredicate);
         } else {
-            if (resourcePattern.isGeneralResource()) {
-                return Env.getCurrentEnv().getAccessManager()
-                        .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
-            } else if (resourcePattern.isClusterResource()) {
-                return Env.getCurrentEnv().getAccessManager()
-                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
-                                ResourceTypeEnum.CLUSTER);
-            }
+            return Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
         }
-        return true;
     }
 
     public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges,
