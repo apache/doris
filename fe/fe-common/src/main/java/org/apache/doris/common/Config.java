@@ -637,6 +637,12 @@ public class Config extends ConfigBase {
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "对于 DUPLICATE KEY 表启用 shuffle 的最小 tablet 数量",
+            "Minimum tablet num for enable shuffle on DUPLICATE KEY tables"},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int min_tablets_for_dup_table_shuffle = 64;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
