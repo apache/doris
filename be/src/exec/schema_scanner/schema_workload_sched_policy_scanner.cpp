@@ -34,6 +34,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadSchedulePolicyScanner::_s_t
         {"PRIORITY", TYPE_INT, sizeof(int32_t), true},
         {"ENABLED", TYPE_BOOLEAN, sizeof(bool), true},
         {"VERSION", TYPE_INT, sizeof(int32_t), true},
+        {"WORKLOAD_GROUP", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaWorkloadSchedulePolicyScanner::SchemaWorkloadSchedulePolicyScanner()
