@@ -15,7 +15,7 @@ set(COMMON_FILES
     kms.cpp
 )
 
-if (USE_JEMALLOC)
+if (USE_JEMALLOC AND USE_JEMALLOC_HOOK)
     set(COMMON_FILES ${COMMON_FILES}
         jemalloc_hook.cpp
         )
