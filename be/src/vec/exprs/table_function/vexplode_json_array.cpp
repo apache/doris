@@ -269,7 +269,7 @@ void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
     if (current_empty()) {
         column->insert_default();
     } else {
-        static_cast<void>(get_value(column, 1));
+        static_cast<void>(insert_values_into_column(column, 1));
     }
 }
 
@@ -279,25 +279,30 @@ int VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column, int max_
         column->insert_default();
         max_step = 1;
     } else {
-        if (_is_nullable) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-            auto nested_column = nullable_column->get_nested_column_ptr();
-            RETURN_IF_ERROR(
-                    _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset));
-
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-            size_t old_size = nullmap_column->size();
-            nullmap_column->resize(old_size + max_step);
-            memcpy(nullmap_column->get_data().data() + old_size,
-                   _parsed_data.get_null_flag_address(_cur_offset), max_step * sizeof(UInt8));
-        } else {
-            RETURN_IF_ERROR(
-                    _parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset));
-        }
+        RETURN_IF_ERROR(insert_values_into_column(column, max_step));
     }
     forward(max_step);
     return max_step;
+}
+
+Status VExplodeJsonArrayTableFunction::insert_values_into_column(MutableColumnPtr& column,
+                                                                 int max_step) {
+    if (_is_nullable) {
+        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto nested_column = nullable_column->get_nested_column_ptr();
+        RETURN_IF_ERROR(
+                _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset));
+
+        auto* nullmap_column =
+                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+        size_t old_size = nullmap_column->size();
+        nullmap_column->resize(old_size + max_step);
+        memcpy(nullmap_column->get_data().data() + old_size,
+               _parsed_data.get_null_flag_address(_cur_offset), max_step * sizeof(UInt8));
+    } else {
+        RETURN_IF_ERROR(_parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset));
+    }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

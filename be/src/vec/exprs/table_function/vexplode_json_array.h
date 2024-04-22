@@ -83,6 +83,7 @@ public:
     void process_close() override;
     void get_value(MutableColumnPtr& column) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
+    Status insert_values_into_column(MutableColumnPtr& column, int max_step);
 
 private:
     ParsedData _parsed_data;
