@@ -81,6 +81,8 @@ public:
         read_wait_io_timer_ = wait_io_timer;
     }
 
+    const TUniqueId& query_id() const;
+
 private:
     friend class SpillStreamManager;
 
