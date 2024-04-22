@@ -26,8 +26,6 @@
 #include <limits>
 
 #include "common/status.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -39,203 +37,16 @@
 
 namespace doris::vectorized {
 
-std::string ParsedData::true_value = "true";
-std::string ParsedData::false_value = "false";
-auto max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
-auto min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
+std::string ParsedDataStringBase::true_value = "true";
+std::string ParsedDataStringBase::false_value = "false";
 
-int ParsedData::set_output(rapidjson::Document& document) {
-    int size = document.GetArray().Size();
-    switch (_data_type) {
-    case ExplodeJsonArrayType::INT: {
-        _values_null_flag.resize(size, 0);
-        _backup_int.resize(size);
-        int i = 0;
-        for (auto& v : document.GetArray()) {
-            if (v.IsInt64()) {
-                _backup_int[i] = v.GetInt64();
-            } else if (v.IsUint64()) {
-                auto value = v.GetUint64();
-                if (value > max_value) {
-                    _backup_int[i] = max_value;
-                } else {
-                    _backup_int[i] = value;
-                }
-            } else if (v.IsDouble()) {
-                auto value = v.GetDouble();
-                if (value > max_value) {
-                    _backup_int[i] = max_value;
-                } else if (value < min_value) {
-                    _backup_int[i] = min_value;
-                } else {
-                    _backup_int[i] = long(value);
-                }
-            } else {
-                _values_null_flag[i] = 1;
-                _backup_int[i] = 0;
-            }
-            ++i;
-        }
-        break;
-    }
-    case ExplodeJsonArrayType::DOUBLE: {
-        _values_null_flag.resize(size, 0);
-        _backup_double.resize(size);
-        int i = 0;
-        for (auto& v : document.GetArray()) {
-            if (v.IsDouble()) {
-                _backup_double[i] = v.GetDouble();
-            } else {
-                _backup_double[i] = 0;
-                _values_null_flag[i] = 1;
-            }
-            ++i;
-        }
-        break;
-    }
-    case ExplodeJsonArrayType::STRING: {
-        _data_string_ref.clear();
-        _backup_string.clear();
-        _values_null_flag.clear();
-        int32_t wbytes = 0;
-        for (auto& v : document.GetArray()) {
-            switch (v.GetType()) {
-            case rapidjson::Type::kStringType: {
-                _backup_string.emplace_back(v.GetString(), v.GetStringLength());
-                _values_null_flag.emplace_back(false);
-                break;
-                // do not set _data_string here.
-                // Because the address of the string stored in `_backup_string` may
-                // change each time `emplace_back()` is called.
-            }
-            case rapidjson::Type::kNumberType: {
-                if (v.IsUint()) {
-                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", v.GetUint());
-                } else if (v.IsInt()) {
-                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", v.GetInt());
-                } else if (v.IsUint64()) {
-                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, v.GetUint64());
-                } else if (v.IsInt64()) {
-                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, v.GetInt64());
-                } else {
-                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", v.GetDouble());
-                }
-                _backup_string.emplace_back(tmp_buf, wbytes);
-                _values_null_flag.emplace_back(false);
-                // do not set _data_string here.
-                // Because the address of the string stored in `_backup_string` may
-                // change each time `emplace_back()` is called.
-                break;
-            }
-            case rapidjson::Type::kFalseType:
-                _backup_string.emplace_back(true_value);
-                _values_null_flag.emplace_back(false);
-                break;
-            case rapidjson::Type::kTrueType:
-                _backup_string.emplace_back(false_value);
-                _values_null_flag.emplace_back(false);
-                break;
-            case rapidjson::Type::kNullType:
-                _backup_string.emplace_back();
-                _values_null_flag.emplace_back(true);
-                break;
-            default:
-                _backup_string.emplace_back();
-                _values_null_flag.emplace_back(true);
-                break;
-            }
-        }
-        // Must set _data_string at the end, so that we can
-        // save the real addr of string in `_backup_string` to `_data_string`.
-        for (auto& str : _backup_string) {
-            _data_string_ref.emplace_back(str.data(), str.length());
-        }
-        break;
-    }
-    case ExplodeJsonArrayType::JSON: {
-        _data_string_ref.clear();
-        _backup_string.clear();
-        _values_null_flag.clear();
-        for (auto& v : document.GetArray()) {
-            if (v.IsObject()) {
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                v.Accept(writer);
-                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
-                _values_null_flag.emplace_back(false);
-            } else {
-                _backup_string.emplace_back();
-                _values_null_flag.emplace_back(true);
-            }
-        }
-        // Must set _data_string at the end, so that we can
-        // save the real addr of string in `_backup_string` to `_data_string`.
-        for (auto& str : _backup_string) {
-            _data_string_ref.emplace_back(str);
-        }
-        break;
-    }
-    default:
-        CHECK(false) << _data_type;
-        break;
-    }
-    return size;
-}
-
-Status ParsedData::insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                                  int64_t cur_offset) {
-    switch (_data_type) {
-    case ExplodeJsonArrayType::INT: {
-        assert_cast<ColumnInt64*>(column.get())
-                ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_int.data() + cur_offset), max_step);
-        break;
-    }
-    case ExplodeJsonArrayType::DOUBLE: {
-        assert_cast<ColumnFloat64*>(column.get())
-                ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_double.data() + cur_offset),
-                        max_step);
-        break;
-    }
-    case ExplodeJsonArrayType::JSON:
-    case ExplodeJsonArrayType::STRING: {
-        assert_cast<ColumnString*>(column.get())
-                ->insert_many_strings(_data_string_ref.data() + cur_offset, max_step);
-        break;
-    }
-    default:
-        auto error_msg = fmt::format(
-                "Type not implemented:{} need check it in function explode array insert into "
-                "result",
-                _data_type);
-        return Status::InternalError(error_msg);
-    }
-    return Status::OK();
-}
-
-Status ParsedData::set_type(ExplodeJsonArrayType type) {
-    switch (type) {
-    case ExplodeJsonArrayType::INT:
-    case ExplodeJsonArrayType::DOUBLE:
-    case ExplodeJsonArrayType::JSON:
-    case ExplodeJsonArrayType::STRING:
-        _data_type = type;
-        break;
-    default:
-        auto error_msg = fmt::format(
-                "Type not implemented:{} need check it in function explode array", type);
-        return Status::InternalError(error_msg);
-    }
-    return Status::OK();
-}
-
-VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type)
-        : _type(type) {
+template <typename DataImpl>
+VExplodeJsonArrayTableFunction<DataImpl>::VExplodeJsonArrayTableFunction() : TableFunction() {
     _fn_name = "vexplode_json_array";
 }
 
-Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* state) {
+template <typename DataImpl>
+Status VExplodeJsonArrayTableFunction<DataImpl>::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
             << _expr_context->root()->children().size();
 
@@ -243,11 +54,11 @@ Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* 
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
                                                                   &text_column_idx));
     _text_column = block->get_by_position(text_column_idx).column;
-    RETURN_IF_ERROR(_parsed_data.set_type(_type));
     return Status::OK();
 }
 
-void VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
+template <typename DataImpl>
+void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
 
     StringRef text = _text_column->get_data_at(row_idx);
@@ -255,43 +66,47 @@ void VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
         rapidjson::Document document;
         document.Parse(text.data, text.size);
         if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
-            _cur_size = _parsed_data.set_output(document);
+            _cur_size = _parsed_data.set_output(document, document.GetArray().Size());
         }
     }
 }
 
-void VExplodeJsonArrayTableFunction::process_close() {
+template <typename DataImpl>
+void VExplodeJsonArrayTableFunction<DataImpl>::process_close() {
     _text_column = nullptr;
     _parsed_data.reset();
 }
 
-void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
+template <typename DataImpl>
+void VExplodeJsonArrayTableFunction<DataImpl>::get_value(MutableColumnPtr& column) {
     if (current_empty()) {
         column->insert_default();
     } else {
-        static_cast<void>(insert_values_into_column(column, 1));
+        insert_values_into_column(column, 1);
     }
 }
 
-int VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+template <typename DataImpl>
+int VExplodeJsonArrayTableFunction<DataImpl>::get_value(MutableColumnPtr& column, int max_step) {
     max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
     if (current_empty()) {
         column->insert_default();
         max_step = 1;
     } else {
-        RETURN_IF_ERROR(insert_values_into_column(column, max_step));
+        insert_values_into_column(column, max_step);
     }
     forward(max_step);
     return max_step;
 }
 
-Status VExplodeJsonArrayTableFunction::insert_values_into_column(MutableColumnPtr& column,
-                                                                 int max_step) {
+template <typename DataImpl>
+void VExplodeJsonArrayTableFunction<DataImpl>::insert_values_into_column(MutableColumnPtr& column,
+                                                                         int max_step) {
     if (_is_nullable) {
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto nested_column = nullable_column->get_nested_column_ptr();
-        RETURN_IF_ERROR(
-                _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset));
+
+        _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset);
 
         auto* nullmap_column =
                 assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
@@ -300,9 +115,13 @@ Status VExplodeJsonArrayTableFunction::insert_values_into_column(MutableColumnPt
         memcpy(nullmap_column->get_data().data() + old_size,
                _parsed_data.get_null_flag_address(_cur_offset), max_step * sizeof(UInt8));
     } else {
-        RETURN_IF_ERROR(_parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset));
+        _parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset);
     }
-    return Status::OK();
 }
+
+template class VExplodeJsonArrayTableFunction<ParsedDataInt>;
+template class VExplodeJsonArrayTableFunction<ParsedDataDouble>;
+template class VExplodeJsonArrayTableFunction<ParsedDataString>;
+template class VExplodeJsonArrayTableFunction<ParsedDataJSON>;
 
 } // namespace doris::vectorized

@@ -19,8 +19,6 @@
 
 #include <glog/logging.h>
 #include <rapidjson/document.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <ostream>
 #include <string>
@@ -28,54 +26,213 @@
 
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 
-namespace doris {
-namespace vectorized {
-class Block;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
-enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING, JSON };
-
+template <typename T>
 struct ParsedData {
-    static std::string true_value;
-    static std::string false_value;
-
-    std::vector<StringRef> _data_string_ref;
-    std::vector<int64_t> _backup_int;
-    std::vector<double> _backup_double;
-    std::vector<std::string> _backup_string;
-    std::vector<UInt8> _values_null_flag;
-    ExplodeJsonArrayType _data_type;
-    char tmp_buf[128] = {0};
-
-    Status set_type(ExplodeJsonArrayType type);
-    int set_output(rapidjson::Document& document);
-    Status insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                          int64_t cur_offset);
+    ParsedData() = default;
+    virtual ~ParsedData() = default;
+    virtual void reset() = 0;
+    virtual int set_output(rapidjson::Document& document, int value_size) = 0;
+    virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
+                                                int64_t cur_offset) = 0;
     const char* get_null_flag_address(int cur_offset) {
         return reinterpret_cast<const char*>(_values_null_flag.data() + cur_offset);
     }
-    void reset() {
-        _backup_int.clear();
-        _backup_double.clear();
+    std::vector<UInt8> _values_null_flag;
+};
+
+struct ParsedDataInt : public ParsedData<int64_t> {
+    static auto constexpr max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
+    static auto constexpr min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
+
+    int set_output(rapidjson::Document& document, int value_size) override {
+        _values_null_flag.resize(value_size, 0);
+        _backup_int.resize(value_size);
+        int i = 0;
+        for (auto& v : document.GetArray()) {
+            if (v.IsInt64()) {
+                _backup_int[i] = v.GetInt64();
+            } else if (v.IsUint64()) {
+                auto value = v.GetUint64();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else {
+                    _backup_int[i] = value;
+                }
+            } else if (v.IsDouble()) {
+                auto value = v.GetDouble();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else if (value < min_value) {
+                    _backup_int[i] = min_value;
+                } else {
+                    _backup_int[i] = long(value);
+                }
+            } else {
+                _values_null_flag[i] = 1;
+                _backup_int[i] = 0;
+            }
+            ++i;
+        }
+        return value_size;
+    }
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
+                                        int64_t cur_offset) override {
+        assert_cast<ColumnInt64*>(column.get())
+                ->insert_many_raw_data(
+                        reinterpret_cast<const char*>(_backup_int.data() + cur_offset), max_step);
+    }
+    void reset() override { _backup_int.clear(); }
+    std::vector<int64_t> _backup_int;
+};
+
+struct ParsedDataDouble : public ParsedData<double> {
+    int set_output(rapidjson::Document& document, int value_size) override {
+        _values_null_flag.resize(value_size, 0);
+        _backup_double.resize(value_size);
+        int i = 0;
+        for (auto& v : document.GetArray()) {
+            if (v.IsDouble()) {
+                _backup_double[i] = v.GetDouble();
+            } else {
+                _backup_double[i] = 0;
+                _values_null_flag[i] = 1;
+            }
+            ++i;
+        }
+        return value_size;
+    }
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
+                                        int64_t cur_offset) override {
+        assert_cast<ColumnFloat64*>(column.get())
+                ->insert_many_raw_data(
+                        reinterpret_cast<const char*>(_backup_double.data() + cur_offset),
+                        max_step);
+    }
+    void reset() override { _backup_double.clear(); }
+    std::vector<double> _backup_double;
+};
+
+struct ParsedDataStringBase : public ParsedData<std::string> {
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
+                                        int64_t cur_offset) override {
+        assert_cast<ColumnString*>(column.get())
+                ->insert_many_strings(_data_string_ref.data() + cur_offset, max_step);
+    }
+    void reset() override {
+        _data_string_ref.clear();
+        _backup_string.clear();
+    }
+
+    static std::string true_value;
+    static std::string false_value;
+    std::vector<StringRef> _data_string_ref;
+    std::vector<std::string> _backup_string;
+    char tmp_buf[128] = {0};
+};
+
+struct ParsedDataString : public ParsedDataStringBase {
+    int set_output(rapidjson::Document& document, int value_size) override {
+        _data_string_ref.clear();
         _backup_string.clear();
         _values_null_flag.clear();
-        _data_string_ref.clear();
+        int32_t wbytes = 0;
+        for (auto& v : document.GetArray()) {
+            switch (v.GetType()) {
+            case rapidjson::Type::kStringType: {
+                _backup_string.emplace_back(v.GetString(), v.GetStringLength());
+                _values_null_flag.emplace_back(false);
+                break;
+                // do not set _data_string here.
+                // Because the address of the string stored in `_backup_string` may
+                // change each time `emplace_back()` is called.
+            }
+            case rapidjson::Type::kNumberType: {
+                if (v.IsUint()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", v.GetUint());
+                } else if (v.IsInt()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", v.GetInt());
+                } else if (v.IsUint64()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, v.GetUint64());
+                } else if (v.IsInt64()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, v.GetInt64());
+                } else {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", v.GetDouble());
+                }
+                _backup_string.emplace_back(tmp_buf, wbytes);
+                _values_null_flag.emplace_back(false);
+                // do not set _data_string here.
+                // Because the address of the string stored in `_backup_string` may
+                // change each time `emplace_back()` is called.
+                break;
+            }
+            case rapidjson::Type::kFalseType:
+                _backup_string.emplace_back(true_value);
+                _values_null_flag.emplace_back(false);
+                break;
+            case rapidjson::Type::kTrueType:
+                _backup_string.emplace_back(false_value);
+                _values_null_flag.emplace_back(false);
+                break;
+            case rapidjson::Type::kNullType:
+                _backup_string.emplace_back();
+                _values_null_flag.emplace_back(true);
+                break;
+            default:
+                _backup_string.emplace_back();
+                _values_null_flag.emplace_back(true);
+                break;
+            }
+        }
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string_ref.emplace_back(str.data(), str.length());
+        }
+        return value_size;
     }
 };
 
+struct ParsedDataJSON : public ParsedDataStringBase {
+    int set_output(rapidjson::Document& document, int value_size) override {
+        _data_string_ref.clear();
+        _backup_string.clear();
+        _values_null_flag.clear();
+        for (auto& v : document.GetArray()) {
+            if (v.IsObject()) {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                v.Accept(writer);
+                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
+                _values_null_flag.emplace_back(false);
+            } else {
+                _backup_string.emplace_back();
+                _values_null_flag.emplace_back(true);
+            }
+        }
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string_ref.emplace_back(str);
+        }
+        return value_size;
+    }
+};
+
+template <typename DataImpl>
 class VExplodeJsonArrayTableFunction final : public TableFunction {
-    ENABLE_FACTORY_CREATOR(VExplodeJsonArrayTableFunction);
+    ENABLE_FACTORY_CREATOR(VExplodeJsonArrayTableFunction<DataImpl>);
 
 public:
-    VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
+    VExplodeJsonArrayTableFunction();
     ~VExplodeJsonArrayTableFunction() override = default;
 
     Status process_init(Block* block, RuntimeState* state) override;
@@ -83,12 +240,10 @@ public:
     void process_close() override;
     void get_value(MutableColumnPtr& column) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
-    Status insert_values_into_column(MutableColumnPtr& column, int max_step);
+    void insert_values_into_column(MutableColumnPtr& column, int max_step);
 
 private:
-    ParsedData _parsed_data;
-    ExplodeJsonArrayType _type;
-
+    DataImpl _parsed_data;
     ColumnPtr _text_column;
 };
 
