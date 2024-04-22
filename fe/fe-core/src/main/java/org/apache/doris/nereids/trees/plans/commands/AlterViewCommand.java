@@ -30,7 +30,7 @@ public class AlterViewCommand extends Command implements ForwardWithSync {
     private final AlterViewInfo alterViewInfo;
 
     public AlterViewCommand(AlterViewInfo alterViewInfo) {
-        super(PlanType.CREATE_VIEW_COMMAND);
+        super(PlanType.ALTER_VIEW_COMMAND);
         this.alterViewInfo = alterViewInfo;
     }
 
