@@ -32,7 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.ArrayType;
@@ -76,7 +76,7 @@ public class PaimonExternalTable extends ExternalTable {
         //init schema need update lastUpdateTime and get latest schema
         objectCreated = false;
         Table table = getOriginTable();
-        TableSchema schema = ((AbstractFileStoreTable) table).schema();
+        TableSchema schema = ((FileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
