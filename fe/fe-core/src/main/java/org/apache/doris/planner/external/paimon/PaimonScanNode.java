@@ -50,7 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -222,7 +222,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType(((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
+        return getLocationType(((FileStoreTable) source.getPaimonTable()).location().toString());
     }
 
     @Override
