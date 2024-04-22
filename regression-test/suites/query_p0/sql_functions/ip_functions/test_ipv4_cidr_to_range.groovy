@@ -46,6 +46,7 @@ suite("test_ipv4_cidr_to_range") {
         """
 
     qt_sql "select id, struct_element(ipv4_cidr_to_range(addr, cidr), 'min') as min_range, struct_element(ipv4_cidr_to_range(addr, cidr), 'max') as max_range from test_ipv4_cidr_to_range order by id"
+    qt_sql "select id, ipv4_cidr_to_range(addr, 16) from test_ipv4_cidr_to_range order by id;"
 
     sql """ DROP TABLE IF EXISTS test_ipv4_cidr_to_range """
 

@@ -771,7 +771,7 @@ public:
         ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
 
         const ColumnPtr& ip_column_ptr = ip_column.column;
-        const ColumnPtr& cidr_column_ptr = cidr_column.column;
+        const auto& [cidr_column_ptr, col_const] = unpack_if_const(cidr_column.column);
 
         const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
         const auto* col_cidr_column =
@@ -789,7 +789,7 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto ip = vec_ip_input[i];
-            auto cidr = vec_cidr_input[i];
+            auto cidr = col_const ? vec_cidr_input[0] : vec_cidr_input[i];
             if (0 <= cidr && cidr <= max_cidr_mask) {
                 auto range = apply_cidr_mask(ip, cidr);
                 vec_lower_range_output[i] = range.first;
@@ -856,16 +856,19 @@ public:
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const auto& [cidr_column, col_const] =
+                unpack_if_const(cidr_column_with_type_and_name.column);
         const auto* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
         ColumnPtr col_res = nullptr;
 
         if (addr_type.is_ipv6()) {
             const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
-            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count);
+            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
+                                               col_const);
         } else if (addr_type.is_string()) {
             const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
-            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count);
+            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count,
+                                                 col_const);
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of argument of function {}, Expected IPv6 or String",
@@ -878,7 +881,7 @@ public:
 
     template <typename FromColumn>
     static ColumnPtr execute_impl(const FromColumn& from_column, const ColumnInt16& cidr_column,
-                                  size_t input_rows_count) {
+                                  size_t input_rows_count, bool is_cidr_const = false) {
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
         auto& vec_res_lower_range = col_res_lower_range->get_data();
@@ -887,7 +890,7 @@ public:
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto cidr = cidr_column.get_int(i);
+            auto cidr = is_cidr_const ? cidr_column.get_int(0) : cidr_column.get_int(i);
             if (cidr < 0 || cidr > max_cidr_mask) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
                                 std::to_string(cidr));
