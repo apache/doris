@@ -268,8 +268,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
     }
-    auto converted_column = doris_column->assume_mutable();
-    return _converter->convert(src_column, converted_column);
+    return _converter->convert(src_column, field_schema->type, data_type, doris_column, false);
 }
 
 // Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
