@@ -122,8 +122,8 @@ db2_11_port=50000
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableHiveTest=true
-enablePaimonTest=enable_deprecated_case
+enableHiveTest=false
+enablePaimonTest=false
 
 // port of hive2 docker
 hive2HmsPort=9083
