@@ -226,6 +226,7 @@ Status HdfsFileWriter::_append(std::string_view content) {
         }
         size_t append_size = _batch_buffer.append(content);
         content.remove_prefix(append_size);
+        _bytes_appended += append_size;
         if (_batch_buffer.full()) {
             RETURN_IF_ERROR(_flush_buffer());
         }
@@ -240,7 +241,6 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     for (size_t i = 0; i < data_cnt; i++) {
         RETURN_IF_ERROR(_append({data[i].get_data(), data[i].get_size()}));
-        _bytes_appended += data[i].get_size();
     }
     return Status::OK();
 }
