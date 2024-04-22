@@ -267,8 +267,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      **/
     public void replayUpdateJob(T job) {
         jobMap.put(job.getJobId(), job);
-        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
-                .add("msg", "replay update scheduler job").build());
+        job.logUpdateOperation();
     }
 
     /**
