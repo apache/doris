@@ -183,7 +183,7 @@ private:
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
     std::vector<vectorized::AggregateDataPtr> _values;
-    bool _init = false;
+    bool _opened = false;
 
     void _destroy_agg_status(vectorized::AggregateDataPtr data);
 
