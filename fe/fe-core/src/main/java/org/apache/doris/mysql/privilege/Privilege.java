@@ -70,6 +70,10 @@ public enum Privilege {
             SHOW_VIEW_PRIV
     };
 
+    public static final Privilege[] notBelongToTablePrivileges = {
+            USAGE_PRIV
+    };
+
     public static Map<Privilege, String> privInDorisToMysql =
             ImmutableMap.<Privilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
                     .put(SELECT_PRIV, "SELECT")
