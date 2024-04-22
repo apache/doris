@@ -155,6 +155,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     }
     _pipelines.clear();
     _sink.reset();
+    _root_op.reset();
     _runtime_state.reset();
     _runtime_filter_states.clear();
     _runtime_filter_mgr_map.clear();
