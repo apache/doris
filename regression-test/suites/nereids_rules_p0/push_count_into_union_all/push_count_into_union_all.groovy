@@ -81,4 +81,38 @@ suite("push_count_into_union_all") {
     qt_union_all_child_expr """
         select c1,count(c1)  from (select a+1 as c1,b as c2 from mal_test_push_count where a>1 union all select a+100,b from mal_test_push_count where a<100
         union all select abs(a),b from mal_test_push_count where a=1 ) t group by c1 order by 1,2;"""
+
+    qt_count_group_by_count_other """
+        select a,count(b) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a order by 1,2;"""
+
+    qt_count_group_by_count_other_shape """
+        explain shape plan
+        select a,count(b) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a order by 1,2;"""
+
+    qt_count_group_by_multi_col """
+        select a,count(b) c1 from (select a,b,pk from mal_test_push_count where a>1 union all select a,b,pk from mal_test_push_count where a<100 
+        union all select a,b,pk from mal_test_push_count where a=1 ) t group by a,pk order by 1,2;"""
+
+    qt_count_group_by_multi_col_shape """
+        explain shape plan
+        select a,count(b) c1 from (select a,b,pk from mal_test_push_count where a>1 union all select a,b,pk from mal_test_push_count where a<100 
+        union all select a,b,pk from mal_test_push_count where a=1 ) t group by a,pk order by 1,2;"""
+
+    qt_test_upper_refer """
+        select a,c1 from (
+        select a,count(b) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a) outer_table order by 1,2;"""
+
+    qt_test_upper_refer_shape """
+        explain shape plan
+        select a,c1 from (
+        select a,count(b) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a) outer_table order by 1,2;"""
+
+    qt_unsupport_agg_func """
+        explain shape plan
+        select a,count(b) c1,sum(b) from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a order by 1,2,3;"""
 }
