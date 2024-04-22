@@ -126,7 +126,9 @@ public class Backend implements Writable {
     // cpu cores
     @SerializedName("cpuCores")
     private int cpuCores = 1;
-
+    // The physical memory available for use by BE.
+    @SerializedName("beMemory")
+    private long beMemory = 0;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -377,6 +379,10 @@ public class Backend implements Writable {
 
     public int getCputCores() {
         return cpuCores;
+    }
+
+    public long getBeMemory() {
+        return beMemory;
     }
 
     public int getPipelineExecutorSize() {
@@ -769,6 +775,10 @@ public class Backend implements Writable {
                     hbResponse.getNodeRole())) {
                 isChanged = true;
                 this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, hbResponse.getNodeRole());
+            }
+            if (this.beMemory != hbResponse.getBeMemory()) {
+                isChanged = true;
+                this.beMemory = hbResponse.getBeMemory();
             }
 
             this.lastUpdateMs = hbResponse.getHbTime();
