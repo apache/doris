@@ -1212,12 +1212,13 @@ DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
+// The min thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(buffered_reader_prefetch_thread_pool_min_thread_num, "16");
-
+// The max thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(buffered_reader_prefetch_thread_pool_max_thread_num, "64");
-
+// The min thread num for S3FileUploadThreadPool
 DEFINE_Int64(s3_file_upload_thread_pool_min_thread_num, "16");
-
+// The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(s3_file_upload_thread_pool_max_thread_num, "64");
 
 // clang-format off

@@ -185,8 +185,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_send_batch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(config::buffered_reader_prefetch_thread_pool_min_thread_num)
+                              .set_max_threads(config::buffered_reader_prefetch_thread_pool_max_thread_num)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
@@ -200,8 +200,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_s3_downloader_download_poller_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(config::s3_file_upload_thread_pool_min_thread_num)
+                              .set_max_threads(config::s3_file_upload_thread_pool_max_thread_num)
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num

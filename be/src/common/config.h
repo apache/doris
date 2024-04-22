@@ -1297,12 +1297,13 @@ DECLARE_mBool(enable_injection_point);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+// The min thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(buffered_reader_prefetch_thread_pool_min_thread_num);
-
+// The max thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(buffered_reader_prefetch_thread_pool_max_thread_num);
-
+// The min thread num for S3FileUploadThreadPool
 DECLARE_Int64(s3_file_upload_thread_pool_min_thread_num);
-
+// The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(s3_file_upload_thread_pool_max_thread_num);
 
 #ifdef BE_TEST
