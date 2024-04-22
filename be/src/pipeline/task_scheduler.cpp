@@ -236,6 +236,7 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
+            task->set_running(false);
             break;
         case PipelineTaskState::RUNNABLE:
             task->set_running(false);
