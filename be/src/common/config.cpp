@@ -1070,8 +1070,8 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
-// default 4GB
-DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
+// default max to 2048 connections
+DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");

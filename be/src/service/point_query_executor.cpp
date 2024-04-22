@@ -57,7 +57,6 @@ Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, size_t block_size) {
-    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
@@ -109,10 +108,6 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     if (_block_pool.size() > s_preallocted_blocks_num) {
         _block_pool.resize(s_preallocted_blocks_num);
     }
-}
-
-int64_t Reusable::mem_size() const {
-    return _mem_size;
 }
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
