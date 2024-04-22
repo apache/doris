@@ -166,8 +166,8 @@ void CloudBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
     brpc_stub->get_file_cache_meta_by_tablet_id(&cntl, &brpc_request, &brpc_response, nullptr);
     if (!cntl.Failed()) {
         std::vector<FileCacheBlockMeta> metas;
-        std::transform(brpc_response.file_cache_segment_metas().cbegin(),
-                       brpc_response.file_cache_segment_metas().cend(), std::back_inserter(metas),
+        std::transform(brpc_response.file_cache_block_metas().cbegin(),
+                       brpc_response.file_cache_block_metas().cend(), std::back_inserter(metas),
                        [](const FileCacheBlockMeta& meta) { return meta; });
         io::DownloadTask download_task(std::move(metas));
         io::FileCacheBlockDownloader::instance()->submit_download_task(download_task);

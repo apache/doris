@@ -86,7 +86,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
                                 segments_meta.cbegin(), segments_meta.cend(),
                                 [&](const auto& tuple) {
                                     FileCacheBlockMeta* meta =
-                                            response->add_file_cache_segment_metas();
+                                            response->add_file_cache_block_metas();
                                     meta->set_tablet_id(tablet_id);
                                     meta->set_rowset_id(rowset_id);
                                     meta->set_segment_id(segment_id);
