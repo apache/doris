@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -231,16 +232,25 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
-            if (params.isSetBackendId()) {
+            TReportExecStatusResult resp = new TReportExecStatusResult();
+            if (params.isSetBackendId() && params.isSetDone()) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
-                boolean isDone = params.isSetDone() ? params.isDone() : false;
+                boolean isDone = params.isDone();
                 if (backend != null) {
-                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
+                    Status status = processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
+                    TStatus tStatus = new TStatus(status.getErrorCode());
+                    tStatus.setErrorMsgs(Lists.newArrayList(status.getErrorMsg()));
+                    resp.setStatus(tStatus);
                 }
             } else {
-                LOG.warn("Invalid report profile req, backend id is not set, query id: {}",
-                        DebugUtil.printId(params.query_id));
+                String msg =
+                        "Invalid report profile req, this is a logical error, BE must set backendId and isDone"
+                        + " at same time, query id: " + DebugUtil.printId(params.query_id);
+                LOG.warn(msg);
+                TStatus tStatus = new TStatus(TStatusCode.INVALID_ARGUMENT);
+                tStatus.setErrorMsgs(Lists.newArrayList(msg));
             }
+            return resp;
         }
 
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
