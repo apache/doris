@@ -608,7 +608,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         if (_cur_mutable_block && !_cur_mutable_block->empty()) {
             // When is-append is true, the previous block may not have been sent out yet.
             // (e.x. The previous block is not load to single tablet, and its row num was
-            // 4064, which is smaller than the send batch size 8192). 
+            // 4064, which is smaller than the send batch size 8192).
             // If we clear the previous block directly here, it will cause data loss.
             {
                 SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
@@ -643,6 +643,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         for (auto tablet_id : payload->second) {
             _cur_add_block_request.add_tablet_ids(tablet_id);
         }
+        // need to reset to false avoid load data to incorrect tablet.
         _cur_add_block_request.set_is_single_tablet_block(false);
     }
 
