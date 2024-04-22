@@ -22,7 +22,7 @@ suite('test_decommission_with_replica_num_fail') {
 
     def tbl = 'test_decommission_with_replica_num_fail'
     def backends = sql_return_maparray('show backends')
-    int replicaNum = 0
+    def replicaNum = 0
     def targetBackend = null
     for (def be : backends) {
         def alive = be.Alive.toBoolean()
@@ -33,11 +33,6 @@ suite('test_decommission_with_replica_num_fail') {
         }
     }
     assertTrue(replicaNum > 0)
-
-    def forceReplicaNum = getFeConfig('force_olap_table_replication_num') as int
-    if (forceReplicaNum > 0 && forceReplicaNum != replicaNum) {
-        return
-    }
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     sql """
@@ -52,6 +47,11 @@ suite('test_decommission_with_replica_num_fail') {
             "replication_num" = "${replicaNum}"
         );
     """
+
+    // fix set force_olap_table_replication_num
+    sql "ALTER TABLE ${tbl} SET ('default.replication_num' = '${replicaNum}')"
+    sql "ALTER TABLE ${tbl} MODIFY PARTITION (*) SET ('replication_num' = '${replicaNum}')"
+
     try {
         test {
             sql "ALTER SYSTEM DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"
