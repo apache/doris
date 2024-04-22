@@ -26,6 +26,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 
 public class AlterJobV2Factory {
@@ -68,7 +69,7 @@ public class AlterJobV2Factory {
                 }
             }
             return job;
-        } catch (IllegalAccessException e) {
+        } catch (IOException e) {
             throw new AnalysisException(e.getMessage());
         }
     }
