@@ -145,7 +145,7 @@ public class LoadLoadingTask extends LoadTask {
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance, 
+                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
                 enabelProfile);
         if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
