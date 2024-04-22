@@ -454,8 +454,6 @@ public class CloudEnv extends Env {
     }
 
     public long loadCloudWarmUpJob(DataInputStream dis, long checksum) throws Exception {
-        // same as loadAlterJob
-
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
         if (size > 0) {
@@ -482,16 +480,22 @@ public class CloudEnv extends Env {
             }
             this.getCacheHotspotMgr().addCloudWarmUpJob(cloudWarmUpJob);
         }
-        LOG.info("finished replay cloud warm up job from image");
+        LOG.info("finished load cloud warm up job from image");
         return newChecksum;
     }
 
     public long saveCloudWarmUpJob(CountingDataOutputStream dos, long checksum) throws IOException {
-        // same as saveAlterJob
 
         Map<Long, CloudWarmUpJob> cloudWarmUpJobs;
         cloudWarmUpJobs = this.getCacheHotspotMgr().getCloudWarmUpJobs();
 
+        /*
+         * reference: Env.java:saveAlterJob
+         * alter jobs == 0
+         * If the FE version upgrade from old version, if it have alter jobs, the FE will failed during start process
+         *
+         * the number of old version alter jobs has to be 0
+         */
         int size = 0;
         checksum ^= size;
         dos.writeInt(size);

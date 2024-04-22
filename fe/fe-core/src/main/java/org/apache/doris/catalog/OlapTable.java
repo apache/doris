@@ -2069,7 +2069,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return "";
     }
 
-    public boolean containPartition(String partitionName) {
+    public boolean containsPartition(String partitionName) {
         return nameToPartition.containsKey(partitionName);
     }
 

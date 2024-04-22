@@ -63,6 +63,9 @@ public class WarmUpClusterStmt extends StatementBase {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        if (!config.isCloudMode()) {
+            throw new UserException("The sql is illegal in disk mode ");
+        }
         super.analyze(analyzer);
         if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(dstClusterName)) {
             throw new AnalysisException("The dstClusterName " + dstClusterName + " doesn't exist");
@@ -101,7 +104,7 @@ public class WarmUpClusterStmt extends StatementBase {
                     if (table == null) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
                     }
-                    if (partitionName.length() != 0 && !table.containPartition(partitionName)) {
+                    if (partitionName.length() != 0 && !table.containsPartition(partitionName)) {
                         throw new AnalysisException("The partition " + partitionName + " doesn't exist");
                     }
                     Triple<String, String, String> part =

@@ -67,14 +67,15 @@ public:
         }
     }
 
+    // dowloan into cache block
     virtual void download_blocks(DownloadTask& task) = 0;
 
     static FileCacheBlockDownloader* instance();
-
+    // submit the task to download queue
     void submit_download_task(DownloadTask task);
-
+    // polling the queue, get the task to download
     void polling_download_task();
-
+    // check whether the tasks about tables finish or not
     void check_download_task(const std::vector<int64_t>& tablets, std::map<int64_t, bool>* done);
 
 protected:

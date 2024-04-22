@@ -143,11 +143,11 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
-    void pre_cache_async(TPreCacheAsyncResponse& response,
-                         const TPreCacheAsyncRequest& request) override;
+    void warm_up_cache_async(TPreCacheAsyncResponse& response,
+                             const TPreCacheAsyncRequest& request) override;
 
-    void check_pre_cache(TCheckPreCacheResponse& response,
-                         const TCheckPreCacheRequest& request) override;
+    void check_warm_up_cache_async(TCheckPreCacheResponse& response,
+                                   const TCheckPreCacheRequest& request) override;
 
     // If another cluster load, FE need to notify the cluster to sync the load data
     void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,

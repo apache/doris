@@ -49,19 +49,23 @@ public:
 
     CloudWarmUpManager(CloudStorageEngine& engine);
     ~CloudWarmUpManager();
-
+    // Set the job id if the id is zero
     Status check_and_set_job_id(int64_t job_id);
 
+    // Set the batch id to record download progress
     Status check_and_set_batch_id(int64_t job_id, int64_t batch_id, bool* retry = nullptr);
 
+    // Add the dowload job
     void add_job(const std::vector<TJobMeta>& job_metas);
 
 #ifdef BE_TEST
     void consumer_job();
 #endif
 
+    // Get the job state tuple<cur_job_id, cur_batch_id, pending_job_metas_size, _finish_job_size>
     std::tuple<int64_t, int64_t, int64_t, int64_t> get_current_job_state();
 
+    // Cancel the job
     Status clear_job(int64_t job_id);
 
 private:

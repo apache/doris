@@ -27,9 +27,11 @@
 
 namespace doris {
 
+// This counter is used to count the tablet query frequency
 struct HotspotCounter {
     HotspotCounter(int64_t table_id, int64_t index_id, int64_t partition_id)
             : table_id(table_id), index_id(index_id), partition_id(partition_id) {}
+    // One break point every hour
     void make_dot_point();
     uint64_t qpd();
     uint64_t qpw();
@@ -53,6 +55,7 @@ public:
     static TabletHotspot* instance();
     TabletHotspot();
     ~TabletHotspot();
+    // When query the tablet, count it
     void count(const BaseTabletSPtr& tablet);
     void get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables);
 

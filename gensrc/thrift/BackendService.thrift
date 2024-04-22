@@ -385,9 +385,9 @@ service BackendService {
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
 
-    TPreCacheAsyncResponse pre_cache_async(1: TPreCacheAsyncRequest request);
+    TPreCacheAsyncResponse warm_up_cache_async(1: TPreCacheAsyncRequest request);
 
-    TCheckPreCacheResponse check_pre_cache(1: TCheckPreCacheRequest request);
+    TCheckPreCacheResponse check_warm_up_cache_async(1: TCheckPreCacheRequest request);
 
     TSyncLoadForTabletsResponse sync_load_for_tablets(1: TSyncLoadForTabletsRequest request);
 

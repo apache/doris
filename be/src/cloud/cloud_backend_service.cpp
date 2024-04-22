@@ -147,8 +147,8 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
     st.to_thrift(&response.status);
 }
 
-void CloudBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                          const TPreCacheAsyncRequest& request) {
+void CloudBackendService::warm_up_cache_async(TPreCacheAsyncResponse& response,
+                                              const TPreCacheAsyncRequest& request) {
     std::string brpc_addr = fmt::format("{}:{}", request.host, request.brpc_port);
     Status st = Status::OK();
     TStatus t_status;
@@ -178,8 +178,8 @@ void CloudBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
     response.status = t_status;
 }
 
-void CloudBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                          const TCheckPreCacheRequest& request) {
+void CloudBackendService::check_warm_up_cache_async(TCheckPreCacheResponse& response,
+                                                    const TCheckPreCacheRequest& request) {
     std::map<int64_t, bool> task_done;
     io::FileCacheBlockDownloader::instance()->check_download_task(request.tablets, &task_done);
     response.__set_task_done(task_done);

@@ -64,8 +64,8 @@ struct MapKeyHash {
     }
 };
 struct TabletHotspotMapValue {
-    uint64_t qpd = 0;
-    uint64_t qpw = 0;
+    uint64_t qpd = 0; // query per day
+    uint64_t qpw = 0; // query per week
     int64_t last_access_time;
 };
 
@@ -76,9 +76,11 @@ TabletHotspot* TabletHotspot::instance() {
 }
 
 void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables) {
+    // map<pair<table_id, index_id>, map<partition_id, value>> for day
     std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
                        MapKeyHash>
             day_hot_partitions;
+    // map<pair<table_id, index_id>, map<partition_id, value>> for week
     std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
                        MapKeyHash>
             week_hot_partitions;

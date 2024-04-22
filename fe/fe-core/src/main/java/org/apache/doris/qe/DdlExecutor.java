@@ -378,8 +378,10 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelCloudWarmUpStmt) {
-            CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
-            ((CloudEnv) env).cancelCloudWarmUp(stmt);
+            if (Config.isCloudMode()) {
+                CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
+                ((CloudEnv) env).cancelCloudWarmUp(stmt);
+            }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropStatsStmt) {

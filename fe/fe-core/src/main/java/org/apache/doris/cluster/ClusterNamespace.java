@@ -32,10 +32,6 @@ public class ClusterNamespace {
 
     private static final String CLUSTER_DELIMITER = ":";
 
-    public static String getFullName(String cluster, String name) {
-        return linkString(cluster, name);
-    }
-
     public static String getNameFromFullName(String fullName) {
         if (!checkName(fullName)) {
             return fullName;

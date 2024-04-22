@@ -74,6 +74,9 @@ public class ShowCacheHotSpotStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!config.isCloudMode()) {
+            throw new UserException("The sql is illegal in disk mode ");
+        }
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(tablePath)) {
             return;

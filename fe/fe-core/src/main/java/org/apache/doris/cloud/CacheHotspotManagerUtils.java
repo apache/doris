@@ -23,7 +23,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -178,10 +177,9 @@ public class CacheHotspotManagerUtils {
         }
     }
 
-    private static void execCreateDatabase() throws Exception {
+    private static void execCreateDatabase() throws Exception {ClusterNamespace
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                new DbName(null,
-                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME)),
+                new DbName(null, FeConstants.INTERNAL_DB_NAME),
                 null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
@@ -198,8 +196,7 @@ public class CacheHotspotManagerUtils {
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(ClusterNamespace
-                .getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME));
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         if (db == null) {
             LOG.warn("{} database doesn't exist", FeConstants.INTERNAL_DB_NAME);
         }

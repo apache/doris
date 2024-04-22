@@ -34,6 +34,9 @@ public class CancelCloudWarmUpStmt extends CancelStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (!config.isCloudMode()) {
+            throw new UserException("The sql is illegal in disk mode ");
+        }
         if (whereClause == null) {
             throw new AnalysisException("Missing job id");
         }
