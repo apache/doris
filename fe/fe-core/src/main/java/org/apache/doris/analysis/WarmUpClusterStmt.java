@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -63,7 +64,7 @@ public class WarmUpClusterStmt extends StatementBase {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (!config.isCloudMode()) {
+        if (!Config.isCloudMode()) {
             throw new UserException("The sql is illegal in disk mode ");
         }
         super.analyze(analyzer);

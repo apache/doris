@@ -30,7 +30,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -177,7 +176,7 @@ public class CacheHotspotManagerUtils {
         }
     }
 
-    private static void execCreateDatabase() throws Exception {ClusterNamespace
+    private static void execCreateDatabase() throws Exception {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
                 new DbName(null, FeConstants.INTERNAL_DB_NAME),
                 null);

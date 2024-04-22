@@ -1142,15 +1142,15 @@ void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     result.__set_err_msg("query_ingest_binlog is not implemented");
 }
 
-void BaseBackendService::warm_up_cache_async(TPreCacheAsyncResponse& response,
-                                             const TPreCacheAsyncRequest& request) {
+void BaseBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                                             const TWarmUpCacheAsyncRequest& request) {
     LOG(ERROR) << "warm_up_cache_async is not implemented";
     response.__set_status(
             Status::NotSupported("warm_up_cache_async is not implemented").to_thrift());
 }
 
-void BaseBackendService::check_warm_up_cache_async(TCheckPreCacheResponse& response,
-                                                   const TCheckPreCacheRequest& request) {
+void BaseBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                                   const TCheckWarmUpCacheAsyncRequest& request) {
     LOG(ERROR) << "check_warm_up_cache_async is not implemented";
     response.__set_status(
             Status::NotSupported("check_warm_up_cache_async is not implemented").to_thrift());

@@ -2734,7 +2734,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
-    
+
     @ConfField(mutable = true, masterOnly = true)
     public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
 

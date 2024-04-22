@@ -48,12 +48,12 @@ public:
                          const TWarmUpTabletsRequest& request) override;
 
     // Download the datas which load in other cluster
-    void warm_up_cache_async(TPreCacheAsyncResponse& response,
-                             const TPreCacheAsyncRequest& request) override;
+    void warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                             const TWarmUpCacheAsyncRequest& request) override;
 
     // Check whether the tablets finish warm up or not
-    void check_warm_up_cache_async(TCheckPreCacheResponse& response,
-                                     const TCheckPreCacheRequest& request) override;
+    void check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                   const TCheckWarmUpCacheAsyncRequest& request) override;
 
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
