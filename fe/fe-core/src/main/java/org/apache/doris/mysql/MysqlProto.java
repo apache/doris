@@ -23,7 +23,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.authenticate.MysqlAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -194,7 +193,8 @@ public class MysqlProto {
         }
 
         //  authenticate
-        if (!MysqlAuth.authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+        if (!Env.getCurrentEnv().getAuthenticatorManager()
+                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
         }
 
