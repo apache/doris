@@ -607,7 +607,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (is_append) {
         // When is-append is true, the previous block may not have been sent out yet.
         // (e.x. The previous block is not load to single tablet, and its row num was
-        // 4064, which is smaller thancthe send batch size 8192). 
+        // 4064, which is smaller than the send batch size 8192). 
         // If we clear the previous block directly here, it will cause data loss.
         if (_cur_mutable_block && !_cur_mutable_block->empty()) {
             {
