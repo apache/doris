@@ -174,6 +174,11 @@ public:
 
     InvertedIndexReaderType type() override;
 
+    static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                         const std::map<string, string>& properties);
+    static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                             const std::map<string, string>& properties);
+
 private:
     Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                               InvertedIndexQueryType query_type,
