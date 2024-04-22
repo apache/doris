@@ -487,8 +487,8 @@ Status ExecEnv::_init_mem_env() {
 
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
-    _lookup_connection_cache = LookupConnectionCache::create_global_instance(
-            config::lookup_connection_cache_bytes_limit);
+    _lookup_connection_cache =
+            LookupConnectionCache::create_global_instance(config::lookup_connection_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
