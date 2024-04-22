@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCheckConsistencyReq;
+import org.apache.doris.thrift.TCleanTrashReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
@@ -390,6 +391,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setGcBinlogReq(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAN_TRASH: {
+                CleanTrashTask cleanTrashTask = (CleanTrashTask) task;
+                TCleanTrashReq request = cleanTrashTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setCleanTrashReq(request);
                 return tAgentTaskRequest;
             }
             default:

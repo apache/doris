@@ -133,8 +133,6 @@ public:
     void get_stream_load_record(TStreamLoadRecordResult& result,
                                 const int64_t last_stream_record_time) override;
 
-    void clean_trash() override;
-
     void check_storage_format(TCheckStorageFormatResult& result) override;
 
     void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
