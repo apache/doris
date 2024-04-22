@@ -140,6 +140,11 @@ public class BDBEnvironment {
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
 
+        if (Config.ignore_bdbje_log_checksum_read) {
+            environmentConfig.setConfigParam(EnvironmentConfig.LOG_CHECKSUM_READ, "false");
+            LOG.warn("set EnvironmentConfig.LOG_CHECKSUM_READ false");
+        }
+
         if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
             java.util.logging.Logger parent = java.util.logging.Logger.getLogger("com.sleepycat.je");
             parent.setLevel(Level.parse(Config.bdbje_file_logging_level));
