@@ -19,9 +19,11 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -102,7 +104,18 @@ public class BindSink implements AnalysisRuleFactory {
         Database database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType().isAggregationFamily();
-
+        if (ctx.connectContext.getSessionVariable().isEnableAggregateKeyPartialUpdate()) {
+            if (table.getKeysType() != KeysType.AGG_KEYS) {
+                throw new AnalysisException("enable_agg_key_partial_update only can be used on agg key ");
+            }
+            for (Column col : table.getFullSchema()) {
+                if (!col.isKey() && col.getAggregationType() != AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new AnalysisException(
+                            "Column agg type should be REPLACE_IF_NOT_NULL on agg key partial update ,now column "
+                                    + col.getName() + " agg type is " + col.getAggregationType());
+                }
+            }
+        }
         LogicalPlan child = ((LogicalPlan) sink.child());
         boolean childHasSeqCol = child.getOutput().stream()
                 .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));

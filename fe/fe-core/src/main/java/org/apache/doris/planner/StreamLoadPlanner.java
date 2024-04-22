@@ -151,6 +151,12 @@ public class StreamLoadPlanner {
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
+                if (destTable.getKeysType() == KeysType.AGG_KEYS && !col.isKey()
+                        && col.getAggregationType() != AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new UserException(
+                            "Column type should be REPLACE_IF_NOT_NULL on agg key partial update ,now column "
+                                    + col.getName() + " type is " + col.getAggregationType());
+                }
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
                     partialUpdateInputColumns.add(col.getName());
@@ -379,6 +385,12 @@ public class StreamLoadPlanner {
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
+                if (destTable.getKeysType() == KeysType.AGG_KEYS && !col.isKey()
+                        && col.getAggregationType() != AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new UserException(
+                            "Column agg type should be REPLACE_IF_NOT_NULL on agg key partial update ,now column "
+                                    + col.getName() + " agg type is " + col.getAggregationType());
+                }
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
                     partialUpdateInputColumns.add(col.getName());
