@@ -29,6 +29,7 @@
 
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/network_util.h"
 #include "common/string_util.h"
 #include "common/sync_point.h"
 #include "meta-service/keys.h"
@@ -3280,12 +3281,9 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
                      << " err=" << err;
         return;
     }
-    std::string self_endpoint;
-    if (config::hostname.empty()) {
-        self_endpoint = fmt::format("{}:{}", butil::my_ip_cstr(), config::brpc_listen_port);
-    } else {
-        self_endpoint = fmt::format("{}:{}", config::hostname, config::brpc_listen_port);
-    }
+    std::string self_endpoint =
+            config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;
+    self_endpoint = fmt::format("{}:{}", self_endpoint, config::brpc_listen_port);
     ServiceRegistryPB reg;
     reg.ParseFromString(val);
 
