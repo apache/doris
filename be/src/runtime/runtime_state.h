@@ -192,6 +192,11 @@ public:
                _query_options.mysql_row_binary_format;
     }
 
+    bool enable_short_circuit_query_access_column_store() const {
+        return _query_options.__isset.enable_short_circuit_query_access_column_store &&
+               _query_options.enable_short_circuit_query_access_column_store;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 

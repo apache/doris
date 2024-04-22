@@ -28,6 +28,7 @@
 
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -1315,6 +1316,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    // if new tablet enable row store, or new tablet has different row store columns
+    if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
+        !std::equal(new_tablet_schema->row_columns_cids().begin(),
+                    new_tablet_schema->row_columns_cids().end(),
+                    base_tablet_schema->row_columns_cids().begin(),
+                    base_tablet_schema->row_columns_cids().end())) {
+        *sc_directly = true;
+    }
+
     for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         if (column_mapping->expr != nullptr) {
@@ -1323,7 +1334,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         } else if (column_mapping->ref_column >= 0) {
             const auto& column_new = new_tablet_schema->column(i);
             const auto& column_old = base_tablet_schema->column(column_mapping->ref_column);
-            // index changed
+            // check index changed or row store columns changed
             if (column_new.is_bf_column() != column_old.is_bf_column() ||
                 column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
                 new_tablet_schema->has_inverted_index(column_new) !=

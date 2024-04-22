@@ -318,6 +318,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("You can not modify storage vault id");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
             throw new AnalysisException("You can not modify estimate partition size");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
+            // do nothing, will be analyzed when creating alter job
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

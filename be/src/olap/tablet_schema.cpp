@@ -987,6 +987,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     } else {
         _inverted_index_storage_format = schema.inverted_index_storage_format();
     }
+
+    _rowstore_column_cids.assign(schema.row_store_column_cids().begin(),
+                                 schema.row_store_column_cids().end());
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -1034,7 +1037,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
     _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
-    _store_row_column = ori_tablet_schema.store_row_column();
+    _store_row_column = ori_tablet_schema.has_full_row_store_column();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
@@ -1193,6 +1196,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
+    tablet_schema_pb->mutable_row_store_column_cids()->Assign(_rowstore_column_cids.begin(),
+                                                              _rowstore_column_cids.end());
 }
 
 size_t TabletSchema::row_size() const {

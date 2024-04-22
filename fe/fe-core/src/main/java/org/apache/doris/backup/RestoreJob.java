@@ -1071,7 +1071,11 @@ public class RestoreJob extends AbstractJob {
         } finally {
             localTbl.readUnlock();
         }
+<<<<<<< HEAD
         Map<Object, Object> objectPool = new HashMap<Object, Object>();
+=======
+        List<String> rowStoreColumns = localTbl.getTableProperty().getCopiedRowStoreColumns();
+>>>>>>> dd6a5e0b00 ([Feature](Row store) support column group which store row format for partial columns of table)
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
@@ -1105,7 +1109,9 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
-                            binlogConfig, objectPool);
+                            binlogConfig,
+                            localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns).
+                            objectPool);
                     task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

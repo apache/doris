@@ -448,7 +448,7 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
         // add a hidden column as row store
-        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
+        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties), true)) {
             if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
                 throw new AnalysisException("Aggregate table can't support row column now");
             }
@@ -470,6 +470,7 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME));

@@ -124,7 +124,11 @@ public class CreateReplicaTask extends AgentTask {
     private BinlogConfig binlogConfig;
     private List<Integer> clusterKeyIndexes;
 
+<<<<<<< HEAD
     private Map<Object, Object> objectPool;
+=======
+    private List<Integer> rowStoreColumnUniqueIds;
+>>>>>>> dd6a5e0b00 ([Feature](Row store) support column group which store row format for partial columns of table)
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -148,6 +152,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
                              BinlogConfig binlogConfig,
+                             List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
@@ -174,6 +179,7 @@ public class CreateReplicaTask extends AgentTask {
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
+        this.rowStoreColumnUniqueIds = rowStoreColumnUniqueIds;
         if (storagePolicy != null && !storagePolicy.isEmpty()) {
             Optional<Policy> policy = Env.getCurrentEnv().getPolicyMgr()
                     .findPolicy(storagePolicy, PolicyTypeEnum.STORAGE);
@@ -305,6 +311,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
+        tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
             tSchema.setClusterKeyIdxes(clusterKeyIndexes);
             if (LOG.isDebugEnabled()) {

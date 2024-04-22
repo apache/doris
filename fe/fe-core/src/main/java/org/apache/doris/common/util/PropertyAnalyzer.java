@@ -52,16 +52,19 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class PropertyAnalyzer {
 
@@ -138,7 +141,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
-    public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
+    public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
+
+    public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
 
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
@@ -189,7 +194,7 @@ public class PropertyAnalyzer {
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
-    private static final String COMMA_SEPARATOR = ",";
+    public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
@@ -766,7 +771,43 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static Boolean analyzeStoreRowColumn(Map<String, String> properties) throws AnalysisException {
+    public static List<String> analyzeRowStoreColumns(Map<String, String> properties,
+            List<String> columns,
+             boolean stripProperty) throws AnalysisException {
+        List<String> rowStoreColumns = Lists.newArrayList();
+        String value = properties.get(PROPERTIES_ROW_STORE_COLUMNS);
+        // set empty row store columns by default
+        if (null == value) {
+            return null;
+        }
+        if (stripProperty) {
+            properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
+        }
+        String[] rsColumnArr = value.split(COMMA_SEPARATOR);
+        rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
+        if (rowStoreColumns.isEmpty()) {
+            throw new AnalysisException(PROPERTIES_ROW_STORE_COLUMNS + " must not be empty");
+        }
+        // check columns in column def
+        List<String> invalidColumns = rowStoreColumns.stream()
+                .filter(expectedColName -> columns.stream().noneMatch(
+                        column -> column.equalsIgnoreCase(expectedColName)))
+                .collect(Collectors.toList());
+        // if (invalidColumns.size() == 1 && invalidColumns.get(0).equalsIgnoreCase("__all__")) {
+        //     // __all__ represents all the columns are encoded to row store
+        //     rowStoreColumns.clear();
+        //     return rowStoreColumns;
+        //
+        if (!invalidColumns.isEmpty()) {
+            throw new AnalysisException(
+                    "Column does not exist in table. Invalid columns: "
+                            + invalidColumns.stream().collect(Collectors.joining(", ", "", "")));
+        }
+        return rowStoreColumns;
+    }
+
+    public static Boolean analyzeStoreRowColumn(Map<String, String> properties,
+                       boolean stripProperty) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
@@ -775,14 +816,16 @@ public class PropertyAnalyzer {
         if (null == value) {
             return false;
         }
-        properties.remove(PROPERTIES_STORE_ROW_COLUMN);
+        if (stripProperty) {
+            properties.remove(PROPERTIES_STORE_ROW_COLUMN);
+        }
         if (value.equalsIgnoreCase("true")) {
             return true;
         } else if (value.equalsIgnoreCase("false")) {
             return false;
+        } else {
+            throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN + "must be `true` or `false`");
         }
-        throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
-                + " must be `true` or `false`");
     }
 
     public static Boolean analyzeSkipWriteIndexOnLoad(Map<String, String> properties) throws AnalysisException {

@@ -23,6 +23,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
@@ -342,8 +344,10 @@ public:
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
     bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
-    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
-    bool store_row_column() const { return _store_row_column; }
+    // indicate if full row store column(all the columns encodes as row) exists
+    bool has_full_row_store_column() const {
+        return _store_row_column && row_columns_cids().empty();
+    }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
@@ -474,6 +478,8 @@ public:
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
 
+    const std::vector<int32_t>& row_columns_cids() const { return _rowstore_column_cids; }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -515,6 +521,10 @@ private:
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+
+    // Contains column ids of which columns should be encoded into row store.
+    // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
+    std::vector<int32_t> _rowstore_column_cids;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

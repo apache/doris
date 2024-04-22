@@ -682,7 +682,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
         // // set for rowstore
-        if (original->store_row_column()) {
+        if (original->has_full_row_store_column()) {
             static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
                     object_column.get_rowstore_column());
         }

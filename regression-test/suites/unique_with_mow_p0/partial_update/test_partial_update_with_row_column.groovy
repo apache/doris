@@ -30,7 +30,7 @@ suite("test_primary_key_partial_update_with_row_column", "p0") {
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", 
-                "store_row_column"="true")
+                "store_row_column"="true", "column_groups"= "group1:id,name,score")
     """
     // insert 2 lines
     sql """
@@ -59,6 +59,7 @@ suite("test_primary_key_partial_update_with_row_column", "p0") {
     qt_select_default """
         select * from ${tableName} order by id
     """
+    qt_sql "select  sum(length(__DORIS_ROW_STORE_COL__)), sum(length(__DORIS_ROW_STORE_COL__group1)) from ${tableName}"
 
     // drop drop
     sql """ DROP TABLE IF EXISTS ${tableName} """

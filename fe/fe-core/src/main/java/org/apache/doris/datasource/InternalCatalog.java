@@ -2029,6 +2029,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             int totalTaskNum = index.getTablets().size() * totalReplicaNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
+            List<String> rowStoreColumns = tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
                 for (Replica replica : tablet.getReplicas()) {
@@ -2047,7 +2048,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.storeRowColumn(), binlogConfig, objectPool);
+                            tbl.storeRowColumn(), binlogConfig,
+                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                            objectPool);
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
@@ -2547,17 +2550,29 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        boolean storeRowColumn = false;
+        // analyze row store columns
         try {
-            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
+            boolean storeRowColumn = false;
+            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties, true);
             if (storeRowColumn && !enableLightSchemaChange) {
                 throw new DdlException(
                         "Row store column rely on light schema change, enable light schema change first");
             }
+            olapTable.setStoreRowColumn(storeRowColumn);
+            List<String> rowStoreColumns;
+            try {
+                rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(properties,
+                            baseSchema.stream().map(Column::getName).collect(Collectors.toList()), true);
+                if (rowStoreColumns != null && rowStoreColumns.isEmpty()) {
+                    rowStoreColumns = null;
+                }
+                olapTable.setRowStoreColumns(rowStoreColumns);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setStoreRowColumn(storeRowColumn);
 
         // set skip inverted index on load
         boolean skipWriteIndexOnLoad = PropertyAnalyzer.analyzeSkipWriteIndexOnLoad(properties);

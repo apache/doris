@@ -304,6 +304,8 @@ struct TQueryOptions {
 
   114: optional bool enable_parallel_result_sink = false;
   
+  115: optional bool enable_short_circuit_query_access_column_store = false;
+  
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

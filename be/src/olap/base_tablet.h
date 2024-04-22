@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
 #include "util/metrics.h"
 
