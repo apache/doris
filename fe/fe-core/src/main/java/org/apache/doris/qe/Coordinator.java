@@ -37,7 +37,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
