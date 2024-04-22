@@ -350,7 +350,7 @@ under the License.
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
-        <paimon.version>0.6.0-incubating</paimon.version>
+        <paimon.version>0.7.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
