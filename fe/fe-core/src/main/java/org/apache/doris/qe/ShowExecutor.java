@@ -1674,15 +1674,25 @@ public class ShowExecutor {
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
+        List<String> utf8mb40900Bin = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add(ctx.getSessionVariable().getCollationConnection());
-        row.add(ctx.getSessionVariable().getCharsetServer());
-        row.add("309");
-        row.add("Yes");
-        row.add("Yes");
-        row.add("1");
-        rows.add(row);
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCollationConnection());
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCharsetServer());
+        utf8mb40900Bin.add("309");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("1");
+        rows.add(utf8mb40900Bin);
+        // ATTN: we must have this collation for compatible with some bi tools
+        List<String> utf8mb3GeneralCi = Lists.newArrayList();
+        // | utf8mb3_general_ci | utf8mb3 | 33 | Yes | Yes | 1 |
+        utf8mb3GeneralCi.add("utf8mb3_general_ci");
+        utf8mb3GeneralCi.add("utf8mb3");
+        utf8mb3GeneralCi.add("33");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("1");
+        rows.add(utf8mb3GeneralCi);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
