@@ -152,7 +152,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        if (is_nothing(field_info.scalar_type)) {
+        if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
             continue;
         }
         if (!column_object.has_subcolumn(paths[i])) {

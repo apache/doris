@@ -80,23 +80,22 @@
 namespace doris::vectorized {
 namespace {
 
-DataTypePtr create_array_of_type(DataTypePtr type, size_t num_dimensions, bool is_nullable) {
-    const DataTypeNullable* nullable = typeid_cast<const DataTypeNullable*>(type.get());
-    if ((nullable &&
-         typeid_cast<const ColumnObject::MostCommonType*>(nullable->get_nested_type().get())) ||
-        typeid_cast<const ColumnObject::MostCommonType*>(type.get())) {
+DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+    if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
         // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
         // So we ignored num_dimensions.
-        return type;
+        return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
+                           : std::make_shared<ColumnObject::MostCommonType>();
     }
+    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
     for (size_t i = 0; i < num_dimensions; ++i) {
-        type = std::make_shared<DataTypeArray>(std::move(type));
+        result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
             // wrap array with nullable
-            type = make_nullable(type);
+            result = make_nullable(result);
         }
     }
-    return type;
+    return result;
 }
 
 DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
@@ -152,9 +151,9 @@ public:
 };
 
 // Visitor that allows to get type of scalar field
-// but include contain complex field.This is a faster version
+// but exclude fields contain complex field.This is a faster version
 // for FieldVisitorToScalarType which does not support complex field.
-class SimpleFieldVisitorToScarlarType : public StaticVisitor<size_t> {
+class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
     size_t operator()(const Array& x) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
@@ -198,28 +197,7 @@ public:
         type = TypeId<NearestFieldType<T>>::value;
         return 1;
     }
-    void get_scalar_type(DataTypePtr* data_type) const {
-        WhichDataType which(type);
-#define DISPATCH(TYPE)                                         \
-    if (which.idx == TypeIndex::TYPE) {                        \
-        *data_type = std::make_shared<DataTypeNumber<TYPE>>(); \
-        return;                                                \
-    }
-        FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-        if (which.is_string()) {
-            *data_type = std::make_shared<DataTypeString>();
-            return;
-        }
-        if (which.is_json()) {
-            *data_type = std::make_shared<DataTypeJsonb>();
-            return;
-        }
-        if (which.is_nothing()) {
-            *data_type = std::make_shared<DataTypeNothing>();
-            return;
-        }
-    }
+    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
     bool contain_nulls() const { return have_nulls; }
 
     bool need_convert_field() const { return false; }
@@ -288,8 +266,10 @@ public:
         type_indexes.insert(TypeId<NearestFieldType<T>>::value);
         return 0;
     }
-    void get_scalar_type(DataTypePtr* type) const {
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, type);
+    void get_scalar_type(TypeIndex* type) const {
+        DataTypePtr data_type;
+        get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, &data_type);
+        *type = data_type->get_type_id();
     }
     bool contain_nulls() const { return have_nulls; }
     bool need_convert_field() const { return field_types.size() > 1; }
@@ -306,11 +286,11 @@ template <typename Visitor>
 void get_field_info_impl(const Field& field, FieldInfo* info) {
     Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
-    DataTypePtr type = nullptr;
-    to_scalar_type_visitor.get_scalar_type(&type);
+    TypeIndex type_id;
+    to_scalar_type_visitor.get_scalar_type(&type_id);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {
-            type,
+            type_id,
             to_scalar_type_visitor.contain_nulls(),
             to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(), field),
@@ -321,7 +301,7 @@ void get_field_info(const Field& field, FieldInfo* info) {
     if (field.is_complex_field()) {
         get_field_info_impl<FieldVisitorToScalarType>(field, info);
     } else {
-        get_field_info_impl<SimpleFieldVisitorToScarlarType>(field, info);
+        get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
     }
 }
 
@@ -375,8 +355,8 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
-    auto base_type = std::move(info.scalar_type);
-    if (is_nothing(base_type)) {
+    auto base_type = WhichDataType(info.scalar_type_id);
+    if (base_type.is_nothing()) {
         insertDefault();
         return;
     }
@@ -385,7 +365,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (is_nothing(least_common_type.get_base())) {
         column_dim = value_dim;
     }
-    if (is_nothing(base_type)) {
+    if (base_type.is_nothing()) {
         value_dim = column_dim;
     }
     bool type_changed = false;
@@ -395,37 +375,30 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
                 "Dimension of types mismatched between inserted value and column, "
                 "expected:{}, but meet:{} for type:{}",
                 column_dim, value_dim, least_common_type.get()->get_name());
-        base_type = std::make_shared<MostCommonType>();
+        base_type = MOST_COMMON_TYPE_ID;
         value_dim = 0;
         type_changed = true;
     }
-    // Always expected nullable at present
-    if (!is_nothing(base_type)) {
-        base_type = make_nullable(base_type);
-    }
-    const auto& least_common_base_type = least_common_type.get_base();
-    DCHECK(base_type->is_nullable() && least_common_base_type->is_nullable());
-    const auto& nested_common_base_type =
-            static_cast<const DataTypeNullable&>(*least_common_base_type).get_nested_type();
-    const auto& nested_base_type =
-            static_cast<const DataTypeNullable&>(*base_type).get_nested_type();
-
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(std::move(base_type), value_dim, is_nullable));
-    } else if (!nested_common_base_type->equals(*nested_base_type) &&
-               !is_nothing(nested_base_type)) {
-        if (schema_util::is_conversion_required_between_integers(*nested_base_type,
-                                                                 *nested_common_base_type)) {
-            LOG_EVERY_N(INFO, 100) << "Conversion between " << base_type->get_name() << " and "
-                                   << least_common_base_type->get_name();
+        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
+    } else if (least_common_type.get_type_id() != base_type.idx && !base_type.is_nothing()) {
+        if (schema_util::is_conversion_required_between_integers(base_type.idx,
+                                                                 least_common_type.get_type_id())) {
+            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
+                                   << getTypeName(least_common_type.get_type_id());
+            DataTypePtr base_data_type;
+            TypeIndex base_data_type_id;
             get_least_supertype<LeastSupertypeOnError::Jsonb>(
-                    DataTypes {std::move(nested_base_type), nested_common_base_type}, &base_type);
+                    TypeIndexSet {base_type.idx, least_common_type.get_base_type_id()},
+                    &base_data_type);
             type_changed = true;
-            // Always expected nullable at present
-            base_type = make_nullable(base_type);
-            if (!least_common_base_type->equals(*base_type)) {
+            base_data_type_id = base_data_type->get_type_id();
+            if (is_nullable) {
+                base_data_type = make_nullable(base_data_type);
+            }
+            if (!least_common_type.get_base()->equals(*base_data_type)) {
                 add_new_column_part(
-                        create_array_of_type(std::move(base_type), value_dim, is_nullable));
+                        create_array_of_type(base_data_type_id, value_dim, is_nullable));
             }
         }
     }
@@ -676,6 +649,14 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
     if (!WhichDataType(type).is_nothing()) {
         least_common_type_serder = type->get_serde();
     }
+    type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
+                                            ->get_nested_type()
+                                            ->get_type_id()
+                                  : type->get_type_id();
+    base_type_id = base_type->is_nullable() ? assert_cast<const DataTypeNullable*>(base_type.get())
+                                                      ->get_nested_type()
+                                                      ->get_type_id()
+                                            : base_type->get_type_id();
 }
 
 ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
@@ -843,16 +824,6 @@ Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indi
     }
     finalize();
     return Status::OK();
-}
-
-FieldInfo ColumnObject::Subcolumn::get_subcolumn_field_info() const {
-    const auto& base_type = least_common_type.get_base();
-    return FieldInfo {
-            .scalar_type = base_type,
-            .have_nulls = base_type->is_nullable(),
-            .need_convert = false,
-            .num_dimensions = least_common_type.get_dimensions(),
-    };
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {

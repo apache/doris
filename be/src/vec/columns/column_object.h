@@ -35,6 +35,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_schema.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -62,8 +63,8 @@ namespace doris::vectorized {
 /// It allows to recreate field with different number
 /// of dimensions or nullability.
 struct FieldInfo {
-    /// The common type of of all scalars in field.
-    DataTypePtr scalar_type;
+    /// The common type id of of all scalars in field.
+    TypeIndex scalar_type_id;
     /// Do we have NULL scalar in field.
     bool have_nulls;
     /// If true then we have scalars with different types in array and
@@ -92,6 +93,7 @@ public:
 
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
+    constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -148,8 +150,6 @@ public:
         /// Returns last inserted field.
         Field get_last_field() const;
 
-        FieldInfo get_subcolumn_field_info() const;
-
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
         IColumn& get_finalized_column();
@@ -177,6 +177,10 @@ public:
 
             const DataTypePtr& get_base() const { return base_type; }
 
+            const TypeIndex& get_type_id() const { return type_id; }
+
+            const TypeIndex& get_base_type_id() const { return base_type_id; }
+
             size_t get_dimensions() const { return num_dimensions; }
 
             void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
@@ -186,6 +190,8 @@ public:
         private:
             DataTypePtr type;
             DataTypePtr base_type;
+            TypeIndex type_id;
+            TypeIndex base_type_id;
             size_t num_dimensions = 0;
             DataTypeSerDeSPtr least_common_type_serder;
         };
