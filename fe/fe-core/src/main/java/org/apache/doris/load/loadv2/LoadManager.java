@@ -621,7 +621,7 @@ public class LoadManager implements Writable {
                     }
                     // check auth
                     try {
-                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getName(),
+                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getFullName(),
                                 loadJob.getTableNames());
                     } catch (AnalysisException e) {
                         continue;
