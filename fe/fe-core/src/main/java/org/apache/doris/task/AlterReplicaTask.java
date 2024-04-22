@@ -30,10 +30,13 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -42,6 +45,9 @@ import java.util.Map;
  * The new replica can be a rollup replica, or a shadow replica of schema change.
  */
 public class AlterReplicaTask extends AgentTask {
+
+    private static final Logger LOG = LogManager.getLogger(AlterReplicaTask.class);
+
     private long baseTabletId;
     private long newReplicaId;
     private int baseSchemaHash;
@@ -137,7 +143,7 @@ public class AlterReplicaTask extends AgentTask {
         if (defineExprs != null) {
             Object value = objectPool.get(defineExprs);
             if (value == null) {
-                List<TAlterMaterializedViewParam> params = new ArrayList<TAlterMaterializedViewParam>();
+                List<TAlterMaterializedViewParam> params = new CopyOnWriteArrayList<TAlterMaterializedViewParam>();
                 for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
                     List<SlotRef> slots = Lists.newArrayList();
                     entry.getValue().collect(SlotRef.class, slots);
