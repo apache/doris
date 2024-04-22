@@ -232,25 +232,25 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
-            TReportExecStatusResult resp = new TReportExecStatusResult();
+            // Why not return response when process new profile failed?
+            // First of all, we will do a refactor for report exec status in the future.
+            // In that refactor, we will combine the report of exec status with query profile in a single rpc.
+            // If we return error response in this pr, we will have problem when doing cluster upgrading.
+            // For example, FE will return directly if it receives profile, but BE actually report exec status
+            // with profile in a single rpc, this will make FE ignore the exec status and may lead to bug in query
+            // like insert into select.
             if (params.isSetBackendId() && params.isSetDone()) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
                 boolean isDone = params.isDone();
                 if (backend != null) {
-                    Status status = processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
-                    TStatus tStatus = new TStatus(status.getErrorCode());
-                    tStatus.setErrorMsgs(Lists.newArrayList(status.getErrorMsg()));
-                    resp.setStatus(tStatus);
+                    // the process status is ignored by design.
+                    // actually be does not care the process status of profile on fe.
+                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
                 }
             } else {
-                String msg =
-                        "Invalid report profile req, this is a logical error, BE must set backendId and isDone"
-                        + " at same time, query id: " + DebugUtil.printId(params.query_id);
-                LOG.warn(msg);
-                TStatus tStatus = new TStatus(TStatusCode.INVALID_ARGUMENT);
-                tStatus.setErrorMsgs(Lists.newArrayList(msg));
+                LOG.warn("Invalid report profile req, this is a logical error, BE must set backendId and isDone"
+                            + " at same time, query id: {}" + DebugUtil.printId(params.query_id));
             }
-            return resp;
         }
 
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
@@ -284,16 +284,11 @@ public final class QeProcessorImpl implements QeProcessor {
         }
 
         final QueryInfo info = coordinatorMap.get(params.query_id);
-
+        result.setStatus(new TStatus(TStatusCode.OK));
         if (info == null) {
-            // There is no QueryInfo for StreamLoad, so we return OK
-            if (params.query_type == TQueryType.LOAD) {
-                result.setStatus(new TStatus(TStatusCode.OK));
-            } else {
-                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            }
-            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
-                    DebugUtil.printId(params.query_id), params.query_type);
+            // Currently, the execution of query is splited from the exec status process.
+            // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
+            // has been removed from coordinatorMap.
             return result;
         }
         try {
