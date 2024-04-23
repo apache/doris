@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
+import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -157,6 +158,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new NormalizeRepeat()
             ),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
+            topDown(new VariableToLiteral()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
