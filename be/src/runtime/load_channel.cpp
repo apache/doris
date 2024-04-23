@@ -204,20 +204,20 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     bool finished = false;
     auto index_id = request.index_id();
 
-    {
-        std::lock_guard<SpinLock> l(_alive_counts_lock);
-        _alive_counts.at(request.index_id())--;
-        VLOG_DEBUG << "After dec " << index_id << " has senders: " << _alive_counts.at(index_id);
-        if (_alive_counts.at(index_id) == 0) {
-            finished = true;
-        }
-    }
-    DCHECK(_alive_counts.at(index_id) >= 0);
-
     if (channel->get_closed_senders().Get(request.sender_id())) {
         // Double close from one sender, just return if error
         RETURN_IF_ERROR(channel->get_close_status());
     } else {
+        {
+            std::lock_guard<SpinLock> l(_alive_counts_lock);
+            _alive_counts.at(request.index_id())--;
+            VLOG_DEBUG << "After dec " << index_id
+                       << " has senders: " << _alive_counts.at(index_id);
+            if (_alive_counts.at(index_id) == 0) {
+                finished = true;
+            }
+        }
+        DCHECK(_alive_counts.at(index_id) >= 0) << _alive_counts.at(index_id);
         // if not finished, just set this closed sender
         // if finished, then close this channel.
         RETURN_IF_ERROR(channel->close(this, request, response, finished));
