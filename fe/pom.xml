@@ -346,7 +346,7 @@ under the License.
         <!--ivy-->
         <ivy.version>2.5.2</ivy.version>
         <!-- paimon -->
-        <paimon.version>0.6.0-incubating</paimon.version>
+        <paimon.version>0.7.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <trino.parser.version>395</trino.parser.version>
         <!-- arrow flight sql -->
