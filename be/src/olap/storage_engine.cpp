@@ -1084,10 +1084,10 @@ void StorageEngine::start_delete_unused_rowset() {
             auto&& rs = it->second;
             if (rs.use_count() == 1 && rs->need_delete_file()) {
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                it->second->clear_cache();
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
                 }
-                it->second->clear_cache();
                 it = _unused_rowsets.erase(it);
             } else {
                 if (rs.use_count() != 1) {
