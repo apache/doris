@@ -31,6 +31,7 @@ import io.airlift.json.ObjectMapperProvider;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
 import io.trino.SystemSessionPropertiesProvider;
+import io.trino.block.BlockJsonSerde;
 import io.trino.client.ClientCapabilities;
 import io.trino.connector.CatalogServiceProviderModule;
 import io.trino.execution.DynamicFilterConfig;
@@ -40,8 +41,10 @@ import io.trino.execution.TaskManagerConfig;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
 import io.trino.memory.MemoryManagerConfig;
 import io.trino.memory.NodeMemoryConfig;
+import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.HandleResolver;
+import io.trino.metadata.InternalBlockEncodingSerde;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.plugin.base.TypeDeserializer;
 import io.trino.spi.Page;
@@ -134,6 +137,14 @@ public class TrinoConnectorJniScanner extends JniScanner {
         connectorColumnMetadataString = params.get("trino_connector_column_metadata");
         connectorPredicateString = params.get("trino_connector_predicate");
         connectorTrascationHandleString = params.get("trino_connector_trascation_handle");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("TrinoConnectorJniScanner connectorSplitString = " + connectorSplitString);
+            LOG.debug("TrinoConnectorJniScanner connectorTableHandleString = " + connectorTableHandleString);
+            LOG.debug("TrinoConnectorJniScanner connectorColumnHandleString = " + connectorColumnHandleString);
+            LOG.debug("TrinoConnectorJniScanner connectorColumnMetadataString = " + connectorColumnMetadataString);
+            LOG.debug("TrinoConnectorJniScanner connectorPredicateString = " + connectorPredicateString);
+            LOG.debug("TrinoConnectorJniScanner connectorTrascationHandleString = " + connectorTrascationHandleString);
+        }
 
 
         trinoConnectorOptionParams = params.entrySet().stream()
@@ -245,8 +256,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     private ObjectMapperProvider generateObjectMapperProvider() {
-        TypeManager typeManager = new InternalTypeManager(
-                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
         modules.add(HandleJsonModule.tableHandleModule(handleResolver));
@@ -259,8 +268,15 @@ public class TrinoConnectorJniScanner extends JniScanner {
         // modules.add(HandleJsonModule.indexHandleModule(handleResolver));
         // modules.add(HandleJsonModule.partitioningHandleModule(handleResolver));
         objectMapperProvider.setModules(modules);
-        objectMapperProvider.setJsonDeserializers(
-                ImmutableMap.of(io.trino.spi.type.Type.class, new TypeDeserializer(typeManager)));
+
+        // set json deserializers
+        TypeManager typeManager = new InternalTypeManager(
+                TrinoConnectorPluginLoader.getTrinoConnectorPluginManager().getTypeRegistry());
+        InternalBlockEncodingSerde blockEncodingSerde = new InternalBlockEncodingSerde(new BlockEncodingManager(),
+                typeManager);
+        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(
+                io.trino.spi.type.Type.class, new TypeDeserializer(typeManager),
+                Block.class, new BlockJsonSerde.Deserializer(blockEncodingSerde)));
         return objectMapperProvider;
     }
 

@@ -36,8 +36,14 @@ import java.util.logging.FileHandler;
 import java.util.logging.Level;
 import java.util.logging.SimpleFormatter;
 
+// Noninstancetiable utility class
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
+
+    // Suppress default constructor for noninstantiability
+    private TrinoConnectorPluginLoader() {
+        throw new AssertionError();
+    }
 
     private static class TrinoConnectorPluginLoad {
         private static FeaturesConfig featuresConfig = new FeaturesConfig();
