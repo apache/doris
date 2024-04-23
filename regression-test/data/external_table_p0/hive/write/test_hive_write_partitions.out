@@ -41,27 +41,27 @@ true	127	32767	2147483647	9223372036854775807	123.45	123456.789	123456789	1234.5
 7	true	127	32767	2147483647	9223372036854775807	123.45	123456.789
 
 -- !q01 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
 
 -- !q02 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
 
 -- !q03 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q04 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q05 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-7	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+7	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q01 --
 1	\N	-128	\N	-2147483648	\N	-123.45	\N
@@ -130,27 +130,27 @@ true	127	32767	2147483647	9223372036854775807	123.45	123456.789	123456789	1234.5
 7	true	127	32767	2147483647	9223372036854775807	123.45	123456.789
 
 -- !q01 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
 
 -- !q02 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
 
 -- !q03 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q04 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
-3	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
+3	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q05 --
-1	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-22	2024-03-22T12:00	char_value1                                       	varchar_value1
-2	-123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-21	2024-03-21T12:00	char_value1                                       	varchar_value1
-7	123456.789012	string_value	62 69 6e 61 72 79 5f 76 61 6c 75 65	2024-03-20	2024-03-20T12:00	char_value1                                       	varchar_value1
+1	-123456.789012	string_value	2024-03-22	char_value1                                       	varchar_value1
+2	-123456.789012	string_value	2024-03-21	char_value1                                       	varchar_value1
+7	123456.789012	string_value	2024-03-20	char_value1                                       	varchar_value1
 
 -- !q01 --
 1	\N	-128	\N	-2147483648	\N	-123.45	\N
