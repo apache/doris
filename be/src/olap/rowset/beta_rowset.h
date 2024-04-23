@@ -94,6 +94,8 @@ public:
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
+    void clear_inverted_index_cache() override;
+
     [[nodiscard]] virtual Status add_to_binlog() override;
 
 protected:

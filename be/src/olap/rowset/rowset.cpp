@@ -93,4 +93,9 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     }
 }
 
+void Rowset::clear_cache() {
+    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    clear_inverted_index_cache();
+}
+
 } // namespace doris

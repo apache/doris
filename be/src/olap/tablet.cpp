@@ -837,6 +837,7 @@ void Tablet::delete_expired_stale_rowset() {
                     if (it->second->is_local()) {
                         StorageEngine::instance()->add_unused_rowset(it->second);
                     }
+                    it->second->clear_cache();
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
                                 << timestampedVersion->version().first << ","
@@ -3993,4 +3994,16 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
     }
     return Status::OK();
 }
+
+void Tablet::clear_cache() {
+    std::shared_lock rlock(get_header_lock());
+    static auto recycle_segment_cache = [](const auto& rowset_map) {
+        for (auto& [_, rowset] : rowset_map) {
+            rowset->clear_cache();
+        }
+    };
+    recycle_segment_cache(rowset_map());
+    recycle_segment_cache(stale_rowset_map());
+}
+
 } // namespace doris
