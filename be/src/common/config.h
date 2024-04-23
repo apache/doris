@@ -1070,6 +1070,7 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt64(s3_write_buffer_size);
+DECLARE_mInt32(s3_task_check_interval);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
@@ -1262,6 +1263,7 @@ DECLARE_Int32(spill_async_task_thread_pool_queue_size);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
+DECLARE_mBool(enable_s3_rate_limiter);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 

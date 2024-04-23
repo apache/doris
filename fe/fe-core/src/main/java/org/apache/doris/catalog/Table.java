@@ -364,6 +364,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
     }
 
+    public String getDBName() {
+        String[] strs = qualifiedDbName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }
