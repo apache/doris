@@ -23,4 +23,17 @@ suite("test_pushdown_explain") {
         contains "PREDICATES:"
     }
     qt_select "select k1 from baseall where k1 = 1"
+
+    explain {
+        sql("select cast(0 as datetime)")
+        contains "NULL"
+    }
+    explain {
+        sql("select cast(0 as date)")
+        contains "NULL"
+    }
+    explain {
+        sql("select cast(\"6.a8\" as json)")
+        contains "NULL"
+    }
 }
