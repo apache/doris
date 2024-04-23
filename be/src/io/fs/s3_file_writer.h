@@ -58,6 +58,10 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
 
+    FileCacheAllocatorBuilder* cache_builder() const override {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
+
 private:
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
@@ -80,8 +84,6 @@ private:
     std::mutex _completed_lock;
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
-    UInt128Wrapper _cache_hash;
-    BlockFileCache* _cache;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
@@ -92,9 +94,8 @@ private:
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    uint64_t _expiration_time;
-    bool _is_cold_data;
-    bool _write_file_cache;
+    std::unique_ptr<FileCacheAllocatorBuilder>
+            _cache_builder; // nullptr if disable write file cache
 };
 
 } // namespace io

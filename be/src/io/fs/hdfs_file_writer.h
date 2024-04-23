@@ -51,6 +51,10 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
 
+    FileCacheAllocatorBuilder* cache_builder() const override {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
+
 private:
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer

@@ -1125,16 +1125,14 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
                   << ", segmemt_size " << *segment_file_size;
     }
-    // change cache time to index
-    if (config::is_cloud_mode()) {
-        // TODO(): check if the expiration time is 0, 只修改normal的cache 别的都不修改
-        // Use path to calculate the Cache Hash
-        auto cache_key = io::BlockFileCache::hash(_file_writer->path().filename().native());
-        auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
-        io::CacheContext ctx;
-        ctx.cache_type = io::FileCacheType::NORMAL;
-        auto holder = cache->get_or_set(cache_key, index_start, *index_size, ctx);
-        for (auto& segment : holder.file_blocks) {
+    // When the cache type is not ttl(expiration time == 0), the data should be split into normal cache queue
+    // and index cache queue
+    if (auto* cache_builder = _file_writer->cache_builder(); cache_builder != nullptr &&
+                                                             cache_builder->_expiration_time == 0 &&
+                                                             config::is_cloud_mode()) {
+        auto size = *index_size + *segment_file_size;
+        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        for (auto& segment : holder->file_blocks) {
             static_cast<void>(segment->change_cache_type_self(io::FileCacheType::INDEX));
         }
     }
