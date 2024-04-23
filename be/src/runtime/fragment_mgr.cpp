@@ -720,10 +720,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             VLOG_ROW << fmt::format("{}", std::string_view(dbg_str.data() + pos, tmp_size));
             pos += tmp_size;
         }
-        VLOG_ROW << fmt::format("Query {} query option {}",
-                    print_id(params.params.query_id), apache::thrift::ThriftDebugString(params.query_options));
+        VLOG_ROW << fmt::format("Query {} query option {}", print_id(params.params.query_id),
+                                apache::thrift::ThriftDebugString(params.query_options));
     }
-    
+
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
@@ -853,8 +853,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             VLOG_ROW << fmt::format("{}", std::string_view(dbg_str.data() + pos, tmp_size));
             pos += tmp_size;
         }
-        VLOG_ROW << fmt::format("Query {} query option {}",
-                           print_id(params.query_id), apache::thrift::ThriftDebugString(params.query_options));
+        VLOG_ROW << fmt::format("Query {} query option {}", print_id(params.query_id),
+                                apache::thrift::ThriftDebugString(params.query_options));
     }
 
     std::shared_ptr<QueryContext> query_ctx;
