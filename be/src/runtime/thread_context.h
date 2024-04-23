@@ -58,11 +58,15 @@
 // Usually used to record query more detailed memory, including ExecNode operators.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
+
+#define SCOPED_SKIP_MEMORY_CHECK() \
+    auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
 #define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) (void)0
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
+#define SCOPED_SKIP_MEMORY_CHECK() (void)0
 #endif
 
 // Used to tracking the memory usage of the specified code segment use by mem hook.
@@ -93,17 +97,6 @@
 #define ORPHAN_TRACKER_CHECK() (void)0
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
-
-#define SKIP_MEMORY_CHECK(...)                                             \
-    do {                                                                   \
-        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
-        doris::thread_context()->skip_memory_check++;                      \
-        DEFER({                                                            \
-            doris::thread_context()->skip_memory_check--;                  \
-            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); \
-        });                                                                \
-        __VA_ARGS__;                                                       \
-    } while (0)
 
 #define SKIP_LARGE_MEMORY_CHECK(...)                                       \
     do {                                                                   \
@@ -279,10 +272,6 @@ static ThreadContext* thread_context() {
         DCHECK(thread_context_ptr != nullptr);
         return thread_context_ptr;
     }
-#if !defined(USE_MEM_TRACKER) || defined(BE_TEST)
-    DCHECK(doris::ExecEnv::ready());
-    return doris::ExecEnv::GetInstance()->env_thread_context();
-#endif
     if (bthread_self() != 0) {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
@@ -404,6 +393,19 @@ public:
 
 private:
     std::shared_ptr<MemTracker> _mem_tracker;
+};
+
+class ScopeSkipMemoryCheck {
+public:
+    explicit ScopeSkipMemoryCheck() {
+        ThreadLocalHandle::create_thread_local_if_not_exits();
+        doris::thread_context()->skip_memory_check++;
+    }
+
+    ~ScopeSkipMemoryCheck() {
+        doris::thread_context()->skip_memory_check--;
+        ThreadLocalHandle::del_thread_local_if_count_is_zero();
+    }
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.
