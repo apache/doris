@@ -47,8 +47,8 @@ public class AddProjectToAggregateChild extends OneRewriteRuleFactory {
             Builder<NamedExpression> newOutputs
                     = ImmutableList.builderWithExpectedSize(outputExpressions.size());
             Builder<NamedExpression> projectOutputs = ImmutableList.builder();
+            projectOutputs.addAll(agg.child().getOutput());
             for (NamedExpression outputExpression : outputExpressions) {
-                projectOutputs.add(outputExpression);
                 NamedExpression newOutput = (NamedExpression) outputExpression.rewriteUp(expr -> {
                     if (expr instanceof Length) {
                         NamedExpression alias = new Alias(expr, ((BoundFunction) expr).getName());
@@ -58,9 +58,6 @@ public class AddProjectToAggregateChild extends OneRewriteRuleFactory {
                     return expr;
                 });
                 newOutputs.add(newOutput);
-            }
-            if (agg.child() instanceof LogicalProject) {
-                projectOutputs.addAll(((LogicalProject) agg.child()).getProjects());
             }
             LogicalProject project = new LogicalProject<>(projectOutputs.build(), agg.child());
             return agg.withAggOutputChild(newOutputs.build(), project);
