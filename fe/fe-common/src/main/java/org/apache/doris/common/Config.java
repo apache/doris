@@ -2763,8 +2763,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long batch_insert_cluster_cache_hotspot_num = 50;
 
-    public static boolean cloud_preheating_enabled = true;
-
     /**
      * intervals between be status checks for CloudUpgradeMgr
      */
