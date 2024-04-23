@@ -60,4 +60,11 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkOutfileSuccessFileName("fakeType", "_success"));
     }
 
+    @Test
+    public void checkDbName() {
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName("db1"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(FeConstants.INTERNAL_DB_NAME));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkDbName("__db1"));
+    }
+
 }

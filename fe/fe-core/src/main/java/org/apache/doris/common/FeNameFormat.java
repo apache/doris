@@ -20,6 +20,7 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -54,7 +55,8 @@ public class FeNameFormat {
     }
 
     public static void checkDbName(String dbName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName) || !dbName.matches(getCommonNameRegex())) {
+        if (Strings.isNullOrEmpty(dbName) || (!dbName.matches(getCommonNameRegex())
+                && !InternalDatabaseUtil.isInternalDb(dbName))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
     }
