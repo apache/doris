@@ -25,8 +25,8 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.transaction.Transaction;
 
-import avro.shaded.com.google.common.collect.Lists;
 import com.google.common.base.VerifyException;
+import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileContent;

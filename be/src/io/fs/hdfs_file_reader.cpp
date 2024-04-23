@@ -26,6 +26,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "service/backend_options.h"
@@ -126,6 +127,10 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     while (has_read < bytes_req) {
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
                                     to + has_read, bytes_req - has_read);
+        {
+            [[maybe_unused]] Status error_ret;
+            TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", error_ret);
+        }
         if (loop_read < 0) {
             // invoker maybe just skip Status.NotFound and continue
             // so we need distinguish between it and other kinds of errors

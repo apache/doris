@@ -867,18 +867,22 @@ public class InternalCatalog implements CatalogIf<Database> {
             // Check if a view
             if (stmt.isView()) {
                 if (!(table instanceof View)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
+                            genDropHint(table));
                 }
             } else {
                 if (table instanceof View) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                            genDropHint(table));
                 }
             }
 
             if (!stmt.isMaterializedView() && table instanceof MTMV) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                        genDropHint(table));
             } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                        genDropHint(table));
             }
 
             if (!stmt.isForceDrop()) {
@@ -939,6 +943,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         costTimes.put("6:total", watch.getTime());
         LOG.info("finished dropping table: {} from db: {}, is force: {} cost: {}",
                 tableName, dbName, stmt.isForceDrop(), costTimes);
+    }
+
+    private static String genDropHint(TableIf table) {
+        String type = "";
+        if (table instanceof View) {
+            type = "VIEW";
+        } else if (table instanceof OlapTable) {
+            type = "TABLE";
+        } else if (table instanceof MTMV) {
+            type = "MATERIALIZED VIEW";
+        }
+        return "Use 'DROP " + type + " " + table.getName();
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,

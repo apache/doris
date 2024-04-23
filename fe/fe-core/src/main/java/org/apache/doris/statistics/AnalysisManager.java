@@ -621,7 +621,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
-        StatisticsRepository.dropStatistics(tblId, cols);
+        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, tblId, cols);
     }
 
     public void dropStats(TableIf table) throws DdlException {
@@ -636,7 +636,7 @@ public class AnalysisManager implements Writable {
         invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
-        StatisticsRepository.dropStatistics(table.getId(), cols);
+        StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId,
@@ -669,7 +669,7 @@ public class AnalysisManager implements Writable {
                     }
                 }
                 tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(tableId, indexId, column);
+                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
             }
         }
         tableStats.updatedTime = 0;
