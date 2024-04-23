@@ -86,13 +86,7 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_na
     }
 }
 
-HdfsFileSystem::~HdfsFileSystem() {
-    if (_fs_handle != nullptr) {
-        if (_fs_handle->from_cache) {
-            _fs_handle->dec_ref();
-        }
-    }
-}
+HdfsFileSystem::~HdfsFileSystem() = default;
 
 Status HdfsFileSystem::init() {
     RETURN_IF_ERROR(

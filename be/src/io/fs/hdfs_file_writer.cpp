@@ -48,7 +48,7 @@ static constexpr size_t MB = 1024 * 1024;
 HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
         : _path(std::move(path)),
-          _hdfs_handler(handler),
+          _hdfs_handler(std::move(handler)),
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
@@ -70,9 +70,6 @@ HdfsFileWriter::~HdfsFileWriter() {
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
     }
 
-    if (_hdfs_handler->from_cache) {
-        _hdfs_handler->dec_ref();
-    }
     hdfs_file_being_written << -1;
 }
 
