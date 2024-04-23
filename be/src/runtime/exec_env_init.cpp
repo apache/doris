@@ -142,6 +142,26 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
+static pair<int64_t, int64_t> get_buffered_reader_prefetch_threads_num() {
+    int64_t num_cores = doris::CpuInfo::num_cores();
+    auto min_num = config::buffered_reader_prefetch_thread_pool_min_thread_num;
+    auto max_num = config::buffered_reader_prefetch_thread_pool_max_thread_num;
+    auto factor = max_num / min_num;
+    min_num = std::min(num_cores * factor, min_num);
+    max_num = std::min(min_num * factor, max_num);
+    return {min_num, max_num};
+}
+
+static pair<int, int> get_s3_file_writer_upload_threads_num() {
+    int64_t num_cores = doris::CpuInfo::num_cores();
+    auto min_num = config::s3_file_upload_thread_pool_min_thread_num;
+    auto max_num = config::s3_file_upload_thread_pool_max_thread_num;
+    auto factor = max_num / min_num;
+    min_num = std::min(num_cores * factor, min_num);
+    max_num = std::min(min_num * factor, max_num);
+    return {min_num, max_num};
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
@@ -184,11 +204,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
-    static_cast<void>(
-            ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                    .set_min_threads(config::buffered_reader_prefetch_thread_pool_min_thread_num)
-                    .set_max_threads(config::buffered_reader_prefetch_thread_pool_max_thread_num)
-                    .build(&_buffered_reader_prefetch_thread_pool));
+    auto [buffered_reader_min_threads, buffered_reader_max_threads] =
+            get_buffered_reader_prefetch_threads_num();
+    static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                              .set_min_threads(buffered_reader_min_threads)
+                              .set_max_threads(buffered_reader_max_threads)
+                              .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
@@ -200,9 +221,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(16)
                               .build(&_s3_downloader_download_poller_thread_pool));
 
+    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+            get_s3_file_writer_upload_threads_num();
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(config::s3_file_upload_thread_pool_min_thread_num)
-                              .set_max_threads(config::s3_file_upload_thread_pool_max_thread_num)
+                              .set_min_threads(s3_file_upload_min_threads)
+                              .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
