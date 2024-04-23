@@ -303,6 +303,9 @@ public:
 
     std::string get_rowset_info_str();
 
+    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
+    void clear_cache();
+
 protected:
     friend class RowsetFactory;
 
