@@ -142,6 +142,7 @@ suite("test_auto_range_partition") {
 
      // partition expr extraction
 
+    sql " set enable_memtable_on_sink_node=false; " //FIXME: remove when fix
     sql " drop table if exists isit "
     sql " drop table if exists isit_src "
     sql """
@@ -165,7 +166,7 @@ suite("test_auto_range_partition") {
     """
     sql " insert into isit_src values (20201212); "
     sql " insert into isit select * from isit_src "
-    sql " sync "
+    sleep(1000)
     result2 = sql "show partitions from isit"
     logger.info("${result2}")
     def tmp_result = sql "select count() from isit"

@@ -26,9 +26,10 @@
 
 #pragma once
 
-#include "common/logging.h"
-#include <stdint.h>
+#include <cstdint>
 #include <ostream>
+
+#include "common/logging.h"
 
 #define BASE_HAS_ATOMIC64 1 // Use only in tests and base/atomic*
 
@@ -51,14 +52,13 @@ extern struct GutilAtomicOps_x86CPUFeatureStruct GutilAtomicOps_Internalx86CPUFe
 // AtomicOps initialisation for open source use.
 void AtomicOps_x86CPUFeaturesInit();
 
-typedef int32_t Atomic32;
-typedef int64_t Atomic64;
+using Atomic32 = int32_t;
+using Atomic64 = int64_t;
 
-namespace base {
-namespace subtle {
+namespace base::subtle {
 
-typedef int32_t Atomic32;
-typedef int64_t Atomic64;
+using Atomic32 = int32_t;
+using Atomic64 = int64_t;
 
 // These atomic primitives don't work atomically, and can cause really nasty
 // hard-to-track-down bugs, if the pointer isn't naturally aligned. Check alignment
@@ -456,7 +456,6 @@ inline Atomic64 Barrier_CompareAndSwap(volatile Atomic64* ptr, Atomic64 old_valu
     return NoBarrier_CompareAndSwap(ptr, old_value, new_value);
 }
 
-} // namespace subtle
-} // namespace base
+} // namespace base::subtle
 
 #undef ATOMICOPS_COMPILER_BARRIER

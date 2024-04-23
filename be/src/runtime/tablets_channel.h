@@ -105,7 +105,7 @@ public:
     // to include all tablets written in this channel.
     // no-op when this channel has been closed or cancelled
     virtual Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
-                         PTabletWriterAddBlockResult* res, bool* finished) = 0;
+                         PTabletWriterAddBlockResult* res, bool finished) = 0;
 
     // no-op when this channel has been closed or cancelled
     virtual Status cancel();
@@ -115,6 +115,9 @@ public:
     size_t total_received_rows() const { return _total_received_rows; }
 
     size_t num_rows_filtered() const { return _num_rows_filtered; }
+
+    Bitmap& get_closed_senders() { return _closed_senders; }
+    Status get_close_status() const { return _close_status; }
 
 protected:
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
@@ -162,7 +165,6 @@ protected:
     TupleDescriptor* _tuple_desc = nullptr;
 
     // next sequence we expect
-    int _num_remaining_senders = 0;
     std::vector<int64_t> _next_seqs;
     Bitmap _closed_senders;
     // status to return when operate on an already closed/cancelled channel
@@ -219,7 +221,7 @@ public:
                      PTabletWriterAddBlockResult* response) override;
 
     Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
-                 PTabletWriterAddBlockResult* res, bool* finished) override;
+                 PTabletWriterAddBlockResult* res, bool finished) override;
 
     Status cancel() override;
 

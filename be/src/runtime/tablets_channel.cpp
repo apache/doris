@@ -141,9 +141,8 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
-    _num_remaining_senders = request.num_senders();
-    _next_seqs.resize(_num_remaining_senders, 0);
-    _closed_senders.Reset(_num_remaining_senders);
+    _next_seqs.resize(request.num_senders(), 0);
+    _closed_senders.Reset(request.num_senders());
 
     RETURN_IF_ERROR(_open_all_writers(request));
 
@@ -216,7 +215,7 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
-                             PTabletWriterAddBlockResult* res, bool* finished) {
+                             PTabletWriterAddBlockResult* res, bool finished) {
     int sender_id = req.sender_id();
     int64_t backend_id = req.backend_id();
     const auto& partition_ids = req.partition_ids();
@@ -225,21 +224,15 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     if (_state == kFinished) {
         return _close_status;
     }
-    if (_closed_senders.Get(sender_id)) {
-        // Double close from one sender, just return OK
-        *finished = (_num_remaining_senders == 0);
-        return _close_status;
-    }
+
     LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
               << ", backend id: " << backend_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
     _closed_senders.Set(sender_id, true);
-    _num_remaining_senders--;
-    *finished = (_num_remaining_senders == 0);
 
-    if (!*finished) {
+    if (!finished) {
         return Status::OK();
     }
 

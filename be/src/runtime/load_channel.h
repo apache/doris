@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
-#include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -28,15 +25,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "olap/memtable_memory_limiter.h"
-#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -107,9 +100,12 @@ private:
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
+    // index id -> open times
+    SpinLock _alive_counts_lock;
+    std::unordered_map<int64_t, int32_t> _alive_counts;
     // index id -> (received rows, filtered rows)
-    std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
     SpinLock _tablets_channels_lock;
+    std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened

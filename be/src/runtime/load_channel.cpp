@@ -20,9 +20,10 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
-#include "bvar/bvar.h"
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -89,6 +90,7 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    VLOG_DEBUG << "load_channel open request: " << params.DebugString();
     if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
         return Status::InternalError(
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
@@ -116,7 +118,14 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
             }
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
-                _tablets_channels.insert({index_id, channel});
+                _tablets_channels.emplace(index_id, channel);
+            }
+            // save open times. that's alive sender number. close time should be same with it.
+            {
+                std::lock_guard<SpinLock> l(_alive_counts_lock);
+                _alive_counts[index_id]++;
+                VLOG_DEBUG << "Initially " << index_id
+                           << " has senders: " << _alive_counts[index_id];
             }
         }
     }
@@ -155,6 +164,7 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    VLOG_DEBUG << "load_channel add_batch request: " << request.DebugString();
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
     SCOPED_ATTACH_TASK(_query_thread_context);
@@ -194,7 +204,25 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     bool finished = false;
     auto index_id = request.index_id();
 
-    RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+    {
+        std::lock_guard<SpinLock> l(_alive_counts_lock);
+        _alive_counts.at(request.index_id())--;
+        VLOG_DEBUG << "After dec " << index_id << " has senders: " << _alive_counts.at(index_id);
+        if (_alive_counts.at(index_id) == 0) {
+            finished = true;
+        }
+    }
+    DCHECK(_alive_counts.at(index_id) >= 0);
+
+    if (channel->get_closed_senders().Get(request.sender_id())) {
+        // Double close from one sender, just return if error
+        RETURN_IF_ERROR(channel->get_close_status());
+    } else {
+        // if not finished, just set this closed sender
+        // if finished, then close this channel.
+        RETURN_IF_ERROR(channel->close(this, request, response, finished));
+    }
+
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {

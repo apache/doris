@@ -38,7 +38,7 @@ public:
                      PTabletWriterAddBlockResult* response) override;
 
     Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
-                 PTabletWriterAddBlockResult* res, bool* finished) override;
+                 PTabletWriterAddBlockResult* res, bool finished) override;
 
 private:
     Status _init_writers_by_partition_ids(const std::unordered_set<int64_t>& partition_ids);

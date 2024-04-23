@@ -89,7 +89,7 @@ Status CloudTabletsChannel::_init_writers_by_partition_ids(
 }
 
 Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
-                                  PTabletWriterAddBlockResult* res, bool* finished) {
+                                  PTabletWriterAddBlockResult* res, bool finished) {
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     std::lock_guard l(_lock);
     if (_state == kFinished) {
@@ -97,23 +97,14 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     }
 
     auto sender_id = req.sender_id();
-    if (_closed_senders.Get(sender_id)) {
-        // Double close from one sender, just return OK
-        *finished = (_num_remaining_senders == 0);
-        return _close_status;
-    }
-
     LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
               << ", backend id: " << req.backend_id();
     for (auto pid : req.partition_ids()) {
         _partition_ids.emplace(pid);
     }
-
     _closed_senders.Set(sender_id, true);
-    _num_remaining_senders--;
-    *finished = (_num_remaining_senders == 0);
 
-    if (!*finished) {
+    if (!finished) {
         return Status::OK();
     }
 
