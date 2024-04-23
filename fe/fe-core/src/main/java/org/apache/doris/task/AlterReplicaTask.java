@@ -36,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -140,28 +139,35 @@ public class AlterReplicaTask extends AgentTask {
             default:
                 break;
         }
+
         if (defineExprs != null) {
-            Object value = objectPool.get(defineExprs);
-            if (value == null) {
-                List<TAlterMaterializedViewParam> params = new CopyOnWriteArrayList<TAlterMaterializedViewParam>();
-                for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
+            for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
+                Object value = objectPool.get(entry.getKey());
+                if (value == null) {
                     List<SlotRef> slots = Lists.newArrayList();
                     entry.getValue().collect(SlotRef.class, slots);
                     TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
                     mvParam.setMvExpr(entry.getValue().treeToThrift());
-                    params.add(mvParam);
+                    req.addToMaterializedViewParams(mvParam);
+                    objectPool.put(entry.getKey(), mvParam);
+                } else {
+                    TAlterMaterializedViewParam mvParam = (TAlterMaterializedViewParam) value;
+                    req.addToMaterializedViewParams(mvParam);
                 }
-                objectPool.put(defineExprs, params);
-                req.setMaterializedViewParams(params);
-            } else {
-                List<TAlterMaterializedViewParam> params = (List<TAlterMaterializedViewParam>) value;
-                req.setMaterializedViewParams(params);
             }
         }
+
         if (whereClause != null) {
-            TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(Column.WHERE_SIGN);
-            mvParam.setMvExpr(whereClause.treeToThrift());
-            req.addToMaterializedViewParams(mvParam);
+            Object value = objectPool.get(Column.WHERE_SIGN);
+            if (value == null) {
+                TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(Column.WHERE_SIGN);
+                mvParam.setMvExpr(whereClause.treeToThrift());
+                req.addToMaterializedViewParams(mvParam);
+                objectPool.put(Column.WHERE_SIGN, mvParam);
+            } else {
+                TAlterMaterializedViewParam mvParam = (TAlterMaterializedViewParam) value;
+                req.addToMaterializedViewParams(mvParam);
+            }
         }
         req.setDescTbl(descTable.toThrift());
 
