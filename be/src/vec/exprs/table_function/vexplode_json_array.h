@@ -39,7 +39,10 @@ template <typename T>
 struct ParsedData {
     ParsedData() = default;
     virtual ~ParsedData() = default;
-    virtual void reset() = 0;
+    virtual void reset() {
+        _backup_data.clear();
+        _values_null_flag.clear();
+    }
     virtual int set_output(rapidjson::Document& document, int value_size) = 0;
     virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
                                                 int64_t cur_offset) = 0;
@@ -47,38 +50,39 @@ struct ParsedData {
         return reinterpret_cast<const char*>(_values_null_flag.data() + cur_offset);
     }
     std::vector<UInt8> _values_null_flag;
+    std::vector<T> _backup_data;
 };
 
 struct ParsedDataInt : public ParsedData<int64_t> {
-    static auto constexpr max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
-    static auto constexpr min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
+    static constexpr auto MAX_VALUE = std::numeric_limits<int64_t>::max(); //9223372036854775807
+    static constexpr auto MIN_VALUE = std::numeric_limits<int64_t>::min(); //-9223372036854775808
 
     int set_output(rapidjson::Document& document, int value_size) override {
         _values_null_flag.resize(value_size, 0);
-        _backup_int.resize(value_size);
+        _backup_data.resize(value_size);
         int i = 0;
         for (auto& v : document.GetArray()) {
             if (v.IsInt64()) {
-                _backup_int[i] = v.GetInt64();
+                _backup_data[i] = v.GetInt64();
             } else if (v.IsUint64()) {
                 auto value = v.GetUint64();
-                if (value > max_value) {
-                    _backup_int[i] = max_value;
+                if (value > MAX_VALUE) {
+                    _backup_data[i] = MAX_VALUE;
                 } else {
-                    _backup_int[i] = value;
+                    _backup_data[i] = value;
                 }
             } else if (v.IsDouble()) {
                 auto value = v.GetDouble();
-                if (value > max_value) {
-                    _backup_int[i] = max_value;
-                } else if (value < min_value) {
-                    _backup_int[i] = min_value;
+                if (value > MAX_VALUE) {
+                    _backup_data[i] = MAX_VALUE;
+                } else if (value < MIN_VALUE) {
+                    _backup_data[i] = MIN_VALUE;
                 } else {
-                    _backup_int[i] = long(value);
+                    _backup_data[i] = long(value);
                 }
             } else {
                 _values_null_flag[i] = 1;
-                _backup_int[i] = 0;
+                _backup_data[i] = 0;
             }
             ++i;
         }
@@ -88,22 +92,20 @@ struct ParsedDataInt : public ParsedData<int64_t> {
                                         int64_t cur_offset) override {
         assert_cast<ColumnInt64*>(column.get())
                 ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_int.data() + cur_offset), max_step);
+                        reinterpret_cast<const char*>(_backup_data.data() + cur_offset), max_step);
     }
-    void reset() override { _backup_int.clear(); }
-    std::vector<int64_t> _backup_int;
 };
 
 struct ParsedDataDouble : public ParsedData<double> {
     int set_output(rapidjson::Document& document, int value_size) override {
         _values_null_flag.resize(value_size, 0);
-        _backup_double.resize(value_size);
+        _backup_data.resize(value_size);
         int i = 0;
         for (auto& v : document.GetArray()) {
             if (v.IsDouble()) {
-                _backup_double[i] = v.GetDouble();
+                _backup_data[i] = v.GetDouble();
             } else {
-                _backup_double[i] = 0;
+                _backup_data[i] = 0;
                 _values_null_flag[i] = 1;
             }
             ++i;
@@ -114,11 +116,8 @@ struct ParsedDataDouble : public ParsedData<double> {
                                         int64_t cur_offset) override {
         assert_cast<ColumnFloat64*>(column.get())
                 ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_double.data() + cur_offset),
-                        max_step);
+                        reinterpret_cast<const char*>(_backup_data.data() + cur_offset), max_step);
     }
-    void reset() override { _backup_double.clear(); }
-    std::vector<double> _backup_double;
 };
 
 struct ParsedDataStringBase : public ParsedData<std::string> {
@@ -128,31 +127,30 @@ struct ParsedDataStringBase : public ParsedData<std::string> {
                 ->insert_many_strings(_data_string_ref.data() + cur_offset, max_step);
     }
     void reset() override {
+        ParsedData<std::string>::reset();
         _data_string_ref.clear();
-        _backup_string.clear();
     }
 
-    static std::string true_value;
-    static std::string false_value;
+    static constexpr const char* TRUE_VALUE = "true";
+    static constexpr const char* FALSE_VALUE = "true";
     std::vector<StringRef> _data_string_ref;
-    std::vector<std::string> _backup_string;
     char tmp_buf[128] = {0};
 };
 
 struct ParsedDataString : public ParsedDataStringBase {
     int set_output(rapidjson::Document& document, int value_size) override {
         _data_string_ref.clear();
-        _backup_string.clear();
+        _backup_data.clear();
         _values_null_flag.clear();
         int32_t wbytes = 0;
         for (auto& v : document.GetArray()) {
             switch (v.GetType()) {
             case rapidjson::Type::kStringType: {
-                _backup_string.emplace_back(v.GetString(), v.GetStringLength());
+                _backup_data.emplace_back(v.GetString(), v.GetStringLength());
                 _values_null_flag.emplace_back(false);
                 break;
                 // do not set _data_string here.
-                // Because the address of the string stored in `_backup_string` may
+                // Because the address of the string stored in `_backup_data` may
                 // change each time `emplace_back()` is called.
             }
             case rapidjson::Type::kNumberType: {
@@ -167,34 +165,34 @@ struct ParsedDataString : public ParsedDataStringBase {
                 } else {
                     wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", v.GetDouble());
                 }
-                _backup_string.emplace_back(tmp_buf, wbytes);
+                _backup_data.emplace_back(tmp_buf, wbytes);
                 _values_null_flag.emplace_back(false);
                 // do not set _data_string here.
-                // Because the address of the string stored in `_backup_string` may
+                // Because the address of the string stored in `_backup_data` may
                 // change each time `emplace_back()` is called.
                 break;
             }
             case rapidjson::Type::kFalseType:
-                _backup_string.emplace_back(true_value);
+                _backup_data.emplace_back(TRUE_VALUE);
                 _values_null_flag.emplace_back(false);
                 break;
             case rapidjson::Type::kTrueType:
-                _backup_string.emplace_back(false_value);
+                _backup_data.emplace_back(FALSE_VALUE);
                 _values_null_flag.emplace_back(false);
                 break;
             case rapidjson::Type::kNullType:
-                _backup_string.emplace_back();
+                _backup_data.emplace_back();
                 _values_null_flag.emplace_back(true);
                 break;
             default:
-                _backup_string.emplace_back();
+                _backup_data.emplace_back();
                 _values_null_flag.emplace_back(true);
                 break;
             }
         }
         // Must set _data_string at the end, so that we can
-        // save the real addr of string in `_backup_string` to `_data_string`.
-        for (auto& str : _backup_string) {
+        // save the real addr of string in `_backup_data` to `_data_string`.
+        for (auto& str : _backup_data) {
             _data_string_ref.emplace_back(str.data(), str.length());
         }
         return value_size;
@@ -204,23 +202,23 @@ struct ParsedDataString : public ParsedDataStringBase {
 struct ParsedDataJSON : public ParsedDataStringBase {
     int set_output(rapidjson::Document& document, int value_size) override {
         _data_string_ref.clear();
-        _backup_string.clear();
+        _backup_data.clear();
         _values_null_flag.clear();
         for (auto& v : document.GetArray()) {
             if (v.IsObject()) {
                 rapidjson::StringBuffer buffer;
                 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                 v.Accept(writer);
-                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
+                _backup_data.emplace_back(buffer.GetString(), buffer.GetSize());
                 _values_null_flag.emplace_back(false);
             } else {
-                _backup_string.emplace_back();
+                _backup_data.emplace_back();
                 _values_null_flag.emplace_back(true);
             }
         }
         // Must set _data_string at the end, so that we can
-        // save the real addr of string in `_backup_string` to `_data_string`.
-        for (auto& str : _backup_string) {
+        // save the real addr of string in `_backup_data` to `_data_string`.
+        for (auto& str : _backup_data) {
             _data_string_ref.emplace_back(str);
         }
         return value_size;

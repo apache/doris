@@ -36,10 +36,6 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-
-std::string ParsedDataStringBase::true_value = "true";
-std::string ParsedDataStringBase::false_value = "false";
-
 template <typename DataImpl>
 VExplodeJsonArrayTableFunction<DataImpl>::VExplodeJsonArrayTableFunction() : TableFunction() {
     _fn_name = "vexplode_json_array";
