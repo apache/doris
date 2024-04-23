@@ -49,7 +49,7 @@ private:
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
-        StringRef refs[sel_size];
+        std::vector<StringRef> refs(sel_size);
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
@@ -60,7 +60,7 @@ private:
         }
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
-        res_ptr->insert_many_strings_without_reserve(refs, sel_size);
+        res_ptr->insert_many_strings_without_reserve(refs.data(), sel_size);
     }
 
     template <typename Y, template <typename> typename ColumnContainer>

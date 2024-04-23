@@ -217,7 +217,7 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
-        StringRef strings[sel_size];
+        std::vector<StringRef> strings(sel_size);
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
             auto& value = _dict.get_value(_codes[sel[i]]);
@@ -227,7 +227,7 @@ public:
         }
         res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
         res_col->get_chars().reserve(length + res_col->get_chars().size());
-        res_col->insert_many_strings_without_reserve(strings, sel_size);
+        res_col->insert_many_strings_without_reserve(strings.data(), sel_size);
         return Status::OK();
     }
 

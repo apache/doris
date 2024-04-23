@@ -332,12 +332,12 @@ public:
 
     void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
                                  const size_t num_rows, Arena* arena) const override {
-        char place[size_of_data()];
+        std::vector<char> place(size_of_data());
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->create(place);
-            DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
-            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
-            assert_cast<const Derived*>(this)->serialize(place, buf);
+            assert_cast<const Derived*>(this)->create(place.data());
+            DEFER({ assert_cast<const Derived*>(this)->destroy(place.data()); });
+            assert_cast<const Derived*>(this)->add(place.data(), columns, i, arena);
+            assert_cast<const Derived*>(this)->serialize(place.data(), buf);
             buf.commit();
         }
     }
@@ -450,11 +450,11 @@ public:
                                                  Arena* arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        std::vector<char> deserialized_data(size_of_data());
+        auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
         for (size_t i = begin; i <= end; ++i) {
             VectorBufferReader buffer_reader(
                     (assert_cast<const ColumnString&>(column)).get_data_at(i));
-            char deserialized_data[size_of_data()];
-            AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
             assert_cast<const Derived*>(this)->create(deserialized_place);
             DEFER({ assert_cast<const Derived*>(this)->destroy(deserialized_place); });
             assert_cast<const Derived*>(this)->deserialize_and_merge(place, deserialized_place,

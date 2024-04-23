@@ -1973,7 +1973,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
 
     uint16_t original_size = selected_size;
-    bool ret_flags[original_size];
+    std::vector<uint8_t> ret_flags(original_size);
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
     for (auto& pred : _pre_eval_block_predicate) {
@@ -1983,10 +1983,10 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         auto column_id = pred->column_id();
         auto& column = _current_return_columns[column_id];
         if (is_first) {
-            pred->evaluate_vec(*column, original_size, ret_flags);
+            pred->evaluate_vec(*column, original_size, (bool*)ret_flags.data());
             is_first = false;
         } else {
-            pred->evaluate_and_vec(*column, original_size, ret_flags);
+            pred->evaluate_and_vec(*column, original_size, (bool*)ret_flags.data());
         }
     }
 
@@ -1998,7 +1998,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags.data() + sel_pos);
         if (0 == mask) {
             //pass
         } else if (0xffffffff == mask) {
@@ -2259,19 +2259,19 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _output_index_result_column(nullptr, 0, block);
     } else {
         uint16_t selected_size = _current_batch_rows_read;
-        uint16_t sel_rowid_idx[selected_size];
+        std::vector<uint16_t> sel_rowid_idx(selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
             _convert_dict_code_for_predicate_if_necessary();
 
             // step 1: evaluate vectorization predicate
-            selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+            selected_size = _evaluate_vectorization_predicate(sel_rowid_idx.data(), selected_size);
 
             // step 2: evaluate short circuit predicate
             // todo(wb) research whether need to read short predicate after vectorization evaluation
             //          to reduce cost of read short circuit columns.
             //          In SSB test, it make no difference; So need more scenarios to test
-            selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+            selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx.data(), selected_size);
 
             if (selected_size > 0) {
                 // step 3.1: output short circuit and predicate column
@@ -2279,7 +2279,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // see _vec_init_lazy_materialization
                 // todo(wb) need to tell input columnids from output columnids
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids,
-                                                          sel_rowid_idx, selected_size));
+                                                          sel_rowid_idx.data(), selected_size));
 
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
@@ -2287,7 +2287,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                     if (!_second_read_column_ids.empty()) {
                         SCOPED_RAW_TIMER(&_opts.stats->second_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _second_read_column_ids, _block_rowids, sel_rowid_idx,
+                                _second_read_column_ids, _block_rowids, sel_rowid_idx.data(),
                                 selected_size, &_current_return_columns));
                         if (std::find(_second_read_column_ids.begin(),
                                       _second_read_column_ids.end(), _schema->version_col_idx()) !=
@@ -2313,14 +2313,16 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         auto col_const = vectorized::ColumnConst::create(std::move(res_column),
                                                                          selected_size);
                         block->replace_by_position(0, std::move(col_const));
-                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        _output_index_result_column(sel_rowid_idx.data(), selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
-                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                        RETURN_IF_ERROR(
+                                _execute_common_expr(sel_rowid_idx.data(), selected_size, block));
                         block->replace_by_position(0, std::move(col0));
                     } else {
-                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        _output_index_result_column(sel_rowid_idx.data(), selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx);
-                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                        RETURN_IF_ERROR(
+                                _execute_common_expr(sel_rowid_idx.data(), selected_size, block));
                     }
                 }
             } else if (_is_need_expr_eval) {
@@ -2350,14 +2352,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(sel_rowid_idx, selected_size, block);
+                _output_index_result_column(sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
-                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx.data(), selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(sel_rowid_idx, selected_size, block);
+                _output_index_result_column(sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
-                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx.data(), selected_size, block));
             }
         }
 
@@ -2378,7 +2380,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         // step4: read non_predicate column
         if (selected_size > 0) {
             RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                    sel_rowid_idx, selected_size,
+                                                    sel_rowid_idx.data(), selected_size,
                                                     &_current_return_columns));
             if (std::find(_non_predicate_columns.begin(), _non_predicate_columns.end(),
                           _schema->version_col_idx()) != _non_predicate_columns.end()) {
@@ -2391,7 +2393,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _output_non_pred_columns(block);
 
         if (!_is_need_expr_eval) {
-            _output_index_result_column(sel_rowid_idx, selected_size, block);
+            _output_index_result_column(sel_rowid_idx.data(), selected_size, block);
         }
     }
 

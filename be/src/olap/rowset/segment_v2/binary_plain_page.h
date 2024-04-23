@@ -220,7 +220,7 @@ public:
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         uint32_t last_offset = guarded_offset(_cur_idx);
-        uint32_t offsets[max_fetch + 1];
+        std::vector<uint32_t> offsets(max_fetch + 1);
         offsets[0] = last_offset;
         for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
             const uint32_t start_offset = last_offset;
@@ -239,7 +239,7 @@ public:
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
+        dst->insert_many_continuous_binary_data(_data.data, offsets.data(), max_fetch);
 
         *n = max_fetch;
         return Status::OK();
@@ -255,8 +255,8 @@ public:
 
         auto total = *n;
         size_t read_count = 0;
-        uint32_t len_array[total];
-        uint32_t start_offset_array[total];
+        std::vector<uint32_t> len_array(total);
+        std::vector<uint32_t> start_offset_array(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {
@@ -270,8 +270,8 @@ public:
         }
 
         if (LIKELY(read_count > 0))
-            dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                         read_count);
+            dst->insert_many_binary_data(_data.mutable_data(), len_array.data(),
+                                         start_offset_array.data(), read_count);
 
         *n = read_count;
         return Status::OK();

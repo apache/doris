@@ -304,12 +304,11 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
-        const IColumn* nested_columns[number_of_arguments];
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const ColumnNullable& nullable_col =
-                        assert_cast<const ColumnNullable&>(*columns[i]);
+                const auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[i]);
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.
@@ -322,7 +321,8 @@ public:
         }
 
         this->set_flag(place);
-        this->nested_function->add(this->nested_place(place), nested_columns, row_num, arena);
+        this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
+                                   arena);
     }
 
     bool allocates_memory_in_arena() const override {

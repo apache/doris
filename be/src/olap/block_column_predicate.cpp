@@ -87,10 +87,10 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
         if (!selected_size) {
             return 0;
         }
-        bool ret_flags[selected_size];
-        memset(ret_flags, false, selected_size);
+        std::vector<uint8_t> ret_flags(selected_size, 0);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
-            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size, ret_flags);
+            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size,
+                                                        (bool*)ret_flags.data());
         }
 
         uint16_t new_size = 0;
@@ -115,10 +115,10 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_and(block, sel, selected_size, flags);
     } else {
-        bool ret_flags[selected_size];
-        memset(ret_flags, false, selected_size);
+        std::vector<uint8_t> ret_flags(selected_size, 0);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
-            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size, ret_flags);
+            _block_column_predicate_vec[i]->evaluate_or(block, sel, selected_size,
+                                                        (bool*)ret_flags.data());
         }
 
         for (int i = 0; i < selected_size; ++i) {
@@ -176,11 +176,10 @@ void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_or(block, sel, selected_size, flags);
     } else {
-        bool new_flags[selected_size];
-        memset(new_flags, true, selected_size);
-
-        for (auto& block_column_predicate : _block_column_predicate_vec) {
-            block_column_predicate->evaluate_and(block, sel, selected_size, new_flags);
+        std::vector<uint8_t> new_flags(selected_size, 1);
+        for (const auto& block_column_predicate : _block_column_predicate_vec) {
+            block_column_predicate->evaluate_and(block, sel, selected_size,
+                                                 (bool*)new_flags.data());
         }
 
         for (uint16_t i = 0; i < selected_size; i++) {
@@ -195,11 +194,12 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_vec(block, size, flags);
     } else {
-        bool new_flags[size];
+        std::vector<uint8_t> new_flags(size);
+
         bool initialized = false;
-        for (auto& block_column_predicate : _block_column_predicate_vec) {
+        for (const auto& block_column_predicate : _block_column_predicate_vec) {
             if (initialized) {
-                block_column_predicate->evaluate_vec(block, size, new_flags);
+                block_column_predicate->evaluate_vec(block, size, (bool*)new_flags.data());
                 for (uint16_t j = 0; j < size; j++) {
                     flags[j] &= new_flags[j];
                 }
