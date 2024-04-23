@@ -24,9 +24,10 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF2 RF7
+------------------------------------------------filter(( not wr_reason_sk IS NULL) and ( not wr_refunded_addr_sk IS NULL) and ( not wr_refunded_cdemo_sk IS NULL) and ( not wr_returning_cdemo_sk IS NULL))
+--------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF2 RF7
 ----------------------------------------------PhysicalProject
-------------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
+------------------------------------------------filter(( not ws_sold_date_sk IS NULL) and ( not ws_web_page_sk IS NULL) and (web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
 --------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------PhysicalProject

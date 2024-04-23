@@ -9,7 +9,8 @@ PhysicalResultSink
 ------------PhysicalExcept
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+------------------filter(( not cast(l_linenumber as BIGINT) IS NULL))
+--------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[orders] apply RFs: RF0
@@ -28,7 +29,8 @@ PhysicalResultSink
 --------------PhysicalExcept
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+--------------------filter(( not cast(l_linenumber as BIGINT) IS NULL))
+----------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders] apply RFs: RF0

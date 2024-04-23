@@ -118,7 +118,9 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 .matches(
                         logicalJoin(
                             logicalOlapScan().when(r -> r.getTable() == externalOlapTable),
-                            logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
+                            logicalFilter(
+                                logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
+                            )
                         )
                 );
     }

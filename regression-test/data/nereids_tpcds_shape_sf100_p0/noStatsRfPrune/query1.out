@@ -9,7 +9,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[sr_returned_date_sk]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_returns] apply RFs: RF0
+------------------filter(( not sr_returned_date_sk IS NULL) and ( not sr_store_sk IS NULL))
+--------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
 --------------------filter((date_dim.d_year = 2000))
@@ -25,7 +26,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
+------------------------filter(( not ctr_customer_sk IS NULL) and ( not ctr_store_sk IS NULL) and ( not ctr_total_return IS NULL))
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer]
@@ -33,10 +35,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------filter((store.s_state = 'SD'))
 ------------------------PhysicalOlapScan[store]
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter(( not avg(cast(ctr_total_return as DECIMALV3(38, 4))) IS NULL))
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter(( not ctr_store_sk IS NULL))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

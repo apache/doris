@@ -84,7 +84,7 @@ class PullupExpressionTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
-        Assertions.assertEquals(1, res.getQueryExpressions().size());
+        Assertions.assertEquals(3, res.getQueryExpressions().size());
         Assertions.assertEquals("(score = score)", res.getQueryExpressions().get(0).toSql());
     }
 
@@ -137,8 +137,8 @@ class PullupExpressionTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
-        Assertions.assertEquals(1, res.getViewExpressions().size());
-        Assertions.assertEquals("(score = score)", res.getViewExpressions().get(0).toSql());
+        Assertions.assertEquals(3, res.getViewExpressions().size());
+        Assertions.assertEquals("( not score IS NULL)", res.getViewExpressions().get(0).toSql());
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {

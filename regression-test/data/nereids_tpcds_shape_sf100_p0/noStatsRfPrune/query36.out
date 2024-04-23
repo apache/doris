@@ -20,7 +20,8 @@ PhysicalResultSink
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=()
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2
+----------------------------------------filter(( not ss_sold_date_sk IS NULL) and ( not ss_store_sk IS NULL))
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[item]

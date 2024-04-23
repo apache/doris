@@ -16,7 +16,8 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
+--------------------------------filter(( not ws_sold_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_date <= '1998-05-06') and (date_dim.d_date >= '1998-04-06'))

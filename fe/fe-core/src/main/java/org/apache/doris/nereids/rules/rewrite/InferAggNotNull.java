@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -67,7 +66,6 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
                     for (Expression isNotNull : isNotNulls) {
                         if (!predicates.contains(isNotNull)) {
-                            isNotNull = ((Not) isNotNull).withGeneratedIsNotNull(true);
                             if (!predicates.contains(isNotNull)) {
                                 needGenerateNotNullsBuilder.add(isNotNull);
                             }

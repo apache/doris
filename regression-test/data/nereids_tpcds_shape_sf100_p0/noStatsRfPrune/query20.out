@@ -16,7 +16,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[cs_item_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
+--------------------------------filter(( not cs_sold_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------filter(i_category IN ('Books', 'Shoes', 'Women'))
