@@ -2538,5 +2538,4 @@ void Tablet::clear_cache() {
     recycle_segment_cache(stale_rowset_map());
 }
 
-
 } // namespace doris
