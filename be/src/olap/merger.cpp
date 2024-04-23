@@ -133,6 +133,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         if (tablet->tablet_state() == TABLET_SHUTDOWN) {
+            tablet->clear_cache();
             return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
                                                  tablet->tablet_id());
         }
