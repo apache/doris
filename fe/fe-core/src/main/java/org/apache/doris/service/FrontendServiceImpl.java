@@ -3752,7 +3752,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             isShowFullSql = request.isShowFullSql();
         }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionWithoutAuth(isShowFullSql, true);
+                .listConnectionWithoutAuth(isShowFullSql);
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
