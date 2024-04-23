@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.TestHMSCachedClient;
+import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.LocalDfsFileSystem;
+import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
@@ -66,7 +68,8 @@ public class HmsCommitTest {
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";
-    private static LocalDfsFileSystem fs;
+    private static FileSystem fs;
+    private static LocalDfsFileSystem localDFSFileSystem;
     static String dbLocation;
     static String writeLocation;
     static String uri = "thrift://127.0.0.1:9083";
@@ -89,7 +92,14 @@ public class HmsCommitTest {
     }
 
     public static void createTestHiveCatalog() throws IOException {
-        fs = new LocalDfsFileSystem();
+        localDFSFileSystem = new LocalDfsFileSystem();
+        new MockUp<SwitchingFileSystem>(SwitchingFileSystem.class) {
+            @Mock
+            public FileSystem fileSystem(String location) {
+                return localDFSFileSystem;
+            }
+        };
+        fs = new SwitchingFileSystem(null, null, null);
 
         if (hasRealHmsService) {
             // If you have a real HMS service, then you can use this client to create real connections for testing
@@ -343,9 +353,9 @@ public class HmsCommitTest {
             fs.makeDir(targetPath);
         }
 
-        fs.createFile(writePath + "/" + f1);
-        fs.createFile(writePath + "/" + f2);
-        fs.createFile(writePath + "/" + f3);
+        localDFSFileSystem.createFile(writePath + "/" + f1);
+        localDFSFileSystem.createFile(writePath + "/" + f2);
+        localDFSFileSystem.createFile(writePath + "/" + f3);
         return pu;
     }
 
@@ -638,3 +648,4 @@ public class HmsCommitTest {
         assertNumRows(3, pa);
     }
 }
+

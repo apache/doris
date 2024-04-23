@@ -1039,9 +1039,8 @@ public class HMSTransaction implements Transaction {
             case INSERT_EXISTING:
             case MERGE:
                 throw new RuntimeException(
-                        "Partition already exists for table: "
-                                + databaseName + "." + tableName + ", partition values: "
-                                + partition.getPartitionValues());
+                    "Partition already exists for table: "
+                        + databaseName + "." + tableName + ", partition values: " + partition.getPartitionValues());
             default:
                 throw new IllegalStateException("Unknown action type: " + oldPartitionAction.getType());
         }
@@ -1129,6 +1128,9 @@ public class HMSTransaction implements Transaction {
         }
 
         private void undoAddPartitionsTask() {
+            if (addPartitionsTask.isEmpty()) {
+                return;
+            }
 
             HivePartition firstPartition = addPartitionsTask.getPartitions().get(0).getPartition();
             String dbName = firstPartition.getDbName();
@@ -1194,7 +1196,7 @@ public class HMSTransaction implements Transaction {
                         () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
                 if (!status.ok()) {
                     throw new RuntimeException(
-                            "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
+                        "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
                 }
                 clearDirsForFinish.add(oldTablePath);
 
@@ -1596,3 +1598,4 @@ public class HMSTransaction implements Transaction {
         }
     }
 }
+
