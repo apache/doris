@@ -459,7 +459,7 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
-    void clear_cache();
+    void clear_cache() override;
 
 private:
     Status _init_once_action();
