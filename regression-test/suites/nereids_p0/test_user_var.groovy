@@ -18,6 +18,7 @@
 suite("test_user_var") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_fold_constant_by_be=true;"
     sql "SET @a1=1, @a2=0, @a3=-1"
     sql "SET @b1=1.1, @b2=0.0, @b3=-1.1"
     sql "SET @c1='H', @c2=''"
