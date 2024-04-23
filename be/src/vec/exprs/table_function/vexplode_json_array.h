@@ -132,7 +132,7 @@ struct ParsedDataStringBase : public ParsedData<std::string> {
     }
 
     static constexpr const char* TRUE_VALUE = "true";
-    static constexpr const char* FALSE_VALUE = "true";
+    static constexpr const char* FALSE_VALUE = "false";
     std::vector<StringRef> _data_string_ref;
     char tmp_buf[128] = {0};
 };
