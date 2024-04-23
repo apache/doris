@@ -142,20 +142,9 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-static pair<int64_t, int64_t> get_buffered_reader_prefetch_threads_num() {
-    int64_t num_cores = doris::CpuInfo::num_cores();
-    auto min_num = config::num_buffered_reader_prefetch_thread_pool_min_thread;
-    auto max_num = config::num_buffered_reader_prefetch_thread_pool_max_thread;
-    auto factor = max_num / min_num;
-    min_num = std::min(num_cores * factor, min_num);
-    max_num = std::min(min_num * factor, max_num);
-    return {min_num, max_num};
-}
-
-static pair<int, int> get_s3_file_writer_upload_threads_num() {
-    int64_t num_cores = doris::CpuInfo::num_cores();
-    auto min_num = config::num_s3_file_upload_thread_pool_min_thread;
-    auto max_num = config::num_s3_file_upload_thread_pool_max_thread;
+// Used to calculate the num of min thread and max thread based on the passed config
+static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+    auto num_cores = doris::CpuInfo::num_cores();
     auto factor = max_num / min_num;
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
@@ -205,7 +194,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_send_batch_thread_pool));
 
     auto [buffered_reader_min_threads, buffered_reader_max_threads] =
-            get_buffered_reader_prefetch_threads_num();
+            get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
+                            config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
                               .set_min_threads(buffered_reader_min_threads)
                               .set_max_threads(buffered_reader_max_threads)
@@ -222,7 +212,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_s3_downloader_download_poller_thread_pool));
 
     auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
-            get_s3_file_writer_upload_threads_num();
+            get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
+                            config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(s3_file_upload_min_threads)
                               .set_max_threads(s3_file_upload_max_threads)
