@@ -198,7 +198,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 

@@ -58,7 +58,7 @@ public:
         return dummy;
     }
 
-    FileCacheAllocatorBuilder* cache_builder() const override  { return nullptr; }
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
