@@ -34,8 +34,6 @@
 #include "common/status.h"
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
-#include "io/cache/block_file_cache.h"
-#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -198,7 +196,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -1115,7 +1113,6 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
-    uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
@@ -1124,19 +1121,6 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
                   << ", segmemt_size " << *segment_file_size;
-    }
-    // change cache time to index
-    if (config::is_cloud_mode()) {
-        // TODO(): check if the expiration time is 0, 只修改normal的cache 别的都不修改
-        // Use path to calculate the Cache Hash
-        auto cache_key = io::BlockFileCache::hash(_file_writer->path().filename().native());
-        auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
-        io::CacheContext ctx;
-        ctx.cache_type = io::FileCacheType::NORMAL;
-        auto holder = cache->get_or_set(cache_key, index_start, *index_size, ctx);
-        for (auto& segment : holder.file_blocks) {
-            static_cast<void>(segment->change_cache_type_self(io::FileCacheType::INDEX));
-        }
     }
     return Status::OK();
 }
