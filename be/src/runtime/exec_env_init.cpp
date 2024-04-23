@@ -373,7 +373,6 @@ Status ExecEnv::_init_mem_env() {
     // 1. init mem tracker
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-    _env_thread_context = thread_context();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();

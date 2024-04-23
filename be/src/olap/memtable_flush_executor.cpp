@@ -142,8 +142,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
         std::unique_ptr<vectorized::Block> block = memtable->to_block();
-        SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
-                _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
+        RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
