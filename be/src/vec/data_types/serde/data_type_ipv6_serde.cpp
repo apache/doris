@@ -111,19 +111,21 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
     }
     return Status::OK();
 }
+
 void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                               arrow::ArrayBuilder* array_builder, int start,
                                               int end, const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    const auto& col_data = static_cast<const ColumnIPv6&>(column);
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            std::string ipv6_str = IPv6Value::to_string(col_data[i]);
-            checkArrowStatus(string_builder.Append(ipv6_str.c_str(), ipv6_str.size()),
-                             column.get_name(), array_builder->type()->name());
+            auto* src_data = const_cast<char*>(col_data.get_data_at(i).data);
+            std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+            checkArrowStatus(string_builder.Append(src_data, IPV6_BINARY_LENGTH), column.get_name(),
+                             array_builder->type()->name());
         }
     }
 }
@@ -132,22 +134,17 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
                                                int start, int end,
                                                const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
-    auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+    const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
     for (size_t offset_i = start; offset_i < end; ++offset_i) {
         if (!concrete_array->IsNull(offset_i)) {
-            const char* raw_data = reinterpret_cast<const char*>(
-                    buffer->data() + concrete_array->value_offset(offset_i));
-            const auto raw_data_len = concrete_array->value_length(offset_i);
-
-            IPv6 ipv6_val;
-            if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "parse number fail, string: '{}'",
-                                       std::string(raw_data, raw_data_len).c_str());
-            }
-            col_data.emplace_back(ipv6_val);
+            char* raw_data = const_cast<char*>(reinterpret_cast<const char*>(
+                    buffer->data() + concrete_array->value_offset(offset_i)));
+            auto raw_data_len = concrete_array->value_length(offset_i);
+            DCHECK_EQ(raw_data_len, IPV6_BINARY_LENGTH);
+            std::reverse(raw_data, raw_data + IPV6_BINARY_LENGTH);
+            col_data.emplace_back(*(IPv6*)(raw_data));
         }
     }
 }
@@ -156,7 +153,7 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int start,
                                               int end, std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    const auto& col_data = static_cast<const ColumnIPv6&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
     if (!ptr) {
@@ -173,12 +170,12 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
-        std::string ipv6_str = IPv6Value::to_string(col_data[row_id]);
-        size_t len = ipv6_str.size();
-
+        auto* src_data = const_cast<char*>(col_data.get_data_at(row_id).data);
+        size_t len = IPV6_BINARY_LENGTH;
+        std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
         REALLOC_MEMORY_FOR_ORC_WRITER()
 
-        strcpy(const_cast<char*>(bufferRef.data) + offset, ipv6_str.c_str());
+        strcpy(const_cast<char*>(bufferRef.data) + offset, src_data);
         offset += len;
         cur_batch->length[row_id] = len;
     }
