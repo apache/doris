@@ -135,7 +135,7 @@ Status S3FileWriter::_create_multi_upload_request() {
 }
 
 void S3FileWriter::_wait_until_finish(std::string_view task_name) {
-    auto timeout_duration = config::s3_file_writer_log_interval;
+    auto timeout_duration = config::s3_file_writer_log_interval_second;
     auto msg = fmt::format(
             "{} multipart upload already takes {} seconds, bucket={}, key={}, upload_id={}",
             task_name, timeout_duration, _bucket, _path.native(), _upload_id);

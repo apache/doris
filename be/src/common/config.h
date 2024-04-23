@@ -1071,7 +1071,7 @@ DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt64(s3_write_buffer_size);
 // Log interval when doing s3 upload task
-DECLARE_mInt32(s3_file_writer_log_interval);
+DECLARE_mInt32(s3_file_writer_log_interval_second);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
@@ -1298,13 +1298,13 @@ DECLARE_mBool(enable_injection_point);
 DECLARE_mBool(ignore_schema_change_check);
 
 // The min thread num for BufferedReaderPrefetchThreadPool
-DECLARE_Int64(buffered_reader_prefetch_thread_pool_min_thread_num);
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool
-DECLARE_Int64(buffered_reader_prefetch_thread_pool_max_thread_num);
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 // The min thread num for S3FileUploadThreadPool
-DECLARE_Int64(s3_file_upload_thread_pool_min_thread_num);
+DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
-DECLARE_Int64(s3_file_upload_thread_pool_max_thread_num);
+DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
 
 #ifdef BE_TEST
 // test s3

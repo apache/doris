@@ -184,7 +184,7 @@ struct DownloadTaskExecutor {
                 LOG_WARNING("").error(st);
             }
         }
-        auto timeout_duration = config::s3_file_writer_log_interval;
+        auto timeout_duration = config::s3_file_writer_log_interval_second;
         timespec current_time;
         // We don't need high accuracy here, so we use time(nullptr)
         // since it's the fastest way to get current time(second)

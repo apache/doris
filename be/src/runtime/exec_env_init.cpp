@@ -144,8 +144,8 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 
 static pair<int64_t, int64_t> get_buffered_reader_prefetch_threads_num() {
     int64_t num_cores = doris::CpuInfo::num_cores();
-    auto min_num = config::buffered_reader_prefetch_thread_pool_min_thread_num;
-    auto max_num = config::buffered_reader_prefetch_thread_pool_max_thread_num;
+    auto min_num = config::num_buffered_reader_prefetch_thread_pool_min_thread;
+    auto max_num = config::num_buffered_reader_prefetch_thread_pool_max_thread;
     auto factor = max_num / min_num;
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
@@ -154,8 +154,8 @@ static pair<int64_t, int64_t> get_buffered_reader_prefetch_threads_num() {
 
 static pair<int, int> get_s3_file_writer_upload_threads_num() {
     int64_t num_cores = doris::CpuInfo::num_cores();
-    auto min_num = config::s3_file_upload_thread_pool_min_thread_num;
-    auto max_num = config::s3_file_upload_thread_pool_max_thread_num;
+    auto min_num = config::num_s3_file_upload_thread_pool_min_thread;
+    auto max_num = config::num_s3_file_upload_thread_pool_max_thread;
     auto factor = max_num / min_num;
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
