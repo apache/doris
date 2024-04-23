@@ -81,9 +81,9 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _need_commit = true;
             data_size_condition = true;
         }
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                std::chrono::steady_clock::now() - _start_time)
-                                                .count() >= _group_commit_interval_ms) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                  _start_time)
+                    .count() >= _group_commit_interval_ms) {
             VLOG_DEBUG << "group commit meets commit condition for time interval, label=" << label
                        << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
             _need_commit = true;
