@@ -243,6 +243,7 @@ private:
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace pipeline

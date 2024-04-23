@@ -138,6 +138,7 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
     return Status::OK();
 }
 
