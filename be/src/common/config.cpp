@@ -1025,6 +1025,7 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt64(s3_write_buffer_size, "5242880");
+DEFINE_mInt32(s3_task_check_interval, "60");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
@@ -1060,7 +1061,7 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
-DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "false");
+DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1070,8 +1071,8 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
-// default 4GB
-DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
+// default max to 2048 connections
+DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -1175,6 +1176,8 @@ DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+
+DEFINE_mBool(enable_s3_rate_limiter, "false");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 

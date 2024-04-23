@@ -93,7 +93,6 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
           _write_file_cache(opts ? opts->write_file_cache : false) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
-
     Aws::Http::SetCompliantRfc3986Encoding(true);
     if (config::enable_file_cache && _write_file_cache) {
         _cache_hash = BlockFileCache::hash(_path.filename().native());

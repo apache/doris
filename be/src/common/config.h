@@ -1070,6 +1070,7 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt64(s3_write_buffer_size);
+DECLARE_mInt32(s3_task_check_interval);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
@@ -1128,7 +1129,7 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
-DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
@@ -1262,6 +1263,7 @@ DECLARE_Int32(spill_async_task_thread_pool_queue_size);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
+DECLARE_mBool(enable_s3_rate_limiter);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 

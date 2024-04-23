@@ -246,8 +246,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
 
         DCHECK(spilling_stream != nullptr);
 
-        auto* spill_io_pool =
-                ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool();
+        auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(
+                spilling_stream->get_spill_root_dir());
         DCHECK(spill_io_pool != nullptr);
         auto execution_context = state->get_task_execution_context();
         _shared_state_holder = _shared_state->shared_from_this();

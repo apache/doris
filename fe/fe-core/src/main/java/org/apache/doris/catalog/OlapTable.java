@@ -2069,6 +2069,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return "";
     }
 
+    public boolean containsPartition(String partitionName) {
+        return nameToPartition.containsKey(partitionName);
+    }
+
     public long getTTLSeconds() {
         if (tableProperty != null) {
             return tableProperty.getTTLSeconds();

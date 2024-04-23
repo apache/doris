@@ -37,6 +37,7 @@ import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
+import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
@@ -146,6 +147,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -460,6 +462,8 @@ public class ShowExecutor {
             handleShowCluster();
         } else if (stmt instanceof ShowStorageVaultStmt) {
             handleShowStorageVault();
+        } else if (stmt instanceof ShowCloudWarmUpStmt) {
+            handleShowCloudWarmUpJob();
         } else {
             handleEmtpy();
         }
@@ -1107,7 +1111,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                            showStmt.getTable(), "VIEW");
+                            showStmt.getTable(), "VIEW", "Use 'SHOW CREATE TABLE '" + table.getName());
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = table.getType() != TableType.MATERIALIZED_VIEW
@@ -1746,15 +1750,25 @@ public class ShowExecutor {
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
+        List<String> utf8mb40900Bin = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add(ctx.getSessionVariable().getCollationConnection());
-        row.add(ctx.getSessionVariable().getCharsetServer());
-        row.add("309");
-        row.add("Yes");
-        row.add("Yes");
-        row.add("1");
-        rows.add(row);
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCollationConnection());
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCharsetServer());
+        utf8mb40900Bin.add("309");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("1");
+        rows.add(utf8mb40900Bin);
+        // ATTN: we must have this collation for compatible with some bi tools
+        List<String> utf8mb3GeneralCi = Lists.newArrayList();
+        // | utf8mb3_general_ci | utf8mb3 | 33 | Yes | Yes | 1 |
+        utf8mb3GeneralCi.add("utf8mb3_general_ci");
+        utf8mb3GeneralCi.add("utf8mb3");
+        utf8mb3GeneralCi.add("33");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("1");
+        rows.add(utf8mb3GeneralCi);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -2406,6 +2420,20 @@ public class ShowExecutor {
         }
     }
 
+    private void handleShowCloudWarmUpJob() throws AnalysisException {
+        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
+        if (showStmt.showAllJobs()) {
+            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
+        } else {
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv())
+                                    .getCacheHotspotMgr()
+                                    .getSingleJobInfo(showStmt.getJobId()));
+        }
+    }
+
     private void handleShowPlugins() throws AnalysisException {
         ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
         List<List<String>> rows = Env.getCurrentPluginMgr().getPluginShowInfos();
@@ -2560,8 +2588,9 @@ public class ShowExecutor {
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            TableIf tableIf) throws AnalysisException {
-        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+            TableIf tableIf) {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(
+                tableIf.getDatabase().getCatalog().getId(), tableIf.getDatabase().getId(), tableIf.getId());
         // row[4] is index id, row[5] is column name.
         for (ResultRow row : resultRows) {
             String indexName = tableIf.getName();
@@ -2606,7 +2635,9 @@ public class ShowExecutor {
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
-                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                            StatisticsRepository.queryColumnStatisticsByName(
+                                    tableIf.getDatabase().getCatalog().getId(),
+                                    tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
