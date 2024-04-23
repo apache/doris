@@ -51,12 +51,6 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
 
-    void mark_index_offset() {
-        if (_cache_builder != nullptr) {
-            _index_offset = _bytes_appended;
-        }
-    }
-
 private:
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer

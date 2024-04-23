@@ -37,8 +37,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/hdfs_file_writer.h"
-#include "io/fs/s3_file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -198,7 +196,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -1058,14 +1056,6 @@ Status SegmentWriter::finalize_columns_data() {
 }
 
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
-    if (config::is_cloud_mode()) {
-        if (auto* s3_writer = dynamic_cast<io::S3FileWriter*>(_file_writer); s3_writer) {
-            s3_writer->mark_index_offset();
-        }
-        if (auto* hdfs_writer = dynamic_cast<io::HdfsFileWriter*>(_file_writer); hdfs_writer) {
-            hdfs_writer->mark_index_offset();
-        }
-    }
     uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());

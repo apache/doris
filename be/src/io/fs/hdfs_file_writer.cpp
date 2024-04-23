@@ -159,8 +159,7 @@ void HdfsFileWriter::_write_into_local_file_cache() {
         size_t block_size = block->range().size();
         size_t append_size = std::min(data_remain_size, block_size);
         if (block->state() == FileBlock::State::EMPTY) {
-            if (_index_offset != 0 && block->range().right >= _index_offset &&
-                block->cache_type() == FileCacheType::NORMAL) {
+            if (_index_offset != 0 && block->range().right >= _index_offset) {
                 static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
             }
             block->get_or_set_downloader();

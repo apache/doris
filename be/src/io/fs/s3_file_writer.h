@@ -58,17 +58,6 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
 
-    void mark_index_offset() {
-        if (_expiration_time == 0) {
-            _index_offset = _bytes_appended;
-            // Only the normal data need to change to index data
-            if (_pending_buf) {
-                std::dynamic_pointer_cast<UploadFileBuffer>(_pending_buf)
-                        ->set_index_offset(_index_offset);
-            }
-        }
-    }
-
 private:
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
