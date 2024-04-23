@@ -37,6 +37,7 @@ import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
+import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
@@ -146,6 +147,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -460,6 +462,8 @@ public class ShowExecutor {
             handleShowCluster();
         } else if (stmt instanceof ShowStorageVaultStmt) {
             handleShowStorageVault();
+        } else if (stmt instanceof ShowCloudWarmUpStmt) {
+            handleShowCloudWarmUpJob();
         } else {
             handleEmtpy();
         }
@@ -2413,6 +2417,20 @@ public class ShowExecutor {
                 }
             }
             resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+        }
+    }
+
+    private void handleShowCloudWarmUpJob() throws AnalysisException {
+        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
+        if (showStmt.showAllJobs()) {
+            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
+        } else {
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv())
+                                    .getCacheHotspotMgr()
+                                    .getSingleJobInfo(showStmt.getJobId()));
         }
     }
 
