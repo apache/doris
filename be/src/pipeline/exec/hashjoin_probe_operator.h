@@ -94,15 +94,16 @@ public:
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
+    bool empty_right_table_shortcut() const {
+        // !Base::_projections.empty() means nereids planner
+        return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
+    }
 
 private:
     void _prepare_probe_block();
     bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
-    Status _extract_join_column(vectorized::Block& block,
-                                vectorized::ColumnUInt8::MutablePtr& null_map,
-                                vectorized::ColumnRawPtrs& raw_ptrs,
-                                const std::vector<int>& res_col_ids);
+    Status _extract_join_column(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType, typename Parent>
     friend struct vectorized::ProcessHashTableProbe;
