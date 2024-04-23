@@ -115,4 +115,15 @@ suite("push_count_into_union_all") {
         explain shape plan
         select a,count(b) c1,sum(b) from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
         union all select a,b from mal_test_push_count where a=1 ) t group by a order by 1,2,3;"""
+
+    qt_test_upper_refer_count_star """
+        select a,c1 from (
+        select a,count(*) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a) outer_table order by 1,2;"""
+
+    qt_test_upper_refer_count_star_shape """
+        explain shape plan
+        select a,c1 from (
+        select a,count(*) c1 from (select a,b from mal_test_push_count where a>1 union all select a,b from mal_test_push_count where a<100 
+        union all select a,b from mal_test_push_count where a=1 ) t group by a) outer_table order by 1,2;"""
 }
