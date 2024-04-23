@@ -167,7 +167,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
         if (paths.empty()) {
             return Status::InternalError("fail to create write buffer due to missing cache path");
         }
-        std::size_t hash_val = std::hash<int64_t>{}(_tablet_id);
+        std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
         int idx = hash_val % paths.size();
         file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
     } else {
