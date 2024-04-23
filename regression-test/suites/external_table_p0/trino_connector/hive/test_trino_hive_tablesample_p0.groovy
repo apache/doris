@@ -66,7 +66,7 @@ suite("test_trino_hive_tablesample_p0", "all_types,p0,external,hive,external_doc
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
             String catalog_name = "test_trino_hive_tablesample_p0"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
