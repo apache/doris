@@ -333,7 +333,7 @@ public class Profile {
             long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
             // time cost of this query is large enough.
             if (durationMs > autoProfileDurationMs) {
-                LOG.info("Query {} costs {} ms, begin {} finishe {}, need store its profile",
+                LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
                         id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
                 return true;
             }
@@ -342,7 +342,7 @@ public class Profile {
         }
 
         if (this.queryFinishTimestamp == Long.MIN_VALUE) {
-            LOG.warn("Logical error,  query {} has finished, but queryFinishTimestamp is 0,", id);
+            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is 0,", id);
             return false;
         }
 
@@ -386,6 +386,7 @@ public class Profile {
         }
     }
 
+    // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
     public static String[] parseProfileFileName(String profileFileName) {
         String [] timeAndID = profileFileName.split(SEPERATOR);
         if (timeAndID.length != 2) {
@@ -393,7 +394,9 @@ public class Profile {
         }
         TUniqueId thriftId = Util.parseTUniqueIdFromString(timeAndID[1]);
         if (thriftId == null) {
-            return null;
+            if (Long.valueOf(timeAndID[1]) == null) {
+                return null;
+            }
         }
         return timeAndID;
     }
@@ -415,7 +418,7 @@ public class Profile {
             res.setId(res.summaryProfile.getProfileId());
             res.profileStoragePath = path;
             res.isFinished = true;
-            LOG.info("ReadProfile {}", res.summaryProfile.getProfileId());
+            LOG.debug("Read profile from disk: {}", res.summaryProfile.getProfileId());
             return res;
         } catch (Exception exception) {
             LOG.error("read profile failed", exception);

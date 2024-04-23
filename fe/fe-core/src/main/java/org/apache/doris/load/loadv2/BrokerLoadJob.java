@@ -229,8 +229,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                     true,
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
                     false,
-                    ConnectContext.get().getSessionVariable().getAutoProfileThresholdMs());
-            this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
+                    0); // TODO: 怎么给这些 load job 设置 profile 记录时间
+            // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
@@ -366,6 +366,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
+        // Id of summary profile will be shown as the profile id in the web page
         builder.profileId(String.valueOf(id));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
             builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
