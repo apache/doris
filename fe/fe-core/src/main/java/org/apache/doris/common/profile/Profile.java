@@ -17,9 +17,7 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.Planner;
@@ -27,11 +25,12 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.checkerframework.com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -68,7 +67,7 @@ public class Profile {
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
 
-    // For broker load, it has its specific name, for other load/query, the it will be 
+    // For broker load, it has its specific name, for other load/query, the it will be
     // the same witch profile id in the SummaryProfile.
     private String id = "";
     private boolean isPipelineX = true;
@@ -147,7 +146,7 @@ public class Profile {
             }
             // TODO: should not change isFinished here, in principle, the modification of isFinished should only
             // by method markisFinished.
-            // State change should be carefully designed, the absense of unified behaviour is 
+            // State change should be carefully designed, the absense of unified behaviour is
             // a potential risk of bug.
             this.isFinished = isFinished;
             if (isFinished) {
@@ -201,7 +200,7 @@ public class Profile {
         if (profileHasBeenStoredToDisk()) {
             LOG.info("Profile of query {} has been stored to disk, reading it from disk",
                     this.summaryProfile.getProfileId());
-            
+
             FileInputStream fileInputStream = null;
 
             try {
@@ -217,8 +216,9 @@ public class Profile {
                 builder.append(Text.readString(dataInput));
                 return;
             } catch (Exception e) {
-                    LOG.error("An error occurred while reading execution profile from disk, profile storage path: {}", profileStoragePath, e);
-                    builder.append("Failed to read execution profile from " + profileStoragePath);
+                LOG.error("An error occurred while reading execution profile from disk, profile storage path: {}",
+                        profileStoragePath, e);
+                builder.append("Failed to read execution profile from " + profileStoragePath);
             } finally {
                 if (fileInputStream != null) {
                     try {
@@ -257,7 +257,7 @@ public class Profile {
 
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
-    static private FileInputStream createPorfileFileInputStream(String path) {
+    private static FileInputStream createPorfileFileInputStream(String path) {
         File profileFile = new File(path);
         if (!profileFile.isFile()) {
             LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
@@ -349,7 +349,7 @@ public class Profile {
         if (System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
             LOG.info("Profile of query {} should be stored to disk without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
-                    id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);            
+                    id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
             return true;
         }
 
@@ -372,12 +372,11 @@ public class Profile {
                 LOG.error("Logical error, profile {} has already been stored to disk", this.id);
                 return;
             }
-    
+
             this.executionProfiles.forEach(
-                executionProfile -> {
-                executionProfile.setQueryFinishTime(queryFinishTime);
-                }
-            );
+                    executionProfile -> {
+                        executionProfile.setQueryFinishTime(queryFinishTime);
+                    });
 
             this.isFinished = true;
             this.queryFinishTimestamp = System.currentTimeMillis();
@@ -387,7 +386,7 @@ public class Profile {
         }
     }
 
-    static public String[] parseProfileFileName(String profileFileName) {
+    public static String[] parseProfileFileName(String profileFileName) {
         String [] timeAndID = profileFileName.split(SEPERATOR);
         if (timeAndID.length != 2) {
             return null;
@@ -448,8 +447,8 @@ public class Profile {
         this.profileStoreTimestamp = tmpProfileStoreTime;
 
         // time_id
-        final String profileFilePath = systemProfileStorageDir +
-                File.separator + String.valueOf(tmpProfileStoreTime) + SEPERATOR + profileId;
+        final String profileFilePath = systemProfileStorageDir + File.separator + String.valueOf(tmpProfileStoreTime)
+                                    + SEPERATOR + profileId;
 
         File profileFile = new File(profileFilePath);
         if (profileFile.exists()) {
@@ -486,7 +485,7 @@ public class Profile {
                 LOG.warn("close profile file {} failed", profileFilePath, e);
             }
         }
-    
+
         this.profileStoragePath = profileFilePath;
         LOG.info("Store profile for id: {}, path {}",  this.summaryProfile.getProfileId(), this.profileStoragePath);
     }
