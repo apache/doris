@@ -126,7 +126,9 @@ public class Backend implements Writable {
     // cpu cores
     @SerializedName("cpuCores")
     private int cpuCores = 1;
-
+    // The physical memory available for use by BE.
+    @SerializedName("beMemory")
+    private long beMemory = 0;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -142,6 +144,8 @@ public class Backend implements Writable {
     // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
+
+    private long fileCacheCapactiyBytes = 0;
 
     public Backend() {
         this.host = "";
@@ -232,6 +236,14 @@ public class Backend implements Writable {
 
     public int getHeartbeatPort() {
         return heartbeatPort;
+    }
+
+    public void setfileCacheCapacityBytes(long fileCacheCapactiyBytes) {
+        this.fileCacheCapactiyBytes = fileCacheCapactiyBytes;
+    }
+
+    public long getfileCacheCapactiyBytes() {
+        return fileCacheCapactiyBytes;
     }
 
     public int getHttpPort() {
@@ -377,6 +389,10 @@ public class Backend implements Writable {
 
     public int getCputCores() {
         return cpuCores;
+    }
+
+    public long getBeMemory() {
+        return beMemory;
     }
 
     public int getPipelineExecutorSize() {
@@ -769,6 +785,10 @@ public class Backend implements Writable {
                     hbResponse.getNodeRole())) {
                 isChanged = true;
                 this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, hbResponse.getNodeRole());
+            }
+            if (this.beMemory != hbResponse.getBeMemory()) {
+                isChanged = true;
+                this.beMemory = hbResponse.getBeMemory();
             }
 
             this.lastUpdateMs = hbResponse.getHbTime();

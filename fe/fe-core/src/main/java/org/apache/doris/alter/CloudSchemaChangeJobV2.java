@@ -39,14 +39,14 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -54,17 +54,21 @@ import java.util.stream.Collectors;
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
-    public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IOException {
-        // deep copy to save repeated assignments
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream dos = new DataOutputStream(baos);
-        job.write(dos);
-        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-        DataInputStream dis = new DataInputStream(bais);
-        // partitionIndexMap cannot be deep-copied because it is referenced
-        // by `SchemaChangeJobV2#addShadowIndexToCatalog` and `SchemaChangeHandler.createJob`
-        CloudSchemaChangeJobV2 ret = (CloudSchemaChangeJobV2) CloudSchemaChangeJobV2.read(dis);
-        ret.partitionIndexMap = job.partitionIndexMap;
+    public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IllegalAccessException {
+        CloudSchemaChangeJobV2 ret = new CloudSchemaChangeJobV2();
+        List<Field> allFields = new ArrayList<>();
+        Class tmpClass = SchemaChangeJobV2.class;
+        while (tmpClass != null) {
+            allFields.addAll(Arrays.asList(tmpClass.getDeclaredFields()));
+            tmpClass = tmpClass.getSuperclass();
+        }
+        for (Field field : allFields) {
+            field.setAccessible(true);
+            Annotation annotation = field.getAnnotation(SerializedName.class);
+            if (annotation != null) {
+                field.set(ret, field.get(job));
+            }
+        }
         return ret;
     }
 

@@ -790,6 +790,7 @@ private:
             }
         } else {
             LOG(FATAL) << "unexpected type ";
+            __builtin_unreachable();
         }
     }
 

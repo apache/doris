@@ -80,6 +80,7 @@ import org.apache.doris.analysis.UnsetVariableStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -596,23 +597,17 @@ public class StmtExecutor {
                     }
                     // FIXME: Force fallback for:
                     //  1. group commit because nereids does not support it (see the following `isGroupCommit` variable)
-                    //  2. insert into command because some nereids cases fail (including case1)
                     //  Skip force fallback for:
                     //  1. Transaction insert because nereids support `insert into select` while legacy does not
                     //  2. Nereids support insert into external table while legacy does not
                     boolean isInsertCommand = parsedStmt != null
                             && parsedStmt instanceof LogicalPlanAdapter
                             && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
-                    /*boolean isGroupCommit = (Config.wait_internal_group_commit_finish
-                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;*/
-                    boolean isExternalTableInsert = false;
-                    if (isInsertCommand) {
-                        isExternalTableInsert = ((InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt)
-                                .getLogicalPlan()).isExternalTableSink();
-                    }
-                    boolean forceFallback = isInsertCommand && !isExternalTableInsert && !context.isTxnModel();
-                    if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                            && !forceFallback) {
+                    boolean isGroupCommit = (Config.wait_internal_group_commit_finish
+                            || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;
+                    if (e instanceof NereidsException
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner
+                            && !isGroupCommit) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
                         return;
@@ -770,6 +765,7 @@ public class StmtExecutor {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 }
+                LOG.info("NereidsException", e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -1026,6 +1022,8 @@ public class StmtExecutor {
                 handleUnlockTablesStmt();
             } else if (parsedStmt instanceof LockTablesStmt) {
                 handleLockTablesStmt();
+            } else if (parsedStmt instanceof WarmUpClusterStmt) {
+                handleWarmUpStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
             } else if (parsedStmt instanceof AnalyzeStmt) {
@@ -1683,8 +1681,7 @@ public class StmtExecutor {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
-            throws Exception {
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
         InternalService.PFetchCacheResult cacheResult = null;
         boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
                 && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
@@ -1707,7 +1704,6 @@ public class StmtExecutor {
                 }
             }
         }
-
 
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
@@ -1861,6 +1857,7 @@ public class StmtExecutor {
                 return;
             }
 
+            boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1869,7 +1866,7 @@ public class StmtExecutor {
 
                 // for outfile query, there will be only one empty batch send back with eos flag
                 // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
-                if (cacheAnalyzer != null && !isOutfileQuery) {
+                if (cacheAnalyzer != null && !isOutfileQuery && !isDryRun) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }
                 if (batch.getBatch() != null) {
@@ -1900,10 +1897,10 @@ public class StmtExecutor {
                     break;
                 }
             }
-            if (cacheAnalyzer != null) {
+            if (cacheAnalyzer != null && !isDryRun) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
-                            sendCachedValues(channel, cacheResult.getValuesList(), (Queriable) queryStmt, isSendFields,
+                            sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields,
                                     false);
                 }
 
@@ -1921,7 +1918,7 @@ public class StmtExecutor {
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                    if (ConnectContext.get() != null && isDryRun) {
                         // Return a one row one column result set, with the real result number
                         List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
                                 : batch.getQueryStatistics().getReturnedRows() + "");
@@ -2371,7 +2368,6 @@ public class StmtExecutor {
                 } else {
                     txnStatus = TransactionStatus.COMMITTED;
                 }
-
                 // TODO(meiyi)
                 // insertStmt.afterFinishTxn(true);
                 if (Config.isCloudMode()) {
@@ -2475,11 +2471,9 @@ public class StmtExecutor {
         backendsList.forEach(backends -> backends.forEach(backend -> {
             if (backend.isAlive()) {
                 List<Long> tabletIdList = new ArrayList<Long>();
-                Set<Long> beTabletIds = null;
-                // TODO(merge-cloud): need implements cloud rebalancer, otherwise raise beTabletIds NPE
-                //Set<Long> beTabletIds = Env.getCurrentEnv()
-                //                            .getCloudTabletRebalancer()
-                //                            .getSnapshotTabletsByBeId(backend.getId());
+                Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
+                                           .getCloudTabletRebalancer()
+                                           .getSnapshotTabletsByBeId(backend.getId());
                 allTabletIds.forEach(tabletId -> {
                     if (beTabletIds.contains(tabletId)) {
                         tabletIdList.add(tabletId);
@@ -2618,6 +2612,34 @@ public class StmtExecutor {
         }
 
         context.getState().setOk();
+    }
+
+    private void handleWarmUpStmt() throws IOException, AnalysisException {
+        WarmUpClusterStmt stmt = (WarmUpClusterStmt) parsedStmt;
+        long jobId = -1;
+        try {
+            jobId = ((CloudEnv) context.getEnv()).getCacheHotspotMgr().createJob(stmt);
+            ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+            builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
+            List<List<String>> infos = Lists.newArrayList();
+            List<String> info = Lists.newArrayList();
+            info.add(String.valueOf(jobId));
+            infos.add(info);
+            ShowResultSet resultSet = new ShowResultSet(builder.build(), infos);
+            if (resultSet == null) {
+                // state changed in execute
+                return;
+            }
+            if (isProxy) {
+                proxyShowResultSet = resultSet;
+                return;
+            }
+
+            sendResultSet(resultSet);
+        } catch (AnalysisException e) {
+            LOG.info("failed to create a warm up job, error: {}", e.getMessage());
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        }
     }
 
     private void sendMetaData(ResultSetMetaData metaData) throws IOException {

@@ -744,7 +744,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                          res_col_ids));
 
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(_build_side_mutable_block.merge_ignore_overflow(*in_block));
             if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
                 return Status::NotSupported(
                         "Hash join do not support build table rows"
@@ -942,6 +942,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     COUNTER_UPDATE(_build_rows_counter, rows);
+    block.replace_if_overflow();
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
