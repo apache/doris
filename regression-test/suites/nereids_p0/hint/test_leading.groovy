@@ -75,6 +75,8 @@ suite("test_leading") {
         time 10000
     }
 
+    sql""" set BATCH_SIZE = 4064;"""
+
 //// check table count
     qt_select1_1 """select count(*) from t1;"""
     qt_select1_2 """select count(*) from t2;"""
