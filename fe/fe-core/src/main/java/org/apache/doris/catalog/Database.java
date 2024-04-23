@@ -469,7 +469,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public Map<Long, Table> getIdToTableRef() {
         return idToTable;
     }
-    
+
     public List<Long> getTableIds() {
         return new ArrayList<>(idToTable.keySet());
     }
