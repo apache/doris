@@ -137,10 +137,12 @@ public class EnvFactory {
         return new Coordinator(context, analyzer, planner, statsErrorEstimator);
     }
 
+    // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance) {
-        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
+                            enableProfile);
     }
 
     public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,
