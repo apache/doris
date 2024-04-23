@@ -408,8 +408,6 @@ private:
     scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
-    // threads to scan disk paths
-    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
