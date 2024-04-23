@@ -105,7 +105,8 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         if (tablet->tabelt_state() == TABLET_SHUTDOWN) {
-            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more", tablet->tablet_id());
+            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
+                                                 tablet->tablet_id());
         }
 
         // Read one block from block reader
