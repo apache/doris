@@ -1545,7 +1545,7 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
 
-    @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE,
+    @VariableMgr.VarAttr(name = FORCE_SAMPLE_ANALYZE, needForward = true,
             description = {"是否将 full analyze 自动转换成 sample analyze", "Set true to force sample analyze"},
             flag = VariableMgr.GLOBAL)
     public boolean forceSampleAnalyze = Config.force_sample_analyze;
