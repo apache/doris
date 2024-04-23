@@ -99,115 +99,119 @@ suite("test_compaction_uniq_keys_row_store") {
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
         def tablets = null
-        sql """ DROP TABLE IF EXISTS ${tableName} """
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                `user_id` int NOT NULL COMMENT "用户id",
-                `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-                `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
-                `datetimev2_1` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-                `datetimev2_2` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-                `city` VARCHAR(20) COMMENT "用户所在城市",
-                `age` SMALLINT COMMENT "用户年龄",
-                `sex` TINYINT COMMENT "用户性别",
-                `last_visit_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-                `last_update_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
-                `datetime_val1` DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111" COMMENT "用户最后一次访问时间",
-                `datetime_val2` DATETIME(6) DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
-                `last_visit_date_not_null` DATETIME NOT NULL DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-                `cost` BIGINT DEFAULT "0" COMMENT "用户总消费",
-                `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
-                `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
-            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "light_schema_change" = "true", "store_row_column" = "true" );
-        """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.021', '2017-10-01 11:11:11.011', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2017-10-01 11:11:11.170000', '2017-10-01 11:11:11.110111', '2020-01-01', 1, 30, 20)
+        for (def use_row_store : [true, false]) {    
+            sql """ DROP TABLE IF EXISTS ${tableName} """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    `user_id` int NOT NULL COMMENT "用户id",
+                    `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+                    `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
+                    `datetimev2_1` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
+                    `datetimev2_2` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
+                    `city` VARCHAR(20) COMMENT "用户所在城市",
+                    `age` SMALLINT COMMENT "用户年龄",
+                    `sex` TINYINT COMMENT "用户性别",
+                    `last_visit_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
+                    `last_update_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
+                    `datetime_val1` DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111" COMMENT "用户最后一次访问时间",
+                    `datetime_val2` DATETIME(6) DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
+                    `last_visit_date_not_null` DATETIME NOT NULL DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
+                    `cost` BIGINT DEFAULT "0" COMMENT "用户总消费",
+                    `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
+                    `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
+                UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+                PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "light_schema_change" = "true",
+                "store_row_column" = "${use_row_store}");
             """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.022', '2017-10-01 11:11:11.012', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.021', '2017-10-01 11:11:11.011', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2017-10-01 11:11:11.170000', '2017-10-01 11:11:11.110111', '2020-01-01', 1, 30, 20)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.023', '2017-10-01 11:11:11.013', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.022', '2017-10-01 11:11:11.012', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.024', '2017-10-01 11:11:11.014', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', 1, 32, 20)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.023', '2017-10-01 11:11:11.013', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.025', '2017-10-01 11:11:11.015', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.024', '2017-10-01 11:11:11.014', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', 1, 32, 20)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.026', '2017-10-01 11:11:11.016', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.025', '2017-10-01 11:11:11.015', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.027', '2017-10-01 11:11:11.017', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
-            """
+            sql """ INSERT INTO ${tableName} VALUES
+                (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.026', '2017-10-01 11:11:11.016', 'Beijing', 10, 1, '2020-01-04', '2020-01-04', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.150111', '2020-01-04', 1, 33, 21)
+                """
 
-        sql """ INSERT INTO ${tableName} VALUES
-             (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.028', '2017-10-01 11:11:11.018', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
-            """
-        //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-        tablets = sql_return_maparray """ show tablets from ${tableName}; """
+            sql """ INSERT INTO ${tableName} VALUES
+                (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.027', '2017-10-01 11:11:11.017', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
+                """
 
-        checkValue()
+            sql """ INSERT INTO ${tableName} VALUES
+                (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.028', '2017-10-01 11:11:11.018', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
+                """
+            //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
+            tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
-        // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
+            checkValue()
 
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
+            // trigger compactions for all tablets in ${tableName}
+            for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
-
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-
-        def replicaNum = get_table_replica_num(tableName)
-        logger.info("get table replica num: " + replicaNum)
-        int rowCount = 0
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            for (String rowset in (List<String>) tabletJson.rowsets) {
-                rowCount += Integer.parseInt(rowset.split(" ")[1])
+                def compactJson = parseJson(out.trim())
+                if (compactJson.status.toLowerCase() == "fail") {
+                    assertEquals(disableAutoCompaction, false)
+                    logger.info("Compaction was done automatically!")
+                }
+                if (disableAutoCompaction) {
+                    assertEquals("success", compactJson.status.toLowerCase())
+                }
             }
+
+            // wait for all compactions done
+            for (def tablet in tablets) {
+                boolean running = true
+                do {
+                    Thread.sleep(1000)
+                    String tablet_id = tablet.TabletId
+                    backend_id = tablet.BackendId
+                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                    assertEquals(code, 0)
+
+                    def compactionStatus = parseJson(out.trim())
+                    assertEquals("success", compactionStatus.status.toLowerCase())
+                    running = compactionStatus.run_status
+                } while (running)
+            }
+
+            def replicaNum = get_table_replica_num(tableName)
+            logger.info("get table replica num: " + replicaNum)
+            int rowCount = 0
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def tabletJson = parseJson(out.trim())
+                assert tabletJson.rowsets instanceof List
+                for (String rowset in (List<String>) tabletJson.rowsets) {
+                    rowCount += Integer.parseInt(rowset.split(" ")[1])
+                }
+            }
+            assert (rowCount < 8 * replicaNum)
+            checkValue()
         }
-        assert (rowCount < 8 * replicaNum)
-        checkValue()
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
