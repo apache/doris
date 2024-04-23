@@ -36,7 +36,7 @@ suite("test_create_table_like_nereids") {
     sql """insert into table_like values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     "sync"
-    qt_test_without_roll_up "select * from table_like;"
+    qt_test_without_roll_up "select * from table_like order by pk,a,b;"
 
     // with all rollup
     sql "drop table if exists table_like_with_roll_up"
@@ -53,7 +53,7 @@ suite("test_create_table_like_nereids") {
     // with partial rollup
     sql "drop table if exists table_like_with_partial_roll_up;"
     sql "CREATE TABLE table_like_with_partial_roll_up LIKE mal_test_create_table_like with rollup (ru1);"
-    sql "select * from table_like_with_partial_roll_up;"
+    sql "select * from table_like_with_partial_roll_up order by pk, a, b"
     explain {
         sql("select sum(a) from table_like_with_partial_roll_up group by a")
         contains("ru1")
@@ -66,7 +66,7 @@ suite("test_create_table_like_nereids") {
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     sql "sync"
     sleep(2000)
-    sql "select sum(a) from table_like_with_partial_roll_up group by a"
+    sql "select sum(a) from table_like_with_partial_roll_up group by a order by 1"
 
     // test if not exists
     sql "drop table if exists table_like_with_partial_roll_up_exists"
