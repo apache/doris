@@ -90,6 +90,8 @@ public:
 
     bool is_asc() const { return _is_asc; }
 
+    bool nulls_first() const { return _nulls_first; }
+
 private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};

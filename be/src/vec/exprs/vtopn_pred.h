@@ -41,6 +41,7 @@ public:
               _source_node_id(source_node_id),
               _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)) {}
 
+    // TODO: support general expr
     static Status create_vtopn_pred(SlotDescriptor* slot_desc, int source_node_id,
                                     vectorized::VExprSPtr& expr) {
         TExprNode node;
@@ -97,7 +98,7 @@ public:
                                            block->rows(), false));
         *result_column_id = num_columns_without_result;
 
-        if (is_nullable()) {
+        if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
             change_null_to_true(block->get_by_position(num_columns_without_result).column);
         }

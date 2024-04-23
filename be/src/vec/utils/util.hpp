@@ -181,6 +181,7 @@ inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
 
 // change null element to true element
 inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) {
+    size_t rows = column->size();
     if (is_column_const(*column)) {
         change_null_to_true(assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr());
     } else if (column->is_nullable()) {
@@ -190,10 +191,10 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
                                         ->get_data()
                                         .data();
         auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, column->size());
+        memset(null_map, 0, rows);
     } else if (argument != nullptr) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
@@ -201,7 +202,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
                 const_cast<ColumnUInt8*>(assert_cast<const ColumnUInt8*>(column.get()))
                         ->get_data()
                         .data();
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
     }
