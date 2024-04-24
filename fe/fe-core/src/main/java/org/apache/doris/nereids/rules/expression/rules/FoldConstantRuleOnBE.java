@@ -217,6 +217,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
             if (staleExpr == null) {
                 // just return, it's a fail-safe
+                LOG.warn("expression {} translate to legacy expr failed. ", expr);
                 return;
             }
             tExprMap.put(id, staleExpr.treeToThrift());
