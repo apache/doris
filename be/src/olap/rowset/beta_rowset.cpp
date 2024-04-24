@@ -125,7 +125,7 @@ void BetaRowset::clear_inverted_index_cache() {
         auto seg_path = segment_file_path(i);
         for (auto& column : tablet_schema()->columns()) {
             const TabletIndex* index_meta =
-                    tablet_schema()->get_inverted_index(column.column_unique_id());
+                    tablet_schema()->get_inverted_index(column.unique_id());
             if (index_meta) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
                         seg_path, index_meta->index_id());

@@ -19,7 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "io/cache/file_cache_manager.h"
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
 
@@ -96,6 +98,10 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
 void Rowset::clear_cache() {
     SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
     clear_inverted_index_cache();
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        auto cache_path = segment_cache_path(i);
+        FileCacheManager::instance()->remove_file_cache(cache_path);
+    }
 }
 
 } // namespace doris
