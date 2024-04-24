@@ -813,8 +813,4 @@ public class SummaryProfile {
     public void incDeleteDirRecursiveCnt() {
         this.filesystemDeleteDirCnt += 1;
     }
-
-    public String getTotalTime() {
-        return this.summaryProfile.getInfoString(TOTAL_TIME);
-    }
 }
