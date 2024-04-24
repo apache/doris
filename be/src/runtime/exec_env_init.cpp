@@ -33,10 +33,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
@@ -190,6 +194,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadPollerThreadPool")
+                              .set_min_threads(4)
+                              .set_max_threads(16)
+                              .build(&_s3_downloader_download_poller_thread_pool));
+
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(16)
                               .set_max_threads(64)
@@ -214,6 +223,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
+
+    static_cast<void>(ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+                              .set_max_threads(config::sync_load_for_tablets_thread)
+                              .set_min_threads(config::sync_load_for_tablets_thread)
+                              .build(&_sync_load_for_tablets_thread_pool));
+
+    static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadThreadPool")
+                              .set_min_threads(16)
+                              .set_max_threads(64)
+                              .build(&_s3_downloader_download_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -289,6 +308,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode" << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+        _file_cache_block_downloader = new io::FileCacheBlockS3Downloader(
+                *dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
+        _cloud_warm_up_manager =
+                new CloudWarmUpManager(*dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
+        _tablet_hotspot = new TabletHotspot();
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -394,7 +418,6 @@ Status ExecEnv::_init_mem_env() {
     // 1. init mem tracker
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-    _env_thread_context = thread_context();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();
@@ -631,6 +654,11 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
+    if (config::is_cloud_mode()) {
+        SAFE_DELETE(_file_cache_block_downloader);
+        SAFE_DELETE(_tablet_hotspot);
+        SAFE_DELETE(_cloud_warm_up_manager);
+    }
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -664,6 +692,7 @@ void ExecEnv::destroy() {
     _lazy_release_obj_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
+    _s3_downloader_download_poller_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
@@ -703,6 +732,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
 
     _s_tracking_memory = false;
+
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

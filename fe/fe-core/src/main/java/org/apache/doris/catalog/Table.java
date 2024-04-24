@@ -348,7 +348,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
@@ -362,6 +362,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public String getDBName() {
+        String[] strs = qualifiedDbName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
     }
 
     public Constraint getConstraint(String name) {

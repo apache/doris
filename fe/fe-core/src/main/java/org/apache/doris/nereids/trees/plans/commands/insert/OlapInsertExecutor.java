@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
@@ -45,6 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -63,6 +65,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Insert executor for olap table
@@ -198,6 +201,21 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
             txnStatus = TransactionStatus.COMMITTED;
+        }
+        if (Config.isCloudMode()) {
+            String clusterName = ctx.getCloudCluster();
+            if (ctx.getSessionVariable().enableMultiClusterSyncLoad()
+                    && clusterName != null && !clusterName.isEmpty()) {
+                CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                List<List<Backend>> backendsList = infoService
+                                                        .getCloudClusterNames()
+                                                        .stream()
+                                                        .filter(name -> !name.equals(clusterName))
+                                                        .map(name -> infoService.getBackendsByClusterName(name))
+                                                        .collect(Collectors.toList());
+                List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
+                StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
+            }
         }
     }
 

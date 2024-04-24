@@ -88,9 +88,7 @@ private:
                    RuntimeProfile* profile, std::string root_path);
     const THdfsParams& _hdfs_params; // Only used in init, so we can use reference here
     std::string _fs_name;
-    // do not use std::shared_ptr or std::unique_ptr
-    // _fs_handle is managed by HdfsFileSystemCache
-    HdfsHandler* _fs_handle = nullptr;
+    std::shared_ptr<HdfsHandler> _fs_handle = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
 } // namespace io

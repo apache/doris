@@ -892,7 +892,7 @@ order by
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get("hive2HmsPort")
         String catalog_name = "test_trino_hive_tpch_sf1_parquet"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

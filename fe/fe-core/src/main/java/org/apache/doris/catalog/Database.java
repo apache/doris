@@ -243,6 +243,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {
@@ -460,6 +464,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public List<Table> getTables() {
         return new ArrayList<>(idToTable.values());
+    }
+
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
     }
 
     // tables must get read or write table in fixed order to avoid potential dead lock

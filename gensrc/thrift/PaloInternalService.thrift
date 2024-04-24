@@ -285,6 +285,9 @@ struct TQueryOptions {
   104: optional i64 min_revocable_mem = 0
 
   105: optional i64 spill_streaming_agg_mem_limit = 0;
+
+  // max rows of each sub-queue in DataQueue.
+  106: optional i64 data_queue_max_blocks = 0;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
