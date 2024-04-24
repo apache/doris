@@ -145,6 +145,8 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 // Used to calculate the num of min thread and max thread based on the passed config
 static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     auto num_cores = doris::CpuInfo::num_cores();
+    min_num = (min_num == 0) ? num_cores : min_num;
+    max_num = (max_num == 0) ? num_cores : max_num;
     auto factor = max_num / min_num;
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
