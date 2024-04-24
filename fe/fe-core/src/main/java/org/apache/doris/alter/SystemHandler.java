@@ -316,7 +316,7 @@ public class SystemHandler extends AlterHandler {
             for (Table table : db.getTables()) {
                 table.readLock();
                 try {
-                    if (!table.needSchedule()) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 
