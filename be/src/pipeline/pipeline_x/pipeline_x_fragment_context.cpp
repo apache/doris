@@ -999,7 +999,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty()) {
-            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
+            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
+                                                       _has_bucket_shuffle_join));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1026,7 +1027,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                 sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
                                                            descs));
             } else {
-                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                _has_bucket_shuffle_join));
             }
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
@@ -1045,6 +1047,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             const uint32_t partition_count = 32;
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
+            _has_bucket_shuffle_join =
+                    _has_bucket_shuffle_join || inner_probe_operator->is_shuffled_hash_join();
             auto inner_sink_operator = std::make_shared<HashJoinBuildSinkOperatorX>(
                     pool, 0, tnode_, descs, _need_local_merge);
 
@@ -1077,6 +1081,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         } else {
             op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
+            _has_bucket_shuffle_join = _has_bucket_shuffle_join || op->is_shuffled_hash_join();
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -1197,7 +1202,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                             _has_bucket_shuffle_join));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));

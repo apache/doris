@@ -143,7 +143,7 @@ protected:
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs);
+                     const DescriptorTbl& descs, const bool follow_by_bucket_shuffle_join);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -164,8 +164,9 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _bucket_shuffled
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -212,7 +213,7 @@ protected:
     bool _have_conjuncts;
 
     const std::vector<TExpr> _partition_exprs;
-    const bool _is_colocate;
+    const bool _bucket_shuffled;
 
     RowDescriptor _agg_fn_output_row_descriptor;
 };

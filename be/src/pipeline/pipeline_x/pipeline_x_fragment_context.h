@@ -239,6 +239,8 @@ private:
 
     // Total instance num running on all BEs
     int _total_instances = -1;
+
+    bool _has_bucket_shuffle_join = false;
 };
 
 } // namespace pipeline

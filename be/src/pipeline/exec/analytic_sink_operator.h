@@ -86,7 +86,7 @@ private:
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs);
+                          const DescriptorTbl& descs, const bool follow_by_bucket_shuffle_join);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
@@ -102,7 +102,7 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate
+            return _bucket_shuffled
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
@@ -124,7 +124,7 @@ private:
     const TTupleId _buffered_tuple_id;
 
     std::vector<size_t> _num_agg_input;
-    const bool _is_colocate;
+    const bool _bucket_shuffled;
     const std::vector<TExpr> _partition_exprs;
 };
 

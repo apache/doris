@@ -124,7 +124,7 @@ PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int o
                                                          const TPlanNode& tnode,
                                                          const DescriptorTbl& descs)
         : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
-    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs);
+    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs, false);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
