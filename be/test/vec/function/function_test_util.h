@@ -18,11 +18,11 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <mysql/mysql.h>
-#include <cstdint>
-#include <ctime>
 
 #include <algorithm>
 #include <concepts>
+#include <cstdint>
+#include <ctime>
 #include <format>
 #include <memory>
 #include <span>
