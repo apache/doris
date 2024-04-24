@@ -431,6 +431,11 @@ public:
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }
 
+    int64_t data_queue_max_blocks() const {
+        return _query_options.__isset.data_queue_max_blocks ? _query_options.data_queue_max_blocks
+                                                            : 1;
+    }
+
     bool enable_page_cache() const;
 
     int partitioned_hash_join_rows_threshold() const {
