@@ -26,6 +26,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TopicInfo;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
 public class TopicPublisherThread extends MasterDaemon {
@@ -59,7 +62,7 @@ public class TopicPublisherThread extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        LOG.info("begin publish topic info");
+        LOG.info("[topic_publish]begin publish topic info");
         // step 1: get all publish topic info
         TPublishTopicRequest request = new TPublishTopicRequest();
         for (TopicPublisher topicPublisher : topicPublisherList) {
@@ -106,16 +109,24 @@ public class TopicPublisherThread extends MasterDaemon {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
+            String logStr = "";
+            try {
+                for (Map.Entry<TTopicInfoType, List<TopicInfo>> entry : request.getTopicMap().entrySet()) {
+                    logStr += " " + entry.getKey() + "=" + entry.getValue().size() + " ";
+                }
+            } catch (Exception e) {
+                LOG.warn("[topic_publish]make log detail for publish failed:", e);
+            }
             try {
                 address = new TNetworkAddress(be.getHost(), be.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.publishTopicInfo(request);
                 ok = true;
-                LOG.info("publish topic info to be {} success, time cost={} ms",
-                        be.getHost(), (System.currentTimeMillis() - beginTime));
+                LOG.info("[topic_publish]publish topic info to be {} success, time cost={} ms, details:{}",
+                        be.getHost(), (System.currentTimeMillis() - beginTime), logStr);
             } catch (Exception e) {
-                LOG.warn("publish topic info to be {} error happens: , time cost={} ms",
-                        be.getHost(), (System.currentTimeMillis() - beginTime), e);
+                LOG.warn("[topic_publish]publish topic info to be {} error happens: , time cost={} ms, details:{}",
+                        be.getHost(), (System.currentTimeMillis() - beginTime), logStr, e);
             } finally {
                 try {
                     if (ok) {
@@ -124,7 +135,8 @@ public class TopicPublisherThread extends MasterDaemon {
                         ClientPool.backendPool.invalidateObject(address, client);
                     }
                 } catch (Throwable e) {
-                    LOG.warn("recycle topic publish client failed. related backend[{}]", be.getHost(), e);
+                    LOG.warn("[topic_publish]recycle topic publish client failed. related backend[{}]", be.getHost(),
+                            e);
                 }
                 handler.onResponse(be);
             }
