@@ -459,6 +459,8 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void clear_cache() override;
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -492,6 +494,8 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+
+    void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

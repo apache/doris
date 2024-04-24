@@ -791,7 +791,6 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
@@ -830,7 +829,8 @@ public class StmtExecutor {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
                     throw e;
                 }
-                if (this.coord != null && this.coord.isQueryCancelled()) {
+                // If the previous try is timeout or cancelled, then do not need try again.
+                if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
                 // cloud mode retry

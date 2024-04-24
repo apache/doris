@@ -68,6 +68,7 @@ public class CloudEnv extends Env {
 
     private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
+    private CloudUpgradeMgr upgradeMgr;
 
     private CloudTabletRebalancer cloudTabletRebalancer;
     private CacheHotspotManager cacheHotspotMgr;
@@ -84,10 +85,15 @@ public class CloudEnv extends Env {
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
         this.cacheHotspotMgr = new CacheHotspotManager((CloudSystemInfoService) systemInfo);
+        this.upgradeMgr = new CloudUpgradeMgr((CloudSystemInfoService) systemInfo);
     }
 
     public CloudTabletRebalancer getCloudTabletRebalancer() {
         return this.cloudTabletRebalancer;
+    }
+
+    public CloudUpgradeMgr getCloudUpgradeMgr() {
+        return this.upgradeMgr;
     }
 
     @Override
@@ -100,6 +106,7 @@ public class CloudEnv extends Env {
         if (Config.enable_fetch_cluster_cache_hotspot) {
             cacheHotspotMgr.start();
         }
+        upgradeMgr.start();
     }
 
     @Override

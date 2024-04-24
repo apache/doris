@@ -2755,7 +2755,7 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = false;
+    public static boolean enable_cloud_warm_up_for_rebalance = true;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -2797,6 +2797,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long batch_insert_cluster_cache_hotspot_num = 50;
 
+    /**
+     * intervals between be status checks for CloudUpgradeMgr
+     */
+    @ConfField(mutable = true)
+    public static int cloud_upgrade_mgr_interval_second = 15;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_running_txn_check = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
