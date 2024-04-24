@@ -177,8 +177,9 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
-    Status get_parsed_col_name_iceberg_ids(std::vector<std::string>* col_names,
-                                           std::vector<uint64_t>* col_ids);
+    Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
+                                         std::vector<uint64_t>* col_attributes,
+                                         std::string attribute);
     void set_table_col_to_file_col(
             std::unordered_map<std::string, std::string> table_col_to_file_col) {
         _table_col_to_file_col = table_col_to_file_col;
@@ -592,7 +593,7 @@ private:
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
-    //for iceberg
+    //for iceberg table , when table column name != file column name
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
 };
 
