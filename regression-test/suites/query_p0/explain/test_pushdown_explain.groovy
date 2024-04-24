@@ -24,6 +24,7 @@ suite("test_pushdown_explain") {
     }
     qt_select "select k1 from baseall where k1 = 1"
 
+    sql "set enable_fold_constant_by_be = true;"
     explain {
         sql("select cast(0 as datetime)")
         contains "NULL"
