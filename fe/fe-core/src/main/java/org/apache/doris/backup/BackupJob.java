@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
@@ -597,8 +598,7 @@ public class BackupJob extends AbstractJob {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            // each backend allot at most 3 tasks
-            int batchNum = Math.min(totalNum, 3);
+            int batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
