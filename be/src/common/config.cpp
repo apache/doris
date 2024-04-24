@@ -1224,6 +1224,8 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
+// The max ratio for ttl cache's size
+DEFINE_mInt64(max_ttl_cache_ratio, "90");
 
 // clang-format off
 #ifdef BE_TEST
