@@ -115,7 +115,6 @@ protected:
     void clear_inverted_index_cache() override;
 
 private:
-
     friend class RowsetFactory;
     friend class BetaRowsetReader;
 
