@@ -17,7 +17,7 @@
 
 suite("test_autobucket_dynamic_partition") {
     sql "drop table if exists test_autobucket_dynamic_partition"
-    result = sql """
+    def result = sql """
         CREATE TABLE
         test_autobucket_dynamic_partition (k1 DATETIME)
         PARTITION BY
@@ -33,6 +33,7 @@ suite("test_autobucket_dynamic_partition") {
         """
 
     result = sql "show create table test_autobucket_dynamic_partition"
+    log.info("show result : ${result}")
     assertTrue(result.toString().containsIgnoreCase("BUCKETS AUTO"))
 
     result = sql "show partitions from test_autobucket_dynamic_partition"
