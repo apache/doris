@@ -502,8 +502,7 @@ public:
     };
 
     CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
-                             LRUCacheType::NUMBER,
+            : LRUCachePolicy("CreateTabletRRIdxCache", capacity, LRUCacheType::NUMBER,
                              /*stale_sweep_time_s*/ 30 * 60) {}
 };
 
