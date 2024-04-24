@@ -202,6 +202,11 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         fdBuilder.replace(replaceMap);
     }
 
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+    }
+
     public void setRelationId(RelationId relationId) {
         this.relationId = relationId;
     }

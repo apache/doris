@@ -19,10 +19,16 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -31,22 +37,33 @@ import java.util.Set;
  * Function dependence items.
  */
 public class FuncDepsDAG {
-    class DAGItem {
+    static class DAGItem {
         Set<Slot> slots;
-        Set<DAGItem> parents;
-        Set<DAGItem> children;
+        int index;
+        Set<Integer> parents;
+        Set<Integer> children;
 
-        public DAGItem(Set<Slot> slots) {
-            this.slots = slots;
+        public DAGItem(Set<Slot> slots, int index) {
+            this.index = index;
+            this.slots = ImmutableSet.copyOf(slots);
             this.parents = new HashSet<>();
             this.children = new HashSet<>();
         }
+
+        public DAGItem(DAGItem dagItem) {
+            this.index = dagItem.index;
+            this.slots = ImmutableSet.copyOf(dagItem.slots);
+            this.parents = Sets.newHashSet(parents);
+            this.children = Sets.newHashSet(children);
+        }
     }
 
-    private final Map<Set<Slot>, DAGItem> itemMap;
+    private final Map<Set<Slot>, Integer> itemMap;
+    private List<DAGItem> dagItems;
 
-    FuncDepsDAG(Map<Set<Slot>, DAGItem> itemMap) {
-        this.itemMap = itemMap;
+    FuncDepsDAG(Map<Set<Slot>, Integer> itemMap, List<DAGItem> dagItems) {
+        this.itemMap = ImmutableMap.copyOf(itemMap);
+        this.dagItems = ImmutableList.copyOf(dagItems);
     }
 
     /**
@@ -54,14 +71,15 @@ public class FuncDepsDAG {
      */
     public FuncDeps findValidFuncDeps(Set<Slot> validSlot) {
         FuncDeps res = new FuncDeps();
-        for (Entry<Set<Slot>, DAGItem> entry : itemMap.entrySet()) {
+        for (Entry<Set<Slot>, Integer> entry : itemMap.entrySet()) {
             if (validSlot.containsAll(entry.getKey())) {
                 Set<DAGItem> visited = new HashSet<>();
                 Set<DAGItem> children = new HashSet<>();
-                visited.add(entry.getValue());
-                collectAllChildren(validSlot, entry.getValue(), visited, children);
+                DAGItem dagItem = dagItems.get(entry.getValue());
+                visited.add(dagItem);
+                collectAllChildren(validSlot, dagItem, visited, children);
                 for (DAGItem child : children) {
-                    res.addFuncItems(entry.getValue().slots, child.slots);
+                    res.addFuncItems(dagItem.slots, child.slots);
                 }
             }
         }
@@ -70,7 +88,8 @@ public class FuncDepsDAG {
 
     private void collectAllChildren(Set<Slot> validSlot, DAGItem root,
             Set<DAGItem> visited, Set<DAGItem> children) {
-        for (DAGItem child : root.children) {
+        for (int childIdx : root.children) {
+            DAGItem child = dagItems.get(childIdx);
             if (visited.contains(child)) {
                 continue;
             }
@@ -83,30 +102,52 @@ public class FuncDepsDAG {
     }
 
     static class Builder {
-        private Map<Set<Slot>, DAGItem> itemMap;
+        private List<DAGItem> dagItems;
+        private Map<Set<Slot>, Integer> itemMap;
 
         public Builder() {
+            dagItems = new ArrayList<>();
             itemMap = new HashMap<>();
         }
 
-        public FuncDepsDAG build() {
-            return new FuncDepsDAG(ImmutableMap.copyOf(itemMap));
+        public Builder(FuncDepsDAG funcDepsDAG) {
+            itemMap = Maps.newHashMap(funcDepsDAG.itemMap);
+            dagItems = new ArrayList<>();
+            for (DAGItem dagItem : funcDepsDAG.dagItems) {
+                dagItems.add(new DAGItem(dagItem));
+            }
         }
 
-        public void addDeps(Set<Slot> l, Set<Slot> r) {
-            DAGItem lNode = getOrCreateNode(l);
-            DAGItem rNode = getOrCreateNode(r);
-            addEdge(lNode, rNode);
+        public FuncDepsDAG build() {
+            return new FuncDepsDAG(ImmutableMap.copyOf(itemMap), ImmutableList.copyOf(dagItems));
+        }
+
+        public void addDeps(Set<Slot> dominant, Set<Slot> dependency) {
+            DAGItem dominateItem = getOrCreateNode(dominant);
+            DAGItem dependencyItem = getOrCreateNode(dependency);
+            addEdge(dominateItem, dependencyItem);
+        }
+
+        public void addDeps(FuncDepsDAG funcDepsDAG) {
+            for (DAGItem dagItem : funcDepsDAG.dagItems) {
+                for (int i : dagItem.children) {
+                    addDeps(dagItem.slots, funcDepsDAG.dagItems.get(i).slots);
+                }
+            }
         }
 
         private DAGItem getOrCreateNode(Set<Slot> slots) {
-            return itemMap.computeIfAbsent(slots, DAGItem::new);
+            if (!itemMap.containsKey(slots)) {
+                itemMap.put(slots, dagItems.size());
+                dagItems.add(new DAGItem(slots, dagItems.size()));
+            }
+            return dagItems.get(itemMap.get(slots));
         }
 
         private void addEdge(DAGItem from, DAGItem to) {
-            if (!from.children.contains(to)) {
-                from.children.add(to);
-                to.parents.add(from);
+            if (!from.children.contains(to.index)) {
+                from.children.add(to.index);
+                to.parents.add(from.index);
             }
         }
     }

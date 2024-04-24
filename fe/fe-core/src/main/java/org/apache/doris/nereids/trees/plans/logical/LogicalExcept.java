@@ -164,6 +164,20 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDAG(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
     public void computeUniform(Builder fdBuilder) {
         fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();

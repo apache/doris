@@ -209,4 +209,9 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

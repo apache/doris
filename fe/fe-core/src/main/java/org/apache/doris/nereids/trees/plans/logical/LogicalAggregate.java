@@ -405,6 +405,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.
+        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }
