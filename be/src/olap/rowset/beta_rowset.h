@@ -98,6 +98,8 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
+    void clear_cache() override;
+
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
                const RowsetMetaSharedPtr& rowset_meta);
