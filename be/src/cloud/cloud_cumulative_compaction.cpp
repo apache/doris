@@ -414,7 +414,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
     st = _engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         LOG_WARNING("failed to update cumulative point to meta srv")
                 .tag("job_id", _uuid)
