@@ -411,6 +411,9 @@ public class Memo {
             Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
         }
+        if (targetGroup != null) {
+            targetGroup.getstructInfoMap().setRefreshed(false);
+        }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
@@ -559,6 +562,7 @@ public class Memo {
         if (source == root) {
             root = destination;
         }
+        destination.getstructInfoMap().setRefreshed(false);
         groups.remove(source.getGroupId());
     }
 

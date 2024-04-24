@@ -29,10 +29,10 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -41,6 +41,7 @@ import javax.annotation.Nullable;
 public class StructInfoMap {
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
+    private boolean refreshed;
 
     /**
      * get struct info according to table map
@@ -79,6 +80,14 @@ public class StructInfoMap {
         return groupExpressionMap.get(tableMap);
     }
 
+    public boolean isRefreshed() {
+        return refreshed;
+    }
+
+    public void setRefreshed(boolean refreshed) {
+        this.refreshed = refreshed;
+    }
+
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
             BitSet tableMap, Plan originPlan) {
         // this plan is not origin plan, should record origin plan in struct info
@@ -111,7 +120,7 @@ public class StructInfoMap {
         int originSize = groupExpressionMap.size();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new ArrayList<>();
-            boolean needRefresh = false;
+            boolean needRefresh = groupExpressionMap.isEmpty();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression);
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new ArrayList<>()));
@@ -119,18 +128,22 @@ public class StructInfoMap {
             }
 
             for (Group child : groupExpression.children()) {
-                if (!refreshedGroup.contains(child)) {
+                if (!refreshedGroup.contains(child) && !child.getstructInfoMap().isRefreshed()) {
                     StructInfoMap childStructInfoMap = child.getstructInfoMap();
                     needRefresh |= childStructInfoMap.refresh(child);
+                    childStructInfoMap.setRefreshed(true);
                 }
                 refreshedGroup.add(child);
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
-            Set<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
-            for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                groupExpressionMap.putIfAbsent(bitSetWithChild.first, Pair.of(groupExpression, bitSetWithChild.second));
+            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
+            if (needRefresh) {
+                for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
+                    groupExpressionMap.putIfAbsent(bitSetWithChild.first,
+                            Pair.of(groupExpression, bitSetWithChild.second));
+                }
             }
         }
         return originSize != groupExpressionMap.size();
@@ -147,17 +160,17 @@ public class StructInfoMap {
         return tableMap;
     }
 
-    private Set<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
-        return Sets.cartesianProduct(childrenTableMap)
-                .stream()
-                .map(bitSetList -> {
-                    BitSet bitSet = new BitSet();
-                    for (BitSet b : bitSetList) {
-                        bitSet.or(b);
-                    }
-                    return Pair.of(bitSet, bitSetList);
-                })
-                .collect(Collectors.toSet());
+    private Collection<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
+        Set<List<BitSet>> cartesianLists = Sets.cartesianProduct(childrenTableMap);
+        List<Pair<BitSet, List<BitSet>>> resultPairSet = new LinkedList<>();
+        for (List<BitSet> bitSetList : cartesianLists) {
+            BitSet bitSet = new BitSet();
+            for (BitSet b : bitSetList) {
+                bitSet.or(b);
+            }
+            resultPairSet.add(Pair.of(bitSet, bitSetList));
+        }
+        return resultPairSet;
     }
 
     @Override
