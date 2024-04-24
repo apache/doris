@@ -598,11 +598,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
@@ -624,11 +625,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
