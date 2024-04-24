@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -99,6 +100,10 @@ public class FunctionalDependencies {
 
     public boolean isEqualAndNotNotNull(Slot l, Slot r) {
         return equalSet.isEqual(l, r) && !l.nullable() && !r.nullable();
+    }
+
+    public List<Set<Slot>> calAllEqualSet() {
+        return equalSet.calEqualSetList();
     }
 
     public ImmutableSet<FdItem> getFdItems() {

@@ -93,6 +93,16 @@ class EqualSetTest extends TestWithFeService {
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
                 .isEmpty());
+        plan = PlanChecker.from(connectContext)
+                .analyze("select id, id2 from agg where id2 = id union all select id, id2 from agg where id2 = id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+                .isNullSafeEqual(plan.getOutput().get(0), plan.getOutput().get(1)));
+        plan = PlanChecker.from(connectContext)
+                .analyze("select id, id2 from agg union all select id, id2 from agg where id2 = id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+                .isEmpty());
     }
 
     @Test
