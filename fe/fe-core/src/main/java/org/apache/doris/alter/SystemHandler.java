@@ -239,7 +239,7 @@ public class SystemHandler extends AlterHandler {
 
     private static void checkDecommissionWithReplicaAllocation(List<Backend> decommissionBackends)
             throws DdlException {
-        if (Config.isCloudMode() || decommissionBackends.isEmpty()
+        if (decommissionBackends.isEmpty()
                 || DebugPointUtil.isEnable("SystemHandler.decommission_no_check_replica_num")) {
             return;
         }
@@ -291,7 +291,7 @@ public class SystemHandler extends AlterHandler {
                             int backendNum = tagAvailBackendNums.getOrDefault(tag, 0);
                             if (replicaNum > backendNum) {
                                 throw new DdlException("After decommission, partition " + partition.getName()
-                                        + " of table " + db.getName() + "." + tbl.getName()
+                                        + " of table " + db.getFullName() + "." + tbl.getName()
                                         + " 's replication allocation { " + replicaAlloc
                                         + " } > available backend num " + backendNum + " on tag " + tag
                                         + ", otherwise need to decrease the partition's replication num.");
