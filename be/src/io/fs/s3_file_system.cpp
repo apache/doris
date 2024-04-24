@@ -115,13 +115,14 @@ Status S3ClientHolder::init() {
 }
 
 Status S3ClientHolder::reset(const S3ClientConf& conf) {
-    S3ClientConf reset_conf = _conf;
+    S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
         if (conf.ak == _conf.ak && conf.sk == _conf.sk && conf.token == _conf.token) {
             return Status::OK(); // Same conf
         }
 
+        reset_conf = _conf;
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
