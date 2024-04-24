@@ -493,7 +493,7 @@ public class Coordinator implements CoordInterface {
         try {
             this.backendExecStates.clear();
             this.pipelineExecContexts.clear();
-            this.queryStatus.setStatus(new Status());
+            this.queryStatus.updateStatus(TStatusCode.OK, "");
             if (this.exportFiles == null) {
                 this.exportFiles = Lists.newArrayList();
             }
@@ -1107,7 +1107,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1188,7 +1188,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1312,7 +1312,7 @@ public class Coordinator implements CoordInterface {
                 return;
             }
 
-            queryStatus.setStatus(status);
+            queryStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
             if (status.getErrorCode() == TStatusCode.TIMEOUT) {
                 cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
             } else {
@@ -1476,7 +1476,7 @@ public class Coordinator implements CoordInterface {
                         + "so that send cancel to BE again",
                         DebugUtil.printId(queryId), queryStatus.toString(), new Exception());
             } else {
-                queryStatus.setStatus(Status.CANCELLED);
+                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());
@@ -3148,8 +3148,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3334,8 +3333,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3399,8 +3397,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
