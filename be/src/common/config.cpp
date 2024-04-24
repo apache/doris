@@ -1212,6 +1212,7 @@ DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
+DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1650,6 +1651,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["string_overflow_size"] =
+            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {
