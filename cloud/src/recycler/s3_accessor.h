@@ -90,4 +90,13 @@ private:
     std::string path_;
 };
 
+class GcsAccessor final : public S3Accessor {
+public:
+    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
+    ~GcsAccessor() override = default;
+
+    // returns 0 for success otherwise error
+    int delete_objects(const std::vector<std::string>& relative_paths) override;
+};
+
 } // namespace doris::cloud
