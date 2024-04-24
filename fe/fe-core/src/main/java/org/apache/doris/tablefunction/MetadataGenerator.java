@@ -215,7 +215,7 @@ public class MetadataGenerator {
     @NotNull
     public static TFetchSchemaTableDataResult errorResult(String msg) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        result.updateStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
         result.status.addToErrorMsgs(msg);
         return result;
     }
