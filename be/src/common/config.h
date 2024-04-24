@@ -1296,6 +1296,9 @@ DECLARE_mBool(enable_injection_point);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+// When the disk health check fails, determine whether the health check failure is caused by a full disk
+DECLARE_mDouble(disk_health_check_full_threshold);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

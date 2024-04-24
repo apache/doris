@@ -1217,6 +1217,8 @@ DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
+DEFINE_mDouble(disk_health_check_full_threshold, "0.95");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

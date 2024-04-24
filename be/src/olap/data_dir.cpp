@@ -232,10 +232,18 @@ void DataDir::health_check() {
     if (_is_used) {
         Status res = _read_and_write_test_file();
         if (!res) {
-            LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
-                         << ", err: " << res;
-            _engine.add_broken_path(_path);
-            _is_used = !res.is<IO_ERROR>();
+            double used_pct =
+                    (_disk_capacity_bytes - _available_bytes) / (double)_disk_capacity_bytes;
+            if (used_pct < config::disk_health_check_full_threshold) {
+                LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
+                             << ", err: " << res;
+                _engine.add_broken_path(_path);
+                _is_used = !res.is<IO_ERROR>();
+            } else {
+                LOG(WARNING) << "store read/write test file occur IO Error. May be the disk is "
+                                "full, path="
+                             << _path << ", err: " << res;
+            }
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
