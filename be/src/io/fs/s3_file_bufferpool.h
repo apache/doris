@@ -127,6 +127,28 @@ struct FileBuffer {
     size_t _capacity;
 };
 
+struct DownloadFileBuffer final : public FileBuffer {
+    DownloadFileBuffer(std::function<Status(Slice&)> download,
+                       std::function<void(FileBlocksHolderPtr, Slice)> write_to_cache,
+                       std::function<void(Slice, size_t)> write_to_use_buffer, OperationState state,
+                       size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
+            : FileBuffer(BufferType::DOWNLOAD, alloc_holder, offset, state),
+              _download(std::move(download)),
+              _write_to_local_file_cache(std::move(write_to_cache)),
+              _write_to_use_buffer(std::move(write_to_use_buffer)) {}
+    ~DownloadFileBuffer() override = default;
+    /**
+    * do the download work, it would write the content into local memory buffer
+    */
+    void on_download();
+    void execute_async() override { on_download(); }
+    Status append_data(const Slice& s) override { return Status::OK(); }
+
+    std::function<Status(Slice&)> _download;
+    std::function<void(FileBlocksHolderPtr, Slice)> _write_to_local_file_cache;
+    std::function<void(Slice, size_t)> _write_to_use_buffer;
+};
+
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
                      size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,

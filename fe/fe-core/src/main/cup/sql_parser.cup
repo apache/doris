@@ -289,6 +289,7 @@ terminal String
     KW_BUILD,
     KW_BUILTIN,
     KW_BY,
+    KW_CACHE,
     KW_CACHED,
     KW_CANCEL,
     KW_CASE,
@@ -419,6 +420,7 @@ terminal String
     KW_HELP,
     KW_HLL,
     KW_HLL_UNION,
+    KW_HOTSPOT,
     KW_HOSTNAME,
     KW_HOUR,
     KW_HUB,
@@ -682,6 +684,8 @@ terminal String
     KW_AUTO,
     KW_PREPARE,
     KW_EXECUTE,
+    KW_WARM,
+    KW_UP,
     KW_LINES,
     KW_IGNORE,
     KW_CONVERT_LSC,
@@ -707,12 +711,13 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt, unset_var_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt, unset_default_storage_vault_stmt,
     create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
     use_stmt, use_cloud_cluster_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt, copy_stmt,
+    warm_up_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -979,6 +984,8 @@ nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
 nonterminal Map<String, String> opt_datasource_properties;
+nonterminal List<Map<TableName, String>> warm_up_list;
+nonterminal Map<TableName, String> warm_up_item;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -1159,6 +1166,8 @@ stmt ::=
     {: RESULT = set; :}
     | unset_var_stmt:stmt
     {: RESULT = stmt; :}
+    | unset_default_storage_vault_stmt:stmt
+    {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
     | kill_analysis_job_stmt: k
@@ -1258,6 +1267,8 @@ stmt ::=
     | prepare_stmt:stmt
     {: RESULT = stmt; :}
     | execute_stmt:stmt
+    {: RESULT = stmt; :}
+    | warm_up_stmt:stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -1454,6 +1465,44 @@ alter_stmt ::=
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
         RESULT = new AlterRepositoryStmt(repoName, properties);
+    :}
+    ;
+
+warm_up_stmt ::=
+    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+    :}
+    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
+    :}
+    ;
+
+warm_up_item ::=
+    KW_TABLE table_name:tbl
+    {:
+        Map<TableName, String> map = new HashMap<TableName, String>();
+        map.put(tbl, "");
+        RESULT = map;
+    :}
+    | KW_TABLE table_name:tbl KW_PARTITION ident:partitonName
+    {:
+        Map<TableName, String> map = new HashMap<TableName, String>();
+        map.put(tbl, partitonName);
+        RESULT = map;
+    :}
+    ;
+
+warm_up_list ::=
+    warm_up_item:map
+    {:
+        RESULT = Lists.newArrayList(map);
+    :}
+    | warm_up_list:list KW_AND warm_up_item:map
+    {:
+        list.add(map);
+        RESULT = list;
     :}
     ;
 
@@ -1811,6 +1860,11 @@ create_stmt ::=
             KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
     {:
         RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
+    :}
+    | KW_CREATE opt_var_type:type KW_TABLES KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
+            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
+    {:
+        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, returnType, intermediateType, properties);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -4375,10 +4429,6 @@ show_param ::=
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
-    | KW_WORKLOAD KW_SCHEDULE KW_POLICY
-    {:
-        RESULT = new ShowWorkloadSchedPolicyStmt();
-    :}
     | KW_BACKENDS
     {:
         RESULT = new ShowBackendsStmt();
@@ -4462,6 +4512,10 @@ show_param ::=
     | KW_LOAD KW_PROFILE STRING_LITERAL:loadIdPath
     {:
         RESULT = new ShowLoadProfileStmt(loadIdPath);
+    :}
+    | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
+    {:
+        RESULT = new ShowCacheHotSpotStmt(tablePath);
     :}
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
@@ -4584,6 +4638,10 @@ show_param ::=
     | KW_COPY opt_db:db opt_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowCopyStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    | KW_WARM KW_UP KW_JOB opt_wild_where
+    {:
+        RESULT = new ShowCloudWarmUpStmt(parser.where);
     :}
     ;
 
@@ -4846,6 +4904,10 @@ cancel_param ::=
     | KW_RESTORE opt_db:db
     {:
         RESULT = new CancelBackupStmt(db, true);
+    :}
+    | KW_WARM KW_UP KW_JOB opt_wild_where
+    {:
+        RESULT = new CancelCloudWarmUpStmt(parser.where);
     :}
     ;
 
@@ -5373,6 +5435,12 @@ unset_var_stmt ::=
         RESULT = new UnsetVariableStmt(type, true);
     :}
     ;
+
+unset_default_storage_vault_stmt ::=
+    KW_UNSET KW_DEFAULT KW_STORAGE KW_VAULT
+    {:
+        RESULT = new UnsetDefaultStorageVaultStmt();
+    :};
 
 user_property_list ::=
     user_property:property

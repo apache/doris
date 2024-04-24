@@ -62,6 +62,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -404,6 +405,11 @@ public class LoadManager implements Writable {
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
+
+        // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
+        if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
+            removeOldLoadJob();
+        }
     }
 
     /**
@@ -526,6 +532,8 @@ public class LoadManager implements Writable {
     }
 
     private void removeLoadJobIf(Predicate<LoadJob> pred) {
+        long removeJobNum = 0;
+        StopWatch stopWatch = StopWatch.createStarted();
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
@@ -534,10 +542,14 @@ public class LoadManager implements Writable {
                 if (pred.test(job)) {
                     iter.remove();
                     jobRemovedTrigger(job);
+                    removeJobNum++;
                 }
             }
         } finally {
             writeUnlock();
+            stopWatch.stop();
+            LOG.info("end to removeOldLoadJob, removeJobNum:{} cost:{} ms",
+                    removeJobNum, stopWatch.getTime());
         }
     }
 

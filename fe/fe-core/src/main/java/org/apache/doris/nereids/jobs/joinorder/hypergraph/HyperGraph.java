@@ -356,10 +356,6 @@ public class HyperGraph {
             return new HyperGraph(finalOutputs, joinEdges, nodes, filterEdges, complexProject);
         }
 
-        public List<HyperGraph> buildAll() {
-            return ImmutableList.of(build());
-        }
-
         public void updateNode(int idx, Group group) {
             Preconditions.checkArgument(nodes.get(idx) instanceof DPhyperNode);
             nodes.set(idx, ((DPhyperNode) nodes.get(idx)).withGroup(group));

@@ -148,7 +148,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps);
-        transactionManager.setEditLog(Env.getCurrentEnv().getEditLog());
         metadataOps = hiveOps;
     }
 

@@ -50,6 +50,18 @@ struct UInt128Wrapper {
     bool operator==(const UInt128Wrapper& other) const { return value_ == other.value_; }
 };
 
+class BlockFileCache;
+struct FileBlocksHolder;
+using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
+
+struct FileCacheAllocatorBuilder {
+    bool _is_cold_data;
+    uint64_t _expiration_time;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
+    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
+};
+
 struct KeyHash {
     std::size_t operator()(const UInt128Wrapper& w) const { return UInt128Hash()(w.value_); }
 };

@@ -17,11 +17,15 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.cloud.CacheHotspotManager;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.CloudWarmUpJob.JobState;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -54,6 +58,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -65,6 +70,7 @@ public class CloudEnv extends Env {
     private CloudClusterChecker cloudClusterCheck;
 
     private CloudTabletRebalancer cloudTabletRebalancer;
+    private CacheHotspotManager cacheHotspotMgr;
 
     private boolean enableStorageVault;
 
@@ -77,6 +83,7 @@ public class CloudEnv extends Env {
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
+        this.cacheHotspotMgr = new CacheHotspotManager((CloudSystemInfoService) systemInfo);
     }
 
     public CloudTabletRebalancer getCloudTabletRebalancer() {
@@ -90,6 +97,9 @@ public class CloudEnv extends Env {
         cleanCopyJobScheduler.start();
         cloudClusterCheck.start();
         cloudTabletRebalancer.start();
+        if (Config.enable_fetch_cluster_cache_hotspot) {
+            cacheHotspotMgr.start();
+        }
     }
 
     @Override
@@ -101,6 +111,10 @@ public class CloudEnv extends Env {
 
     public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
         return host + "_" + port + "_" + timeMs;
+    }
+
+    public CacheHotspotManager getCacheHotspotMgr() {
+        return cacheHotspotMgr;
     }
 
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
@@ -463,5 +477,68 @@ public class CloudEnv extends Env {
         }
         ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
                 null, null, stmt.getStageName(), null, stmt.isIfExists());
+    }
+
+    public long loadCloudWarmUpJob(DataInputStream dis, long checksum) throws Exception {
+        int size = dis.readInt();
+        long newChecksum = checksum ^ size;
+        if (size > 0) {
+            // There should be no old cloudWarmUp jobs, if exist throw exception, should not use this FE version
+            throw new IOException("There are [" + size + "] cloud warm up jobs."
+                    + " Please downgrade FE to an older version and handle residual jobs");
+        }
+
+        // finished or cancelled jobs
+        size = dis.readInt();
+        newChecksum ^= size;
+        if (size > 0) {
+            throw new IOException("There are [" + size + "] old finished or cancelled cloud warm up jobs."
+                    + " Please downgrade FE to an older version and handle residual jobs");
+        }
+
+        size = dis.readInt();
+        newChecksum ^= size;
+        for (int i = 0; i < size; i++) {
+            CloudWarmUpJob cloudWarmUpJob = CloudWarmUpJob.read(dis);
+            if (cloudWarmUpJob.isExpire() || cloudWarmUpJob.getJobState() == JobState.DELETED) {
+                LOG.info("cloud warm up job is expired, {}, ignore it", cloudWarmUpJob.getJobId());
+                continue;
+            }
+            this.getCacheHotspotMgr().addCloudWarmUpJob(cloudWarmUpJob);
+        }
+        LOG.info("finished load cloud warm up job from image");
+        return newChecksum;
+    }
+
+    public long saveCloudWarmUpJob(CountingDataOutputStream dos, long checksum) throws IOException {
+
+        Map<Long, CloudWarmUpJob> cloudWarmUpJobs;
+        cloudWarmUpJobs = this.getCacheHotspotMgr().getCloudWarmUpJobs();
+
+        /*
+         * reference: Env.java:saveAlterJob
+         * alter jobs == 0
+         * If the FE version upgrade from old version, if it have alter jobs, the FE will failed during start process
+         *
+         * the number of old version alter jobs has to be 0
+         */
+        int size = 0;
+        checksum ^= size;
+        dos.writeInt(size);
+
+        checksum ^= size;
+        dos.writeInt(size);
+
+        size = cloudWarmUpJobs.size();
+        checksum ^= size;
+        dos.writeInt(size);
+        for (CloudWarmUpJob cloudWarmUpJob : cloudWarmUpJobs.values()) {
+            cloudWarmUpJob.write(dos);
+        }
+        return checksum;
+    }
+
+    public void cancelCloudWarmUp(CancelCloudWarmUpStmt stmt) throws DdlException {
+        getCacheHotspotMgr().cancel(stmt);
     }
 }

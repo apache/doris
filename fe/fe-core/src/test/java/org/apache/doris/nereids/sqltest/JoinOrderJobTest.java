@@ -139,7 +139,7 @@ public class JoinOrderJobTest extends SqlTestBase {
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("test", cascadesContext);
         PlanChecker.from(cascadesContext)
                 .optimize()
                 .getBestPlanTree();
@@ -153,7 +153,7 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .randomBuildPlanWith(64, 64 * 63 / 2);
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("test", cascadesContext);
         PlanChecker.from(cascadesContext)
                 .rewrite()
                 .dpHypOptimize()
