@@ -82,6 +82,7 @@ suite("create_vault") {
         show create table create_table_use_vault
     """
 
+    logger.info("the create table stmt is ${create_stmt}")
     assertTrue(create_stmt.contains("\"storage_vault_name\" = \"create_hdfs_vault\""))
 
     expectExceptionLike({
