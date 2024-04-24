@@ -671,7 +671,8 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED &&
+        _block_convertor != nullptr && _tablet_finder != nullptr) {
         _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
