@@ -3527,10 +3527,12 @@ public class SessionVariable implements Serializable, Writable {
         this.dumpNereidsMemo = dumpNereidsMemo;
     }
 
-    public boolean setEnableStrictConsistencyDml(boolean value) {
-        boolean oldVal = this.enableStrictConsistencyDml;
+    public boolean isEnableStrictConsistencyDml() {
+        return this.enableStrictConsistencyDml;
+    }
+
+    public void setEnableStrictConsistencyDml(boolean value) {
         this.enableStrictConsistencyDml = value;
-        return oldVal;
     }
 
     public void disableStrictConsistencyDmlOnce() throws DdlException {
