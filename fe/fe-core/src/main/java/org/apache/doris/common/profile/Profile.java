@@ -269,7 +269,7 @@ public class Profile {
             return null;
         }
         // Profile could be a load task with multiple queries, so we call it id.
-        if (parseProfileFileName(parts[parts.length - 1]) == null ) {
+        if (parseProfileFileName(parts[parts.length - 1]) == null) {
             LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
             return null;
         }
@@ -344,8 +344,8 @@ public class Profile {
             return false;
         }
 
-        if (this.queryFinishTimestamp != Long.MIN_VALUE &&
-                    System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
+        if (this.queryFinishTimestamp != Long.MIN_VALUE
+                    && System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
             LOG.info("Profile {} should be stored to disk without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
                     id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
