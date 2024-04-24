@@ -1476,7 +1476,7 @@ public class Coordinator implements CoordInterface {
                         + "so that send cancel to BE again",
                         DebugUtil.printId(queryId), queryStatus.toString(), new Exception());
             } else {
-                queryStatus.updateStatus(Status.CANCELLED, "cancelled");
+                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());

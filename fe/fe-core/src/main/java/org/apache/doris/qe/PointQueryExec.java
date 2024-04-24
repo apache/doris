@@ -227,7 +227,7 @@ public class PointQueryExec implements CoordInterface {
             if (tryCount >= maxTry) {
                 break;
             }
-            status.updateStatus(Status.OK, "");
+            status.updateStatus(TStatusCode.OK, "");
         } while (true);
         // handle status code
         if (!status.ok()) {
@@ -325,7 +325,7 @@ public class PointQueryExec implements CoordInterface {
             }
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception {}, e {}", backend.getBrpcAddress(), e);
-            status.setRpcStatus(e.getMessage());
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
@@ -334,7 +334,7 @@ public class PointQueryExec implements CoordInterface {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else {
-                status.setRpcStatus(e.getMessage());
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
             return null;
