@@ -73,8 +73,10 @@ public:
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
                                            const std::string& segment_file_name,
                                            const std::string& dir, const io::FileSystemSPtr& fs,
-                                           const TabletIndex* index_meta)
-            : _segment_file_name(segment_file_name),
+                                           const TabletIndex* index_meta
+					   const bool single_field = true)
+            : _single_field(single_field),
+	      _segment_file_name(segment_file_name),
               _directory(dir),
               _fs(fs),
               _index_meta(index_meta) {
@@ -240,7 +242,12 @@ public:
         } else {
             _field->setOmitTermFreqAndPositions(true);
         }
-        _doc->add(*_field);
+	if (_single_field) {
+            _doc->add(*_field);
+        } else {
+            // array's inverted index do need create field first
+            _doc->setNeedResetFieldData(true);
+        }
         return Status::OK();
     }
 
@@ -369,46 +376,70 @@ public:
         }
         auto offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
         if constexpr (field_is_slice_type(field_type)) {
-            if (_field == nullptr || _index_writer == nullptr) {
-                LOG(ERROR) << "field or index writer is null in inverted index writer.";
-                return Status::InternalError(
-                        "field or index writer is null in inverted index writer");
+            if (_index_writer == nullptr) {
+                LOG(ERROR) << "index writer is null in inverted index writer.";
+                return Status::InternalError("index writer is null in inverted index writer");
             }
             auto ignore_above_value =
                     get_parser_ignore_above_value_from_properties(_index_meta->properties());
             auto ignore_above = std::stoi(ignore_above_value);
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // offsets[i+1] is now row element count
-                std::vector<std::string> strings;
-                // [0, 3, 6]
-                // [10,20,30] [20,30,40], [30,40,50]
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (auto j = start_off; j < end_off; ++j) {
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                // TODO(Amory).later we use object pool to avoid field creation
+                lucene::document::Field* new_field = nullptr;
+                CL_NS(analysis)::TokenStream* ts = nullptr;
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
+		    // now we temp create field . later make a pool
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
+                        return st;
+                    }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    strings.emplace_back(std::string(v->get_data(), v->get_size()));
-                }
-
-                auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     value.length() > ignore_above) ||
-                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
-                    RETURN_IF_ERROR(add_null_document());
-                } else {
-                    new_fulltext_field(value.c_str(), value.length());
+		    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                         v->get_size() > ignore_above) ||
+                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                        // is here a null value?
+                        // TODO. Maybe here has performance problem for large size string.
+                        continue;
+                    } else {
+                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                            // in this case stream need to delete after add_document, because the
+                            // stream can not reuse for different field
+                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            ts = _analyzer->tokenStream(new_field->name(),
+                                                        _char_string_reader.get());
+                            new_field->setValue(ts);
+                        } else {
+                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                        }
+                        _doc->add(*new_field);
+                    }
+		}
+                start_off += array_elem_size;
+                if (!_doc->getFields()->empty()) {
+                    // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
+                    _doc->clear();
+                    _CLDELETE(ts);
+                } else {
+                    RETURN_IF_ERROR(add_null_document());
                 }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (size_t j = start_off; j < end_off; ++j) {
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -419,6 +450,7 @@ public:
                     _value_key_coder->full_encode_ascending(p, &new_value);
                     _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                 }
+                start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
                 _rid++;
             }
@@ -598,6 +630,7 @@ private:
 
     std::unique_ptr<lucene::document::Document> _doc {};
     lucene::document::Field* _field {};
+    bool _single_field = true;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
     std::unique_ptr<lucene::util::Reader> _char_string_reader {};
@@ -620,118 +653,45 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     auto typeinfo = field->type_info();
     FieldType type = typeinfo->type();
     std::string field_name = field->name();
+    bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
-        typeinfo = array_typeinfo->item_type_info();
-        type = typeinfo->type();
+	if (array_typeinfo != nullptr) {
+            typeinfo = array_typeinfo->item_type_info();
+            type = typeinfo->type();
+            single_field = false;
+        } else {
+            return Status::NotSupported("unsupported array type for inverted index: " +
+                                        std::to_string(int(type)));
+        }
     }
-
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_CHAR>>(
-                field_name, segment_file_name, dir, fs, index_meta);
+#define M(TYPE)                                                           \
+    case TYPE:                                                            \
+        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>(     \
+                field_name, segment_file_name, dir, fs, index_meta, single_field); \
         break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_STRING>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIME: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIME>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATE: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATE>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATEV2>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_TINYINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_SMALLINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_INT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_LARGEINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL32>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL64>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_BOOL>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DOUBLE>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_FLOAT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_BIGINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
+        M(FieldType::OLAP_FIELD_TYPE_TINYINT)
+        M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
+        M(FieldType::OLAP_FIELD_TYPE_INT)
+        M(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT)
+        M(FieldType::OLAP_FIELD_TYPE_BIGINT)
+        M(FieldType::OLAP_FIELD_TYPE_LARGEINT)
+        M(FieldType::OLAP_FIELD_TYPE_CHAR)
+        M(FieldType::OLAP_FIELD_TYPE_VARCHAR)
+        M(FieldType::OLAP_FIELD_TYPE_STRING)
+        M(FieldType::OLAP_FIELD_TYPE_DATE)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIME)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
+        M(FieldType::OLAP_FIELD_TYPE_DATEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
+        M(FieldType::OLAP_FIELD_TYPE_BOOL)
+        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
+#undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +
                                     std::to_string(int(type)));
