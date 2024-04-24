@@ -30,6 +30,7 @@
 #include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -710,6 +711,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);
+}
+
+bool ExchangeSinkOperatorX::is_ready_to_execute() {
+    return std::all_of(_dests.begin(), _dests.end(), [&](auto&& it) {
+        return state()->exec_env()->vstream_mgr()->find_recvr(it.fragment_instance_id,
+                                                              _dest_node_id);
+    });
 }
 
 } // namespace doris::pipeline

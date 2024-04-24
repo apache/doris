@@ -58,6 +58,8 @@ public:
     Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
                       std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true);
 
+    bool find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
+
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
     Status transmit_block(const PTransmitDataParams* request, ::google::protobuf::Closure** done);

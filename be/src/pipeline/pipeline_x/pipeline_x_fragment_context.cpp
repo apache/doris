@@ -204,13 +204,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
         _runtime_state->set_load_job_id(request.load_job_id);
     }
 
-    if (request.is_simplified_param) {
-        _desc_tbl = _query_ctx->desc_tbl;
-    } else {
-        DCHECK(request.__isset.desc_tbl);
-        RETURN_IF_ERROR(
-                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
-    }
+    _desc_tbl = _query_ctx->desc_tbl;
     _runtime_state->set_desc_tbl(_desc_tbl);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
@@ -269,6 +263,12 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
 
     _prepared = true;
     return Status::OK();
+}
+
+void PipelineXFragmentContext::wait_for_local_channel() {
+    while (!_pipelines.front()->sink_x()->is_ready_to_execute()) {
+        // do nothing
+    }
 }
 
 Status PipelineXFragmentContext::_plan_local_exchange(

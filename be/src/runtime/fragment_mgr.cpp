@@ -623,8 +623,82 @@ void FragmentMgr::remove_pipeline_context(
 }
 
 template <typename Params>
-Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+Status FragmentMgr::_get_query_ctx(Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
+    const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
+                                   params.query_options.enable_pipeline_x_engine;
+    if (enable_pipeline_x && params.__isset.desc_tbl) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto search = _query_ctx_map.find(query_id);
+        if (search == _query_ctx_map.end()) {
+            if constexpr (std::is_same_v<Params, TPipelineFragmentParams>) {
+                params.is_simplified_param = false;
+            }
+
+            // This may be a first fragment request of the query.
+            // Create the query fragments context.
+            query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host,
+                                                    _exec_env, params.query_options, params.coord,
+                                                    pipeline, params.is_nereids);
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
+            RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
+                                                  &(query_ctx->desc_tbl)));
+            // set file scan range params
+            if (params.__isset.file_scan_params) {
+                query_ctx->file_scan_range_params_map = params.file_scan_params;
+            }
+
+            LOG(INFO) << "query_id: "
+                      << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
+                      << " coord_addr " << query_ctx->coord_addr
+                      << " total fragment num on current host: " << params.fragment_num_on_host
+                      << " fe process uuid: " << params.query_options.fe_process_uuid;
+            query_ctx->query_globals = params.query_globals;
+
+            if (params.__isset.resource_info) {
+                query_ctx->user = params.resource_info.user;
+                query_ctx->group = params.resource_info.group;
+                query_ctx->set_rsc_info = true;
+            }
+
+            query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
+            _set_scan_concurrency(params, query_ctx.get());
+
+            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+                uint64_t tg_id = params.workload_groups[0].id;
+                WorkloadGroupPtr workload_group_ptr =
+                        _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
+                if (workload_group_ptr != nullptr) {
+                    RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                    RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
+                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
+                            print_id(query_id), tg_id);
+
+                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                              << ", use workload group: " << workload_group_ptr->debug_string()
+                              << ", enable cgroup soft limit: "
+                              << ((int)config::enable_cgroup_cpu_soft_limit);
+                } else {
+                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                              << " carried group info but can not find group in be";
+                }
+            }
+            RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
+                                                  &(query_ctx->desc_tbl)));
+            // There is some logic in query ctx's dctor, we could not check if exists and delete the
+            // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
+            _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
+            LOG(INFO) << "Register query/load memory tracker, query/load id: "
+                      << print_id(query_ctx->query_id())
+                      << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
+        } else {
+            if constexpr (std::is_same_v<Params, TPipelineFragmentParams>) {
+                params.is_simplified_param = true;
+            }
+            query_ctx = search->second;
+        }
+        return Status::OK();
+    }
     if (params.is_simplified_param) {
         // Get common components from _query_ctx_map
         std::lock_guard<std::mutex> lock(_lock);
@@ -900,6 +974,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
     query_ctx->set_pipeline_context(params.fragment_id, context);
 
+    reinterpret_cast<pipeline::PipelineXFragmentContext*>(context.get())->wait_for_local_channel();
     RETURN_IF_ERROR(context->submit());
     return Status::OK();
 }

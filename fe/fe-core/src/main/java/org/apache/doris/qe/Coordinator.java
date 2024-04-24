@@ -3259,12 +3259,6 @@ public class Coordinator implements CoordInterface {
          * This information can be obtained from the cache of BE.
          */
         public void unsetFields() {
-            this.rpcParams.unsetDescTbl();
-            this.rpcParams.unsetFileScanParams();
-            this.rpcParams.unsetCoord();
-            this.rpcParams.unsetQueryGlobals();
-            this.rpcParams.unsetResourceInfo();
-            this.rpcParams.setIsSimplifiedParam(true);
         }
 
         // update profile.

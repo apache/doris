@@ -538,11 +538,39 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
         MonotonicStopWatch timer;
         timer.start();
-        for (const TPipelineFragmentParams& fragment : fragment_list) {
+        auto num_fragments = fragment_list.size();
+        Status res_status[num_fragments];
+        auto pre_and_submit = [&](int i) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
+                RETURN_IF_ERROR(
+                        _exec_env->fragment_mgr()->exec_plan_fragment(fragment_list[i], cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment_list[i]));
+            }
+            return Status::OK();
+        };
+        int prepare_done = 0;
+        std::mutex m;
+        std::condition_variable cv;
+        for (size_t i = 0; i < num_fragments; i++) {
+            RETURN_IF_ERROR(_exec_env->fragment_mgr()->get_thread_pool()->submit_func([&, i]() {
+                res_status[i] = pre_and_submit(i);
+                std::unique_lock<std::mutex> lock(m);
+                prepare_done++;
+                if (prepare_done == num_fragments) {
+                    cv.notify_one();
+                }
+            }));
+        }
+
+        std::unique_lock<std::mutex> lock(m);
+        if (prepare_done != num_fragments) {
+            cv.wait(lock);
+
+            for (size_t i = 0; i < num_fragments; i++) {
+                if (!res_status[i].ok()) {
+                    return res_status[i];
+                }
             }
         }
         timer.stop();
