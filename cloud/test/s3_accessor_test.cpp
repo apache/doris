@@ -672,7 +672,7 @@ TEST(S3AccessorTest, delete_object) {
 }
 
 TEST(S3AccessorTest, gcs_delete_objects) {
-    _mock_fs = std::make_unique<selectdb::MockAccessor>(selectdb::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
@@ -704,7 +704,7 @@ TEST(S3AccessorTest, gcs_delete_objects) {
 }
 
 TEST(S3AccessorTest, gcs_delete_objects_error) {
-    _mock_fs = std::make_unique<selectdb::MockAccessor>(selectdb::S3Conf {});
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
     auto sp = SyncPoint::get_instance();
