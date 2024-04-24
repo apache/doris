@@ -542,6 +542,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             int child_count = union_node->children_count();
             auto data_queue = std::make_shared<DataQueue>(child_count);
+            data_queue->set_max_blocks_in_sub_queue(_runtime_state->data_queue_max_blocks());
             for (int child_id = 0; child_id < child_count; ++child_id) {
                 auto new_child_pipeline = add_pipeline();
                 RETURN_IF_ERROR(_build_pipelines(union_node->child(child_id), new_child_pipeline));
@@ -564,8 +565,11 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
                                          std::to_string(agg_node->id()) +
                                          ": group by and output is empty");
         }
+
+        const int64_t data_queue_max_blocks = _runtime_state->data_queue_max_blocks();
         if (agg_node->is_aggregate_evaluators_empty() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
+            data_queue->set_max_blocks_in_sub_queue(data_queue_max_blocks);
             OperatorBuilderPtr pre_agg_sink =
                     std::make_shared<DistinctStreamingAggSinkOperatorBuilder>(node->id(), agg_node,
                                                                               data_queue);
@@ -577,6 +581,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
         } else if (agg_node->is_streaming_preagg() && !agg_node->is_probe_expr_ctxs_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
+            data_queue->set_max_blocks_in_sub_queue(data_queue_max_blocks);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
                     node->id(), agg_node, data_queue);
             RETURN_IF_ERROR(new_pipe->set_sink_builder(pre_agg_sink));
