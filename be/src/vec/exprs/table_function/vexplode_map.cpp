@@ -90,12 +90,12 @@ void VExplodeMapTableFunction::process_close() {
     _collection_offset = 0;
 }
 
-void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeMapTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     // now we only support map column explode to struct column
     size_t pos = _collection_offset + _cur_offset;
     // if current is empty map row, also append a default value
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
         return;
     }
     ColumnStruct* ret = nullptr;
@@ -106,7 +106,7 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
                 assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
         assert_cast<ColumnUInt8*>(
                 assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                ->insert_default();
+                ->insert_many_defaults(length);
     } else if (column->is_column_struct()) {
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
@@ -118,8 +118,8 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
                 ErrorCode::INTERNAL_ERROR,
                 "only support map column explode to two column, but given:  ", ret->tuple_size());
     }
-    ret->get_column(0).insert_from(_map_detail.map_col->get_keys(), pos);
-    ret->get_column(1).insert_from(_map_detail.map_col->get_values(), pos);
+    ret->get_column(0).insert_many_from(_map_detail.map_col->get_keys(), pos, length);
+    ret->get_column(1).insert_many_from(_map_detail.map_col->get_values(), pos, length);
 }
 
 int VExplodeMapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
