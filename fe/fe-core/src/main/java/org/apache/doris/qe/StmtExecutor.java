@@ -1110,6 +1110,9 @@ public class StmtExecutor {
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
+                // Need to set origin stmt for new "parsedStmt"(which is selectStmt here)
+                // Otherwise, the log printing may result in NPE
+                selectStmt.setOrigStmt(parsedStmt.getOrigStmt());
                 setParsedStmt(selectStmt);
             }
         }
