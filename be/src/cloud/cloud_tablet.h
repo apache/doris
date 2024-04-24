@@ -91,8 +91,6 @@ public:
     // 2. The memory in tablet cache
     void clear_cache() override;
 
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
-
     // Return number of deleted stale rowsets
     int delete_expired_stale_rowsets();
 
@@ -205,6 +203,8 @@ public:
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
+
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

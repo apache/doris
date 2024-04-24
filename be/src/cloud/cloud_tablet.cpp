@@ -126,7 +126,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
 
     auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }
@@ -153,7 +153,7 @@ Status CloudTablet::sync_if_not_running() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            recycle_cached_data();
+            clear_cache();
         }
         return st;
     }
@@ -178,7 +178,7 @@ Status CloudTablet::sync_if_not_running() {
 
     st = _engine.meta_mgr().sync_tablet_rowsets(this);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }

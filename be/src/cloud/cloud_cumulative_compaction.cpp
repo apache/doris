@@ -123,7 +123,7 @@ PREPARE_TRY_AGAIN:
             cloud_tablet()->last_sync_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_TABLET_BUSY) {
             if (config::enable_parallel_cumu_compaction && resp.version_in_compaction_size() > 0 &&
                 ++tried <= 2) {
