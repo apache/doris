@@ -699,6 +699,10 @@ public class Tablet extends MetaObject implements Writable {
      * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
      */
     public boolean readyToBeRepaired(SystemInfoService infoService, TabletSchedCtx.Priority priority) {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
+
         if (priority == Priority.VERY_HIGH) {
             return true;
         }
