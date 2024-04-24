@@ -136,6 +136,11 @@ public:
         _is_shutdown = true;
     }
 
+    bool can_be_dropped() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _is_shutdown && _query_ctxs.size() == 0;
+    }
+
     int query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_ctxs.size();
