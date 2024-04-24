@@ -2394,7 +2394,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
         String storageVaultId = null;
         // If user does not specify one storage vault then FE would use the default vault
-        if (storageVaultName == null || !storageVaultName.isEmpty()) {
+        if (Strings.isNullOrEmpty(storageVaultName)) {
             Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
             if (info != null) {
                 storageVaultName = info.first;
