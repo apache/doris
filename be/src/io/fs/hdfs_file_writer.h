@@ -87,7 +87,6 @@ private:
         std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
-    size_t _index_offset = 0;
 };
 
 } // namespace io

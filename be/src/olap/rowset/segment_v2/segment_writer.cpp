@@ -1115,6 +1115,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
+    // Get the index start before finalize_footer since this function would write new data.
     uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));

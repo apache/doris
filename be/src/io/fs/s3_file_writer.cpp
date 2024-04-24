@@ -264,7 +264,6 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                                     _upload_one_part(part_num, buf);
                                 })
                         .set_file_offset(_bytes_appended)
-                        .set_index_offset(_index_offset)
                         .set_sync_after_complete_task([this, part_num = _cur_part_num](Status s) {
                             bool ret = false;
                             if (!s.ok()) [[unlikely]] {
