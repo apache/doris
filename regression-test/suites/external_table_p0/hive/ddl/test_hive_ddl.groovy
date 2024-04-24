@@ -684,8 +684,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "test_hive_ddl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
