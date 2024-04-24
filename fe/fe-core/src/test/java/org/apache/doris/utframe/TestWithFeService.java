@@ -431,7 +431,7 @@ public abstract class TestWithFeService {
     }
 
     private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = 10;
+        int maxTry = Config.heartbeat_interval_second + 2;
         boolean allAlive = false;
         while (maxTry-- > 0 && !allAlive) {
             Thread.sleep(1000);
@@ -463,7 +463,9 @@ public abstract class TestWithFeService {
     }
 
     protected Backend addNewBackend() throws IOException, InterruptedException {
-        return createBackend("127.0.0.1", lastFeRpcPort);
+        Backend be = createBackend("127.0.0.1", lastFeRpcPort);
+        checkBEHeartbeat(Lists.newArrayList(be));
+        return be;
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
