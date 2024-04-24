@@ -71,8 +71,8 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
     }
 
     // NOTE(wb) when is_set_workload_group_info=false, it means FE send a empty workload group list
-    // this case happens, but it should not always happen,because FE should has at least one normal group.
-    // when this happens, we should not delete any workload group.
+    // this should not happens, because FE should has at least one normal group.
+    // just log it if that happens
     if (!is_set_workload_group_info) {
         LOG(INFO) << "[topic_publish_wg]unexpected error happens, no workload group info is "
                      "set, list size="
