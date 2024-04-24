@@ -127,7 +127,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
 
     auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }
@@ -154,7 +154,7 @@ Status CloudTablet::sync_if_not_running() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            recycle_cached_data();
+            clear_cache();
         }
         return st;
     }
@@ -179,7 +179,7 @@ Status CloudTablet::sync_if_not_running() {
 
     st = _engine.meta_mgr().sync_tablet_rowsets(this);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }
@@ -346,13 +346,17 @@ void CloudTablet::update_base_size(const Rowset& rs) {
     }
 }
 
-void CloudTablet::recycle_cached_data() {
+void CloudTablet::clear_cache() {
     CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
     _engine.tablet_mgr().erase_tablet(tablet_id());
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    std::unordered_map<int, int> map;
+    for (auto& rs : rowsets) {
+        // Clear cached opened segments and inverted index cache in memory
+        rs->clear_cache();
+    }
+
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
