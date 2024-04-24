@@ -18,13 +18,19 @@
 package org.apache.doris.common.publish;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TTopicInfoType;
 import org.apache.doris.thrift.TopicInfo;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
 public class WorkloadGroupPublisher implements TopicPublisher {
+
+    private static final Logger LOG = LogManager.getLogger(WorkloadGroupPublisher.class);
 
     private Env env;
 
@@ -35,6 +41,12 @@ public class WorkloadGroupPublisher implements TopicPublisher {
     @Override
     public void getTopicInfo(TPublishTopicRequest req) {
         List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
+        if (list.size() == 0) {
+            LOG.warn("[topic_publish]currently, doris at least has one workload group named "
+                    + WorkloadGroupMgr.DEFAULT_GROUP_NAME
+                    + ", so get a size 0 here is an error, should check it.");
+        } else {
+            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
+        }
     }
 }

@@ -68,11 +68,11 @@ std::string WorkloadGroup::debug_string() const {
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "spill_low_watermark={}, spill_high_watermark={}]",
+            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _spill_low_watermark, _spill_high_watermark);
+            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
