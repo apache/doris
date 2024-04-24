@@ -44,6 +44,7 @@ public:
     void process_row(size_t row_idx) override;
     void process_close() override;
     void get_value(MutableColumnPtr& column) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
     ColumnPtr _array_column;
