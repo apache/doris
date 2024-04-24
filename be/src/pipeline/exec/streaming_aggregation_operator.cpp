@@ -184,7 +184,7 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
                                (!p._have_conjuncts) && // no having conjunct
                                p._needs_finalize;      // agg's finalize step
     }
-    _init = true;
+    _opened = true;
     return Status::OK();
 }
 
@@ -1257,7 +1257,7 @@ Status StreamingAggOperatorX::open(RuntimeState* state) {
 }
 
 Status StreamingAggLocalState::close(RuntimeState* state) {
-    if (_closed) {
+    if (!_opened || _closed) {
         return Status::OK();
     }
     SCOPED_TIMER(Base::exec_time_counter());

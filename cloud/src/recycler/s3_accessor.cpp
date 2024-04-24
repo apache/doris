@@ -187,7 +187,8 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
             LOG_INFO("delete object")
                     .tag("endpoint", conf_.endpoint)
                     .tag("bucket", conf_.bucket)
-                    .tag("key", key);
+                    .tag("key", key)
+                    .tag("size", objects.size());
             objects.emplace_back().SetKey(std::move(key));
         }
         if (objects.empty()) {
