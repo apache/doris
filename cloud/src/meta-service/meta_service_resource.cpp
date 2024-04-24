@@ -374,13 +374,6 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
         msg = fmt::format("vault_name={} passed invalid argument", hdfs_param.name());
         return -1;
     }
-    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                     [&hdfs_param](const auto& name) { return name == hdfs_param.name(); }) !=
-        instance.storage_vault_names().end()) {
-        code = MetaServiceCode::ALREADY_EXISTED;
-        msg = fmt::format("vault_name={} already created", hdfs_param.name());
-        return -1;
-    }
 
     using namespace detail;
     // Check and normalize hdfs conf
@@ -472,6 +465,13 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
 static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
                                    StorageVaultPB& vault_param, MetaServiceCode& code,
                                    std::string& msg) {
+    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                     [&vault_param](const auto& name) { return name == vault_param.name(); }) !=
+        instance.storage_vault_names().end()) {
+        code = MetaServiceCode::ALREADY_EXISTED;
+        msg = fmt::format("vault_name={} already created", vault_param.name());
+        return -1;
+    }
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
