@@ -472,13 +472,16 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
         msg = fmt::format("vault_name={} already created", vault_param.name());
         return -1;
     }
+
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
+
     create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
     if (code != MetaServiceCode::OK) {
         return -1;
     }
+
     vault_param.mutable_obj_info()->CopyFrom(vault_param.obj_info());
     vault_param.set_id(vault_param.obj_info().id());
     auto vault_key = storage_vault_key({instance.instance_id(), vault_param.obj_info().id()});
@@ -757,7 +760,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_vault(
+        if (auto ret = add_vault_into_instance(
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
@@ -773,7 +776,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             msg = ss.str();
             return;
         }
-        if (auto ret = add_hdfs_storage_vault(
+        if (auto ret = add_vault_into_instance(
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
