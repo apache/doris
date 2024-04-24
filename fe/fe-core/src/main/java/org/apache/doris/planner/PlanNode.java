@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.PlanStats;
@@ -994,16 +995,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return sb.toString();
     }
 
-    public ScanNode getScanNodeInOneFragmentBySlotRef(SlotRef slotRef) {
+    public Pair<ScanNode, SlotRef> getScanNodeInOneFragmentBySlotRef(SlotRef slotRef) {
         TupleId tupleId = slotRef.getDesc().getParent().getId();
         if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
-            return (ScanNode) this;
+            return Pair.of((ScanNode) this, slotRef);
         } else if (this instanceof HashJoinNode) {
             HashJoinNode hashJoinNode = (HashJoinNode) this;
             SlotRef inputSlotRef = hashJoinNode.getMappedInputSlotRef(slotRef);
             if (inputSlotRef != null) {
                 for (PlanNode planNode : children) {
-                    ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(inputSlotRef);
+                    Pair<ScanNode, SlotRef> scanNode = planNode.getScanNodeInOneFragmentBySlotRef(inputSlotRef);
                     if (scanNode != null) {
                         return scanNode;
                     }
@@ -1013,7 +1014,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             }
         } else if (!(this instanceof ExchangeNode)) {
             for (PlanNode planNode : children) {
-                ScanNode scanNode = planNode.getScanNodeInOneFragmentBySlotRef(slotRef);
+                Pair<ScanNode, SlotRef> scanNode = planNode.getScanNodeInOneFragmentBySlotRef(slotRef);
                 if (scanNode != null) {
                     return scanNode;
                 }

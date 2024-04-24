@@ -466,20 +466,23 @@ public class DistributedPlanner {
         //   and naturally cannot be colocate
         Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts = Maps.newHashMap();
         for (BinaryPredicate eqJoinPredicate : node.getEqJoinConjuncts()) {
-            OlapScanNode leftScanNode = genSrcScanNode(eqJoinPredicate.getChild(0), leftChildFragment, cannotReason);
+            Pair<OlapScanNode, SlotRef> leftScanNode = genSrcScanNode(eqJoinPredicate.getChild(0), leftChildFragment,
+                    cannotReason);
             if (leftScanNode == null) {
                 return false;
             }
-            OlapScanNode rightScanNode = genSrcScanNode(eqJoinPredicate.getChild(1), rightChildFragment, cannotReason);
+            Pair<OlapScanNode, SlotRef> rightScanNode = genSrcScanNode(eqJoinPredicate.getChild(1), rightChildFragment,
+                    cannotReason);
             if (rightScanNode == null) {
                 return false;
             }
-            Pair<OlapScanNode, OlapScanNode> eqPair = Pair.of(leftScanNode, rightScanNode);
+            Pair<OlapScanNode, OlapScanNode> eqPair = Pair.of(leftScanNode.first, rightScanNode.first);
             List<BinaryPredicate> predicateList = scanNodeWithJoinConjuncts.get(eqPair);
             if (predicateList == null) {
                 predicateList = Lists.newArrayList();
                 scanNodeWithJoinConjuncts.put(eqPair, predicateList);
             }
+            eqJoinPredicate = new BinaryPredicate(eqJoinPredicate.getOp(), leftScanNode.second, rightScanNode.second);
             predicateList.add(eqJoinPredicate);
         }
 
@@ -487,20 +490,21 @@ public class DistributedPlanner {
         return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
     }
 
-    private OlapScanNode genSrcScanNode(Expr expr, PlanFragment planFragment, List<String> cannotReason) {
+    private Pair<OlapScanNode, SlotRef> genSrcScanNode(Expr expr, PlanFragment planFragment,
+            List<String> cannotReason) {
         SlotRef slotRef = expr.getSrcSlotRef();
         if (slotRef == null) {
             cannotReason.add(DistributedPlanColocateRule.TRANSFORMED_SRC_COLUMN);
             return null;
         }
-        ScanNode scanNode = planFragment.getPlanRoot()
+        Pair<ScanNode, SlotRef> scanNode = planFragment.getPlanRoot()
                 .getScanNodeInOneFragmentBySlotRef(slotRef);
         if (scanNode == null) {
             cannotReason.add(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA);
             return null;
         }
-        if (scanNode instanceof OlapScanNode) {
-            return (OlapScanNode) scanNode;
+        if (scanNode.first instanceof OlapScanNode) {
+            return Pair.of((OlapScanNode) scanNode.first, scanNode.second);
         } else {
             cannotReason.add(DistributedPlanColocateRule.SUPPORT_ONLY_OLAP_TABLE);
             return null;

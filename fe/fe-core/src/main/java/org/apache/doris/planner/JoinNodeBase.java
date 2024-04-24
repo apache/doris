@@ -60,6 +60,7 @@ public abstract class JoinNodeBase extends PlanNode {
     protected TupleDescriptor vOutputTupleDesc;
     protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
+    protected ExprSubstitutionMap childOutputSMap;
 
     public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType,
             PlanNode outer, PlanNode inner, TableRef innerRef) {
@@ -259,6 +260,8 @@ public abstract class JoinNodeBase extends PlanNode {
         }
         // 4. change the outputSmap
         outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
+        childOutputSMap = new ExprSubstitutionMap(outputSmap.getLhs(), outputSmap.getRhs());
+        childOutputSMap.substituteLhs(getCombinedChildSmap(), analyzer);
     }
 
     @Override

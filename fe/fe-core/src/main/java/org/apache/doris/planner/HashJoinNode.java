@@ -844,12 +844,14 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
-        if (outputSmap != null) {
-            Expr mappedExpr = outputSmap.mappingForRhsExpr(slotRef);
-            if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+        if (childOutputSMap != null) {
+            Expr mappedExpr = childOutputSMap.mappingForRhsExpr(slotRef);
+            if (mappedExpr != null && mappedExpr instanceof SlotRef
+                    && !nullableTupleIds.contains(((SlotRef) mappedExpr).getDesc().getParent().getId())) {
                 return (SlotRef) mappedExpr;
             } else {
-                if (outputSmap.containsMappingFor(slotRef)) {
+                if (childOutputSMap.containsMappingFor(slotRef)
+                        && !nullableTupleIds.contains(slotRef.getDesc().getParent().getId())) {
                     return slotRef;
                 } else {
                     return null;
