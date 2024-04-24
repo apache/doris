@@ -126,7 +126,7 @@ public interface LoadTaskInfo {
     }
 
     default int getStreamPerNode() {
-        return 20;
+        return 2;
     }
 
     class ImportColumnDescs {
