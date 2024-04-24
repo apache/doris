@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class LikeToEqualRewriteTest extends ExpressionRewriteTestHelper {
     @Test
