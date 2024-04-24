@@ -248,7 +248,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }
@@ -398,7 +398,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
             cloud_tablet()->last_sync_time_s = 0;
         } else if (start_resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         LOG_WARNING("failed to update cumulative point to meta srv")
                 .tag("job_id", _uuid)
