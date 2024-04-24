@@ -19,10 +19,6 @@ import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
 suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
-    if (isCloudMode()) {
-        return
-    }
-
     def frontends = sql_return_maparray('show frontends')
     def backends = sql_return_maparray('show backends')
     def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
