@@ -2072,7 +2072,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
-            int loadStreamPerNode = 20;
+            int loadStreamPerNode = 2;
             if (request.getStreamPerNode() > 0) {
                 loadStreamPerNode = request.getStreamPerNode();
             }
