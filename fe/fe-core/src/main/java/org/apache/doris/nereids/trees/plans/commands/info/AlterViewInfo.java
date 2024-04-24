@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColWithComment;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -44,26 +47,40 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Set;
 
-/**
- * CreateViewInfo
- */
-public class CreateViewInfo extends BaseViewInfo {
-    private final boolean ifNotExists;
-    private final String comment;
-
+/** AlterViewInfo */
+public class AlterViewInfo extends BaseViewInfo {
     /** constructor*/
-    public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
+    public AlterViewInfo(TableNameInfo viewName, LogicalPlan logicalQuery,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, logicalQuery, querySql, simpleColumnDefinitions);
-        this.ifNotExists = ifNotExists;
-        this.comment = comment;
         if (logicalQuery instanceof LogicalFileSink) {
-            throw new AnalysisException("Not support OUTFILE clause in CREATE VIEW statement");
+            throw new AnalysisException("Not support OUTFILE clause in ALTER VIEW statement");
         }
     }
 
     /** init */
     public void init(ConnectContext ctx) throws UserException {
+        if (viewName == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
+        }
+        viewName.analyze(ctx);
+        FeNameFormat.checkTableName(viewName.getTbl());
+        // disallow external catalog
+        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewStmt");
+
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(viewName.getDb());
+        TableIf table = db.getTableOrAnalysisException(viewName.getTbl());
+        if (!(table instanceof View)) {
+            throw new org.apache.doris.common.AnalysisException(
+                    String.format("ALTER VIEW not allowed on a table:%s.%s", viewName.getDb(), viewName.getTbl()));
+        }
+
+        // check privilege
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
+                viewName.getTbl()), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
+        }
         analyzeAndFillRewriteSqlMap(querySql, ctx);
         OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
         analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
@@ -73,16 +90,6 @@ public class CreateViewInfo extends BaseViewInfo {
 
     /**validate*/
     public void validate(ConnectContext ctx) throws UserException {
-        viewName.analyze(ctx);
-        FeNameFormat.checkTableName(viewName.getTbl());
-        // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
-        // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
-                viewName.getTbl()), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                    PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
-        }
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -94,12 +101,12 @@ public class CreateViewInfo extends BaseViewInfo {
     }
 
     /**translateToLegacyStmt*/
-    public CreateViewStmt translateToLegacyStmt(ConnectContext ctx) {
+    public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
         List<ColWithComment> cols = Lists.newArrayList();
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
-        CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
+        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
                 null);
         // expand star(*) in project list and replace table name with qualifier
         String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
@@ -107,8 +114,8 @@ public class CreateViewInfo extends BaseViewInfo {
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
 
-        createViewStmt.setInlineViewDef(rewrittenSql);
-        createViewStmt.setFinalColumns(finalCols);
-        return createViewStmt;
+        alterViewStmt.setInlineViewDef(rewrittenSql);
+        alterViewStmt.setFinalColumns(finalCols);
+        return alterViewStmt;
     }
 }
