@@ -404,12 +404,13 @@ public:
         return Status::OK();
     }
 
+    // here are lots of function not extends eval_inverted_index.
     Status eval_inverted_index(FunctionContext* context,
                                const vectorized::NameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
-        LOG(FATAL) << "eval_inverted_index is not implemented for IFunction";
-        __builtin_unreachable();
+        return Status::NotSupported("eval_inverted_index is not supported in function: ",
+                                    get_name());
     }
 
     [[noreturn]] const DataTypes& get_argument_types() const final {
