@@ -36,6 +36,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        executor.checkBlockRules();
         info.validate(ctx);
         CreateTableLikeStmt stmt = info.translateToLegacyStmt();
         Env.getCurrentEnv().createTableLike(stmt);
