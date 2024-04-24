@@ -351,7 +351,7 @@ public class Env {
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
-    private LoadManager loadManager;
+    protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
@@ -470,7 +470,7 @@ public class Env {
     private MasterTaskExecutor pendingLoadTaskScheduler;
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
-    private LoadJobScheduler loadJobScheduler;
+    protected LoadJobScheduler loadJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;

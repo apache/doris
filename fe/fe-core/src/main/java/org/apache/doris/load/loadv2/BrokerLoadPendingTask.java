@@ -40,8 +40,8 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadPendingTask.class);
 
-    private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
-    private BrokerDesc brokerDesc;
+    protected Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
+    protected BrokerDesc brokerDesc;
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
                                  Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
@@ -61,7 +61,7 @@ public class BrokerLoadPendingTask extends LoadTask {
         ((BrokerLoadJob) callback).beginTxn();
     }
 
-    private void getAllFileStatus() throws UserException {
+    protected void getAllFileStatus() throws UserException {
         long start = System.currentTimeMillis();
         long totalFileSize = 0;
         int totalFileNum = 0;
