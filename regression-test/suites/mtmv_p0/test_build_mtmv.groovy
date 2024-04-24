@@ -141,6 +141,21 @@ suite("test_build_mtmv") {
         DROP MATERIALIZED VIEW ${mvName}
     """
 
+    // check mvName
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ` `
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${tableName};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     // use default value
     sql """
             CREATE MATERIALIZED VIEW ${mvName}

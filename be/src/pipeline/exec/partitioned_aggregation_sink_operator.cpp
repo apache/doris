@@ -253,7 +253,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
+    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             [this, &parent, state, query_id, execution_context, submit_timer] {
                 auto execution_context_lock = execution_context.lock();
                 if (!execution_context_lock) {

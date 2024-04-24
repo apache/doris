@@ -118,12 +118,10 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 throw new RuntimeException(String.format("fetch arrow flight schema timeout, finstId: %s",
                         DebugUtil.printId(tid)));
             }
-            TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
-            if (code != TStatusCode.OK) {
-                Status status = new Status();
-                status.setPstatus(pResult.getStatus());
+            Status resultStatus = new Status(pResult.getStatus());
+            if (resultStatus.getErrorCode() != TStatusCode.OK) {
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, finstId: %s, errmsg: %s",
-                        DebugUtil.printId(tid), status.getErrorMsg()));
+                        DebugUtil.printId(tid), resultStatus.toString()));
             }
             if (pResult.hasBeArrowFlightIp()) {
                 ctx.getResultFlightServerAddr().hostname = pResult.getBeArrowFlightIp().toStringUtf8();
