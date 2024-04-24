@@ -96,11 +96,15 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
 }
 
 void Rowset::clear_cache() {
-    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    SegmentCache::CacheKey cache_key(rowset_id());
+    SegmentLoader::instance()->erase_segments(cache_key);
     clear_inverted_index_cache();
-    if (fs->type() != io::FileSystemType::LOCAL) {
-        auto cache_path = segment_cache_path(i);
-        FileCacheManager::instance()->remove_file_cache(cache_path);
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = segment_file_path(i);
+        if (fs->type() != io::FileSystemType::LOCAL) {
+            auto cache_path = segment_cache_path(i);
+            FileCacheManager::instance()->remove_file_cache(cache_path);
+        }
     }
 }
 
