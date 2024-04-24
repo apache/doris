@@ -2754,6 +2754,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+
+    public boolean isTimeout() {
+        return System.currentTimeMillis() > this.timeoutDeadline;
+    }
+
     public void setMemTableOnSinkNode(boolean enableMemTableOnSinkNode) {
         this.queryOptions.setEnableMemtableOnSinkNode(enableMemTableOnSinkNode);
     }
