@@ -67,8 +67,9 @@ public class Profile {
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
 
-    // For broker load, it has its specific name, for other load/query, the it will be
-    // the same witch profile id in the SummaryProfile.
+    // id will be assgined to id of SummaryProfile.
+    // For broker load, its SummaryPRofile id is a string representation of a long integer,
+    // for others, it is queryID
     private String id = "";
     private boolean isPipelineX = true;
     // summaryProfile will be serialized to disk as JSON, and we can recover it from disk
@@ -145,7 +146,7 @@ public class Profile {
                 this.planNodeMap = planner.getExplainStringMap();
             }
             // TODO: should not change isFinished here, in principle, the modification of isFinished should only
-            // by method markisFinished.
+            // made by method markisFinished.
             // State change should be carefully designed, the absense of unified behaviour is
             // a potential risk of bug.
             this.isFinished = isFinished;
@@ -153,7 +154,7 @@ public class Profile {
                 this.queryFinishTimestamp = System.currentTimeMillis();
             }
         } catch (Throwable t) {
-            LOG.warn("update profile failed", t);
+            LOG.warn("update profile {} failed", id, t);
             throw t;
         }
     }
@@ -173,7 +174,6 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-
         RuntimeProfile rootProfile = new RuntimeProfile(id);
         rootProfile.setIsPipelineX(isPipelineX);
         rootProfile.addChild(summaryProfile.getSummary());
@@ -198,8 +198,7 @@ public class Profile {
         }
 
         if (profileHasBeenStoredToDisk()) {
-            LOG.info("Profile of query {} has been stored to disk, reading it from disk",
-                    this.summaryProfile.getProfileId());
+            LOG.info("Profile {} has been stored to disk, reading it from disk", id);
 
             FileInputStream fileInputStream = null;
 
@@ -224,7 +223,7 @@ public class Profile {
                     try {
                         fileInputStream.close();
                     } catch (Exception e) {
-                        LOG.warn("close profile file {} failed", profileStoragePath, e);
+                        LOG.warn("Close profile {} failed", profileStoragePath, e);
                     }
                 }
             }
@@ -270,8 +269,7 @@ public class Profile {
             return null;
         }
         // Profile could be a load task with multiple queries, so we call it id.
-        String [] timeAndId = parseProfileFileName(parts[parts.length - 1]);
-        if (timeAndId == null) {
+        if (parseProfileFileName(parts[parts.length - 1]) == null ) {
             LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
             return null;
         }
@@ -346,8 +344,9 @@ public class Profile {
             return false;
         }
 
-        if (System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
-            LOG.info("Profile of query {} should be stored to disk without waiting for incoming profile,"
+        if (this.queryFinishTimestamp != Long.MIN_VALUE &&
+                    System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
+            LOG.info("Profile {} should be stored to disk without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
                     id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
             return true;
@@ -490,7 +489,7 @@ public class Profile {
         }
 
         this.profileStoragePath = profileFilePath;
-        LOG.info("Store profile for id: {}, path {}",  this.summaryProfile.getProfileId(), this.profileStoragePath);
+        LOG.debug("Store profile: {}, path {}", id, this.profileStoragePath);
     }
 
     public void remove() {
@@ -500,17 +499,14 @@ public class Profile {
 
         File profileFile = new File(getProfileStoragePath());
         if (!profileFile.exists()) {
-            LOG.warn("profile {} does not exist", profileFile.getAbsolutePath());
+            LOG.warn("Profile {} does not exist", profileFile.getAbsolutePath());
             return;
         }
 
-        LOG.info("remove profile: {}", getProfileStoragePath());
+        LOG.debug("Remove profile: {}", getProfileStoragePath());
 
-        try {
-            // deleteQuietly since it is a file, not a directory
-            FileUtils.deleteQuietly(profileFile);
-        } catch (Exception e) {
-            LOG.error("remove profile failed", e);
+        if (!FileUtils.deleteQuietly(profileFile)) {
+            LOG.warn("remove profile {} failed", profileFile.getAbsolutePath());
         }
     }
 }

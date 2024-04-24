@@ -640,10 +640,6 @@ public abstract class ConnectProcessor {
             if (statsErrorEstimator != null) {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
             }
-            // long totalTimeMs = DebugUtil.parseTimeMsFromPrettyString(executor.getSummaryProfile().getTotalTime());
-            // if (totalTimeMs < 100) {
-            //     ProfileManager.getInstance().removeProfile(executor.getProfile().getSummaryProfile().getProfileId());
-            // }
         }
     }
 

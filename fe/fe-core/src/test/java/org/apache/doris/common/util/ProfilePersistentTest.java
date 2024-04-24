@@ -268,8 +268,9 @@ public class ProfilePersistentTest {
 
             // make sure file is removed
             profile.remove();
-            File tmpFile = new File(profileStoragePath);
+            File tmpFile = new File(profileStoragePathTmp);
             Assert.assertFalse(tmpFile.exists());
+            FileUtils.deleteQuietly(profileDir);
         } finally {
             try {
                 FileUtils.deleteDirectory(profileDir);
