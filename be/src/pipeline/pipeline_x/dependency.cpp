@@ -231,7 +231,6 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
 }
 void AggSpillPartition::close() {
     if (spilling_stream_) {
-        (void)spilling_stream_->wait_spill();
         spilling_stream_.reset();
     }
     for (auto& stream : spill_streams_) {
