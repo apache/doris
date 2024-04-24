@@ -119,7 +119,7 @@ public:
             // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
-                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    "Failed add query to wg {}, the workload group is shutdown. host: {}", _id,
                     BackendOptions::get_localhost());
         }
         _query_ctxs.insert({query_id, query_ctx});
