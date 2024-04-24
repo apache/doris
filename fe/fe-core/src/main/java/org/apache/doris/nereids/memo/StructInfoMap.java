@@ -29,6 +29,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -139,7 +140,10 @@ public class StructInfoMap {
             // if one same groupExpression have refreshed, continue
             BitSet oneOfGroupExpressionTableSet = new BitSet();
             for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
-                oneOfGroupExpressionTableSet.or(groupExpressionBitSet.iterator().next());
+                Iterator<BitSet> iterator = groupExpressionBitSet.iterator();
+                if (iterator.hasNext()) {
+                    oneOfGroupExpressionTableSet.or(iterator.next());
+                }
             }
             if (groupExpressionMap.containsKey(oneOfGroupExpressionTableSet)) {
                 continue;
