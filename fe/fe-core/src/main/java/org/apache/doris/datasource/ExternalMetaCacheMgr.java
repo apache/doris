@@ -89,7 +89,7 @@ public class ExternalMetaCacheMgr {
     public ExternalMetaCacheMgr() {
         rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
                 "RowCountRefreshExecutor", 0, true);
 
         commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(

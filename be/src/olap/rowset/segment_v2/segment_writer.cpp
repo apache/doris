@@ -45,6 +45,7 @@
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -227,9 +228,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
-            (column.is_extracted_column() && column.is_array_type())) {
-            // variant and jsonb type skip write index
+        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+            // skip inverted index if invalid
             opts.indexes.clear();
             opts.need_zone_map = false;
             opts.need_bloom_filter = false;
@@ -453,19 +453,20 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 !_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update;
         specified_rowsets =
                 tablet->get_rowset_by_ids(&_mow_context->rowset_ids, should_include_stale);
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
-            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
             // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
             LOG(WARNING) << fmt::format(
                     "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
-                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in "
+                    "partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
                     specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
                     _mow_context->max_version, _mow_context->txn_id);
-            return Status::InternalError<false>(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction in strict mode partial update");
+            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
+                return Status::InternalError<false>(
+                        "[Memtable Flush] some rowsets have been deleted due to "
+                        "compaction in strict mode partial update");
+            }
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());

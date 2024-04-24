@@ -84,6 +84,7 @@ public:
     virtual ~VExpr() = default;
 
     virtual const std::string& expr_name() const = 0;
+    virtual std::string expr_label() { return ""; }
 
     /// Initializes this expr instance for execution. This does not include initializing
     /// state in the VExprContext; 'context' should only be used to register a

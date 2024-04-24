@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,7 +37,7 @@ public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggre
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(any()).thenApplyMultiNoThrow(ctx -> {
+                logicalAggregate(any().when(LogicalPlan.class::isInstance)).thenApplyMultiNoThrow(ctx -> {
                     LogicalAggregate<Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_AGGREGATE));

@@ -38,12 +38,12 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.TCheckPreCacheRequest;
-import org.apache.doris.thrift.TCheckPreCacheResponse;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPreCacheAsyncRequest;
-import org.apache.doris.thrift.TPreCacheAsyncResponse;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -182,7 +182,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         // 3 check whether the inflight preheating task has been completed
-        checkInflghtPreCache();
+        checkInflghtWarmUpCacheAsync();
 
         // TODO(merge-cloud): wait add cloud upgrade mgr
         // 4 migrate tablet for smooth upgrade
@@ -301,7 +301,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    public void checkInflghtPreCache() {
+    public void checkInflghtWarmUpCacheAsync() {
         Map<Long, List<Long>> beToTabletIds = new HashMap<Long, List<Long>>();
 
         for (Map.Entry<Long, InfightTask> entry : tabletToInfightTask.entrySet()) {
@@ -319,9 +319,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 continue;
             }
 
-            Map<Long, Boolean> taskDone = sendCheckPreCacheRpc(entry.getValue(), entry.getKey());
+            Map<Long, Boolean> taskDone = sendCheckWarmUpCacheAsyncRpc(entry.getValue(), entry.getKey());
             if (taskDone == null) {
-                LOG.warn("sendCheckPreCacheRpc return null be {}, inFight tasks {}", entry.getKey(), entry.getValue());
+                LOG.warn("sendCheckWarmUpCacheAsyncRpc return null be {}, inFight tasks {}",
+                        entry.getKey(), entry.getValue());
                 continue;
             }
 
@@ -571,13 +572,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         try {
             address = new TNetworkAddress(destBackend.getHost(), destBackend.getBePort());
             client = ClientPool.backendPool.borrowObject(address);
-            TPreCacheAsyncRequest req = new TPreCacheAsyncRequest();
+            TWarmUpCacheAsyncRequest req = new TWarmUpCacheAsyncRequest();
             req.setHost(srcBackend.getHost());
             req.setBrpcPort(srcBackend.getBrpcPort());
             List<Long> tablets = new ArrayList<Long>();
             tablets.add(pickedTablet.getId());
             req.setTabletIds(tablets);
-            TPreCacheAsyncResponse result = client.preCacheAsync(req);
+            TWarmUpCacheAsyncResponse result = client.warmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 LOG.warn("pre cache failed status {} {}", result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
@@ -591,16 +592,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private Map<Long, Boolean> sendCheckPreCacheRpc(List<Long> tabletIds, long be) {
+    private Map<Long, Boolean> sendCheckWarmUpCacheAsyncRpc(List<Long> tabletIds, long be) {
         BackendService.Client client = null;
         TNetworkAddress address = null;
         Backend destBackend = cloudSystemInfoService.getBackend(be);
         try {
             address = new TNetworkAddress(destBackend.getHost(), destBackend.getBePort());
             client = ClientPool.backendPool.borrowObject(address);
-            TCheckPreCacheRequest req = new TCheckPreCacheRequest();
+            TCheckWarmUpCacheAsyncRequest req = new TCheckWarmUpCacheAsyncRequest();
             req.setTablets(tabletIds);
-            TCheckPreCacheResponse result = client.checkPreCache(req);
+            TCheckWarmUpCacheAsyncResponse result = client.checkWarmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 LOG.warn("check pre cache status {} {}", result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());

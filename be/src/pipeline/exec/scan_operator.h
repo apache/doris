@@ -180,6 +180,10 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
+    std::vector<int> get_topn_filter_source_node_ids() {
+        return _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids;
+    }
+
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
@@ -187,13 +191,14 @@ protected:
     friend class vectorized::VScanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts() {
-        RETURN_IF_ERROR(_normalize_conjuncts());
+    virtual Status _process_conjuncts(RuntimeState* state) {
+        RETURN_IF_ERROR(_normalize_conjuncts(state));
         return Status::OK();
     }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
+    virtual bool _push_down_topn() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
@@ -231,7 +236,7 @@ protected:
         return Status::OK();
     }
 
-    Status _normalize_conjuncts();
+    Status _normalize_conjuncts(RuntimeState* state);
     Status _normalize_predicate(const vectorized::VExprSPtr& conjunct_expr_root,
                                 vectorized::VExprContext* context,
                                 vectorized::VExprSPtr& output_expr);
@@ -323,6 +328,8 @@ protected:
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
             phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+
+    Status _get_topn_filters(RuntimeState* state);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -454,6 +461,8 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
+
+    std::vector<int> topn_filter_source_node_ids;
 };
 
 } // namespace doris::pipeline

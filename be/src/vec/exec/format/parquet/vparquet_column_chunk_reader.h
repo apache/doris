@@ -18,8 +18,8 @@
 #pragma once
 
 #include <gen_cpp/parquet_types.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -29,6 +29,7 @@
 #include "decoder.h"
 #include "level_decoder.h"
 #include "util/slice.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
@@ -44,13 +45,15 @@ namespace io {
 class BufferedStreamReader;
 struct IOContext;
 } // namespace io
-namespace vectorized {
-class ColumnString;
-struct FieldSchema;
-} // namespace vectorized
+
 } // namespace doris
 
 namespace doris::vectorized {
+
+struct FieldSchema;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 /**
  * Read and decode parquet column data into doris block column.
@@ -91,7 +94,7 @@ public:
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() { return _chunk_parsed_values < _metadata.num_values; }
+    bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
 
     // Deprecated
     // Seek to the specific page, page_header_offset must be the start offset of the page header.

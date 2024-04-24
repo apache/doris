@@ -867,18 +867,22 @@ public class InternalCatalog implements CatalogIf<Database> {
             // Check if a view
             if (stmt.isView()) {
                 if (!(table instanceof View)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
+                            genDropHint(table));
                 }
             } else {
                 if (table instanceof View) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                            genDropHint(table));
                 }
             }
 
             if (!stmt.isMaterializedView() && table instanceof MTMV) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                        genDropHint(table));
             } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                        genDropHint(table));
             }
 
             if (!stmt.isForceDrop()) {
@@ -939,6 +943,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         costTimes.put("6:total", watch.getTime());
         LOG.info("finished dropping table: {} from db: {}, is force: {} cost: {}",
                 tableName, dbName, stmt.isForceDrop(), costTimes);
+    }
+
+    private static String genDropHint(TableIf table) {
+        String type = "";
+        if (table instanceof View) {
+            type = "VIEW";
+        } else if (table instanceof OlapTable) {
+            type = "TABLE";
+        } else if (table instanceof MTMV) {
+            type = "MATERIALIZED VIEW";
+        }
+        return "Use 'DROP " + type + " " + table.getName();
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -2177,6 +2193,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
+        if (defaultDistributionInfo instanceof HashDistributionInfo
+                    && ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns()
+                        .stream().anyMatch(column -> column.getType().isVariantType())) {
+            throw new DdlException("Hash distribution info should not contain variant columns");
+        }
+
         // calc short key column count
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         if (LOG.isDebugEnabled()) {
@@ -2729,21 +2751,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        String dynamicUnit = dynamicProperty.getTimeUnit();
-                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
-                        for (Expr autoExpr : autoExprs) {
-                            Expr func = (FunctionCallExpr) autoExpr;
-                            for (Expr child : func.getChildren()) {
-                                if (child instanceof LiteralExpr) {
-                                    String autoUnit = ((LiteralExpr) child).getStringValue();
-                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
-                                        throw new AnalysisException(
-                                                "If support auto partition and dynamic partition at same time, "
-                                                        + "they must have the same interval unit.");
-                                    }
-                                }
-                            }
-                        }
+                        throw new AnalysisException(
+                                "Can't use Dynamic Partition and Auto Partition at the same time");
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());

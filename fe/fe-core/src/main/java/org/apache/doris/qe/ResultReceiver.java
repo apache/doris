@@ -109,7 +109,7 @@ public class ResultReceiver {
                         }
                     } catch (TimeoutException e) {
                         LOG.warn("Query {} get result timeout, get result duration {} ms",
-                                DebugUtil.printId(this.queryId), (timeoutTs - currentTs) / 1000);
+                                DebugUtil.printId(this.queryId), timeoutTs - currentTs);
                         setRunStatus(Status.TIMEOUT);
                         status.setStatus(Status.TIMEOUT);
                         updateCancelReason("fetch data timeout");

@@ -146,6 +146,12 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
+    void replace_if_overflow() {
+        for (auto& ele : data) {
+            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
+        }
+    }
+
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -513,6 +519,31 @@ public:
     template <typename T>
     [[nodiscard]] Status merge(T&& block) {
         RETURN_IF_CATCH_EXCEPTION(return merge_impl(block););
+    }
+
+    template <typename T>
+    [[nodiscard]] Status merge_ignore_overflow(T&& block) {
+        RETURN_IF_CATCH_EXCEPTION(return merge_impl_ignore_overflow(block););
+    }
+
+    // only use for join. call ignore_overflow to prevent from throw exception in join
+    template <typename T>
+    [[nodiscard]] Status merge_impl_ignore_overflow(T&& block) {
+        if (_columns.size() != block.columns()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                    "types: {}], ",
+                    dump_names(), dump_types(), block.dump_names(), block.dump_types());
+        }
+        for (int i = 0; i < _columns.size(); ++i) {
+            DCHECK(_data_types[i]->equals(*block.get_by_position(i).type))
+                    << " target type: " << _data_types[i]->get_name()
+                    << " src type: " << block.get_by_position(i).type->get_name();
+            _columns[i]->insert_range_from_ignore_overflow(
+                    *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
+                    block.rows());
+        }
+        return Status::OK();
     }
 
     template <typename T>

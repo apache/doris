@@ -192,14 +192,11 @@ public:
                _query_options.runtime_filter_wait_infinitely;
     }
 
-    bool enable_pipeline_exec() const {
-        return _query_options.__isset.enable_pipeline_engine &&
-               _query_options.enable_pipeline_engine;
-    }
-
     bool enable_pipeline_x_exec() const {
-        return _query_options.__isset.enable_pipeline_x_engine &&
-               _query_options.enable_pipeline_x_engine;
+        return (_query_options.__isset.enable_pipeline_x_engine &&
+                _query_options.enable_pipeline_x_engine) ||
+               (_query_options.__isset.enable_pipeline_engine &&
+                _query_options.enable_pipeline_engine);
     }
 
     int be_exec_version() const {

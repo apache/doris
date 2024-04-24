@@ -192,6 +192,10 @@ public class MetaServiceClient {
         return blockingStub.getTxn(request);
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request) {
+        return blockingStub.getTxnId(request);
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {
         return blockingStub.getCurrentMaxTxnId(request);
     }

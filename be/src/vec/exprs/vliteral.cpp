@@ -61,12 +61,6 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::open(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    return Status::OK();
-}
-
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
     // Literal expr should return least one row.
     // sometimes we just use a VLiteral without open or prepare. so can't check it at this moment

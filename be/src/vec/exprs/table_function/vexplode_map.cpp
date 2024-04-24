@@ -122,4 +122,38 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
     ret->get_column(1).insert_from(_map_detail.map_col->get_values(), pos);
 }
 
+int VExplodeMapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    size_t pos = _collection_offset + _cur_offset;
+    if (current_empty()) {
+        column->insert_default();
+        max_step = 1;
+    } else {
+        ColumnStruct* struct_column = nullptr;
+        if (_is_nullable) {
+            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+            struct_column =
+                    assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            // here nullmap_column insert max_step many defaults as if MAP[row_idx] is NULL
+            // will be not update value, _cur_size = 0, means current_empty;
+            // so here could insert directly
+            nullmap_column->insert_many_defaults(max_step);
+        } else {
+            struct_column = assert_cast<ColumnStruct*>(column.get());
+        }
+        if (!struct_column || struct_column->tuple_size() != 2) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "only support map column explode to two column, but given:  ",
+                            struct_column->tuple_size());
+        }
+        struct_column->get_column(0).insert_range_from(_map_detail.map_col->get_keys(), pos,
+                                                       max_step);
+        struct_column->get_column(1).insert_range_from(_map_detail.map_col->get_values(), pos,
+                                                       max_step);
+    }
+    forward(max_step);
+    return max_step;
+}
 } // namespace doris::vectorized
