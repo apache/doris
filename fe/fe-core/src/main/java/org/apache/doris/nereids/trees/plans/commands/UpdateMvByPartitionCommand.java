@@ -41,10 +41,12 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -197,11 +199,21 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     }
 
     /**
-     * Add predicates on base table when mv can partition update
+     * Add predicates on base table when mv can partition update, Also support plan that contain cte and view
      */
     public static class PredicateAdder extends DefaultPlanRewriter<Map<TableIf, Set<Expression>>> {
+
+        // record view and cte name parts, these should be ignored and visit it's actual plan
+        public Set<List<String>> virtualRelationNamePartSet = new HashSet<>();
+
         @Override
         public Plan visitUnboundRelation(UnboundRelation unboundRelation, Map<TableIf, Set<Expression>> predicates) {
+            if (predicates.isEmpty()) {
+                return unboundRelation;
+            }
+            if (virtualRelationNamePartSet.contains(unboundRelation.getNameParts())) {
+                return unboundRelation;
+            }
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
@@ -213,8 +225,33 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         }
 
         @Override
+        public Plan visitLogicalCTE(LogicalCTE<? extends Plan> cte, Map<TableIf, Set<Expression>> predicates) {
+            if (predicates.isEmpty()) {
+                return cte;
+            }
+            for (LogicalSubQueryAlias<Plan> subQueryAlias : cte.getAliasQueries()) {
+                this.virtualRelationNamePartSet.add(subQueryAlias.getQualifier());
+                subQueryAlias.children().forEach(subQuery -> subQuery.accept(this, predicates));
+            }
+            return super.visitLogicalCTE(cte, predicates);
+        }
+
+        @Override
+        public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> subQueryAlias,
+                Map<TableIf, Set<Expression>> predicates) {
+            if (predicates.isEmpty()) {
+                return subQueryAlias;
+            }
+            this.virtualRelationNamePartSet.add(subQueryAlias.getQualifier());
+            return super.visitLogicalSubQueryAlias(subQueryAlias, predicates);
+        }
+
+        @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
                 Map<TableIf, Set<Expression>> predicates) {
+            if (predicates.isEmpty()) {
+                return catalogRelation;
+            }
             TableIf table = catalogRelation.getTable();
             if (predicates.containsKey(table)) {
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.get(table))),
