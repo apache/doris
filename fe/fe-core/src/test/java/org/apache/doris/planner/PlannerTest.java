@@ -701,8 +701,9 @@ public class PlannerTest extends TestWithFeService {
             connectContext.getSessionVariable().setEnableNereidsPlanner(v);
         }
 
-        // 1. should not contains exchange node in new planner
+        // 2. should not contains exchange node in new planner
         v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        boolean v2 = connectContext.getSessionVariable().setEnableStrictConsistencyDml(false);
         try {
             connectContext.getSessionVariable().setEnableNereidsPlanner(true);
             String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
@@ -713,6 +714,23 @@ public class PlannerTest extends TestWithFeService {
             Assertions.assertFalse(plan1.contains("VEXCHANGE"));
         } finally {
             connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+            connectContext.getSessionVariable().setEnableStrictConsistencyDml(v2);
+        }
+
+        // 3. should contain exchange node in new planner if enable strict consistency dml
+        v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        v2 = connectContext.getSessionVariable().setEnableStrictConsistencyDml(true);
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+            connectContext.getSessionVariable().setEnableStrictConsistencyDml(v2);
         }
     }
 }
