@@ -17,7 +17,12 @@
 
 suite("forbid_vault") {
     if (enableStoragevault()) {
-        logger.info("skip forbid storgage vault case")
+        logger.info("skip forbid storage vault case because storage vault enabled")
+        return
+    }
+
+    if (!isCloudMode()) {
+        logger.info("skip forbid storage vault case because not cloud mode")
         return
     }
 
