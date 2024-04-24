@@ -182,7 +182,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
@@ -253,7 +252,6 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
@@ -379,6 +377,7 @@ void StreamLoadAction::free_handler_ctx(void* param) {
     if (ctx->unref()) {
         delete ctx;
     }
+    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
