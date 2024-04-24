@@ -136,6 +136,14 @@ public class StructInfoMap {
                 refreshedGroup.add(child);
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
+            // if one same groupExpression have refreshed, continue
+            BitSet oneOfGroupExpressionTableSet = new BitSet();
+            for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
+                oneOfGroupExpressionTableSet.or(groupExpressionBitSet.iterator().next());
+            }
+            if (groupExpressionMap.containsKey(oneOfGroupExpressionTableSet)) {
+                continue;
+            }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
             Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
