@@ -136,6 +136,11 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                 LOG.warn("expression {} translate to legacy expr failed. ", expr, e);
                 return;
             }
+            if (staleExpr == null) {
+                // just return, it's a fail-safe
+                LOG.warn("expression {} translate to legacy expr failed. ", expr);
+                return;
+            }
             tExprMap.put(id, staleExpr.treeToThrift());
         } else {
             for (int i = 0; i < expr.children().size(); i++) {
