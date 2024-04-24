@@ -241,7 +241,7 @@ public:
 
     std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
 
-    virtual void clear_cache() { LOG(INFO) << "should not reach here"; }
+    virtual void clear_cache() = 0;
 
 protected:
     // Find the missed versions until the spec_version.

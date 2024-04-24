@@ -303,7 +303,6 @@ public:
 
     std::string get_rowset_info_str();
 
-    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
     void clear_cache();
 
 protected:
@@ -323,6 +322,8 @@ protected:
     virtual void do_close() = 0;
 
     virtual bool check_current_rowset_segment() = 0;
+
+    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
 
     TabletSchemaSPtr _schema;
 

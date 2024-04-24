@@ -89,7 +89,7 @@ public:
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
     // 2. The memory in tablet cache
-    void recycle_cached_data();
+    void clear_cache() override;
 
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
