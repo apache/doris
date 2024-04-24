@@ -488,10 +488,12 @@ Status BetaRowset::add_to_binlog() {
     return Status::OK();
 }
 
-void Rowset::clear_cache() {
+void BetaRowset::clear_cache() {
     SegmentCache::CacheKey cache_key(rowset_id());
     SegmentLoader::instance()->erase_segments(cache_key);
     clear_inverted_index_cache();
+
+    auto fs = _rowset_meta->fs();
     for (int i = 0; i < num_segments(); ++i) {
         auto seg_path = segment_file_path(i);
         if (fs->type() != io::FileSystemType::LOCAL) {
