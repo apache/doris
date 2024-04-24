@@ -445,11 +445,9 @@ struct AggSpillPartition {
     Status get_spill_stream(RuntimeState* state, int node_id, RuntimeProfile* profile,
                             vectorized::SpillStreamSPtr& spilling_stream);
 
-    // wait for current bock spilling to finish
-    Status wait_spill(RuntimeState* state) {
+    Status flush_if_full() {
         DCHECK(spilling_stream_);
-        auto status = spilling_stream_->wait_spill();
-        RETURN_IF_ERROR(status);
+        Status status;
         // avoid small spill files
         if (spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
             status = spilling_stream_->spill_eof();
