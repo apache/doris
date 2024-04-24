@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 
 public class InternalDatabaseUtil {
 
@@ -34,12 +33,5 @@ public class InternalDatabaseUtil {
         if (ctx == null || ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser()) {
             throw new AnalysisException("Not allowed to operate database: " + dbName);
         }
-    }
-
-    public static boolean isInternalDb(String dbName) {
-        if (StringUtils.isEmpty(dbName)) {
-            return false;
-        }
-        return dbName.equals(FeConstants.INTERNAL_DB_NAME);
     }
 }
