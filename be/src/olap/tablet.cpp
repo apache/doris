@@ -728,7 +728,6 @@ void Tablet::delete_expired_stale_rowset() {
                     if (it->second->is_local()) {
                         _engine.add_unused_rowset(it->second);
                     }
-                    it->second->clear_cache();
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
                                 << timestampedVersion->version().first << ","

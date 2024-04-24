@@ -204,8 +204,8 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
-                                              _rowset_meta->num_segments());
+    clear_cache();
+
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -242,10 +242,6 @@ Status BetaRowset::remove() {
                         LOG(WARNING) << st.to_string();
                         success = false;
                     }
-                }
-                if (success) {
-                    RETURN_IF_ERROR(segment_v2::InvertedIndexSearcherCache::instance()->erase(
-                            inverted_index_file));
                 }
             }
         }
