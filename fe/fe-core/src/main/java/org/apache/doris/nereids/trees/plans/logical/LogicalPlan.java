@@ -76,4 +76,6 @@ public interface LogicalPlan extends Plan {
     void computeUniform(FunctionalDependencies.Builder fdBuilder);
 
     void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    void computeFd(FunctionalDependencies.Builder fdBuilder);
 }

@@ -43,6 +43,7 @@ public class FunctionalDependencies {
     private final NestedSet uniqueSet;
     private final NestedSet uniformSet;
     private final ImmutableSet<FdItem> fdItems;
+    private final FuncDepsDAG fdDag;
 
     private final ImmutableEqualSet<Slot> equalSet;
 

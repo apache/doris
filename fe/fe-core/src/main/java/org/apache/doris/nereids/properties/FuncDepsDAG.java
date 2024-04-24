@@ -19,6 +19,8 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableMap;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -41,27 +43,10 @@ public class FuncDepsDAG {
         }
     }
 
-    private Map<Set<Slot>, DAGItem> itemMap;
+    private final Map<Set<Slot>, DAGItem> itemMap;
 
-    public FuncDepsDAG() {
-        itemMap = new HashMap<>();
-    }
-
-    public void addDeps(Set<Slot> l, Set<Slot> r) {
-        DAGItem lNode = getOrCreateNode(l);
-        DAGItem rNode = getOrCreateNode(r);
-        addEdge(lNode, rNode);
-    }
-
-    private DAGItem getOrCreateNode(Set<Slot> slots) {
-        return itemMap.computeIfAbsent(slots, DAGItem::new);
-    }
-
-    private void addEdge(DAGItem from, DAGItem to) {
-        if (!from.children.contains(to)) {
-            from.children.add(to);
-            to.parents.add(from);
-        }
+    FuncDepsDAG(Map<Set<Slot>, DAGItem> itemMap) {
+        this.itemMap = itemMap;
     }
 
     /**
@@ -94,6 +79,35 @@ public class FuncDepsDAG {
             }
             visited.add(child);
             collectAllChildren(validSlot, child, visited, children);
+        }
+    }
+
+    static class Builder {
+        private Map<Set<Slot>, DAGItem> itemMap;
+
+        public Builder() {
+            itemMap = new HashMap<>();
+        }
+
+        public FuncDepsDAG build() {
+            return new FuncDepsDAG(ImmutableMap.copyOf(itemMap));
+        }
+
+        public void addDeps(Set<Slot> l, Set<Slot> r) {
+            DAGItem lNode = getOrCreateNode(l);
+            DAGItem rNode = getOrCreateNode(r);
+            addEdge(lNode, rNode);
+        }
+
+        private DAGItem getOrCreateNode(Set<Slot> slots) {
+            return itemMap.computeIfAbsent(slots, DAGItem::new);
+        }
+
+        private void addEdge(DAGItem from, DAGItem to) {
+            if (!from.children.contains(to)) {
+                from.children.add(to);
+                to.parents.add(from);
+            }
         }
     }
 }
