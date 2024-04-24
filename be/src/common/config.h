@@ -1248,10 +1248,8 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_file_count);
-DECLARE_Int32(spill_io_thread_pool_per_disk_thread_num);
+DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
-DECLARE_Int32(spill_async_task_thread_pool_thread_num);
-DECLARE_Int32(spill_async_task_thread_pool_queue_size);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
