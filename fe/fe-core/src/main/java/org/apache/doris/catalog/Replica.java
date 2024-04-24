@@ -694,18 +694,8 @@ public class Replica implements Writable {
         return postWatermarkTxnId;
     }
 
-    public void setUserDrop(boolean isDrop) {
-        if (isDrop) {
-            userDropTime = System.currentTimeMillis();
-        } else {
-            userDropTime = -1;
-        }
-    }
-
-    public boolean isAlive() {
-        return getState() != ReplicaState.CLONE
-                && getState() != ReplicaState.DECOMMISSION
-                && !isBad();
+    public void setUserDropTime(long userDropTime) {
+        this.userDropTime = userDropTime;
     }
 
     public boolean isUserDrop() {
@@ -717,6 +707,12 @@ public class Replica implements Writable {
         }
 
         return false;
+    }
+
+    public boolean isAlive() {
+        return getState() != ReplicaState.CLONE
+                && getState() != ReplicaState.DECOMMISSION
+                && !isBad();
     }
 
     public boolean isScheduleAvailable() {
