@@ -17,11 +17,17 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdint.h>
-#include <time.h>
+#include <mysql/mysql.h>
+#include <cstdint>
+#include <ctime>
 
+#include <algorithm>
+#include <concepts>
+#include <format>
 #include <memory>
+#include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -50,6 +56,7 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -354,6 +361,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
 using BaseInputTypeSet = std::vector<TypeIndex>;
 
+// Each parameter may be decorated with 'const', but each invocation of 'check_function' can only handle one state of the parameters.
+// If there are 'n' parameters, it would require manually calling 'check_function' 2^n times, whereas through this function, only one
+// invocation is needed.
 template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
                                  const DataSet& data_set) {
@@ -383,5 +393,4 @@ void check_function_all_arg_comb(const std::string& func_name, const BaseInputTy
         }
     }
 }
-
 } // namespace doris::vectorized
