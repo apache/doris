@@ -182,8 +182,8 @@ Status FileBlock::change_cache_type_self(FileCacheType new_type) {
         new_meta.type = new_type;
         RETURN_IF_ERROR(_mgr->_storage->change_key_meta(_key, new_meta));
     }
-    _key.meta.type = new_type;
     _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
+    _key.meta.type = new_type;
     return Status::OK();
 }
 
