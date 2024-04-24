@@ -362,10 +362,10 @@ Status SegmentIterator::_lazy_init() {
         _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
-    _is_common_expr_column.resize(_schema->columns().size(), false);
+    // extract for index apply col id which is slot_ref
     if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
         for (auto expr : _remaining_conjunct_roots) {
-            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
+            RETURN_IF_ERROR(_extract_common_expr_columns_for_index(expr));
         }
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -729,6 +729,20 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
         _common_expr_columns.insert(_schema->column_id(slot_expr->column_id()));
     }
 
+    return Status::OK();
+}
+
+Status SegmentIterator::_extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr) {
+    auto& children = expr->children();
+    for (int i = 0; i < children.size(); ++i) {
+        RETURN_IF_ERROR(_extract_common_expr_columns_for_index(children[i]));
+    }
+
+    auto node_type = expr->node_type();
+    if (node_type == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
+        _common_expr_columns_for_index.insert(_schema->column_id(slot_expr->column_id()));
+    }
     return Status::OK();
 }
 
@@ -1231,7 +1245,7 @@ Status SegmentIterator::_apply_inverted_index() {
     std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
             iter_map;
 
-    for (auto col_id : _common_expr_columns) {
+    for (auto col_id : _common_expr_columns_for_index) {
         if (_check_apply_by_inverted_index(col_id)) {
             iter_map[col_id] = std::make_pair(_storage_name_and_type[col_id],
                                               _inverted_index_iterators[col_id].get());
@@ -1627,7 +1641,11 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // Step2: extract columns that can execute expr context
+    _is_common_expr_column.resize(_schema->columns().size(), false);
     if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
+        for (auto expr : _remaining_conjunct_roots) {
+            RETURN_IF_ERROR(_extract_common_expr_columns(expr));
+        }
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
