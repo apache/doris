@@ -129,6 +129,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -555,7 +556,9 @@ public class StmtExecutor {
                                 .getLogicalPlan()).isExternalTableSink();
                     }
                     boolean forceFallback = isInsertCommand && !isExternalTableInsert && !context.isTxnModel();
-                    if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
+                    if (e instanceof NereidsException
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
@@ -674,9 +677,14 @@ public class StmtExecutor {
             }
             try {
                 ((Command) logicalPlan).run(context, this);
+            } catch (MustFallbackException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                }
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.setState(e.getQueryState());
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
@@ -684,7 +692,7 @@ public class StmtExecutor {
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
@@ -692,7 +700,7 @@ public class StmtExecutor {
             } catch (Exception e) {
                 // Maybe our bug
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",

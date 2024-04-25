@@ -115,7 +115,40 @@ statementBase
         constraint                                                        #addConstraint
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
-    | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
+    | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    | unsupportedStatement                                                #unsupported
+    ;
+
+unsupportedStatement
+    : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
+    | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
+    | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
+    | SET variable                                                         #setSystemVariableWithoutType
+    | SET (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)    #setCharset
+    | SET NAMES EQ expression                                              #setNames
+    | SET (GLOBAL | LOCAL | SESSION)? TRANSACTION
+        ( transactionAccessMode
+        | isolationLevel
+        | transactionAccessMode COMMA isolationLevel
+        | isolationLevel COMMA transactionAccessMode)                     #setTransaction
+    | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
+    | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
+    | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
+    | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    ;
+
+variable
+    : (ATSIGN ATSIGN (GLOBAL | LOCAL | SESSION)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    | ATSIGN identifier EQ expression #setUserVariable
+    ;
+
+transactionAccessMode
+    : READ (ONLY | WRITE)
+    ;
+
+isolationLevel
+    : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
     ;
 
 constraint
