@@ -582,6 +582,8 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void clear_cache();
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -629,6 +631,8 @@ private:
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
     std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
+
+    void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
