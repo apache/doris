@@ -405,7 +405,7 @@ public class SystemInfoServiceTest {
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
         for (int i = 0; i < 10000; ++i) {
             Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
-                    TStorageMedium.HDD, false, false);
+                    Maps.newHashMap(), TStorageMedium.HDD, false, false);
             Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
