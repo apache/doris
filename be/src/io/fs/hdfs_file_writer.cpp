@@ -281,6 +281,21 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
+#ifdef USE_LIBHDFS3
+    std::string hdfs_dir = path.parent_path().string();
+    int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
+    if (exists != 0) {
+        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
+        if (ret != 0) {
+            std::stringstream ss;
+            ss << "create dir failed. "
+               << " fs_name: " << fs_name << " path: " << hdfs_dir << ", err: " << hdfs_error();
+            LOG(WARNING) << ss.str();
+            return ResultError(Status::InternalError(ss.str()));
+        }
+    }
+#endif
     // open file
     hdfsFile hdfs_file = nullptr;
     {
