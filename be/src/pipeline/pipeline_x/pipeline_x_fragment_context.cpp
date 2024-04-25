@@ -1270,18 +1270,18 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 
+// We should use bucket shuffle local exchanger if one condition is met below:
+// 1. Operator is followed by a colocated Agg/Analytic operator with different `get_num_bucket_shuffled_keys`.
+// 2. Operator is followed by a colocated / bucket shuffled join.
 void PipelineXFragmentContext::_update_data_distribution_requirement(OperatorBase* op) {
     // `get_num_bucket_shuffled_keys` returns -1 means this operator doesn't have partition keys.
     if (op->get_num_bucket_shuffled_keys() > -1) {
-        // We should use bucket shuffle local exchanger if one condition is met below:
-        // 1. Operator is followed by a colocated Agg/Analytic operator with different `get_num_bucket_shuffled_keys`.
-        // 2. Operator is followed by a colocated / bucket shuffled join.
         _should_be_bucket_shuffled =
                 _should_be_bucket_shuffled ||
-                _num_bucket_shuffled_keys != op->get_num_bucket_shuffled_keys() ||
-                op->is_bucket_shuffled_join();
+                _num_bucket_shuffled_keys != op->get_num_bucket_shuffled_keys();
         _num_bucket_shuffled_keys = op->get_num_bucket_shuffled_keys();
     }
+    _should_be_bucket_shuffled = _should_be_bucket_shuffled || op->is_bucket_shuffled_join();
 }
 
 template <bool is_intersect>
