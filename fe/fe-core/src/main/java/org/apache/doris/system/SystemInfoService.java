@@ -534,7 +534,7 @@ public class SystemInfoService {
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
@@ -563,6 +563,7 @@ public class SystemInfoService {
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
+                TStorageMedium originalStorageMedium = storageMedium;
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     policy = builder.setStorageMedium(storageMedium).build();
@@ -570,10 +571,10 @@ public class SystemInfoService {
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
-                    LOG.error("failed backend(s) for policy:" + policy);
+                    LOG.error("failed backend(s) for policy: {} real medium {}", policy, originalStorageMedium);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
-                            + ", storage medium: " + storageMedium;
+                            + ", storage medium: " + originalStorageMedium;
                     failedEntries.add(errorReplication);
                 } else {
                     chosenBackendIds.put(entry.getKey(), beIds);
@@ -589,7 +590,7 @@ public class SystemInfoService {
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
+        return Pair.of(chosenBackendIds, storageMedium);
     }
 
     /**

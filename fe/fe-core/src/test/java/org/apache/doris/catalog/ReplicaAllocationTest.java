@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
@@ -55,8 +56,8 @@ public class ReplicaAllocationTest {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, (TStorageMedium) any, false, true);
                 minTimes = 0;
                 result = new Delegate() {
-                    Map<Tag, List<Long>> selectBackendIdsForReplicaCreation() {
-                        return Maps.newHashMap();
+                    Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation() {
+                        return Pair.of(Maps.newHashMap(), TStorageMedium.HDD);
                     }
                 };
             }
