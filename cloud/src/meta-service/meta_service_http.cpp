@@ -209,8 +209,10 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
             {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
-            {"drop_storage_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
-            {"add_storage_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
+            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_OBJ_INFO},
+            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
+            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
+            {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -222,11 +224,6 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
     AlterObjStoreInfoRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
     req.set_op(it->second);
-    if (req.op() == AlterObjStoreInfoRequest::ADD_HDFS_INFO) {
-        auto op = req.vault().has_hdfs_info() ? AlterObjStoreInfoRequest::ADD_HDFS_INFO
-                                              : AlterObjStoreInfoRequest::ADD_S3_VAULT;
-        req.set_op(op);
-    }
 
     AlterObjStoreInfoResponse resp;
     service->alter_obj_store_info(ctrl, &req, &resp, nullptr);
@@ -450,8 +447,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/legacy_update_ak_sk", process_alter_obj_store_info},
             {"v1/update_ak_sk", process_update_ak_sk},
             {"show_storage_vaults", process_get_obj_store_info},
-            {"add_storage_vault", process_alter_obj_store_info},
-            {"drop_storage_vault", process_alter_obj_store_info},
+            {"add_hdfs_vault", process_alter_obj_store_info},
+            {"add_s3_vault", process_alter_obj_store_info},
+            {"drop_s3_vault", process_alter_obj_store_info},
+            {"drop_hdfs_vault", process_alter_obj_store_info},
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
