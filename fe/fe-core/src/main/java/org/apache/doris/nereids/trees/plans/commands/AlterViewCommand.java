@@ -36,6 +36,7 @@ public class AlterViewCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        executor.checkBlockRules();
         alterViewInfo.init(ctx);
         alterViewInfo.validate(ctx);
         AlterViewStmt alterViewStmt = alterViewInfo.translateToLegacyStmt(ctx);
