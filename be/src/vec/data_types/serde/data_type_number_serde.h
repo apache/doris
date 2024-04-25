@@ -95,7 +95,7 @@ public:
                                int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
@@ -295,7 +295,7 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
                                                       rapidjson::Value& result,
                                                       rapidjson::Document::AllocatorType& allocator,
-                                                      int row_num) const {
+                                                      Arena& mem_pool, int row_num) const {
     const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
     if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
         result.SetInt(data[row_num]);

@@ -229,7 +229,7 @@ public:
         return Status::OK();
     }
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
