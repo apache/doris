@@ -430,6 +430,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -2127,6 +2128,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapValues(MapValues mapValues, C context) {
         return visitScalarFunction(mapValues, context);
+    }
+
+    default R visitXor(Xor xor, C context) {
+        return visitScalarFunction(xor, context);
     }
 
     // struct function
