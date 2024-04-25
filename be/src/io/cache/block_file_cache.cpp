@@ -65,22 +65,17 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_disposable_queue_element_count", 0);
     _cur_disposable_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_disposable_queue_cache_size", 0);
-    
+
     _queue_evict_size_metrics[0] = std::make_shared<bvar::Adder<size_t>>(
-        _cache_base_path.c_str(), "file_cache_index_queue_evict_size"
-    );
+            _cache_base_path.c_str(), "file_cache_index_queue_evict_size");
     _queue_evict_size_metrics[1] = std::make_shared<bvar::Adder<size_t>>(
-        _cache_base_path.c_str(), "file_cache_normal_queue_evict_size"
-    );
+            _cache_base_path.c_str(), "file_cache_normal_queue_evict_size");
     _queue_evict_size_metrics[2] = std::make_shared<bvar::Adder<size_t>>(
-        _cache_base_path.c_str(), "file_cache_disposable_queue_evict_size"
-    );
+            _cache_base_path.c_str(), "file_cache_disposable_queue_evict_size");
     _queue_evict_size_metrics[3] = std::make_shared<bvar::Adder<size_t>>(
-        _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size"
-    );
+            _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
-        _cache_base_path.c_str(), "file_cache_total_evict_size"
-    );
+            _cache_base_path.c_str(), "file_cache_total_evict_size");
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
