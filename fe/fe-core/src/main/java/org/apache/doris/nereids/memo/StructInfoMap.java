@@ -121,10 +121,10 @@ public class StructInfoMap {
     public void refresh(Group group, long refreshVersion, BitSet targetBitSet) {
         Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-            List<Set<BitSet>> childrenTableMap = new ArrayList<>();
+            List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression);
-                groupExpressionMap.put(leaf, Pair.of(groupExpression, new ArrayList<>()));
+                groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
             for (Group child : groupExpression.children()) {
