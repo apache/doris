@@ -26,10 +26,6 @@
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
-
-
-
-
 # choose a base image
 FROM ubuntu:22.04
 
