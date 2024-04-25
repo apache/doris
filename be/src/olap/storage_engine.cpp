@@ -1094,6 +1094,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
                 }
+                it->second->clear_cache();
                 it = _unused_rowsets.erase(it);
             } else {
                 if (rs.use_count() != 1) {

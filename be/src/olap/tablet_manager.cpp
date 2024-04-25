@@ -551,41 +551,9 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
-    {
-        std::shared_lock rlock(to_drop_tablet->get_header_lock());
-        static auto recycle_segment_cache = [](const auto& rowset_map) {
-            for (auto& [_, rowset] : rowset_map) {
-                // If the tablet was deleted, it need to remove all rowsets fds directly
-                SegmentLoader::instance()->erase_segments(rowset->rowset_id(),
-                                                          rowset->num_segments());
-            }
-        };
-        recycle_segment_cache(to_drop_tablet->rowset_map());
-        recycle_segment_cache(to_drop_tablet->stale_rowset_map());
-        // recycle inverted index cache
-        static auto recycle_inverted_index_cache = [](const auto& rowset_map) {
-            for (auto& [_, rowset] : rowset_map) {
-                auto rs = std::static_pointer_cast<BetaRowset>(rowset);
-                for (int i = 0; i < rs->num_segments(); ++i) {
-                    auto seg_path = rs->segment_file_path(i);
-                    for (auto& column : rs->tablet_schema()->columns()) {
-                        const TabletIndex* index_meta =
-                                rs->tablet_schema()->get_inverted_index(*column);
-                        if (index_meta) {
-                            std::string inverted_index_file =
-                                    InvertedIndexDescriptor::get_index_file_name(
-                                            seg_path, index_meta->index_id(),
-                                            index_meta->get_index_suffix());
-                            (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
-                                    inverted_index_file);
-                        }
-                    }
-                }
-            }
-        };
-        recycle_inverted_index_cache(to_drop_tablet->rowset_map());
-        recycle_inverted_index_cache(to_drop_tablet->stale_rowset_map());
-    }
+
+    to_drop_tablet->clear_cache();
+
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
         std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
@@ -1155,6 +1123,9 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                          << " cur tablet_uid=" << tablet_meta->tablet_uid();
             return true;
         }
+
+        tablet->clear_cache();
+
         // move data to trash
         const auto& tablet_path = tablet->tablet_path();
         bool exists = false;
@@ -1196,6 +1167,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                   << ", schema_hash=" << tablet->schema_hash() << ", tablet_path=" << tablet_path;
         return true;
     } else {
+        tablet->clear_cache();
         // if could not find tablet info in meta store, then check if dir existed
         const auto& tablet_path = tablet->tablet_path();
         bool exists = false;
