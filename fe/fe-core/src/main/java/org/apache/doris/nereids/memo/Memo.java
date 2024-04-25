@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -69,6 +70,8 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
+    private final Set<Long> tableIdSet = new HashSet<>();
+    private boolean needRefrenshMv = true;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -84,6 +87,14 @@ public class Memo {
     public Memo(ConnectContext connectContext, Plan plan) {
         this.root = init(plan);
         this.connectContext = connectContext;
+    }
+
+    public boolean isNeedRefrenshMv() {
+        return needRefrenshMv;
+    }
+
+    public void setMvRefreshed() {
+        needRefrenshMv = false;
     }
 
     public static long getStateId() {
@@ -186,6 +197,14 @@ public class Memo {
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite, HashMap<Long, Group> planTable) {
         CopyInResult result;
+        if (plan instanceof CatalogRelation) {
+            CatalogRelation catalogRelation = (CatalogRelation) plan;
+            // TODO: use id in Memo to replace table id
+            needRefrenshMv = !tableIdSet.contains(catalogRelation.getTable().getId());
+            if (needRefrenshMv) {
+                tableIdSet.add(catalogRelation.getTable().getId());
+            }
+        }
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {

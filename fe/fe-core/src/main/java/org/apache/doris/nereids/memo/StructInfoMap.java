@@ -52,11 +52,13 @@ public class StructInfoMap {
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(BitSet mvTableMap, BitSet foldTableMap, Group group, Plan originPlan) {
+    public @Nullable StructInfo getStructInfo(Memo memo, BitSet mvTableMap, BitSet foldTableMap,
+            Group group, Plan originPlan) {
         if (!infoMap.containsKey(mvTableMap)) {
             if ((groupExpressionMap.containsKey(foldTableMap) || groupExpressionMap.isEmpty())
-                    && !groupExpressionMap.containsKey(mvTableMap)) {
+                    && !groupExpressionMap.containsKey(mvTableMap) && memo.isNeedRefrenshMv()) {
                 refresh(group);
+                memo.setMvRefreshed();
             }
             if (groupExpressionMap.containsKey(mvTableMap)) {
                 Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(

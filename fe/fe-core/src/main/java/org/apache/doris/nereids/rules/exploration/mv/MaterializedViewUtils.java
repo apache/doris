@@ -157,7 +157,9 @@ public class MaterializedViewUtils {
                             && !StructInfo.containsAll(materializedViewTableSet, queryTableSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(queryTableSet, queryTableSet, ownerGroup, plan);
+                    StructInfo structInfo =
+                            structInfoMap.getStructInfo(
+                                    cascadesContext.getMemo(), queryTableSet, queryTableSet, ownerGroup, plan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
