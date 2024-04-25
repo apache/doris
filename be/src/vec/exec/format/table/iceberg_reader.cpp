@@ -254,7 +254,6 @@ Status IcebergTableReader::_position_delete_base(
     for (auto& erase_item : erase_data) {
         erase_item->erase(data_file_path);
     }
-
     return Status::OK();
 }
 
@@ -402,8 +401,7 @@ void IcebergTableReader::_gen_new_colname_to_value_range() {
     }
 }
 
-void IcebergTableReader::_gen_position_delete_file_range(Block& block,
-                                                         DeleteFile* const position_delete,
+void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
                                                          size_t read_rows,
                                                          bool file_path_column_dictionary_coded) {
     ColumnPtr path_column = block.get_by_name(ICEBERG_FILE_PATH).column;

@@ -222,8 +222,10 @@ public:
                                  kv_cache, io_ctx, push_down_count) {}
 
     void set_delete_rows() override {
-        // todo set _iceberg_delete_rows
+        auto* orc_reader = (OrcReader*)_file_format_reader.get();
+        orc_reader->set_position_delete_rowids(&_iceberg_delete_rows);
     }
+
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,

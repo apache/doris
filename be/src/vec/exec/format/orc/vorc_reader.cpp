@@ -1597,6 +1597,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             *read_rows = 0;
             return Status::OK();
         }
+        _execute_filter_position_delete_rowids(*_filter);
 
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
         if (!_not_single_slot_filter_conjuncts.empty()) {
@@ -1721,6 +1722,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 return Status::OK();
             }
+            _execute_filter_position_delete_rowids(result_filter);
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
@@ -2378,6 +2380,20 @@ void ORCFileInputStream::beforeReadStripe(
 void ORCFileInputStream::_collect_profile_before_close() {
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
+    }
+}
+void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) {
+    if (_position_delete_ordered_rowids == nullptr) {
+        return;
+    }
+    auto start = _row_reader->getRowNumber();
+    auto nums = _batch->numElements;
+    auto l = std::lower_bound(_position_delete_ordered_rowids->begin(),
+                              _position_delete_ordered_rowids->end(), start);
+    auto r = std::upper_bound(_position_delete_ordered_rowids->begin(),
+                              _position_delete_ordered_rowids->end(), start + nums - 1);
+    for (; l < r; l++) {
+        filter[*l - start] = 0;
     }
 }
 

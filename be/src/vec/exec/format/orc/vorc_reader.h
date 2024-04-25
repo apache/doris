@@ -184,6 +184,12 @@ public:
             std::unordered_map<std::string, std::string> table_col_to_file_col) {
         _table_col_to_file_col = table_col_to_file_col;
     }
+
+    void set_position_delete_rowids(vector<int64_t>* delete_rows) {
+        _position_delete_ordered_rowids = delete_rows;
+    }
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
         _delete_rows = delete_rows;
     }
@@ -252,6 +258,8 @@ private:
     private:
         OrcReader* _orc_reader = nullptr;
     };
+
+    //class RowFilter : public orc::RowReader
 
     // Create inner orc file,
     // return EOF if file is empty
@@ -595,6 +603,8 @@ private:
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
     //for iceberg table , when table column name != file column name
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    //support iceberg position delete .
+    std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
