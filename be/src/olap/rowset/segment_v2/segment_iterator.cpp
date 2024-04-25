@@ -2363,6 +2363,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
 
+        if (UNLIKELY(_opts.record_rowids)) {
+            _sel_rowid_idx.resize(selected_size);
+            _selected_size = selected_size;
+        }
+
         if (_non_predicate_columns.empty()) {
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
