@@ -49,7 +49,7 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;

@@ -33,15 +33,16 @@ PhysicalResultSink
 ----------------------------------------------------filter((ss1.ss_store_sk = 146))
 ------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalAssertNumRows
+------------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------------PhysicalProject
+----------------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------------PhysicalProject
+------------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------filter((rnk < 11))
@@ -60,13 +61,14 @@ PhysicalResultSink
 ----------------------------------------------------filter((ss1.ss_store_sk = 146))
 ------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalAssertNumRows
+------------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------------PhysicalProject
+----------------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------------PhysicalProject
+------------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------------PhysicalOlapScan[store_sales]
 

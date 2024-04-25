@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -521,7 +520,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -799,7 +798,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             Tablet pickedTablet = beToTablets.get(srcBe).get(randomIndex);
             CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
 
-            if (Config.cloud_preheating_enabled) {
+            if (Config.enable_cloud_warm_up_for_rebalance) {
                 if (isConflict(srcBe, destBe, cloudReplica, balanceType, futurePartitionToTablets,
                         futureBeToTabletsInTable)) {
                     continue;

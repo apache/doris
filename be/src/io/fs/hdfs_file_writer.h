@@ -36,11 +36,12 @@ public:
     // - fs_name/path_to_file
     // - /path_to_file
     // TODO(plat1ko): Support related path for cloud mode
-    static Result<FileWriterPtr> create(Path path, HdfsHandler* handler, const std::string& fs_name,
+    static Result<FileWriterPtr> create(Path path, std::shared_ptr<HdfsHandler> handler,
+                                        const std::string& fs_name,
                                         const FileWriterOptions* opts = nullptr);
 
-    HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file, std::string fs_name,
-                   const FileWriterOptions* opts = nullptr);
+    HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
+                   std::string fs_name, const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
     Status close() override;
@@ -59,7 +60,7 @@ private:
     Status _append(std::string_view content);
 
     Path _path;
-    HdfsHandler* _hdfs_handler = nullptr;
+    std::shared_ptr<HdfsHandler> _hdfs_handler = nullptr;
     hdfsFile _hdfs_file = nullptr;
     std::string _fs_name;
     size_t _bytes_appended = 0;
@@ -82,7 +83,7 @@ private:
         std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
-    size_t _index_offset;
+    size_t _index_offset = 0;
 };
 
 } // namespace io

@@ -119,8 +119,8 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status FileScanLocalState::_process_conjuncts() {
-    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts());
+Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts(state));
     if (Base::_eos) {
         return Status::OK();
     }

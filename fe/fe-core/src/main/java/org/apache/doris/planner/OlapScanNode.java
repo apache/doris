@@ -1530,7 +1530,11 @@ public class OlapScanNode extends ScanNode {
                 .map(sortNode -> sortNode.getId().asInt())
                 .collect(Collectors.toList());
         if (!topnFilterSourceNodeIds.isEmpty()) {
-            msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+            if (SessionVariable.enablePipelineEngineX()) {
+                msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+            } else {
+                msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+            }
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();

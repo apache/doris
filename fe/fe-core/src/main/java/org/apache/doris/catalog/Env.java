@@ -351,7 +351,7 @@ public class Env {
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
-    private LoadManager loadManager;
+    protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
@@ -470,7 +470,7 @@ public class Env {
     private MasterTaskExecutor pendingLoadTaskScheduler;
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
-    private LoadJobScheduler loadJobScheduler;
+    protected LoadJobScheduler loadJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;
@@ -1066,16 +1066,6 @@ public class Env {
         }
 
         queryCancelWorker.start();
-
-        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wgPublisher);
-        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wpPublisher);
-        topicPublisherThread.start();
-
-        workloadGroupMgr.startUpdateThread();
-        workloadSchedPolicyMgr.start();
-        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -1718,6 +1708,13 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
+        topicPublisherThread.start();
+
     }
 
     // start threads that should run on all FE
@@ -1739,6 +1736,11 @@ public class Env {
         }
 
         dnsCache.start();
+
+        workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadRuntimeStatusMgr.start();
+
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
