@@ -16,15 +16,14 @@
 # under the License.
 
 # how to use Dockerfile.
-# this is dockerfile for build doris broker image on amd64.
+# this is dockerfile for build doris broker image.
 # when build youself image.
-# 1. pull binary from official website and decompress into resource directory that the level equals with Dockerfile_broker_ubuntu.
-# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version.
-# 3. run commad docker build -t xxx.doris.broker:xx -f Dockerfile_broker_ubuntu.
+# 1. pull binary from official website and decompress into resource directory that the level equals with this Dockerfile.
+# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version and target arch.
+# 3. run commad docker build -t xxx.doris.broker:xx -f Dockerfile --build-arg DORIS_VERSION=2.1.2
 
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
-#
 
 FROM ubuntu:22.04
 
@@ -37,11 +36,20 @@ RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
     bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    net-tools openjdk-8-jdk && \
+    net-tools
+
+RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9]))).*' >>/dev/null ; then \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-17-jdk && \
+        ln -s /usr/lib/jvm/java-17-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
+    else \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-8-jdk && \
+        ln -s /usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
+    fi; \
     rm -rf /var/lib/apt/lists/*
 
 # set environment variables
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64}
+ENV JAVA_HOME=/usr/lib/jvm/java
+ENV PATH=$PATH:/opt/apache-doris/apache_hdfs_broker/bin
 
 # apache-doris/broker from doris release xxxx.tar.gz
 ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker

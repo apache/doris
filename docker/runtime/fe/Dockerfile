@@ -29,7 +29,7 @@ FROM ubuntu:22.04
 
 ARG TARGETARCH
 
-ARG DORIS_VERSION="2.X.X"
+ARG DORIS_VERSION="x.x.x"
 
 RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
     apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -40,21 +40,19 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
     net-tools
 
 
-RUN if echo $DORIS_VERSION | grep -E '^(0\.|1\.|2\.)' >>/dev/null ; then \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-8-jdk && \
-        ln -s /usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
-    else \
+RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9]))).*' >>/dev/null ; then \
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-17-jdk && \
         ln -s /usr/lib/jvm/java-17-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
+    else \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-8-jdk && \
+        ln -s /usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
     fi; \
     rm -rf /var/lib/apt/lists/*
-
 
 # set environment variables
 
 ENV JAVA_HOME=/usr/lib/jvm/java
-ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/fe/bin
-
+ENV PATH=$PATH:/opt/apache-doris/fe/bin
 
 # apache-doris/fe from doris release tar.gz, please update the version in follows x.x.x.
 COPY resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe

@@ -26,12 +26,16 @@
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
+
+
+
+
 # choose a base image
 FROM ubuntu:22.04
 
 ARG TARGETARCH
 
-ARG DORIS_VERSION="2.x.x"
+ARG DORIS_VERSION="x.x.x"
 
 RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
     apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -43,12 +47,12 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
 
 
 
-RUN if echo $DORIS_VERSION | grep -E '^(0\.|1\.|2\.)' >>/dev/null ; then \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-8-jdk && \
-        ln -s /usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
-    else \
+RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9]))).*' >>/dev/null ; then \
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-17-jdk && \
         ln -s /usr/lib/jvm/java-17-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
+    else \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-8-jdk && \
+        ln -s /usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} /usr/lib/jvm/java; \
     fi; \
     rm -rf /var/lib/apt/lists/*
 
@@ -56,7 +60,7 @@ RUN if echo $DORIS_VERSION | grep -E '^(0\.|1\.|2\.)' >>/dev/null ; then \
 # set environment variables
 
 ENV JAVA_HOME=/usr/lib/jvm/java
-ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/be/bin
+ENV PATH=$PATH:/opt/apache-doris/be/bin
 
 # apache-doris/be from doris release xxxx.tar.gz.please update the version in follows x.x.x.
 ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/be /opt/apache-doris/be
