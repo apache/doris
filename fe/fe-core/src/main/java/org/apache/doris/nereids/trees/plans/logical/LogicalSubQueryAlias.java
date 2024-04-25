@@ -191,6 +191,17 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         return ImmutableSet.of();
     }
 
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
     public void setRelationId(RelationId relationId) {
         this.relationId = relationId;
     }

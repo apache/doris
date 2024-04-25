@@ -183,7 +183,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.storageFormat = storageFormat;
     }
 
-    private void initAnalyzer() throws AnalysisException {
+    protected void initAnalyzer() throws AnalysisException {
         ConnectContext connectContext = new ConnectContext();
         Database db;
         try {

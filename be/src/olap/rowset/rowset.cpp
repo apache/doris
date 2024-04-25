@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
 
@@ -91,6 +92,11 @@ std::string Rowset::get_rowset_info_str() {
                        _rowset_meta->has_delete_predicate() ? "DELETE" : "DATA",
                        SegmentsOverlapPB_Name(_rowset_meta->segments_overlap()),
                        rowset_id().to_string(), disk_size);
+}
+
+void Rowset::clear_cache() {
+    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    clear_inverted_index_cache();
 }
 
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {

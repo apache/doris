@@ -1957,14 +1957,16 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-    if (_is_need_vec_eval) {
-        _is_need_vec_eval = false;
-        for (const auto& pred : _pre_eval_block_predicate) {
-            _is_need_vec_eval |= (!pred->always_true());
+    bool all_pred_always_true = true;
+    for (const auto& pred : _pre_eval_block_predicate) {
+        if (!pred->always_true()) {
+            all_pred_always_true = false;
+            break;
         }
     }
-    if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
+    //If all predicates are always_true, then return directly.
+    if (all_pred_always_true || !_is_need_vec_eval) {
+        for (uint16_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
         }
         return selected_size;
@@ -2248,6 +2250,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        if (_non_predicate_columns.empty()) {
+            return Status::InternalError("_non_predicate_columns is empty");
+        }
         RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);

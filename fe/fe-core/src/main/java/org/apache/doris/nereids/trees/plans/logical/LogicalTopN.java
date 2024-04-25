@@ -188,6 +188,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         if (getLimit() == 1) {
