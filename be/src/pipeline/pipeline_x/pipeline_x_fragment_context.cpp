@@ -1208,6 +1208,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+        _should_be_bucket_shuffled = true;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
