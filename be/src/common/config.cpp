@@ -1216,6 +1216,8 @@ DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
+DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
+
 // The min thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
@@ -1224,6 +1226,8 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
+// The max ratio for ttl cache's size
+DEFINE_mInt64(max_ttl_cache_ratio, "90");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1663,6 +1667,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_shrink_memory"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["string_overflow_size"] =
+            ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

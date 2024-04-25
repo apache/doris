@@ -28,6 +28,7 @@
 
 namespace doris::io {
 class FileSystem;
+struct FileCacheAllocatorBuilder;
 
 // Only affects remote file writers
 struct FileWriterOptions {
@@ -62,6 +63,8 @@ public:
     virtual size_t bytes_appended() const = 0;
 
     virtual bool closed() const = 0;
+
+    virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 };
 
 } // namespace doris::io
