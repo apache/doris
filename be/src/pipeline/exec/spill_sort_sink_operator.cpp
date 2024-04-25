@@ -75,10 +75,13 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_sort_blocks_memory_usage, "SortBlocks");
 }
 
-Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
+Status SpillSortSinkLocalState::close(RuntimeState* state, Status exec_status) {
     auto& parent = Base::_parent->template cast<Parent>();
     if (parent._enable_spill) {
         dec_running_big_mem_op_num(state);
+    }
+    if (!exec_status.ok()) {
+        _shared_state->close_spill();
     }
     return Status::OK();
 }
@@ -107,6 +110,8 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 
     RETURN_IF_ERROR(sink_local_state->open(state));
 
+    Base::_shared_state->mem_data =
+            std::make_shared<SortMemData>(Base::_shared_state->in_mem_shared_state->sorter.get());
     _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
     return Status::OK();
 }
@@ -152,6 +157,11 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     if (!local_state.Base::_shared_state->sink_status.ok()) {
         return UINT64_MAX;
     }
+    std::weak_ptr<SortMemData> mem_data = local_state.Base::_shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return UINT64_MAX;
+    }
     return _sort_sink_operator->get_revocable_mem_size(local_state._runtime_state.get());
 }
 Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
@@ -163,6 +173,11 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    std::weak_ptr<SortMemData> mem_data = local_state.Base::_shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
+    }
     if (in_block->rows() > 0) {
         local_state._shared_state->update_spill_block_batch_row_count(in_block);
     }
@@ -228,21 +243,30 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
     auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
+    std::weak_ptr<SortMemData> mem_data = Base::_shared_state->mem_data;
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            [this, state, query_id, &parent, execution_context, submit_timer] {
+            [this, state, mem_tracker, mem_data, query_id, &parent, execution_context,
+             submit_timer] {
+                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
                 auto execution_context_lock = execution_context.lock();
-                if (!execution_context_lock) {
-                    LOG(INFO) << "query " << print_id(query_id)
-                              << " execution_context released, maybe query was cancelled.";
+                auto mem_data_sptr = mem_data.lock();
+                if (!mem_data_sptr || !execution_context_lock) {
+                    if (!mem_data_sptr) {
+                        LOG(INFO) << "query " << print_id(query_id)
+                                  << " mem data released, maybe query was cancelled.";
+                    } else {
+                        LOG(INFO) << "query " << print_id(query_id)
+                                  << " execution_context released, maybe query was cancelled.";
+                    }
                     return Status::OK();
                 }
 
                 _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                SCOPED_ATTACH_TASK(state);
                 Defer defer {[&]() {
                     if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                         if (!_shared_state->sink_status.ok()) {

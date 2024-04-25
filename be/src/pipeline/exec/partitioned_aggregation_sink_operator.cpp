@@ -71,6 +71,11 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
+
+    if (!exec_status.ok()) {
+        Base::_shared_state->close_spill();
+    }
+
     return Base::close(state, exec_status);
 }
 
@@ -154,6 +159,12 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
                                          bool eos) {
     auto& local_state = get_local_state(state);
     local_state.inc_running_big_mem_op_num(state);
+    std::weak_ptr<AggMemData> mem_data =
+            local_state.Base::_shared_state->in_mem_shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
+    }
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
@@ -192,6 +203,12 @@ size_t PartitionedAggSinkOperatorX::revocable_mem_size(RuntimeState* state) cons
     if (!local_state.Base::_shared_state->sink_status.ok()) {
         return UINT64_MAX;
     }
+    std::weak_ptr<AggMemData> mem_data =
+            local_state.Base::_shared_state->in_mem_shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return UINT64_MAX;
+    }
     auto* runtime_state = local_state._runtime_state.get();
     auto size = _agg_sink_operator->get_revocable_mem_size(runtime_state);
     return size;
@@ -214,6 +231,8 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
     Base::_shared_state->in_mem_shared_state =
             static_cast<AggSharedState*>(Base::_shared_state->in_mem_shared_state_sptr.get());
     Base::_shared_state->in_mem_shared_state->enable_spill = true;
+    Base::_shared_state->in_mem_shared_state->mem_data->setup_mem_tracker(
+            state->query_id(), state->query_mem_tracker());
 
     LocalSinkStateInfo info {0,  _internal_runtime_profile.get(),
                              -1, Base::_shared_state->in_mem_shared_state_sptr.get(),
@@ -252,19 +271,28 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
     auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
+    std::weak_ptr<AggMemData> mem_data = Base::_shared_state->in_mem_shared_state->mem_data;
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            [this, &parent, state, query_id, execution_context, submit_timer] {
+            [this, mem_tracker, mem_data, &parent, state, query_id, execution_context,
+             submit_timer] {
+                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
                 auto execution_context_lock = execution_context.lock();
-                if (!execution_context_lock) {
-                    LOG(INFO) << "query " << print_id(query_id)
-                              << " execution_context released, maybe query was cancelled.";
+                auto mem_data_sptr = mem_data.lock();
+                if (!mem_data_sptr || !execution_context_lock) {
+                    if (!mem_data_sptr) {
+                        LOG(INFO) << "query " << print_id(query_id)
+                                  << " mem data released, maybe query was cancelled.";
+                    } else {
+                        LOG(INFO) << "query " << print_id(query_id)
+                                  << " execution_context released, maybe query was cancelled.";
+                    }
                     return Status::Cancelled("Cancelled");
                 }
                 _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                SCOPED_ATTACH_TASK(state);
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {
                     if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
@@ -288,8 +316,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                         Base::_dependency->Dependency::set_ready();
                     }
                 }};
-                auto* runtime_state = _runtime_state.get();
-                auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
                 Base::_shared_state->sink_status = std::visit(
                         vectorized::Overload {[&](std::monostate& arg) -> Status {
                                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -301,10 +327,10 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                                                   return _spill_hash_table(state, agg_method,
                                                                            hash_table, _eos);
                                               }},
-                        agg_data->method_variant);
+                        mem_data_sptr->agg_data->method_variant);
                 RETURN_IF_ERROR(Base::_shared_state->sink_status);
                 Base::_shared_state->sink_status =
-                        parent._agg_sink_operator->reset_hash_table(runtime_state);
+                        parent._agg_sink_operator->reset_hash_table(_runtime_state.get());
                 return Base::_shared_state->sink_status;
             });
     return status;

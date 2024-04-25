@@ -29,6 +29,7 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
+    _shared_state->mem_data->setup_mem_tracker(state->query_id(), state->query_mem_tracker());
 
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
 
@@ -67,10 +68,20 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
+
+    if (!exec_status.ok()) {
+        _shared_state->close_spill();
+    }
+
     return PipelineXSpillSinkLocalState::close(state, exec_status);
 }
 
 size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state) const {
+    std::weak_ptr<HashJoinMemData> mem_data = _shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return UINT64_MAX;
+    }
     /// If no need to spill, all rows were sunk into the `_inner_sink_operator` without partitioned.
     if (!_shared_state->need_to_spill) {
         if (_shared_state->inner_shared_state) {
@@ -119,8 +130,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     _dependency->block();
     auto query_id = state->query_id();
     auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
-    auto spill_func = [execution_context, build_blocks = std::move(build_blocks), state, query_id,
-                       mem_tracker, this]() mutable {
+    std::weak_ptr<HashJoinMemData> mem_data = _shared_state->mem_data;
+    auto spill_func = [mem_data, execution_context, build_blocks = std::move(build_blocks), state,
+                       query_id, mem_tracker, this]() mutable {
         SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
         Defer defer {[&]() {
             // need to reset build_block here, or else build_block will be destructed
@@ -129,8 +141,15 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         }};
 
         auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock || state->is_cancelled()) {
-            LOG(INFO) << "execution_context released, maybe query was canceled.";
+        auto mem_data_sptr = mem_data.lock();
+        if (!mem_data_sptr || !execution_context_lock || state->is_cancelled()) {
+            if (!mem_data_sptr) {
+                LOG(INFO) << "query " << print_id(query_id)
+                          << " mem data released, maybe query was cancelled.";
+            } else {
+                LOG(INFO) << "query " << print_id(query_id)
+                          << " execution_context released, maybe query was cancelled.";
+            }
             return;
         }
 
@@ -212,6 +231,11 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     LOG(INFO) << "hash join sink " << _parent->id() << " revoke_memory"
               << ", eos: " << _child_eos;
     DCHECK_EQ(_spilling_streams_count, 0);
+    std::weak_ptr<HashJoinMemData> mem_data = _shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
+    }
 
     _shared_state_holder = _shared_state->shared_from_this();
     if (!_shared_state->need_to_spill) {
@@ -220,6 +244,8 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
     }
 
     _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
+    auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
@@ -240,19 +266,25 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         MonotonicStopWatch submit_timer;
         submit_timer.start();
 
-        auto st = spill_io_pool->submit_func(
-                [this, execution_context, state, spilling_stream, i, submit_timer] {
-                    auto execution_context_lock = execution_context.lock();
-                    if (!execution_context_lock) {
-                        LOG(INFO) << "execution_context released, maybe query was cancelled.";
-                        return;
-                    }
-                    _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                    SCOPED_TIMER(_spill_build_timer);
-                    (void)state; // avoid ut compile error
-                    SCOPED_ATTACH_TASK(state);
-                    _spill_to_disk(i, spilling_stream);
-                });
+        auto st = spill_io_pool->submit_func([this, mem_data, mem_tracker, query_id,
+                                              execution_context, spilling_stream, i, submit_timer] {
+            SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+            auto execution_context_lock = execution_context.lock();
+            auto mem_data_sptr = mem_data.lock();
+            if (!mem_data_sptr || !execution_context_lock) {
+                if (!mem_data_sptr) {
+                    LOG(INFO) << "query " << print_id(query_id)
+                              << " mem data released, maybe query was cancelled.";
+                } else {
+                    LOG(INFO) << "query " << print_id(query_id)
+                              << " execution_context released, maybe query was cancelled.";
+                }
+                return;
+            }
+            _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+            SCOPED_TIMER(_spill_build_timer);
+            _spill_to_disk(i, spilling_stream);
+        });
 
         if (!st.ok()) {
             --_spilling_streams_count;
@@ -430,6 +462,11 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     if (!local_state._spill_status_ok) {
         DCHECK_NE(local_state._spill_status.code(), 0);
         return local_state._spill_status;
+    }
+    std::weak_ptr<HashJoinMemData> mem_data = local_state._shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
     }
 
     local_state._child_eos = eos;

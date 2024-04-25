@@ -54,9 +54,6 @@ protected:
 
     bool _opened = false;
     Status _status;
-    std::unique_ptr<std::promise<Status>> _spill_merge_promise;
-    std::future<Status> _spill_merge_future;
-    bool _current_partition_eos = true;
     bool _is_merging = false;
 
     /// Resources in shared state will be released when the operator is closed,

@@ -312,19 +312,56 @@ private:
     const IRuntimeFilter* _runtime_filter = nullptr;
 };
 
+struct AggSharedState;
+struct AggMemData {
+    AggMemData(AggSharedState* agg_shared_state_) : agg_shared_state(agg_shared_state_) {
+        agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
+        agg_arena_pool = std::make_unique<vectorized::Arena>();
+    }
+    ~AggMemData();
+    void setup_mem_tracker(TUniqueId query_id_,
+                           std::shared_ptr<MemTrackerLimiter> query_mem_tracker_) {
+        query_id = query_id_;
+        mem_tracker = std::move(query_mem_tracker_);
+    }
+    TUniqueId query_id;
+    std::shared_ptr<MemTrackerLimiter> mem_tracker;
+    AggSharedState* agg_shared_state;
+    vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
+    std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
+    vectorized::ArenaUPtr agg_arena_pool;
+};
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
     AggSharedState() {
-        agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
-        agg_arena_pool = std::make_unique<vectorized::Arena>();
+        mem_data = std::make_shared<AggMemData>(this);
+        agg_data = mem_data->agg_data.get();
+        agg_arena_pool = mem_data->agg_arena_pool.get();
     }
     ~AggSharedState() override {
+        if (mem_data) {
+            mem_data->agg_shared_state = nullptr;
+        }
+        clear_mem();
+    }
+
+    void clear_mem() {
+        bool false_cleared = false;
+        if (!is_cleared.compare_exchange_strong(false_cleared, true)) {
+            return;
+        }
+        DCHECK(!false_cleared && is_cleared);
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
         }
     }
 
+    void reset_agg_data_container(size_t size_of_key, size_t size_of_aggregate_states) {
+        mem_data->aggregate_data_container.reset(
+                new vectorized::AggregateDataContainer(size_of_key, size_of_aggregate_states));
+        aggregate_data_container = mem_data->aggregate_data_container.get();
+    }
     Status reset_hash_table();
 
     // We should call this function only at 1st phase.
@@ -338,9 +375,18 @@ public:
         return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
     }
 
-    vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
-    std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
-    vectorized::ArenaUPtr agg_arena_pool;
+    void close_mem_data() {
+        std::lock_guard<std::mutex> lock(mem_data_lock);
+        mem_data.reset();
+    }
+
+    std::mutex mem_data_lock;
+    std::shared_ptr<AggMemData> mem_data;
+
+    vectorized::AggregatedDataVariants* agg_data = nullptr;
+    vectorized::AggregateDataContainer* aggregate_data_container;
+    vectorized::Arena* agg_arena_pool;
+
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -360,6 +406,8 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
+    std::atomic_bool is_cleared = false;
+
     bool enable_spill = false;
 
 private:
@@ -382,6 +430,8 @@ private:
                                                  if (!st) {
                                                      throw Exception(st.code(), st.to_string());
                                                  }
+                                                 agg_method.reset();
+                                                 agg_method.hash_table.reset();
                                              }
                                          }},
                    agg_data->method_variant);
@@ -406,6 +456,8 @@ struct PartitionedAggSharedState : public BasicSharedState,
     void init_spill_params(size_t spill_partition_count_bits);
 
     void close();
+
+    void close_spill() { in_mem_shared_state->close_mem_data(); }
 
     AggSharedState* in_mem_shared_state = nullptr;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
@@ -465,12 +517,28 @@ public:
     std::unique_ptr<vectorized::Sorter> sorter;
 };
 
+struct SortMemData {
+public:
+    SortMemData(vectorized::Sorter* sorter_) : sorter(sorter_) {}
+
+    ~SortMemData() {
+        if (sorter) {
+            sorter->reset();
+        }
+    }
+    vectorized::Sorter* sorter;
+};
 struct SpillSortSharedState : public BasicSharedState,
                               public std::enable_shared_from_this<SpillSortSharedState> {
     ENABLE_FACTORY_CREATOR(SpillSortSharedState)
 
-    SpillSortSharedState() = default;
-    ~SpillSortSharedState() override = default;
+    ~SpillSortSharedState() override {
+        if (mem_data) {
+            mem_data->sorter = nullptr;
+        }
+    }
+
+    void close_spill() { mem_data.reset(); }
 
     // This number specifies the maximum size of sub blocks
     static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
@@ -485,6 +553,7 @@ struct SpillSortSharedState : public BasicSharedState,
     }
     void close();
 
+    std::shared_ptr<SortMemData> mem_data;
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
@@ -567,14 +636,38 @@ struct HashJoinSharedState : public JoinSharedState {
     bool probe_ignore_null = false;
 };
 
+struct HashJoinMemData {
+    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
+    ~HashJoinMemData() {
+        std::unique_ptr<doris::AttachTask> attach_task;
+        auto mem_tracker_lable = doris::thread_context()->thread_mem_tracker()->label();
+        if (mem_tracker_lable == "Orphan") {
+            attach_task = std::make_unique<doris::AttachTask>(mem_tracker, query_id);
+        }
+        std::vector<std::unique_ptr<vectorized::MutableBlock>> {}.swap(partitioned_build_blocks);
+    }
+    void setup_mem_tracker(TUniqueId query_id_,
+                           std::shared_ptr<MemTrackerLimiter> query_mem_tracker_) {
+        query_id = query_id_;
+        mem_tracker = std::move(query_mem_tracker_);
+    }
+    TUniqueId query_id;
+    std::shared_ptr<MemTrackerLimiter> mem_tracker;
+};
 struct PartitionedHashJoinSharedState
         : public HashJoinSharedState,
           public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
 
+    PartitionedHashJoinSharedState()
+            : mem_data(std::make_shared<HashJoinMemData>()),
+              partitioned_build_blocks(mem_data->partitioned_build_blocks) {}
+
+    void close_spill() { mem_data.reset(); }
+    std::shared_ptr<HashJoinMemData> mem_data;
     std::unique_ptr<RuntimeState> inner_runtime_state;
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
+    std::vector<std::unique_ptr<vectorized::MutableBlock>>& partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
     bool need_to_spill = false;
 };

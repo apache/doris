@@ -67,8 +67,9 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (Base::_shared_state->enable_spill) {
         dec_running_big_mem_op_num(state);
     }
-    RETURN_IF_ERROR(Base::close(state));
-    return Status::OK();
+    _shared_state->close_spill();
+
+    return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
     int count = _external_sort_bytes_threshold / SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES;
@@ -90,21 +91,30 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
     auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
-    auto spill_func = [this, state, query_id, &parent, execution_context, submit_timer] {
+    std::weak_ptr<SortMemData> mem_data = _shared_state->mem_data;
+    auto spill_func = [this, state, mem_data, mem_tracker, query_id, &parent, execution_context,
+                       submit_timer] {
+        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
         auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock) {
-            LOG(INFO) << "query " << print_id(query_id)
-                      << " execution_context released, maybe query was cancelled.";
+        auto mem_data_sptr = mem_data.lock();
+        if (!mem_data_sptr || !execution_context_lock) {
+            if (!mem_data_sptr) {
+                LOG(INFO) << "query " << print_id(query_id)
+                          << " mem data released, maybe query was cancelled.";
+            } else {
+                LOG(INFO) << "query " << print_id(query_id)
+                          << " execution_context released, maybe query was cancelled.";
+            }
             return Status::OK();
         }
 
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_spill_merge_sort_timer);
-        SCOPED_ATTACH_TASK(state);
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
                 if (!_status.ok()) {
@@ -267,6 +277,11 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
     }};
     if (local_state.Base::_shared_state->enable_spill) {
         local_state.inc_running_big_mem_op_num(state);
+    }
+    std::weak_ptr<SortMemData> mem_data = local_state._shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
     }
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);

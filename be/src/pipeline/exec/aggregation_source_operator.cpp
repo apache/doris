@@ -502,13 +502,13 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
                                     _places.data(), _shared_state->offsets_of_aggregate_states[i],
                                     _deserialize_buffer.data(),
                                     (vectorized::ColumnString*)(column.get()),
-                                    _shared_state->agg_arena_pool.get(), rows);
+                                    _shared_state->agg_arena_pool, rows);
                 }
             } else {
                 RETURN_IF_ERROR(
                         Base::_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
                                 block, _shared_state->offsets_of_aggregate_states[i],
-                                _places.data(), _shared_state->agg_arena_pool.get()));
+                                _places.data(), _shared_state->agg_arena_pool));
             }
         }
     } else {
@@ -533,7 +533,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
                 Base::_shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                         _places.data(), _shared_state->offsets_of_aggregate_states[i],
                         _deserialize_buffer.data(), (vectorized::ColumnString*)(column.get()),
-                        _shared_state->agg_arena_pool.get(), rows);
+                        _shared_state->agg_arena_pool, rows);
             }
         }
 

@@ -60,8 +60,8 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    _agg_data = Base::_shared_state->agg_data.get();
-    _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
+    _agg_data = Base::_shared_state->agg_data;
+    _agg_arena_pool = Base::_shared_state->agg_arena_pool;
     _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
                                                             TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
@@ -110,24 +110,22 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     } else {
         _init_hash_method(Base::_shared_state->probe_expr_ctxs);
 
-        std::visit(vectorized::Overload {[&](std::monostate& arg) {
-                                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                                    "uninited hash table");
-                                         },
-                                         [&](auto& agg_method) {
-                                             using HashTableType =
-                                                     std::decay_t<decltype(agg_method)>;
-                                             using KeyType = typename HashTableType::Key;
+        std::visit(vectorized::Overload {
+                           [&](std::monostate& arg) {
+                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                      "uninited hash table");
+                           },
+                           [&](auto& agg_method) {
+                               using HashTableType = std::decay_t<decltype(agg_method)>;
+                               using KeyType = typename HashTableType::Key;
 
-                                             /// some aggregate functions (like AVG for decimal) have align issues.
-                                             Base::_shared_state->aggregate_data_container.reset(
-                                                     new vectorized::AggregateDataContainer(
-                                                             sizeof(KeyType),
-                                                             ((p._total_size_of_aggregate_states +
-                                                               p._align_aggregate_states - 1) /
-                                                              p._align_aggregate_states) *
-                                                                     p._align_aggregate_states));
-                                         }},
+                               /// some aggregate functions (like AVG for decimal) have align issues.
+                               Base::_shared_state->reset_agg_data_container(
+                                       sizeof(KeyType), ((p._total_size_of_aggregate_states +
+                                                          p._align_aggregate_states - 1) /
+                                                         p._align_aggregate_states) *
+                                                                p._align_aggregate_states);
+                           }},
                    _agg_data->method_variant);
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
@@ -784,7 +782,7 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     auto& ss = *local_state.Base::_shared_state;
     RETURN_IF_ERROR(ss.reset_hash_table());
-    local_state._agg_arena_pool = ss.agg_arena_pool.get();
+    local_state._agg_arena_pool = ss.agg_arena_pool;
     return Status::OK();
 }
 

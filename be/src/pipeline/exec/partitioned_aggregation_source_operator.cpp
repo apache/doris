@@ -88,6 +88,9 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
+
+    _shared_state->close_spill();
+
     return Base::close(state);
 }
 PartitionedAggSourceOperatorX::PartitionedAggSourceOperatorX(ObjectPool* pool,
@@ -127,6 +130,11 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
             local_state._shared_state->close();
         }
     }};
+    std::weak_ptr<AggMemData> mem_data = local_state._shared_state->in_mem_shared_state->mem_data;
+    auto mem_data_sptr = mem_data.lock();
+    if (!mem_data_sptr) {
+        return Status::OK();
+    }
 
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -206,23 +214,34 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
     auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
+    std::weak_ptr<AggMemData> mem_data = _shared_state->in_mem_shared_state->mem_data;
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-                    [this, state, query_id, execution_context, submit_timer] {
+                    [this, state, mem_data, query_id, mem_tracker, execution_context,
+                     submit_timer] {
+                        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
                         auto execution_context_lock = execution_context.lock();
-                        if (!execution_context_lock) {
-                            LOG(INFO) << "query " << print_id(query_id)
-                                      << " execution_context released, maybe query was cancelled.";
+                        auto mem_data_sptr = mem_data.lock();
+                        if (!mem_data_sptr || !execution_context_lock) {
+                            if (!mem_data_sptr) {
+                                LOG(INFO) << "query " << print_id(query_id)
+                                          << " mem data released, maybe query was cancelled.";
+                            } else {
+                                LOG(INFO) << "query " << print_id(query_id)
+                                          << " execution_context released, maybe query was "
+                                             "cancelled.";
+                            }
+                            _is_merging = false;
                             // FIXME: return status is meaningless?
                             return Status::Cancelled("Cancelled");
                         }
 
                         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                        SCOPED_ATTACH_TASK(state);
                         Defer defer {[&]() {
                             if (!_status.ok() || state->is_cancelled()) {
                                 if (!_status.ok()) {

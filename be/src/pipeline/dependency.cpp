@@ -26,6 +26,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -178,6 +179,19 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     mem_trackers.resize(num_instances, nullptr);
 }
 
+AggMemData::~AggMemData() {
+    if (agg_shared_state) {
+        std::unique_ptr<doris::AttachTask> attach_task;
+        auto mem_tracker_lable = doris::thread_context()->thread_mem_tracker()->label();
+        if (mem_tracker_lable == "Orphan") {
+            attach_task = std::make_unique<doris::AttachTask>(mem_tracker, query_id);
+        }
+
+        agg_shared_state->clear_mem();
+        agg_arena_pool.reset();
+        aggregate_data_container.reset();
+    }
+}
 Status AggSharedState::reset_hash_table() {
     return std::visit(
             vectorized::Overload {
@@ -198,13 +212,19 @@ Status AggSharedState::reset_hash_table() {
                             }
                         });
 
-                        aggregate_data_container.reset(new vectorized::AggregateDataContainer(
-                                sizeof(typename HashTableType::key_type),
-                                ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                                 align_aggregate_states) *
-                                        align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
+                        {
+                            std::lock_guard<std::mutex> lock(mem_data_lock);
+                            if (mem_data) {
+                                reset_agg_data_container(sizeof(typename HashTableType::key_type),
+                                                         ((total_size_of_aggregate_states +
+                                                           align_aggregate_states - 1) /
+                                                          align_aggregate_states) *
+                                                                 align_aggregate_states);
+                                mem_data->agg_arena_pool.reset(new vectorized::Arena);
+                                agg_arena_pool = mem_data->agg_arena_pool.get();
+                            }
+                        }
                         return Status::OK();
                     }},
             agg_data->method_variant);
@@ -241,7 +261,7 @@ void AggSpillPartition::close() {
     for (auto& stream : spill_streams_) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }
-    spill_streams_.clear();
+    std::deque<vectorized::SpillStreamSPtr> {}.swap(spill_streams_);
 }
 
 void PartitionedAggSharedState::close() {
@@ -269,6 +289,6 @@ void SpillSortSharedState::close() {
     for (auto& stream : sorted_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }
-    sorted_streams.clear();
+    std::deque<vectorized::SpillStreamSPtr> {}.swap(sorted_streams);
 }
 } // namespace doris::pipeline
