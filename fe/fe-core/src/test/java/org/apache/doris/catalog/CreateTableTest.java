@@ -313,7 +313,7 @@ public class CreateTableTest {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
