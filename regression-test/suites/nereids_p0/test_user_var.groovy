@@ -18,6 +18,7 @@
 suite("test_user_var") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_fold_constant_by_be=true;"
     sql "SET @a1=1, @a2=0, @a3=-1"
     sql "SET @b1=1.1, @b2=0.0, @b3=-1.1"
     sql "SET @c1='H', @c2=''"
@@ -29,4 +30,31 @@ suite("test_user_var") {
     qt_select3 'select @c1, @c2;'
     qt_select4 'select @d1, @d2;'
     qt_select5 'select @f1, @f2;'
+
+    sql """drop table if exists dwd_login_ttt;"""
+    sql """CREATE TABLE `dwd_login_ttt` (
+            `game_code` varchar(100) NOT NULL DEFAULT "-" ,
+            `plat_code` varchar(100) NOT NULL DEFAULT "-" ,
+            `userid` varchar(255) NULL DEFAULT "-" ,
+            `dt` datetime NOT NULL,
+            `time_zone` varchar(100) NULL 
+            ) ENGINE=OLAP
+            UNIQUE KEY(`game_code`, `plat_code`)
+            DISTRIBUTED BY HASH(`game_code`) BUCKETS 16
+            PROPERTIES("replication_num" = "1");"""
+    sql """drop view if exists dwd_login_ttt_view;"""
+    sql """create view dwd_login_ttt_view as
+            SELECT  game_code,plat_code,time_zone,DATE_FORMAT(convert_tz(dt,time_zone,@t_zone),'%Y-%m-%d') day,count(distinct userid) 
+            from  dwd_login_ttt
+            where  dt>=convert_tz(@t_day,'Asia/Shanghai',@t_zone) 
+            and dt<convert_tz(date_add(@t_day,1),'Asia/Shanghai',@t_zone)
+            GROUP  by 1,2,3,4;"""
+    sql """set @t_day='2024-02-01';"""
+    sql """set @t_zone='GMT';"""
+
+    explain {
+        sql("shape plan select * from dwd_login_ttt_view where day='2024-04-01';")
+        contains "dt < '2024-02-01 16:00:00'"
+        contains "dt >= '2024-01-31 16:00:00'"
+    }
 }
