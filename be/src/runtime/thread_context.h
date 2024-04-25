@@ -62,11 +62,16 @@
 #define SCOPED_SKIP_MEMORY_CHECK() \
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 #else
-#define SCOPED_ATTACH_TASK(arg1, ...) (void)0
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) (void)0
-#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) (void)0
-#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
-#define SCOPED_SKIP_MEMORY_CHECK() (void)0
+#define SCOPED_ATTACH_TASK(arg1, ...) \
+    auto VARNAME_LINENUM(scoped_tls_at) = doris::ScopedInitThreadContext()
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
+    auto VARNAME_LINENUM(scoped_tls_atwi) = doris::ScopedInitThreadContext()
+#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
+    auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
+#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
+    auto VARNAME_LINENUM(scoped_tls_cmt) = doris::ScopedInitThreadContext()
+#define SCOPED_SKIP_MEMORY_CHECK() \
+    auto VARNAME_LINENUM(scoped_tls_smc) = doris::ScopedInitThreadContext()
 #endif
 
 // Used to tracking the memory usage of the specified code segment use by mem hook.
@@ -91,12 +96,6 @@
 #define MEMORY_ORPHAN_CHECK()                                                 \
     DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check) \
             << doris::memory_orphan_check_msg;
-#else
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) (void)0
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) (void)0
-#define ORPHAN_TRACKER_CHECK() (void)0
-#define MEMORY_ORPHAN_CHECK() (void)0
-#endif
 
 #define SKIP_LARGE_MEMORY_CHECK(...)                                       \
     do {                                                                   \
@@ -108,6 +107,15 @@
         });                                                                \
         __VA_ARGS__;                                                       \
     } while (0)
+#else
+#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
+    auto VARNAME_LINENUM(scoped_tls_mcbh) = doris::ScopedInitThreadContext()
+#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
+    auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
+#define ORPHAN_TRACKER_CHECK() (void)0
+#define MEMORY_ORPHAN_CHECK() (void)0
+#define SKIP_LARGE_MEMORY_CHECK() (void)0
+#endif
 
 namespace doris {
 
@@ -323,6 +331,14 @@ public:
 
 private:
     int64_t* _scope_mem = nullptr;
+};
+
+// only hold thread context in scope.
+class ScopedInitThreadContext {
+public:
+    explicit ScopedInitThreadContext() { ThreadLocalHandle::create_thread_local_if_not_exits(); }
+
+    ~ScopedInitThreadContext() { ThreadLocalHandle::del_thread_local_if_count_is_zero(); }
 };
 
 class AttachTask {
