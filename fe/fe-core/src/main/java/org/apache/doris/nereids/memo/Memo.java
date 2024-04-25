@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -55,6 +57,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -69,6 +72,8 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
+    private final Set<Long> needRefreshTableIdSet = new HashSet<>();
+    private final AtomicLong refreshVersion = new AtomicLong(1);
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -116,6 +121,10 @@ public class Memo {
 
     public int getGroupExpressionsSize() {
         return groupExpressions.size();
+    }
+
+    public long getRefreshVersion() {
+        return refreshVersion.get();
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
@@ -406,13 +415,14 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
+        // TODO Support sync materialized view in the future
+        if (plan instanceof CatalogRelation && ((CatalogRelation) plan).getTable() instanceof MTMV) {
+            refreshVersion.incrementAndGet();
+        }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
             Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
-        }
-        if (targetGroup != null) {
-            targetGroup.getstructInfoMap().setRefreshed(false);
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
@@ -562,7 +572,6 @@ public class Memo {
         if (source == root) {
             root = destination;
         }
-        destination.getstructInfoMap().setRefreshed(false);
         groups.remove(source.getGroupId());
     }
 
