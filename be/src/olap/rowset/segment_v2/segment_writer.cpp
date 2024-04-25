@@ -34,6 +34,8 @@
 #include "common/status.h"
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -1112,6 +1114,8 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
+    // Get the index start before finalize_footer since this function would write new data.
+    uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
@@ -1120,6 +1124,17 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
                   << ", segmemt_size " << *segment_file_size;
+    }
+    // When the cache type is not ttl(expiration time == 0), the data should be split into normal cache queue
+    // and index cache queue
+    if (auto* cache_builder = _file_writer->cache_builder(); cache_builder != nullptr &&
+                                                             cache_builder->_expiration_time == 0 &&
+                                                             config::is_cloud_mode()) {
+        auto size = *index_size + *segment_file_size;
+        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        for (auto& segment : holder->file_blocks) {
+            static_cast<void>(segment->change_cache_type_self(io::FileCacheType::INDEX));
+        }
     }
     return Status::OK();
 }

@@ -33,7 +33,7 @@ namespace doris {
 class ExecEnv;
 
 namespace io {
-
+struct FileCacheAllocatorBuilder;
 class BrokerFileWriter final : public FileWriter {
 public:
     // Create and open file writer
@@ -50,6 +50,7 @@ public:
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
     bool closed() const override { return _closed; }
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);

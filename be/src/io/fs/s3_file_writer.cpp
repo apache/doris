@@ -87,17 +87,17 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _bucket(std::move(bucket)),
           _key(std::move(key)),
-          _client(std::move(client)),
-          _expiration_time(opts ? opts->file_cache_expiration : 0),
-          _is_cold_data(opts ? opts->is_cold_data : true),
-          _write_file_cache(opts ? opts->write_file_cache : false) {
+          _client(std::move(client)) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && _write_file_cache) {
-        _cache_hash = BlockFileCache::hash(_path.filename().native());
-        _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
+    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
+        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
+                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                BlockFileCache::hash(_path.filename().native()),
+                FileCacheFactory::instance()->get_by_path(
+                        BlockFileCache::hash(_path.filename().native()))});
     }
 }
 
@@ -265,7 +265,6 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                                     _upload_one_part(part_num, buf);
                                 })
                         .set_file_offset(_bytes_appended)
-                        .set_index_offset(_index_offset)
                         .set_sync_after_complete_task([this, part_num = _cur_part_num](Status s) {
                             bool ret = false;
                             if (!s.ok()) [[unlikely]] {
@@ -283,22 +282,16 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                             return ret;
                         })
                         .set_is_cancelled([this]() { return _failed.load(); });
-                if (_write_file_cache) {
+                if (_cache_builder != nullptr) {
                     // We would load the data into file cache asynchronously which indicates
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable
                     // we need by value to extend their lifetime
                     builder.set_allocate_file_blocks_holder(
-                            [cache = _cache, k = _cache_hash, offset = _bytes_appended,
-                             t = _expiration_time, cold = _is_cold_data]() -> FileBlocksHolderPtr {
-                                CacheContext ctx;
-                                ctx.cache_type =
-                                        t == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
-                                ctx.expiration_time = t;
-                                ctx.is_cold_data = cold;
-                                auto holder = cache->get_or_set(k, offset,
-                                                                config::s3_write_buffer_size, ctx);
-                                return std::make_unique<FileBlocksHolder>(std::move(holder));
+                            [builder = *_cache_builder,
+                             offset = _bytes_appended]() -> FileBlocksHolderPtr {
+                                return builder.allocate_cache_holder(offset,
+                                                                     config::s3_write_buffer_size);
                             });
                 }
                 RETURN_IF_ERROR(builder.build(&_pending_buf));
