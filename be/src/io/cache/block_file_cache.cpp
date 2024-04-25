@@ -698,7 +698,7 @@ const BlockFileCache::LRUQueue& BlockFileCache::get_queue(FileCacheType type) co
 bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
-    auto limit = config::max_ttl_cache_ratio * _total_size;
+    auto limit = config::max_ttl_cache_ratio * _capacity;
     if ((_cur_ttl_size + size) * 100 > limit) {
         return false;
     }
