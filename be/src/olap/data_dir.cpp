@@ -239,7 +239,7 @@ void DataDir::health_check() {
     // check disk
     if (_is_used) {
         Status res = _read_and_write_test_file();
-        if (!res) {
+        if (!res && res.is<IO_ERROR>()) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
             StorageEngine::instance()->add_broken_path(_path);
