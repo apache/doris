@@ -345,16 +345,11 @@ public:
         }
         BloomFilterFuncBase* bf = _context->bloom_filter_func.get();
 
-        if (bf->get_build_bf_cardinality()) {
-            // used on VRuntimeFilterSlots::init_filters
-            if (_context->hybrid_set != nullptr && _context->hybrid_set->size() != 0) {
-                return Status::InternalError("change to bloom filter need empty set ",
-                                             IRuntimeFilter::to_string(_filter_type));
-            }
-        } else {
-            // used on RuntimePredicateWrapper::merge
-            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        if (bf != nullptr) {
             insert_to_bloom_filter(bf);
+        } else if (_context->hybrid_set != nullptr && _context->hybrid_set->size() != 0) {
+            return Status::InternalError("change to bloom filter need empty set ",
+                                         IRuntimeFilter::to_string(_filter_type));
         }
 
         // release in filter
@@ -527,13 +522,13 @@ public:
                     _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
                     if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                         // case2: use default size to init bf
+                        RETURN_IF_ERROR(_context->bloom_filter_func->init_with_fixed_length());
                         RETURN_IF_ERROR(change_to_bloom_filter());
                     }
                 } else {
                     // case1&case2: use input bf directly and insert hybrid set data into bf
                     _context->bloom_filter_func = wrapper->_context->bloom_filter_func;
-                    insert_to_bloom_filter(_context->bloom_filter_func.get());
-                    _context->hybrid_set.reset();
+                    RETURN_IF_ERROR(change_to_bloom_filter());
                 }
             } else {
                 if (other_filter_type == RuntimeFilterType::IN_FILTER) {
