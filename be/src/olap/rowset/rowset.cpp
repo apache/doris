@@ -19,7 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "io/cache/file_cache_manager.h"
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
 

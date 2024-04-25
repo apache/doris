@@ -120,6 +120,21 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
+void BetaRowset::clear_inverted_index_cache() {
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = segment_file_path(i);
+        for (auto& column : tablet_schema()->columns()) {
+            const TabletIndex* index_meta = tablet_schema()->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id());
+                (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                        inverted_index_file);
+            }
+        }
+    }
+}
+
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
@@ -177,7 +192,7 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset_id()));
+    clear_cache();
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -201,14 +216,8 @@ Status BetaRowset::remove() {
                 if (!st.ok()) {
                     LOG(WARNING) << st.to_string();
                     success = false;
-                } else {
-                    segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
                 }
             }
-        }
-        if (fs->type() != io::FileSystemType::LOCAL) {
-            auto cache_path = segment_cache_path(i);
-            FileCacheManager::instance()->remove_file_cache(cache_path);
         }
     }
     if (!success) {
@@ -477,6 +486,21 @@ Status BetaRowset::add_to_binlog() {
     }
 
     return Status::OK();
+}
+
+void BetaRowset::clear_cache() {
+    SegmentCache::CacheKey cache_key(rowset_id());
+    SegmentLoader::instance()->erase_segments(cache_key);
+    clear_inverted_index_cache();
+
+    auto fs = _rowset_meta->fs();
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = segment_file_path(i);
+        if (fs->type() != io::FileSystemType::LOCAL) {
+            auto cache_path = segment_cache_path(i);
+            FileCacheManager::instance()->remove_file_cache(cache_path);
+        }
+    }
 }
 
 } // namespace doris

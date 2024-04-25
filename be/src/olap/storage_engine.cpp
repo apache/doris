@@ -1074,6 +1074,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 }
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 evict_querying_rowset(it->second->rowset_id());
+                it->second->clear_cache();
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
