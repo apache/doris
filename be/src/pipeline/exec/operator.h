@@ -214,6 +214,7 @@ public:
     // -1 means this operator doesn't have bucket shuffle keys.
     [[nodiscard]] virtual int get_num_bucket_shuffled_keys() const { return -1; }
     [[nodiscard]] virtual bool is_bucket_shuffled_join() const { return false; }
+    [[nodiscard]] virtual bool force_to_bucket_shuffled() const { return false; }
 
     [[nodiscard]] virtual bool can_terminate_early() { return false; }
 

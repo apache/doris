@@ -1208,8 +1208,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
-
-        _should_be_bucket_shuffled = true;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
@@ -1283,7 +1281,8 @@ void PipelineXFragmentContext::_update_data_distribution_requirement(OperatorBas
                 _num_bucket_shuffled_keys != op->get_num_bucket_shuffled_keys();
         _num_bucket_shuffled_keys = op->get_num_bucket_shuffled_keys();
     }
-    _should_be_bucket_shuffled = _should_be_bucket_shuffled || op->is_bucket_shuffled_join();
+    _should_be_bucket_shuffled = _should_be_bucket_shuffled || op->is_bucket_shuffled_join() ||
+                                 op->force_to_bucket_shuffled();
 }
 
 template <bool is_intersect>
