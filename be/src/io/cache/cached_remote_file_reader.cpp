@@ -152,9 +152,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 {
                     SCOPED_RAW_TIMER(&stats.local_read_timer);
                     if (!iter->second
-                                 ->read(
-                                         Slice(result.data + (cur_offset - offset), reserve_bytes),
-                                         file_offset)
+                                 ->read(Slice(result.data + (cur_offset - offset), reserve_bytes),
+                                        file_offset)
                                  .ok()) {
                         break;
                     }

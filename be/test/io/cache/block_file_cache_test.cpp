@@ -2889,9 +2889,9 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
         size_t bytes_read {0};
-        EXPECT_FALSE(reader.read_at(10_mb + 2, Slice(buffer.data(), buffer.size()),
-                                    &bytes_read, &io_ctx)
-                             .ok());
+        EXPECT_FALSE(
+                reader.read_at(10_mb + 2, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                        .ok());
     }
     {
         std::string buffer;
@@ -2973,8 +2973,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
         size_t bytes_read {0};
-        ASSERT_TRUE(reader.read_at(10_mb, Slice(buffer.data(), buffer.size()),
-                                   &bytes_read, &io_ctx)
+        ASSERT_TRUE(reader.read_at(10_mb, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
                             .ok());
         EXPECT_EQ(std::string(1, '0'), buffer);
         reporter.update(&stats);
