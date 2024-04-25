@@ -372,9 +372,10 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
             _agg_data->method_variant);
 }
 
-DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(
-        ObjectPool* pool, int operator_id, const TPlanNode& tnode, const DescriptorTbl& descs,
-        const bool follow_by_bucket_shuffle_join)
+DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id,
+                                                             const TPlanNode& tnode,
+                                                             const DescriptorTbl& descs,
+                                                             const bool should_be_bucket_shuffled)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
@@ -382,13 +383,12 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(
           _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _partition_exprs(
-                  tnode.__isset.distribute_expr_lists && tnode.agg_node.__isset.is_colocate &&
-                                  tnode.agg_node.is_colocate && follow_by_bucket_shuffle_join
-                          ? tnode.distribute_expr_lists[0]
-                          : tnode.agg_node.grouping_exprs),
-          _bucket_shuffled(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
-                           follow_by_bucket_shuffle_join) {
+          _partition_exprs(tnode.__isset.distribute_expr_lists && should_be_bucket_shuffled
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.agg_node.grouping_exprs),
+          _bucket_shuffled(should_be_bucket_shuffled),
+          _is_colocate(tnode.agg_node.__isset.is_colocate),
+          _num_group_keys(tnode.agg_node.grouping_exprs.size()) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {

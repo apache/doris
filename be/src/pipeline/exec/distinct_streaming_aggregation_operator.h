@@ -97,14 +97,16 @@ class DistinctStreamingAggOperatorX final
         : public StatefulOperatorX<DistinctStreamingAggLocalState> {
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                  const DescriptorTbl& descs,
-                                  const bool follow_by_bucket_shuffle_join);
+                                  const DescriptorTbl& descs, const bool should_be_bucket_shuffled);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
+    int get_num_bucket_shuffled_keys() const override {
+        return _is_colocate ? _num_group_keys : -1;
+    }
 
     DataDistribution required_data_distribution() const override {
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
@@ -126,6 +128,8 @@ private:
     const bool _is_first_phase;
     const std::vector<TExpr> _partition_exprs;
     const bool _bucket_shuffled;
+    const bool _is_colocate;
+    const int _num_group_keys;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;

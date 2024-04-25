@@ -152,6 +152,10 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
+    int get_num_bucket_shuffled_keys() const override {
+        return _is_colocate ? _num_group_keys : -1;
+    }
+
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
@@ -216,6 +220,9 @@ protected:
     const bool _bucket_shuffled;
 
     RowDescriptor _agg_fn_output_row_descriptor;
+
+    const bool _is_colocate;
+    const int _num_group_keys;
 };
 
 } // namespace pipeline

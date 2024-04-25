@@ -169,6 +169,8 @@ private:
 
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
+    void _update_data_distribution_requirement(OperatorBase* op);
+
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
@@ -240,7 +242,8 @@ private:
     // Total instance num running on all BEs
     int _total_instances = -1;
 
-    bool _has_bucket_shuffle_join = false;
+    int _num_bucket_shuffled_keys = -1;
+    bool _should_be_bucket_shuffled = false;
 };
 
 } // namespace pipeline

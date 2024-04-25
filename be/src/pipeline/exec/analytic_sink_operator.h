@@ -86,13 +86,17 @@ private:
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs, const bool follow_by_bucket_shuffle_join);
+                          const DescriptorTbl& descs, const bool should_be_bucket_shuffled);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    int get_num_bucket_shuffled_keys() const override {
+        return _is_colocate ? _num_group_keys : -1;
+    }
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
@@ -126,6 +130,9 @@ private:
     std::vector<size_t> _num_agg_input;
     const bool _bucket_shuffled;
     const std::vector<TExpr> _partition_exprs;
+
+    const bool _is_colocate;
+    const int _num_group_keys;
 };
 
 } // namespace pipeline

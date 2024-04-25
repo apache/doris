@@ -194,18 +194,17 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
                                              const TPlanNode& tnode, const DescriptorTbl& descs,
-                                             const bool follow_by_bucket_shuffle_join)
+                                             const bool should_be_bucket_shuffled)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
-          _bucket_shuffled(tnode.analytic_node.__isset.is_colocate &&
-                           tnode.analytic_node.is_colocate && follow_by_bucket_shuffle_join),
-          _partition_exprs(
-                  tnode.__isset.distribute_expr_lists && tnode.analytic_node.__isset.is_colocate &&
-                                  tnode.analytic_node.is_colocate && follow_by_bucket_shuffle_join
-                          ? tnode.distribute_expr_lists[0]
-                          : tnode.analytic_node.partition_exprs) {}
+          _bucket_shuffled(should_be_bucket_shuffled),
+          _partition_exprs(tnode.__isset.distribute_expr_lists && should_be_bucket_shuffled
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.analytic_node.partition_exprs),
+          _is_colocate(tnode.analytic_node.__isset.is_colocate),
+          _num_group_keys(tnode.analytic_node.partition_exprs.size()) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

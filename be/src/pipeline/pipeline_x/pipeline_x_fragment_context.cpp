@@ -789,7 +789,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join ? _total_instances : _num_instances);
+                is_shuffled_hash_join && _total_instances > 0 ? _total_instances : _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
@@ -1000,7 +1000,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
-                                                       _has_bucket_shuffle_join));
+                                                       _should_be_bucket_shuffled));
+            _update_data_distribution_requirement(op.get());
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
@@ -1028,8 +1029,9 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                                            descs));
             } else {
                 sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                _has_bucket_shuffle_join));
+                                                _should_be_bucket_shuffled));
             }
+            _update_data_distribution_requirement(sink.get());
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1047,8 +1049,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             const uint32_t partition_count = 32;
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
-            _has_bucket_shuffle_join =
-                    _has_bucket_shuffle_join || inner_probe_operator->is_shuffled_hash_join();
+            _update_data_distribution_requirement(inner_probe_operator.get());
             auto inner_sink_operator = std::make_shared<HashJoinBuildSinkOperatorX>(
                     pool, 0, tnode_, descs, _need_local_merge);
 
@@ -1081,7 +1082,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         } else {
             op.reset(new HashJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
-            _has_bucket_shuffle_join = _has_bucket_shuffle_join || op->is_shuffled_hash_join();
+            _update_data_distribution_requirement(op.get());
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
             const auto downstream_pipeline_id = cur_pipe->id();
@@ -1203,7 +1204,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                             _has_bucket_shuffle_join));
+                                             _should_be_bucket_shuffled));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -1268,6 +1269,20 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
+
+void PipelineXFragmentContext::_update_data_distribution_requirement(OperatorBase* op) {
+    // `get_num_bucket_shuffled_keys` returns -1 means this operator doesn't have partition keys.
+    if (op->get_num_bucket_shuffled_keys() > -1) {
+        // We should use bucket shuffle local exchanger if one condition is met below:
+        // 1. Operator is followed by a colocated Agg/Analytic operator with different `get_num_bucket_shuffled_keys`.
+        // 2. Operator is followed by a colocated / bucket shuffled join.
+        _should_be_bucket_shuffled =
+                _should_be_bucket_shuffled ||
+                _num_bucket_shuffled_keys != op->get_num_bucket_shuffled_keys() ||
+                op->is_bucket_shuffled_join();
+        _num_bucket_shuffled_keys = op->get_num_bucket_shuffled_keys();
+    }
+}
 
 template <bool is_intersect>
 Status PipelineXFragmentContext::_build_operators_for_set_operation_node(

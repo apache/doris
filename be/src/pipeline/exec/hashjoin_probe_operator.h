@@ -178,6 +178,11 @@ public:
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
 
+    bool is_bucket_shuffled_join() const override {
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,

@@ -315,6 +315,10 @@ public:
                                      DataSinkOperatorX<PartitionedAggSinkLocalState>::_name);
     }
 
+    int get_num_bucket_shuffled_keys() const override {
+        return _agg_sink_operator->get_num_bucket_shuffled_keys();
+    }
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
