@@ -80,10 +80,13 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
         return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
     }
-    size_t disk_total_size = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize);
+    size_t disk_total_size = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize)
+            * (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
     if (disk_total_size < file_cache_settings.capacity) {
-        file_cache_settings = get_file_cache_settings(size_t(disk_total_size * 0.9),
-                                                      file_cache_settings.max_query_cache_size);
+        LOG_INFO("The cache {} config size {} is larger than {}% disk size {}, recalc it.",
+                cache_base_path, file_cache_settings.capacity,
+                config::file_cache_enter_disk_resource_limit_mode_percent, disk_total_size);
+        file_cache_settings = get_file_cache_settings(disk_total_size, file_cache_settings.max_query_cache_size);
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
