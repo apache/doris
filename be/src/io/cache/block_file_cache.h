@@ -394,6 +394,7 @@ private:
     CachedFiles _files;
     QueryFileCacheContextMap _query_map;
     size_t _cur_cache_size = 0;
+    size_t _cur_ttl_size = 0;
     std::multimap<uint64_t, UInt128Wrapper> _time_to_key;
     std::unordered_map<UInt128Wrapper, uint64_t, KeyHash> _key_to_time;
     // The three queues are level queue.

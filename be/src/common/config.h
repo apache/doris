@@ -1306,6 +1306,8 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
+// The max ratio for ttl cache's size
+DECLARE_mInt64(max_ttl_cache_ratio);
 
 #ifdef BE_TEST
 // test s3
