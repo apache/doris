@@ -346,9 +346,6 @@ fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
-if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-    USE_JEMALLOC_HOOK='OFF'
-fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
@@ -449,7 +446,6 @@ echo "Get params:
     STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
-    USE_JEMALLOC_HOOK           -- ${USE_JEMALLOC_HOOK}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
     ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
@@ -548,7 +544,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DUSE_JEMALLOC_HOOK="${USE_JEMALLOC_HOOK}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \

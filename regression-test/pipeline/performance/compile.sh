@@ -133,7 +133,6 @@ sudo docker run -i --rm \
                     && export EXTRA_CXX_FLAGS=-O3 \
                     && export USE_JEMALLOC='ON' \
 					&& export ENABLE_PCH=OFF \
-                    && export USE_JEMALLOC_HOOK='OFF' \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 set +x
