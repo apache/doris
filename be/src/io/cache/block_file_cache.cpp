@@ -1026,7 +1026,8 @@ bool BlockFileCache::try_reserve_from_other_queue_by_hot_interval(
     return !is_overflow(removed_size, size, cur_cache_size);
 }
 
-bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const {
+bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size,
+                                 size_t cur_cache_size) const {
     return _disk_resource_limit_mode ? removed_size < need_size
                                      : cur_cache_size + need_size - removed_size > _capacity;
 }
