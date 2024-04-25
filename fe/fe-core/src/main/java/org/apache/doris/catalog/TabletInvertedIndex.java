@@ -624,8 +624,20 @@ public class TabletInvertedIndex {
             }
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
-                replicaToTabletMap.remove(replica.getId());
                 replicaMetaTable.remove(tabletId, backendId);
+
+                // sometimes, replicas may have same replica id in different backend
+                // we need to cover this situation to avoid some "replica not found" issue
+                if (replicaMetaTable.containsRow(tabletId)) {
+                    List<Replica> replicas = Lists.newArrayList(replicaMetaTable.row(tabletId).values()).stream()
+                        .filter(c -> c.getId() == replica.getId()).collect(Collectors.toList());
+                    if (replicas.isEmpty()) {
+                        replicaToTabletMap.remove(replica.getId());
+                    }
+                } else {
+                    replicaToTabletMap.remove(replica.getId());
+                }
+
                 backingReplicaMetaTable.remove(backendId, tabletId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("delete replica {} of tablet {} in backend {}",
