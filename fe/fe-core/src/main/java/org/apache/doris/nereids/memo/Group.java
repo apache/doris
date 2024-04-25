@@ -324,7 +324,7 @@ public class Group {
     }
 
     /**
-     * remove the reference to parent groupExpression
+     * remove the ref    erence to parent groupExpression
      *
      * @param parent group expression
      * @return parentExpressions's num
