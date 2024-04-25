@@ -169,8 +169,9 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(ERROR) << "__builtin_unreachable";
-    __builtin_unreachable();
+
+    LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
+    exit(-1);
 }
 
 sigjmp_buf jmpbuf;
