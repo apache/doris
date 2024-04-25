@@ -41,7 +41,7 @@ suite("test_create_view_auth","p0,auth") {
     sql """grant select_priv on regression_test to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
-            sql "create view ${dbName}.v1 as select * from ${dbName}.t1;"
+            sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().contains("Admin_priv,Create_priv"))

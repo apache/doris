@@ -19,9 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("test_admin_clean_trash", "nonConcurrent") {
-    if (isCloudMode()) {
-        return 
-    }
     try {
         sql """create database clean_trash_db1"""
         sql """
