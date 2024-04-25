@@ -43,7 +43,7 @@ suite("join_order") {
     """
     sql """ drop table if exists outerjoin_C_order;"""
     sql """
-        create table outerjoin_C_order ( c int not null )
+        create table outerjoin_C_order ( c int not null, c2 int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(c) BUCKETS 1
         PROPERTIES (
@@ -77,7 +77,7 @@ suite("join_order") {
 
     sql """insert into outerjoin_A_order values( 1,2 );"""
     sql """insert into outerjoin_B_order values( 1 );"""
-    sql """insert into outerjoin_C_order values( 1 );"""
+    sql """insert into outerjoin_C_order values( 1,2 );"""
     sql """insert into outerjoin_D_order values( 1,2,3 );"""
     sql """insert into outerjoin_E_order values( 1,2 );"""
 
@@ -96,13 +96,13 @@ suite("join_order") {
 
     sql 'set disable_join_reorder=true;'
     explain {
-        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c;")
+        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c2;")
         contains "CROSS JOIN"
     }
 
     sql 'set disable_join_reorder=false;'
     explain {
-        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c;")
+        sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c2;")
         notContains "CROSS JOIN"
     }
 
