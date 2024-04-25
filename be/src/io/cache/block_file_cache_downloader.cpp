@@ -316,12 +316,12 @@ void FileCacheBlockS3Downloader::download_file_cache_block(std::vector<FileCache
                 }
             }
         };
-        CloudTabletSPtr tablet;
         auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false);
         if (!res.has_value()) {
             LOG_WARNING("Failed to find tablet {}", meta.tablet_id()).error(res.error());
+            return;
         }
-        auto id_to_rowset_meta_map = tablet->tablet_meta()->snapshot_rs_metas();
+        auto id_to_rowset_meta_map = res.value()->tablet_meta()->snapshot_rs_metas();
         if (auto iter = id_to_rowset_meta_map.find(meta.rowset_id());
             iter != id_to_rowset_meta_map.end()) {
             UInt128Wrapper cache_key = BlockFileCache::hash(meta.file_name());
