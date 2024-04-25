@@ -70,7 +70,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
 
     _reset_mem_table();
 

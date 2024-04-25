@@ -57,7 +57,7 @@ class SimplifiedScanScheduler;
 class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _query_thread_context.init();
+        _query_thread_context.init_unlocked();
     }
 
     ~ScanTask() {
