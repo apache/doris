@@ -630,7 +630,7 @@ public class TabletInvertedIndex {
                 // we need to cover this situation to avoid some "replica not found" issue
                 if (replicaMetaTable.containsRow(tabletId)) {
                     List<Replica> replicas = Lists.newArrayList(replicaMetaTable.row(tabletId).values()).stream()
-                        .filter(c -> c.getId() == replica.getId()).collect(Collectors.toList());
+                            .filter(c -> c.getId() == replica.getId()).collect(Collectors.toList());
                     if (replicas.isEmpty()) {
                         replicaToTabletMap.remove(replica.getId());
                     }
