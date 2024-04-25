@@ -67,7 +67,7 @@ statementBase
         AS query                                                          #alterView
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LIKE existedTable=multipartIdentifier
-      ((WITH ROLLUP) (rollupNames=identifierList)?)?           #createTableLike
+      (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define

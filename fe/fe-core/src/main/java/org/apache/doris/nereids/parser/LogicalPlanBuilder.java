@@ -3499,6 +3499,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> new ShowCreateProcedureCommand(procedureName));
     }
 
+    @Override
     public Object visitUnsupported(UnsupportedContext ctx) {
         return UnsupportedCommand.INSTANCE;
     }
