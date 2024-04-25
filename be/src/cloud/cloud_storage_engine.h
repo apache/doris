@@ -25,6 +25,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "util/threadpool.h"
@@ -66,6 +67,7 @@ public:
     std::unique_ptr<ThreadPool>& calc_tablet_delete_bitmap_task_thread_pool() {
         return _calc_tablet_delete_bitmap_task_thread_pool;
     }
+    void _check_file_cache_ttl_block_valid();
 
     io::FileSystemSPtr get_fs_by_vault_id(const std::string& vault_id) const {
         if (vault_id.empty()) {

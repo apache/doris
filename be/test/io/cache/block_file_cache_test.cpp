@@ -242,7 +242,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         io::BlockFileCache mgr(cache_base_path, settings);
         ASSERT_TRUE(mgr.initialize().ok());
 
-        while (true) {
+        for (int i = 0; i < 100; i++) {
             if (mgr.get_lazy_open_success()) {
                 break;
             };
@@ -580,7 +580,7 @@ void test_file_cache(io::FileCacheType cache_type) {
 
         io::BlockFileCache cache2(cache_base_path, settings);
         ASSERT_TRUE(cache2.initialize().ok());
-        while (true) {
+        for (int i = 0; i < 100; i++) {
             if (cache2.get_lazy_open_success()) {
                 break;
             };
@@ -618,7 +618,7 @@ void test_file_cache(io::FileCacheType cache_type) {
         settings2.max_file_block_size = 10;
         io::BlockFileCache cache2(cache_path2, settings2);
         ASSERT_TRUE(cache2.initialize().ok());
-        while (true) {
+        for (int i = 0; i < 100; i++) {
             if (cache2.get_lazy_open_success()) {
                 break;
             };
@@ -671,7 +671,7 @@ TEST_F(BlockFileCacheTest, resize) {
     settings.max_file_block_size = 100;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -753,7 +753,7 @@ TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
     settings.capacity = 15;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -838,7 +838,7 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
     settings.capacity = 15;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -955,7 +955,7 @@ TEST_F(BlockFileCacheTest, reset_range) {
     io::BlockFileCache cache(cache_base_path, settings);
     EXPECT_EQ(cache.capacity(), 15);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1005,7 +1005,7 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
     settings.capacity = 30;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1055,7 +1055,7 @@ TEST_F(BlockFileCacheTest, fd_cache_remove) {
     settings.capacity = 15;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1137,7 +1137,7 @@ TEST_F(BlockFileCacheTest, fd_cache_evict) {
     settings.capacity = 15;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1283,7 +1283,7 @@ void test_file_cache_run_in_resource_limit(io::FileCacheType cache_type) {
         io::BlockFileCache cache(cache_base_path, settings);
         cache._index_queue.hot_data_interval = 0;
         ASSERT_TRUE(cache.initialize());
-        while (true) {
+        for (int i = 0; i < 100; i++) {
             if (cache.get_lazy_open_success()) {
                 break;
             };
@@ -1457,7 +1457,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     ASSERT_TRUE(blocks[0]->append(result));
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1516,7 +1516,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
     ASSERT_TRUE(blocks[0]->append(result));
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1558,7 +1558,7 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
     auto key2 = io::BlockFileCache::hash("key6");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1640,7 +1640,7 @@ TEST_F(BlockFileCacheTest, ttl_modify) {
     auto key2 = io::BlockFileCache::hash("key6");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1715,7 +1715,7 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1779,7 +1779,7 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1842,7 +1842,7 @@ TEST_F(BlockFileCacheTest, ttl_reverse) {
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -1894,7 +1894,7 @@ TEST_F(BlockFileCacheTest, io_error) {
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2026,7 +2026,7 @@ TEST_F(BlockFileCacheTest, remove_directly_when_normal_change_to_ttl) {
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2099,7 +2099,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
     });
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2167,7 +2167,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     });
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2230,7 +2230,7 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     context.cache_type = io::FileCacheType::TTL;
     context.expiration_time = UnixSeconds() + 3600;
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2484,7 +2484,7 @@ TEST_F(BlockFileCacheTest, test_disposable) {
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2595,7 +2595,7 @@ TEST_F(BlockFileCacheTest, append_many_time) {
     context.cache_type = FileCacheType::NORMAL;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2708,7 +2708,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
     {
         io::BlockFileCache cache(cache_base_path, settings);
         ASSERT_TRUE(cache.initialize());
-        while (true) {
+        for (int i = 0; i < 100; i++) {
             if (cache.get_lazy_open_success()) {
                 break;
             };
@@ -2719,7 +2719,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
     config::enable_file_cache_query_limit = true;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -2776,7 +2776,7 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
     config::enable_file_cache_query_limit = true;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3017,7 +3017,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     auto cache = FileCacheFactory::instance()->_caches[0].get();
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache->get_lazy_open_success()) {
             break;
         };
@@ -3288,7 +3288,7 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     int64_t expiration_time = UnixSeconds() + 300;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3371,7 +3371,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_1) {
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3494,7 +3494,7 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_error_file_2) {
     ASSERT_TRUE(blocks[0]->append(result));
     ASSERT_TRUE(blocks[0]->finalize());
     flag1 = true;
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3520,7 +3520,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
     config::file_cache_enter_disk_resource_limit_mode_percent =
             config::file_cache_exit_disk_resource_limit_mode_percent = 50;
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3550,7 +3550,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_2) {
     config::file_cache_enter_disk_resource_limit_mode_percent = 2;
     config::file_cache_exit_disk_resource_limit_mode_percent = 1;
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3581,7 +3581,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
     cache._disk_resource_limit_mode = true;
     config::file_cache_exit_disk_resource_limit_mode_percent = 98;
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3681,7 +3681,7 @@ TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
-    while (true) {
+    for (int i = 0; i < 100; i++) {
         if (cache.get_lazy_open_success()) {
             break;
         };
@@ -3976,6 +3976,71 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_2) {
         EXPECT_EQ(cache._index_queue.cache_size, 40);
         EXPECT_EQ(cache._normal_queue.cache_size, 20);
     }
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, recyle_unvalid_ttl_async) {
+    config::file_cache_ttl_valid_check_interval_second = 4;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.disposable_queue_size = 30;
+    settings.disposable_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    context.query_id = query_id;
+    auto key = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = UnixSeconds() + 3600;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] {
+        sp->clear_call_back("BlockFileCache::set_remove_batch");
+        sp->clear_call_back("BlockFileCache::recycle_deleted_blocks");
+        sp->clear_call_back("BlockFileCache::set_sleep_time");
+    }};
+    sp->set_call_back("BlockFileCache::set_sleep_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
+    sp->set_call_back("BlockFileCache::set_remove_batch",
+                      [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; });
+    sp->set_call_back("BlockFileCache::recycle_deleted_blocks",
+                      [&](auto&&) { cache.get_or_set(key, 0, 5, context); });
+    sp->enable_processing();
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_lazy_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    for (int64_t offset = 0; offset < 60; offset += 5) {
+        auto holder = cache.get_or_set(key, offset, 5, context);
+        auto segments = fromHolder(holder);
+        ASSERT_EQ(segments.size(), 1);
+        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(segments[0]);
+        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::DOWNLOADED);
+    }
+    std::this_thread::sleep_for(
+            std::chrono::seconds(config::file_cache_ttl_valid_check_interval_second + 2));
+    config::file_cache_ttl_valid_check_interval_second = 0;
+    EXPECT_EQ(cache._cur_cache_size, 5);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
