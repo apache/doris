@@ -1024,14 +1024,16 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             DataSinkOperatorXPtr sink;
             if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
                 sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
-                                                           descs));
+                                                           descs, _require_bucket_distribution));
             } else {
-                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                _require_bucket_distribution));
             }
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         }
+        _require_bucket_distribution = true;
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
@@ -1096,6 +1098,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         }
+        _require_bucket_distribution = true;
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -1201,6 +1204,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        _require_bucket_distribution = true;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
@@ -1257,6 +1261,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         return Status::InternalError("Unsupported exec type in pipelineX: {}",
                                      print_plan_node_type(tnode.node_type));
     }
+
+    _require_bucket_distribution = true;
 
     return Status::OK();
 }
