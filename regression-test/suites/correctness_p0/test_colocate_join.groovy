@@ -181,6 +181,12 @@ suite("test_colocate_join") {
         contains "2:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
     }
 
+    explain {
+        sql("select a.id,a.name,t1.id,t1.name,cid,cname from test_colo1 a join (select b.id,b.name,c.id as cid,c.name as cname from test_colo2 b left join test_colo3 c on b.id = c.id and b.name = c.name) t1 on a.id=t1.id and a.name= t1.name;")
+        contains "4:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
+        contains "3:VHASH JOIN\n  |    |  join op: LEFT OUTER JOIN(COLOCATE[])[]"
+    }
+
     /* test join same table but hit different rollup, should disable colocate join */
     sql """ DROP TABLE IF EXISTS `test_query_colocate`;"""
 

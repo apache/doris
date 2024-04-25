@@ -67,6 +67,25 @@ public class ColocatePlanTest extends TestWithFeService {
                 + "partition by range(k3) (partition p1 values less than(\"2020-01-01\"), partition p2 values less than (\"2020-02-01\")) "
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
                 + "'colocate_with' = '" + GLOBAL_GROUP + "');");
+        for (int i = 1; i <= 3; i++) {
+            String template = "CREATE TABLE db1.`test_colo%d` (\n"
+                    + "        `id` varchar(64) NULL,\n"
+                    + "        `name` varchar(64) NULL,\n"
+                    + "        `age` int NULL\n"
+                    + "        ) ENGINE=OLAP\n"
+                    + "        DUPLICATE KEY(`id`,`name`)\n"
+                    + "        COMMENT 'OLAP'\n"
+                    + "        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 4\n"
+                    + "        PROPERTIES (\n"
+                    + "        \"replication_allocation\" = \"tag.location.default: 1\",\n"
+                    + "        \"colocate_with\" = \"group\",\n"
+                    + "        \"in_memory\" = \"false\",\n"
+                    + "        \"storage_format\" = \"V2\",\n"
+                    + "        \"disable_auto_compaction\" = \"false\"\n"
+                    + "        );";
+            String createSql = String.format(template, i);
+            createTable(createSql);
+        }
     }
 
     @Override
@@ -303,5 +322,32 @@ public class ColocatePlanTest extends TestWithFeService {
             // Restore the ckptThreadId
             Deencapsulation.setField(Env.class, "checkpointThreadId", ckptThreadId);
         }
+    }
+
+    @Test
+    public void testThreeTableJoin() throws Exception {
+        // a join b join c
+        String sql1 = "explain select a.id,a.name,b.id,b.name,c.id,c.name from db1.test_colo1 a inner join "
+                + "db1.test_colo2 b on a.id = b.id and a.name = b.name inner join db1.test_colo3 c on a.id=c.id and "
+                + "a.name= c.name";
+        String plan1 = getSQLPlanOrErrorMsg(sql1);
+        Assert.assertTrue(plan1.contains("4:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
+        Assert.assertTrue(plan1.contains("2:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
+
+        // a join (b left join c)
+        String sql2 = "explain select a.id,a.name,t1.id,t1.name,cid,cname from db1.test_colo1 a join (select "
+                + "b.id,b.name,c.id as cid,c.name as cname from db1.test_colo2 b left join db1.test_colo3 c "
+                + "on b.id = c.id and b.name = c.name) t1 on a.id=t1.id and a.name= t1.name;";
+        String plan2 = getSQLPlanOrErrorMsg(sql2);
+        Assert.assertTrue(plan2.contains("4:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
+        Assert.assertTrue(plan2.contains("3:VHASH JOIN\n  |    |  join op: LEFT OUTER JOIN(COLOCATE[])[]"));
+
+        // a join (b right join c)
+        String sql3 = "explain select a.id,a.name,t1.id,t1.name,cid,cname from db1.test_colo1 a join (select "
+                + "b.id,b.name,c.id as cid,c.name as cname from db1.test_colo2 b right join db1.test_colo3 c "
+                + "on b.id = c.id and b.name = c.name) t1 on a.id=t1.id and a.name= t1.name;";
+        String plan3 = getSQLPlanOrErrorMsg(sql3);
+        Assert.assertTrue(plan3.contains("4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"));
+        Assert.assertTrue(plan3.contains("3:VHASH JOIN\n  |  join op: RIGHT OUTER JOIN(COLOCATE[])[]"));
     }
 }
