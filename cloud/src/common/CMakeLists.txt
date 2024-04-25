@@ -16,7 +16,7 @@ set(COMMON_FILES
     network_util.cpp
 )
 
-if (USE_JEMALLOC AND USE_JEMALLOC_HOOK)
+if (USE_JEMALLOC)
     set(COMMON_FILES ${COMMON_FILES}
         jemalloc_hook.cpp
         )
