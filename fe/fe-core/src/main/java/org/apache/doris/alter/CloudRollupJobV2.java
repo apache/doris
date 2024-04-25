@@ -55,7 +55,7 @@ import java.util.Map;
 public class CloudRollupJobV2 extends RollupJobV2 {
     private static final Logger LOG = LogManager.getLogger(CloudRollupJobV2.class);
 
-    public static AlterJobV2 buildCloudRollupJobV2(RollupJobV2 job) throws IllegalAccessException {
+    public static AlterJobV2 buildCloudRollupJobV2(RollupJobV2 job) throws IllegalAccessException, AnalysisException {
         CloudRollupJobV2 ret = new CloudRollupJobV2();
         List<Field> allFields = new ArrayList<>();
         Class tmpClass = RollupJobV2.class;
@@ -70,6 +70,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 field.set(ret, field.get(job));
             }
         }
+        ret.initAnalyzer();
         return ret;
     }
 

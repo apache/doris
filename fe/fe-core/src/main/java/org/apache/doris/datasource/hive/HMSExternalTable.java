@@ -268,11 +268,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private boolean supportedHiveTable() {
         // we will return false if null, which means that the table type maybe unsupported.
         if (remoteTable.getSd() == null) {
-            return false;
+            throw new NotSupportedException("remote table's storage descriptor is null");
         }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
-            return false;
+            throw new NotSupportedException("remote table's storage input format is null");
         }
         boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         if (!supportedFileFormat) {

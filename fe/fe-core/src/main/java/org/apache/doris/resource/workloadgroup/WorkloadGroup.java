@@ -272,6 +272,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
+        int maxRemoteScanNum = -1;
         if (properties.containsKey(MAX_REMOTE_SCAN_THREAD_NUM)) {
             String value = properties.get(MAX_REMOTE_SCAN_THREAD_NUM);
             try {
@@ -279,12 +280,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (intValue <= 0 && intValue != -1) {
                     throw new NumberFormatException();
                 }
+                maxRemoteScanNum = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
                         MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
         }
 
+        int minRemoteScanNum = -1;
         if (properties.containsKey(MIN_REMOTE_SCAN_THREAD_NUM)) {
             String value = properties.get(MIN_REMOTE_SCAN_THREAD_NUM);
             try {
@@ -292,10 +295,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (intValue <= 0 && intValue != -1) {
                     throw new NumberFormatException();
                 }
+                minRemoteScanNum = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
                         MIN_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
+        }
+
+        if ((maxRemoteScanNum == -1 && minRemoteScanNum != -1) || (maxRemoteScanNum != -1 && minRemoteScanNum == -1)) {
+            throw new DdlException(MAX_REMOTE_SCAN_THREAD_NUM + " and " + MIN_REMOTE_SCAN_THREAD_NUM
+                    + " must be specified simultaneously");
+        } else if (maxRemoteScanNum < minRemoteScanNum) {
+            throw new DdlException(MAX_REMOTE_SCAN_THREAD_NUM + " must bigger or equal " + MIN_REMOTE_SCAN_THREAD_NUM);
         }
 
         // check queue property
