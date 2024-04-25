@@ -14,19 +14,20 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
-------------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineorder]
-------------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
 --------------------------------PhysicalProject
-----------------------------------filter((supplier.s_nation = 'UNITED STATES'))
-------------------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((part.p_category = 'MFGR#14'))
---------------------------------PhysicalOlapScan[part]
+----------------------------------PhysicalOlapScan[lineorder]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((supplier.s_nation = 'UNITED STATES'))
+--------------------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((part.p_category = 'MFGR#14'))
+----------------------------------PhysicalOlapScan[part]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (1997, 1998))
