@@ -80,9 +80,11 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
                            splitted_values);
         value_start_offset = idx + value_sep_len;
     }
-    // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, trimming_char,
-                       splitted_values);
+    if (line.size >= value_start_offset) {
+        // process the last column
+        process_value_func(data, value_start_offset, line.size - value_start_offset, trimming_char,
+                           splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
