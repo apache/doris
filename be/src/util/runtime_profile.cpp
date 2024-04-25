@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -714,6 +715,17 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
                                                  child_counter_map, s);
         }
     }
+}
+
+void RuntimeProfile::sort_children_by_total_time() {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto cmp = [](const std::pair<RuntimeProfile*, bool>& L,
+                  const std::pair<RuntimeProfile*, bool>& R) {
+        const RuntimeProfile* L_profile = L.first;
+        const RuntimeProfile* R_profile = R.first;
+        return L_profile->_counter_total_time.value() > R_profile->_counter_total_time.value();
+    };
+    std::sort(_children.begin(), _children.end(), cmp);
 }
 
 } // namespace doris

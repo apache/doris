@@ -50,11 +50,6 @@ Status SpillStreamManager::init() {
     LOG(INFO) << "init spill stream manager";
     RETURN_IF_ERROR(_init_spill_store_map());
 
-    int spill_io_thread_count = config::spill_io_thread_pool_per_disk_thread_num;
-    if (spill_io_thread_count <= 0) {
-        spill_io_thread_count = 2;
-    }
-    int pool_idx = 0;
     for (const auto& [path, store] : _spill_store_map) {
         auto gc_dir_root_dir = fmt::format("{}/{}", path, SPILL_GC_DIR_PREFIX);
         bool exists = true;
@@ -85,20 +80,12 @@ Status SpillStreamManager::init() {
             }
         }
         store->update_spill_data_usage(spill_data_size);
-
-        std::unique_ptr<ThreadPool> io_pool;
-        static_cast<void>(ThreadPoolBuilder(fmt::format("SpillIOThreadPool-{}", pool_idx++))
-                                  .set_min_threads(spill_io_thread_count)
-                                  .set_max_threads(spill_io_thread_count)
-                                  .set_max_queue_size(config::spill_io_thread_pool_queue_size)
-                                  .build(&io_pool));
-        path_to_io_thread_pool_[path] = std::move(io_pool);
     }
-    static_cast<void>(ThreadPoolBuilder("SpillAsyncTaskThreadPool")
-                              .set_min_threads(config::spill_async_task_thread_pool_thread_num)
-                              .set_max_threads(config::spill_async_task_thread_pool_thread_num)
-                              .set_max_queue_size(config::spill_async_task_thread_pool_queue_size)
-                              .build(&async_task_thread_pool_));
+    static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
+                              .set_min_threads(config::spill_io_thread_pool_thread_num)
+                              .set_max_threads(config::spill_io_thread_pool_thread_num)
+                              .set_max_queue_size(config::spill_io_thread_pool_queue_size)
+                              .build(&_spill_io_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
@@ -274,7 +261,7 @@ void SpillStreamManager::gc(int64_t max_file_count) {
 }
 
 void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
-    (void)get_async_task_thread_pool()->submit_func([this, query_id] {
+    (void)get_spill_io_thread_pool()->submit_func([this, query_id] {
         for (auto& [_, store] : _spill_store_map) {
             std::string query_spill_dir =
                     fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
