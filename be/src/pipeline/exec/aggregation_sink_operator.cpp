@@ -634,7 +634,7 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
                                    : tnode.agg_node.grouping_exprs),
           _bucket_shuffled(should_be_bucket_shuffled),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _is_colocate(tnode.agg_node.__isset.is_colocate),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _num_group_keys(tnode.agg_node.grouping_exprs.size()) {}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {

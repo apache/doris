@@ -387,7 +387,7 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
                                    ? tnode.distribute_expr_lists[0]
                                    : tnode.agg_node.grouping_exprs),
           _bucket_shuffled(should_be_bucket_shuffled),
-          _is_colocate(tnode.agg_node.__isset.is_colocate),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _num_group_keys(tnode.agg_node.grouping_exprs.size()) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;

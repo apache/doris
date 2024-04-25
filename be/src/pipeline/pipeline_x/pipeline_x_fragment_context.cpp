@@ -789,7 +789,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join && _total_instances > 0 ? _total_instances : _num_instances);
+                is_shuffled_hash_join ? _total_instances : _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(

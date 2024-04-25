@@ -203,7 +203,7 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
           _partition_exprs(tnode.__isset.distribute_expr_lists && should_be_bucket_shuffled
                                    ? tnode.distribute_expr_lists[0]
                                    : tnode.analytic_node.partition_exprs),
-          _is_colocate(tnode.analytic_node.__isset.is_colocate),
+          _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
           _num_group_keys(tnode.analytic_node.partition_exprs.size()) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
