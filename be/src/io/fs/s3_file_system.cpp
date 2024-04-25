@@ -115,16 +115,21 @@ Status S3ClientHolder::init() {
 }
 
 Status S3ClientHolder::reset(const S3ClientConf& conf) {
+    S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.ak == _conf.ak && conf.sk == _conf.sk) {
+        if (conf.ak == _conf.ak && conf.sk == _conf.sk && conf.token == _conf.token) {
             return Status::OK(); // Same conf
         }
 
+        reset_conf = _conf;
+        reset_conf.ak = conf.ak;
+        reset_conf.sk = conf.sk;
+        reset_conf.token = conf.token;
         // Should check endpoint here?
     }
 
-    auto client = S3ClientFactory::instance().create(conf);
+    auto client = S3ClientFactory::instance().create(reset_conf);
     if (!client) {
         return Status::InternalError("failed to init s3 client with conf {}", conf.to_string());
     }
@@ -134,8 +139,7 @@ Status S3ClientHolder::reset(const S3ClientConf& conf) {
     {
         std::lock_guard lock(_mtx);
         _client = std::move(client);
-        _conf.ak = conf.ak;
-        _conf.sk = conf.sk;
+        _conf = std::move(reset_conf);
     }
 
     return Status::OK();

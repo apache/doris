@@ -1365,6 +1365,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
                         .region = param.s3_storage_param.region,
                         .ak = param.s3_storage_param.ak,
                         .sk = param.s3_storage_param.sk,
+                        .token = param.s3_storage_param.token,
                         .max_connections = param.s3_storage_param.max_conn,
                         .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
                         .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
@@ -1384,6 +1385,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         S3ClientConf conf {
                 .ak = param.s3_storage_param.ak,
                 .sk = param.s3_storage_param.sk,
+                .token = param.s3_storage_param.token,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);
