@@ -121,9 +121,13 @@ public class PartitionTableInfo {
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
                                          boolean isEnableMergeOnWrite, boolean isExternal) {
-        if (!column.isKey()
-                && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
-            throw new AnalysisException("The partition column could not be aggregated column");
+        if (!column.isKey()) { // value column
+            if (!column.getAggType().equals(AggregateType.NONE)) { // agg column
+                throw new AnalysisException("The partition column could not be aggregated column");
+            }
+            if (isEnableMergeOnWrite) { // MoW table
+                throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+            }
         }
         if (column.getType().isFloatLikeType()) {
             throw new AnalysisException("Floating point type column can not be partition column");
@@ -140,8 +144,10 @@ public class PartitionTableInfo {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (isAutoPartition && partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && column.isNullable()) {
-            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && isAutoPartition) {
+            if (column.isNullable()) {
+                throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+            }
         }
     }
 

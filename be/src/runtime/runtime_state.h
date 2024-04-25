@@ -376,13 +376,11 @@ public:
         }
         return _query_options.be_exec_version;
     }
-    bool enable_pipeline_exec() const {
-        return _query_options.__isset.enable_pipeline_engine &&
-               _query_options.enable_pipeline_engine;
-    }
     bool enable_pipeline_x_exec() const {
-        return _query_options.__isset.enable_pipeline_x_engine &&
-               _query_options.enable_pipeline_x_engine;
+        return (_query_options.__isset.enable_pipeline_x_engine &&
+                _query_options.enable_pipeline_x_engine) ||
+               (_query_options.__isset.enable_pipeline_engine &&
+                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -428,6 +426,11 @@ public:
 
     bool skip_missing_version() const {
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
+    }
+
+    bool data_queue_max_blocks() const {
+        return _query_options.__isset.data_queue_max_blocks ? _query_options.data_queue_max_blocks
+                                                            : 1;
     }
 
     bool enable_page_cache() const;
@@ -569,7 +572,18 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+    auto& pipeline_id_to_profile() {
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            // pipeline 0
+            //  pipeline task 0
+            //  pipeline task 1
+            //  pipleine task 2
+            //  .......
+            // sort by pipeline task total time
+            pipeline_profile->sort_children_by_total_time();
+        }
+        return _pipeline_id_to_profile;
+    }
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;

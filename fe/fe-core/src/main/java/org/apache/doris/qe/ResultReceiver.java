@@ -59,7 +59,7 @@ public class ResultReceiver {
     int maxMsgSizeOfResultReceiver;
 
     private void setRunStatus(Status status) {
-        runStatus.setStatus(status);
+        runStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
     }
 
     private boolean isCancel() {
@@ -104,14 +104,14 @@ public class ResultReceiver {
                         if (!isCancel()) {
                             LOG.warn("ResultReceiver is not set to cancelled state, this should not happen");
                         } else {
-                            status.setStatus(new Status(TStatusCode.CANCELLED, this.cancelReason));
+                            status.updateStatus(TStatusCode.CANCELLED, this.cancelReason);
                             return null;
                         }
                     } catch (TimeoutException e) {
                         LOG.warn("Query {} get result timeout, get result duration {} ms",
-                                DebugUtil.printId(this.queryId), (timeoutTs - currentTs) / 1000);
+                                DebugUtil.printId(this.queryId), timeoutTs - currentTs);
                         setRunStatus(Status.TIMEOUT);
-                        status.setStatus(Status.TIMEOUT);
+                        status.updateStatus(TStatusCode.TIMEOUT, "");
                         updateCancelReason("fetch data timeout");
                         return null;
                     } catch (InterruptedException e) {
@@ -119,15 +119,15 @@ public class ResultReceiver {
                         LOG.warn("Future of ResultReceiver of query {} got interrupted Exception",
                                 DebugUtil.printId(this.queryId), e);
                         if (isCancel()) {
-                            status.setStatus(Status.CANCELLED);
+                            status.updateStatus(TStatusCode.CANCELLED, "cancelled");
                             return null;
                         }
                     }
                 }
 
-                TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
-                if (code != TStatusCode.OK) {
-                    status.setPstatus(pResult.getStatus());
+                Status resultStatus = new Status(pResult.getStatus());
+                if (resultStatus.getErrorCode() != TStatusCode.OK) {
+                    status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
                     return null;
                 }
 
@@ -136,7 +136,7 @@ public class ResultReceiver {
                 if (packetIdx != pResult.getPacketSeq()) {
                     LOG.warn("finistId={}, receive packet failed, expect={}, receive={}",
                             DebugUtil.printId(finstId), packetIdx, pResult.getPacketSeq());
-                    status.setRpcStatus("receive error packet");
+                    status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, "receive error packet");
                     return null;
                 }
 
@@ -170,20 +170,20 @@ public class ResultReceiver {
             }
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
-            status.setRpcStatus(e.getMessage());
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-                status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
+                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else {
-                status.setRpcStatus(e.getMessage());
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
-            status.setStatus(new Status(TStatusCode.TIMEOUT, "query timeout"));
+            status.updateStatus(TStatusCode.TIMEOUT, "query timeout");
         } finally {
             synchronized (this) {
                 currentThread = null;
@@ -191,7 +191,7 @@ public class ResultReceiver {
         }
 
         if ((isCancel())) {
-            status.setStatus(runStatus);
+            status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
         }
         return rowBatch;
     }

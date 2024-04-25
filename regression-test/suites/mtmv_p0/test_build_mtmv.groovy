@@ -141,6 +141,21 @@ suite("test_build_mtmv") {
         DROP MATERIALIZED VIEW ${mvName}
     """
 
+    // check mvName
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ` `
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${tableName};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     // use default value
     sql """
             CREATE MATERIALIZED VIEW ${mvName}
@@ -612,6 +627,30 @@ suite("test_build_mtmv") {
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
+    sql """
+    drop table if exists partsupp
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS partsupp (
+      ps_partkey     INTEGER NOT NULL,
+      ps_suppkey     INTEGER NOT NULL,
+      ps_availqty    INTEGER NOT NULL,
+      ps_supplycost  DECIMALV3(15,2)  NOT NULL,
+      ps_comment     VARCHAR(199) NOT NULL 
+    )
+    DUPLICATE KEY(ps_partkey, ps_suppkey)
+    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    )"""
+
+    sql """
+    insert into partsupp values
+    (2, 3, 9, 10.01, 'supply1'),
+    (2, 3, 10, 11.01, 'supply2');
+    """
+
     sql """DROP MATERIALIZED VIEW IF EXISTS test_varchar_literal_mv;"""
     sql """
         CREATE MATERIALIZED VIEW test_varchar_literal_mv
@@ -622,4 +661,24 @@ suite("test_build_mtmv") {
             select case when l_orderkey > 1 then "一二三四" else "五六七八" end as field_1 from lineitem;
     """
     qt_desc_mv """desc test_varchar_literal_mv;"""
+
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_with_cte;"""
+    sql """
+        CREATE MATERIALIZED VIEW mv_with_cte
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            with `test_with` AS (
+            select l_partkey, l_suppkey
+            from lineitem
+            union
+            select
+              ps_partkey, ps_suppkey
+            from
+            partsupp)
+            select * from test_with;
+    """
+    waitingMTMVTaskFinished(getJobName("regression_test_mtmv_p0", "mv_with_cte"))
+    order_qt_query_mv_with_cte """select * from mv_with_cte;"""
 }

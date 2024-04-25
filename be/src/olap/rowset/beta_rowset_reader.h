@@ -72,6 +72,8 @@ public:
                _stats->rows_vec_cond_filtered + _stats->rows_short_circuit_cond_filtered;
     }
 
+    uint64_t merged_rows() override { return *(_read_context->merged_rows); }
+
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override {
@@ -126,6 +128,7 @@ private:
 
     bool _empty = false;
     size_t _topn_limit = 0;
+    uint64_t _merged_rows = 0;
 };
 
 } // namespace doris

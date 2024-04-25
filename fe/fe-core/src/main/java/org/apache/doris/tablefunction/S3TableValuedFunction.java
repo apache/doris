@@ -54,8 +54,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             ImmutableSet.of("access_key", "secret_key", "session_token", "region",
                     "ACCESS_KEY", "SECRET_KEY", "SESSION_TOKEN", "REGION");
 
-    private String virtualBucket = "";
-
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
@@ -67,13 +65,20 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         forwardCompatibleDeprecatedKeys(otherProps);
 
-        String usePathStyle = getOrDefaultAndRemove(otherProps, PropertyConverter.USE_PATH_STYLE, "false");
-        boolean forceVirtualHosted = isVirtualHosted(uriStr, Boolean.parseBoolean(usePathStyle));
-        S3URI s3uri = getS3Uri(uriStr, forceVirtualHosted);
-        String endpoint = forceVirtualHosted
-                ? getEndpointAndSetVirtualBucket(s3uri, otherProps) : s3uri.getBucketScheme();
+        String usePathStyle = getOrDefaultAndRemove(otherProps, PropertyConverter.USE_PATH_STYLE,
+                PropertyConverter.USE_PATH_STYLE_DEFAULT_VALUE);
+        String forceParsingByStandardUri = getOrDefaultAndRemove(otherProps,
+                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
+                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE);
+
+        S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
+                Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
+        String endpoint = otherProps.containsKey(S3Properties.ENDPOINT) ? otherProps.get(S3Properties.ENDPOINT) :
+                s3uri.getEndpoint().orElseThrow(() ->
+                        new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT)));
         if (!otherProps.containsKey(S3Properties.REGION)) {
-            String region = S3Properties.getRegionOfEndpoint(endpoint);
+            String region = s3uri.getRegion().orElseThrow(() ->
+                    new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION)));
             otherProps.put(S3Properties.REGION, region);
         }
         checkNecessaryS3Properties(otherProps);
@@ -89,12 +94,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
 
-        if (forceVirtualHosted) {
-            filePath = NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM
-                + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
-        } else {
-            filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getKey();
-        }
+        filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
 
         if (FeConstants.runningUnitTest) {
             // Just check
@@ -120,36 +120,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // do not check ak and sk, because we can read them from system environment.
     }
 
-    private String getEndpointAndSetVirtualBucket(S3URI s3uri, Map<String, String> props)
-            throws AnalysisException {
-        String[] fields = s3uri.getVirtualBucket().split("\\.", 2);
-        virtualBucket = fields[0];
-        if (fields.length > 1) {
-            // At this point, s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:
-            //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt
-            // s3uri.getVirtualBucket() = my_bucket.cos.ap-beijing.myqcloud.com,
-            // so we need separate virtualBucket and endpoint.
-            return fields[1];
-        } else if (props.containsKey(S3Properties.ENDPOINT)) {
-            return props.get(S3Properties.ENDPOINT);
-        } else {
-            throw new AnalysisException("can not parse endpoint, please check uri.");
-        }
-    }
-
-    private boolean isVirtualHosted(String uri, boolean usePathStyle) {
-        if (uri.toLowerCase().startsWith("s3")) {
-            // s3 protocol, default virtual-hosted style
-            return true;
-        } else {
-            // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
-            return !usePathStyle;
-        }
-    }
-
-    private S3URI getS3Uri(String uri, boolean forceVirtualHosted) throws AnalysisException {
+    private S3URI getS3Uri(String uri, boolean isPathStyle, boolean forceParsingStandardUri) throws AnalysisException {
         try {
-            return S3URI.create(uri, forceVirtualHosted);
+            return S3URI.create(uri, isPathStyle, forceParsingStandardUri);
         } catch (UserException e) {
             throw new AnalysisException("parse s3 uri failed, uri = " + uri, e);
         }

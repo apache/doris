@@ -36,6 +36,7 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 #include "vec/spill/spill_stream.h"
 
 namespace doris::vectorized {
@@ -49,11 +50,6 @@ Status SpillStreamManager::init() {
     LOG(INFO) << "init spill stream manager";
     RETURN_IF_ERROR(_init_spill_store_map());
 
-    int spill_io_thread_count = config::spill_io_thread_pool_per_disk_thread_num;
-    if (spill_io_thread_count <= 0) {
-        spill_io_thread_count = 2;
-    }
-    int pool_idx = 0;
     for (const auto& [path, store] : _spill_store_map) {
         auto gc_dir_root_dir = fmt::format("{}/{}", path, SPILL_GC_DIR_PREFIX);
         bool exists = true;
@@ -84,20 +80,12 @@ Status SpillStreamManager::init() {
             }
         }
         store->update_spill_data_usage(spill_data_size);
-
-        std::unique_ptr<ThreadPool> io_pool;
-        static_cast<void>(ThreadPoolBuilder(fmt::format("SpillIOThreadPool-{}", pool_idx++))
-                                  .set_min_threads(spill_io_thread_count)
-                                  .set_max_threads(spill_io_thread_count)
-                                  .set_max_queue_size(config::spill_io_thread_pool_queue_size)
-                                  .build(&io_pool));
-        path_to_io_thread_pool_[path] = std::move(io_pool);
     }
-    static_cast<void>(ThreadPoolBuilder("SpillAsyncTaskThreadPool")
-                              .set_min_threads(config::spill_async_task_thread_pool_thread_num)
-                              .set_max_threads(config::spill_async_task_thread_pool_thread_num)
-                              .set_max_queue_size(config::spill_async_task_thread_pool_queue_size)
-                              .build(&async_task_thread_pool_));
+    static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
+                              .set_min_threads(config::spill_io_thread_pool_thread_num)
+                              .set_max_threads(config::spill_io_thread_pool_thread_num)
+                              .set_max_queue_size(config::spill_io_thread_pool_queue_size)
+                              .build(&_spill_io_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
@@ -128,7 +116,7 @@ Status SpillStreamManager::_init_spill_store_map() {
 std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
     std::vector<SpillDataDir*> stores;
-    for (auto&& [_, store] : _spill_store_map) {
+    for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
             stores.push_back(store.get());
         }
@@ -188,7 +176,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
     for (auto& dir : data_dirs) {
         data_dir = dir;
         std::string spill_root_dir = fmt::format("{}/{}", data_dir->path(), SPILL_DIR_PREFIX);
-        spill_dir = fmt::format("{}/{}-{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
+        spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
@@ -207,9 +195,15 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
 }
 
 void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    auto gc_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
-                              std::filesystem::path(stream->get_spill_dir()).filename().string());
-    (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
+    auto query_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                 print_id(stream->query_id()));
+    auto st = io::global_local_filesystem()->create_directory(query_dir);
+    if (st.ok()) {
+        auto gc_dir =
+                fmt::format("{}/{}", query_dir,
+                            std::filesystem::path(stream->get_spill_dir()).filename().string());
+        (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
+    }
 }
 
 void SpillStreamManager::gc(int64_t max_file_count) {
@@ -264,6 +258,22 @@ void SpillStreamManager::gc(int64_t max_file_count) {
             }
         }
     }
+}
+
+void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
+    (void)get_spill_io_thread_pool()->submit_func([this, query_id] {
+        for (auto& [_, store] : _spill_store_map) {
+            std::string query_spill_dir =
+                    fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
+            bool exists = false;
+            auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
+            if (status.ok() && exists) {
+                auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
+                                          print_id(query_id));
+                (void)io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
+            }
+        }
+    });
 }
 
 SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,

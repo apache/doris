@@ -73,6 +73,7 @@ struct TS3StorageParam {
     8: optional string root_path
     9: optional string bucket
     10: optional bool use_path_style = false
+    11: optional string token
 }
 
 struct TStoragePolicy {
@@ -98,6 +99,8 @@ struct TPushStoragePolicyReq {
     2: optional list<TStorageResource> resource
     3: optional list<i64> dropped_storage_policy
 }
+
+struct TCleanTrashReq {}
 
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
@@ -512,6 +515,7 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+    34: optional TCleanTrashReq clean_trash_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

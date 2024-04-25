@@ -164,10 +164,7 @@ public:
                     descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
-            DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
             // common subexpression elimination
-            DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
-                      tnode.intermediate_projections_list.size());
             _intermediate_output_row_descriptor.reserve(
                     tnode.intermediate_output_tuple_id_list.size());
             for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {

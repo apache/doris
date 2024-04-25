@@ -348,7 +348,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
@@ -362,6 +362,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public String getDBName() {
+        String[] strs = qualifiedDbName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
     }
 
     public Constraint getConstraint(String name) {
@@ -593,31 +598,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return table;
     }
 
-    /*
-     * 1. Only schedule OLAP table.
-     * 2. If table is colocate with other table, not schedule it.
-     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
-     *      schedule the tablet to repair it(only for VERSION_INCOMPLETE case, this will be checked in
-     *      TabletScheduler).
-     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
-     */
-    public boolean needSchedule() {
-        if (type != TableType.OLAP) {
-            return false;
-        }
-
-        OlapTable olapTable = (OlapTable) this;
-
-        if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("table {} is a colocate table, skip tablet checker.", name);
-            }
-            return false;
-        }
-
-        return true;
-    }
-
     public boolean isHasCompoundKey() {
         return hasCompoundKey;
     }
@@ -661,5 +641,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
         return Lists.newArrayList();
+    }
+
+    @Override
+    public long getCachedRowCount() {
+        return getRowCount();
     }
 }

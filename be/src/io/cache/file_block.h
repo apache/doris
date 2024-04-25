@@ -154,6 +154,8 @@ private:
     size_t _downloaded_size {0};
 };
 
+extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);
+
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;
 

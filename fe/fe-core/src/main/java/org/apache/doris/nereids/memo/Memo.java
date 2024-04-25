@@ -411,6 +411,9 @@ public class Memo {
             Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
         }
+        if (targetGroup != null) {
+            targetGroup.getstructInfoMap().setRefreshed(false);
+        }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
@@ -559,6 +562,7 @@ public class Memo {
         if (source == root) {
             root = destination;
         }
+        destination.getstructInfoMap().setRefreshed(false);
         groups.remove(source.getGroupId());
     }
 
@@ -579,16 +583,6 @@ public class Memo {
         Group group = new Group(groupIdGenerator.getNextId(), logicalProperties);
         groups.put(group.getGroupId(), group);
         return group;
-    }
-
-    // This function is used to copy new group expression
-    // It's used in DPHyp after construct new group expression
-    public Group copyInGroupExpression(GroupExpression newGroupExpression) {
-        Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
-                newGroupExpression.getPlan().getLogicalProperties());
-        groups.put(newGroup.getGroupId(), newGroup);
-        groupExpressions.put(newGroupExpression, newGroupExpression);
-        return newGroup;
     }
 
     private CopyInResult rewriteByNewGroupExpression(Group targetGroup, Plan newPlan,

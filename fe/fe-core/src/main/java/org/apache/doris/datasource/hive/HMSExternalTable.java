@@ -268,11 +268,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private boolean supportedHiveTable() {
         // we will return false if null, which means that the table type maybe unsupported.
         if (remoteTable.getSd() == null) {
-            return false;
+            throw new NotSupportedException("remote table's storage descriptor is null");
         }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
-            return false;
+            throw new NotSupportedException("remote table's storage input format is null");
         }
         boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         if (!supportedFileFormat) {
@@ -584,13 +584,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> getHiveSchema() {
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<Column> columns;
-        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        List<FieldSchema> schema = client.getSchema(dbName, name);
+        Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
-            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
+            String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
+            tmpSchema.add(new Column(fieldName,
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, field.getComment(), true, -1));
+                    true, defaultValue, field.getComment(), true, -1));
         }
         columns = tmpSchema;
         return columns;

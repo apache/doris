@@ -55,11 +55,7 @@ public:
 
     Status spill_block(RuntimeState* state, const Block& block, bool eof);
 
-    void end_spill(const Status& status);
-
     Status spill_eof();
-
-    Status wait_spill();
 
     Status read_next_block_sync(Block* block, bool* eos);
 
@@ -81,6 +77,8 @@ public:
         read_wait_io_timer_ = wait_io_timer;
     }
 
+    const TUniqueId& query_id() const;
+
 private:
     friend class SpillStreamManager;
 
@@ -89,7 +87,6 @@ private:
     void close();
 
     RuntimeState* state_ = nullptr;
-    ThreadPool* io_thread_pool_;
     int64_t stream_id_;
     std::atomic_bool closed_ = false;
     SpillDataDir* data_dir_ = nullptr;
@@ -97,10 +94,7 @@ private:
     size_t batch_rows_;
     size_t batch_bytes_;
 
-    std::unique_ptr<std::promise<Status>> spill_promise_;
-    std::future<Status> spill_future_;
-    std::unique_ptr<std::promise<Status>> read_promise_;
-    std::future<Status> read_future_;
+    std::atomic_bool _is_reading = false;
 
     SpillWriterUPtr writer_;
     SpillReaderUPtr reader_;

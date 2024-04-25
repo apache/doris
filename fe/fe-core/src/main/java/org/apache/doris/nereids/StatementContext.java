@@ -97,7 +97,7 @@ public class StatementContext implements Closeable {
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
-    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private final IdGenerator<ExprId> exprIdGenerator;
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
@@ -112,7 +112,6 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
-    private Map<TableIf, Set<String>> checkedPrivilegedTableAndUsedColumns = Maps.newLinkedHashMap();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -143,18 +142,32 @@ public class StatementContext implements Closeable {
     private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
-        this(ConnectContext.get(), null);
+        this(ConnectContext.get(), null, 0);
     }
 
-    /** StatementContext */
+    public StatementContext(int initialId) {
+        this(ConnectContext.get(), null, initialId);
+    }
+
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, 0);
+    }
+
+    /**
+     * StatementContext
+     */
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
                 && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
+            if (originStatement != null) {
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+            }
         } else {
             this.sqlCacheContext = null;
         }
@@ -170,6 +183,9 @@ public class StatementContext implements Closeable {
 
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
+        if (originStatement != null && sqlCacheContext != null) {
+            sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+        }
     }
 
     public OriginStatement getOriginStatement() {

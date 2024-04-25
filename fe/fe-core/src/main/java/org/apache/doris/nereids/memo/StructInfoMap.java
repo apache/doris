@@ -26,12 +26,14 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -40,6 +42,7 @@ import javax.annotation.Nullable;
 public class StructInfoMap {
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
+    private boolean refreshed;
 
     /**
      * get struct info according to table map
@@ -49,7 +52,7 @@ public class StructInfoMap {
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(BitSet mvTableMap, BitSet foldTableMap, Group group) {
+    public @Nullable StructInfo getStructInfo(BitSet mvTableMap, BitSet foldTableMap, Group group, Plan originPlan) {
         if (!infoMap.containsKey(mvTableMap)) {
             if ((groupExpressionMap.containsKey(foldTableMap) || groupExpressionMap.isEmpty())
                     && !groupExpressionMap.containsKey(mvTableMap)) {
@@ -59,11 +62,10 @@ public class StructInfoMap {
                 Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
                         mvTableMap);
                 StructInfo structInfo = constructStructInfo(groupExpressionBitSetPair.first,
-                        groupExpressionBitSetPair.second, mvTableMap);
+                        groupExpressionBitSetPair.second, mvTableMap, originPlan);
                 infoMap.put(mvTableMap, structInfo);
             }
         }
-
         return infoMap.get(mvTableMap);
     }
 
@@ -71,13 +73,27 @@ public class StructInfoMap {
         return groupExpressionMap.keySet();
     }
 
+    public Collection<StructInfo> getStructInfos() {
+        return infoMap.values();
+    }
+
     public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap) {
         return groupExpressionMap.get(tableMap);
     }
 
-    private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
+    public boolean isRefreshed() {
+        return refreshed;
+    }
+
+    public void setRefreshed(boolean refreshed) {
+        this.refreshed = refreshed;
+    }
+
+    private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
+            BitSet tableMap, Plan originPlan) {
+        // this plan is not origin plan, should record origin plan in struct info
         Plan plan = constructPlan(groupExpression, children, tableMap);
-        return StructInfo.of(plan).get(0);
+        return originPlan == null ? StructInfo.of(plan) : StructInfo.of(plan, originPlan);
     }
 
     private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
@@ -105,7 +121,7 @@ public class StructInfoMap {
         int originSize = groupExpressionMap.size();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new ArrayList<>();
-            boolean needRefresh = false;
+            boolean needRefresh = groupExpressionMap.isEmpty();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression);
                 groupExpressionMap.put(leaf, Pair.of(groupExpression, new ArrayList<>()));
@@ -113,18 +129,32 @@ public class StructInfoMap {
             }
 
             for (Group child : groupExpression.children()) {
-                if (!refreshedGroup.contains(child)) {
+                if (!refreshedGroup.contains(child) && !child.getstructInfoMap().isRefreshed()) {
                     StructInfoMap childStructInfoMap = child.getstructInfoMap();
                     needRefresh |= childStructInfoMap.refresh(child);
+                    childStructInfoMap.setRefreshed(true);
                 }
                 refreshedGroup.add(child);
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
-
+            // if one same groupExpression have refreshed, continue
+            BitSet oneOfGroupExpressionTableSet = new BitSet();
+            for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
+                Iterator<BitSet> iterator = groupExpressionBitSet.iterator();
+                if (iterator.hasNext()) {
+                    oneOfGroupExpressionTableSet.or(iterator.next());
+                }
+            }
+            if (groupExpressionMap.containsKey(oneOfGroupExpressionTableSet)) {
+                continue;
+            }
+            // if cumulative child table map is different from current
+            // or current group expression map is empty, should update the groupExpressionMap currently
+            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
             if (needRefresh) {
-                Set<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
                 for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                    groupExpressionMap.put(bitSetWithChild.first, Pair.of(groupExpression, bitSetWithChild.second));
+                    groupExpressionMap.putIfAbsent(bitSetWithChild.first,
+                            Pair.of(groupExpression, bitSetWithChild.second));
                 }
             }
         }
@@ -135,23 +165,28 @@ public class StructInfoMap {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
         if (plan instanceof LogicalCatalogRelation) {
-            // TODO: Bitmap is not compatible with long, use tree map instead
+            // TODO: Bitset is not compatible with long, use tree map instead
             tableMap.set((int) ((LogicalCatalogRelation) plan).getTable().getId());
         }
         // one row relation / CTE consumer
         return tableMap;
     }
 
-    private Set<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
-        return Sets.cartesianProduct(childrenTableMap)
-                .stream()
-                .map(bitSetList -> {
-                    BitSet bitSet = new BitSet();
-                    for (BitSet b : bitSetList) {
-                        bitSet.or(b);
-                    }
-                    return Pair.of(bitSet, bitSetList);
-                })
-                .collect(Collectors.toSet());
+    private Collection<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
+        Set<List<BitSet>> cartesianLists = Sets.cartesianProduct(childrenTableMap);
+        List<Pair<BitSet, List<BitSet>>> resultPairSet = new LinkedList<>();
+        for (List<BitSet> bitSetList : cartesianLists) {
+            BitSet bitSet = new BitSet();
+            for (BitSet b : bitSetList) {
+                bitSet.or(b);
+            }
+            resultPairSet.add(Pair.of(bitSet, bitSetList));
+        }
+        return resultPairSet;
+    }
+
+    @Override
+    public String toString() {
+        return "StructInfoMap{ groupExpressionMap = " + groupExpressionMap + ", infoMap = " + infoMap + '}';
     }
 }

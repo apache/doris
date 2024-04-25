@@ -601,6 +601,18 @@ public class VariableMgr {
     }
 
     private static Literal getLiteral(Object obj, Field field) {
+        VarAttr attr = field.getAnnotation(VarAttr.class);
+        if (!Strings.isNullOrEmpty(attr.convertBoolToLongMethod())) {
+            try {
+                Preconditions.checkArgument(obj instanceof SessionVariable);
+                long val = (Long) SessionVariable.class.getDeclaredMethod(attr.convertBoolToLongMethod(), Boolean.class)
+                        .invoke(obj, field.getBoolean(obj));
+                return Literal.of(Long.valueOf(val));
+            } catch (Exception e) {
+                // should not happen
+                LOG.warn("failed to convert bool to long for var: {}", field.getName(), e);
+            }
+        }
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":

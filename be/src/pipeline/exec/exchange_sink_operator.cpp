@@ -493,11 +493,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(
                     state, local_state.channels, local_state._partition_count,
-                    (uint32_t*)local_state._partitioner->get_channel_ids(), rows, block, eos));
+                    local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         } else {
             RETURN_IF_ERROR(channel_add_rows(
                     state, local_state.channel_shared_ptrs, local_state._partition_count,
-                    (uint32_t*)local_state._partitioner->get_channel_ids(), rows, block, eos));
+                    local_state._partitioner->get_channel_ids().get<uint32_t>(), rows, block, eos));
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
@@ -685,7 +685,8 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED &&
+        _block_convertor != nullptr && _tablet_finder != nullptr) {
         _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(

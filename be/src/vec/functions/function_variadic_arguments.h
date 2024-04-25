@@ -43,6 +43,7 @@ public:
             res = create_decimal(27, 9, true);
             if (!res) {
                 LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
+                __builtin_unreachable();
             }
         } else
             res = std::make_shared<ToDataType>();
