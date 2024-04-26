@@ -382,7 +382,7 @@ void check_function_all_arg_comb(const std::string& func_name, const BaseInputTy
                 input_types.emplace_back(static_cast<TypeIndex>(base_set[j]));
             }
         }
-        
+
         TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
         // exists parameter are const
         if (i != 0) {
