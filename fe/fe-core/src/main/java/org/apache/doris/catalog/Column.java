@@ -294,7 +294,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
         this.defineExpr = column.getDefineExpr();
-        this.defineName = column.getDefineName();
+        this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
@@ -339,6 +339,10 @@ public class Column implements Writable, GsonPostProcessable {
             return defineName;
         }
         return name;
+    }
+
+    public String getRealDefineName() {
+        return defineName;
     }
 
     public void setName(String newName) {
