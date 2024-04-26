@@ -90,6 +90,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
+import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
@@ -121,6 +122,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
@@ -226,7 +228,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Window analysis",
                     topDown(
                             new ExtractAndNormalizeWindowExpression(),
-                            new CheckAndStandardizeWindowFunctionAndFrame()
+                            new CheckAndStandardizeWindowFunctionAndFrame(),
+                            new SimplifyWindowExpression()
                     )
             ),
             topic("Rewrite join",
@@ -265,7 +268,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
                     bottomUp(new EliminateNotNull()),
-                    topDown(new ConvertInnerOrCrossJoin())
+                    topDown(new ConvertInnerOrCrossJoin()),
+                    topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),

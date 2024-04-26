@@ -94,7 +94,6 @@ import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -256,10 +255,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
-import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TGetMetaDBMeta;
@@ -352,7 +351,7 @@ public class Env {
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
-    private LoadManager loadManager;
+    protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
@@ -471,7 +470,7 @@ public class Env {
     private MasterTaskExecutor pendingLoadTaskScheduler;
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
-    private LoadJobScheduler loadJobScheduler;
+    protected LoadJobScheduler loadJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;
@@ -1067,16 +1066,6 @@ public class Env {
         }
 
         queryCancelWorker.start();
-
-        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wgPublisher);
-        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wpPublisher);
-        topicPublisherThread.start();
-
-        workloadGroupMgr.startUpdateThread();
-        workloadSchedPolicyMgr.start();
-        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -1719,6 +1708,13 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
+        topicPublisherThread.start();
+
     }
 
     // start threads that should run on all FE
@@ -1740,6 +1736,11 @@ public class Env {
         }
 
         dnsCache.start();
+
+        workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadRuntimeStatusMgr.start();
+
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -5861,25 +5862,13 @@ public class Env {
 
     public void cleanTrash(AdminCleanTrashStmt stmt) {
         List<Backend> backends = stmt.getBackends();
+        AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backends) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
-            try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                client.cleanTrash(); // async
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("trash clean exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
-            }
+            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
+            batchTask.addTask(cleanTrashTask);
+            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
         }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {

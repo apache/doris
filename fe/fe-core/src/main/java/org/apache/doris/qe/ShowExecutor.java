@@ -37,6 +37,7 @@ import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
+import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
@@ -44,6 +45,7 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowConvertLSCStmt;
+import org.apache.doris.analysis.ShowCopyStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -91,6 +93,7 @@ import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
+import org.apache.doris.analysis.ShowStageStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
@@ -146,6 +149,8 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -192,6 +197,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -237,7 +243,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.gson.GsonBuilder;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -247,6 +255,7 @@ import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -256,6 +265,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -324,6 +335,8 @@ public class ShowExecutor {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
             handleShowColumn();
+        } else if (stmt instanceof ShowCopyStmt) {
+            handleShowCopy();
         } else if (stmt instanceof ShowLoadStmt) {
             handleShowLoad();
         } else if (stmt instanceof ShowStreamLoadStmt) {
@@ -458,8 +471,12 @@ public class ShowExecutor {
             handleShowConvertLSC();
         } else if (stmt instanceof ShowClusterStmt) {
             handleShowCluster();
+        } else if (stmt instanceof ShowStageStmt) {
+            handleShowStage();
         } else if (stmt instanceof ShowStorageVaultStmt) {
             handleShowStorageVault();
+        } else if (stmt instanceof ShowCloudWarmUpStmt) {
+            handleShowCloudWarmUpJob();
         } else {
             handleEmtpy();
         }
@@ -485,7 +502,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), isShowFullSql);
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, isShowAllFe));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs));
         }
 
         if (isShowAllFe) {
@@ -1107,7 +1124,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                            showStmt.getTable(), "VIEW");
+                            showStmt.getTable(), "VIEW", "Use 'SHOW CREATE TABLE '" + table.getName());
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = table.getType() != TableType.MATERIALIZED_VIEW
@@ -1281,8 +1298,21 @@ public class ShowExecutor {
         }
     }
 
+    // Show copy statement.
+    private void handleShowCopy() throws AnalysisException {
+        Set<EtlJobType> jobTypes = Sets.newHashSet(EtlJobType.COPY);
+        handleShowLoad(jobTypes);
+    }
+
     // Show load statement.
     private void handleShowLoad() throws AnalysisException {
+        Set<EtlJobType> jobTypes = Sets.newHashSet(EnumSet.allOf(EtlJobType.class));
+        jobTypes.remove(EtlJobType.COPY);
+        handleShowLoad(jobTypes);
+    }
+
+    // Show load statement.
+    private void handleShowLoad(Set<EtlJobType> jobTypes) throws AnalysisException {
         ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
 
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
@@ -1297,8 +1327,11 @@ public class ShowExecutor {
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
-        loadInfos.addAll(env.getLoadManager()
-                .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
+        loadInfos.addAll(env.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+                        showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
+                        showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
+                        showStmt.isTableNameAccurateMatch(),
+                        showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
@@ -1491,7 +1524,7 @@ public class ShowExecutor {
         if (showWarningsStmt.isFindByLabel()) {
             List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
                     showWarningsStmt.getLabel(),
-                    true, null);
+                    true, null, null, null, false, null, false, null, false);
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
                 return null;
             }
@@ -1746,15 +1779,25 @@ public class ShowExecutor {
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
+        List<String> utf8mb40900Bin = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add(ctx.getSessionVariable().getCollationConnection());
-        row.add(ctx.getSessionVariable().getCharsetServer());
-        row.add("309");
-        row.add("Yes");
-        row.add("Yes");
-        row.add("1");
-        rows.add(row);
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCollationConnection());
+        utf8mb40900Bin.add(ctx.getSessionVariable().getCharsetServer());
+        utf8mb40900Bin.add("309");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("Yes");
+        utf8mb40900Bin.add("1");
+        rows.add(utf8mb40900Bin);
+        // ATTN: we must have this collation for compatible with some bi tools
+        List<String> utf8mb3GeneralCi = Lists.newArrayList();
+        // | utf8mb3_general_ci | utf8mb3 | 33 | Yes | Yes | 1 |
+        utf8mb3GeneralCi.add("utf8mb3_general_ci");
+        utf8mb3GeneralCi.add("utf8mb3");
+        utf8mb3GeneralCi.add("33");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("Yes");
+        utf8mb3GeneralCi.add("1");
+        rows.add(utf8mb3GeneralCi);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -2406,6 +2449,20 @@ public class ShowExecutor {
         }
     }
 
+    private void handleShowCloudWarmUpJob() throws AnalysisException {
+        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
+        if (showStmt.showAllJobs()) {
+            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
+        } else {
+            resultSet = new ShowResultSet(showStmt.getMetaData(),
+                            ((CloudEnv) Env.getCurrentEnv())
+                                    .getCacheHotspotMgr()
+                                    .getSingleJobInfo(showStmt.getJobId()));
+        }
+    }
+
     private void handleShowPlugins() throws AnalysisException {
         ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
         List<List<String>> rows = Env.getCurrentPluginMgr().getPluginShowInfos();
@@ -2560,8 +2617,9 @@ public class ShowExecutor {
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            TableIf tableIf) throws AnalysisException {
-        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+            TableIf tableIf) {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(
+                tableIf.getDatabase().getCatalog().getId(), tableIf.getDatabase().getId(), tableIf.getId());
         // row[4] is index id, row[5] is column name.
         for (ResultRow row : resultRows) {
             String indexName = tableIf.getName();
@@ -2606,7 +2664,9 @@ public class ShowExecutor {
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else if (partitionNames == null) {
                     ColumnStatistic columnStatistic =
-                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                            StatisticsRepository.queryColumnStatisticsByName(
+                                    tableIf.getDatabase().getCatalog().getId(),
+                                    tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
                     columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
                 } else {
                     String finalIndexName = indexName;
@@ -3065,6 +3125,49 @@ public class ShowExecutor {
             columnIdFlusher.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowStage() throws AnalysisException {
+        ShowStageStmt showStmt = (ShowStageStmt) stmt;
+        try {
+            List<Cloud.StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                            .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
+            if (stages == null) {
+                throw new AnalysisException("get stage err");
+            }
+            List<List<String>> results = new ArrayList<>();
+            for (Cloud.StagePB stage : stages) {
+                // todo(copy into): check priv
+                // if (!Env.getCurrentEnv().getAuth()
+                //         .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stage.getName(),
+                //                 PrivPredicate.USAGE, ResourceTypeEnum.STAGE)) {
+                //     continue;
+                // }
+                List<String> result = new ArrayList<>();
+                result.add(stage.getName());
+                result.add(stage.getStageId());
+                result.add(stage.getObjInfo().getEndpoint());
+                result.add(stage.getObjInfo().getRegion());
+                result.add(stage.getObjInfo().getBucket());
+                result.add(stage.getObjInfo().getPrefix());
+                result.add(StringUtils.isEmpty(stage.getObjInfo().getAk()) ? "" : "**********");
+                result.add(StringUtils.isEmpty(stage.getObjInfo().getSk()) ? "" : "**********");
+                result.add(stage.getObjInfo().getProvider().name());
+                Map<String, String> propertiesMap = new HashMap<>();
+                propertiesMap.putAll(stage.getPropertiesMap());
+                result.add(new GsonBuilder().disableHtmlEscaping().create().toJson(propertiesMap));
+                result.add(stage.getComment());
+                result.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(stage.getCreateTime())));
+                result.add(stage.hasAccessType() ? stage.getAccessType().name()
+                        : (StringUtils.isEmpty(stage.getObjInfo().getSk()) ? "" : "AKSK"));
+                result.add(stage.getRoleName());
+                result.add(stage.getArn());
+                results.add(result);
+            }
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     private void handleShowStorageVault() throws AnalysisException {

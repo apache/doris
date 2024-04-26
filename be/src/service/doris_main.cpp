@@ -169,8 +169,9 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+
+    LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
+    exit(-1);
 }
 
 sigjmp_buf jmpbuf;
@@ -411,6 +412,9 @@ int main(int argc, char** argv) {
     }
 
     std::vector<doris::StorePath> spill_paths;
+    if (doris::config::spill_storage_root_path.empty()) {
+        doris::config::spill_storage_root_path = doris::config::storage_root_path;
+    }
     olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
     if (!olap_res) {
         LOG(ERROR) << "parse config spill storage path failed, path="
@@ -436,6 +440,7 @@ int main(int argc, char** argv) {
                 it = paths.erase(it);
             } else {
                 LOG(ERROR) << "read write test file failed, path=" << it->path;
+                // if only one disk and the disk is full, also need exit because rocksdb will open failed
                 exit(-1);
             }
         } else {

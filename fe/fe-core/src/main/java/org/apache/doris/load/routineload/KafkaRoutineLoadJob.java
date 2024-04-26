@@ -319,16 +319,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return false;
     }
 
+    private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
+        ((KafkaProgress) attachment.getProgress()).getOffsetByPartition().entrySet().stream()
+                .forEach(entity -> {
+                    if (cachedPartitionWithLatestOffsets.containsKey(entity.getKey())
+                            && cachedPartitionWithLatestOffsets.get(entity.getKey()) < entity.getValue() + 1) {
+                        cachedPartitionWithLatestOffsets.put(entity.getKey(), entity.getValue() + 1);
+                    }
+                });
+        this.progress.update(attachment);
+    }
+
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         super.updateProgress(attachment);
-        this.progress.update(attachment);
+        updateProgressAndOffsetsCache(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
-        this.progress.update(attachment);
+        updateProgressAndOffsetsCache(attachment);
     }
 
     @Override

@@ -142,6 +142,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected List<StructInfo> getValidQueryStructInfos(Plan queryPlan, CascadesContext cascadesContext,
             BitSet materializedViewTableSet) {
         List<StructInfo> validStructInfos = new ArrayList<>();
+        // For every materialized view we should trigger refreshing struct info map
         List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
                 materializedViewTableSet);
         uncheckedStructInfos.forEach(queryStructInfo -> {

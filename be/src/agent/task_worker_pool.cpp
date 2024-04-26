@@ -79,6 +79,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -1368,6 +1369,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
                         .region = param.s3_storage_param.region,
                         .ak = param.s3_storage_param.ak,
                         .sk = param.s3_storage_param.sk,
+                        .token = param.s3_storage_param.token,
                         .max_connections = param.s3_storage_param.max_conn,
                         .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
                         .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
@@ -1387,6 +1389,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         S3ClientConf conf {
                 .ak = param.s3_storage_param.ak,
                 .sk = param.s3_storage_param.sk,
+                .token = param.s3_storage_param.token,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);
@@ -2031,6 +2034,14 @@ void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean trash start";
+    DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })
+    static_cast<void>(engine.start_trash_sweep(nullptr, true));
+    static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
+    LOG(INFO) << "clean trash finish";
 }
 
 } // namespace doris

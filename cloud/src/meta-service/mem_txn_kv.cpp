@@ -38,7 +38,7 @@ int MemTxnKv::init() {
 }
 
 TxnErrorCode MemTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
-    auto t = new memkv::Transaction(this->shared_from_this());
+    auto* t = new memkv::Transaction(this->shared_from_this());
     txn->reset(t);
     return TxnErrorCode::TXN_OK;
 }
@@ -241,6 +241,9 @@ void Transaction::put(std::string_view key, std::string_view val) {
     std::string v(val.data(), val.size());
     writes_.insert_or_assign(k, v);
     op_list_.emplace_back(ModifyOpType::PUT, k, v);
+    ++num_put_keys_;
+    put_bytes_ += key.size() + val.size();
+    approximate_bytes_ += key.size() + val.size();
 }
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
@@ -345,6 +348,10 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     std::string v(val.data(), val.size());
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
+
+    ++num_put_keys_;
+    put_bytes_ += key_prefix.size() + val.size();
+    approximate_bytes_ += key_prefix.size() + val.size();
 }
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
@@ -353,6 +360,10 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     std::string v(value.data(), value.size());
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_VAL, k, v);
+
+    ++num_put_keys_;
+    put_bytes_ += key.size() + value.size();
+    approximate_bytes_ += key.size() + value.size();
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {
@@ -361,6 +372,10 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     memcpy(v.data(), &to_add, sizeof(to_add));
     std::lock_guard<std::mutex> l(lock_);
     op_list_.emplace_back(ModifyOpType::ATOMIC_ADD, std::move(k), std::move(v));
+
+    ++num_put_keys_;
+    put_bytes_ += key.size() + 8;
+    approximate_bytes_ += key.size() + 8;
 }
 
 void Transaction::remove(std::string_view key) {
@@ -371,6 +386,10 @@ void Transaction::remove(std::string_view key) {
     end_key.push_back(0x0);
     remove_ranges_.emplace_back(k, end_key);
     op_list_.emplace_back(ModifyOpType::REMOVE, k, "");
+
+    ++num_del_keys_;
+    delete_bytes_ += key.size();
+    approximate_bytes_ += key.size();
 }
 
 void Transaction::remove(std::string_view begin, std::string_view end) {
@@ -387,6 +406,9 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
         remove_ranges_.emplace_back(begin_k, end_k);
         op_list_.emplace_back(ModifyOpType::REMOVE_RANGE, begin_k, end_k);
     }
+    ++num_del_keys_;
+    delete_bytes_ += begin.size() + end.size();
+    approximate_bytes_ += begin.size() + end.size();
 }
 
 TxnErrorCode Transaction::commit() {

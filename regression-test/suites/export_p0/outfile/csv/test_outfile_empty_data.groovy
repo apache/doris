@@ -34,7 +34,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     sql """ set enable_fallback_to_original_planner=false """
 
     // use to outfile to hdfs
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUserName = "doris"

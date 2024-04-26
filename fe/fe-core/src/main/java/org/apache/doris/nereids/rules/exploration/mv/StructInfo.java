@@ -443,10 +443,18 @@ public class StructInfo {
         }
     }
 
+    /** Judge if source contains all target */
     public static boolean containsAll(BitSet source, BitSet target) {
-        BitSet intersection = (BitSet) source.clone();
-        intersection.and(target);
-        return intersection.equals(target);
+        if (source.size() < target.size()) {
+            return false;
+        }
+        for (int i = target.nextSetBit(0); i >= 0; i = target.nextSetBit(i + 1)) {
+            boolean contains = source.get(i);
+            if (!contains) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

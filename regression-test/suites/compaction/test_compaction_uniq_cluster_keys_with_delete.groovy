@@ -117,7 +117,7 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
-
+        sql """sync"""
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus

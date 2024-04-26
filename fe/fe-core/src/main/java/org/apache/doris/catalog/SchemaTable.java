@@ -508,6 +508,7 @@ public class SchemaTable extends Table {
                                     .column("PRIORITY", ScalarType.createType(PrimitiveType.INT))
                                     .column("ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .column("WORKLOAD_GROUP", ScalarType.createStringType())
                                     .build()))
             .build();
 

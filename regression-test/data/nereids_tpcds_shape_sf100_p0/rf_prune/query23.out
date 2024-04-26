@@ -24,12 +24,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------filter(( not ss_customer_sk IS NULL))
---------------------PhysicalOlapScan[store_sales]
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter(( not ss_customer_sk IS NULL))
+----------------------PhysicalOlapScan[store_sales]
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]

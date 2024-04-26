@@ -40,6 +40,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vtopn_pred.h"
 #include "vec/functions/in.h"
 
 namespace doris::pipeline {
@@ -48,11 +49,7 @@ OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 bool ScanOperator::can_read() {
     if (!_node->_opened) {
-        if (_node->_should_create_scanner || _node->ready_to_open()) {
-            return true;
-        } else {
-            return false;
-        }
+        return _node->_should_create_scanner || _node->ready_to_open();
     } else {
         // If scanner meet any error, done == true
         if (_node->_eos || _node->_scanner_ctx->done()) {
@@ -151,7 +148,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
     }
-    RETURN_IF_ERROR(_process_conjuncts());
+    RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
@@ -164,7 +161,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_conjuncts() {
+Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
@@ -224,6 +221,10 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
         init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
+    }
+
+    if (!_push_down_topn()) {
+        RETURN_IF_ERROR(_get_topn_filters(state));
     }
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
@@ -1301,6 +1302,27 @@ Status ScanLocalState<Derived>::_init_profile() {
 }
 
 template <typename Derived>
+Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
+    for (auto id : get_topn_filter_source_node_ids()) {
+        const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+        if (!pred.inited()) {
+            continue;
+        }
+        SlotDescriptor* slot_desc = _slot_id_to_slot_desc[_colname_to_slot_id[pred.get_col_name()]];
+
+        vectorized::VExprSPtr topn_pred;
+        RETURN_IF_ERROR(vectorized::VTopNPred::create_vtopn_pred(slot_desc, id, topn_pred));
+
+        vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(topn_pred);
+        RETURN_IF_ERROR(conjunct->prepare(
+                state, _parent->cast<typename Derived::Parent>().row_descriptor()));
+        RETURN_IF_ERROR(conjunct->open(state));
+        _conjuncts.emplace_back(conjunct);
+    }
+    return Status::OK();
+}
+
+template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
         phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
@@ -1390,6 +1412,10 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
 
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+
+    if (tnode.__isset.topn_filter_source_node_ids) {
+        topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
     return Status::OK();
 }

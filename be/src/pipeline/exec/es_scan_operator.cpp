@@ -53,8 +53,8 @@ Status EsScanLocalState::_init_profile() {
     return Status::OK();
 }
 
-Status EsScanLocalState::_process_conjuncts() {
-    RETURN_IF_ERROR(Base::_process_conjuncts());
+Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::_process_conjuncts(state));
     if (Base::_eos) {
         return Status::OK();
     }
