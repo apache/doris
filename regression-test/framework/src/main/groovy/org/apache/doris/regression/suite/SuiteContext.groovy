@@ -63,7 +63,7 @@ class SuiteContext implements Closeable {
     private long finishTime
     private volatile Throwable throwable
 
-    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteContext cluster,
+    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
         this.file = file
         this.suiteName = suiteName
@@ -369,7 +369,6 @@ class SuiteContext implements Closeable {
             }
         }
 
-        Connection conn = threadLocalConn.get()
         ConnectionInfo conn = threadLocalConn.get()
         if (conn != null) {
             threadLocalConn.remove()

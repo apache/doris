@@ -66,6 +66,7 @@ class Config {
     public String sslCertificatePath
     public String dorisComposePath
     public String image
+    public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
     public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
@@ -170,6 +171,7 @@ class Config {
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
