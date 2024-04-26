@@ -20,14 +20,16 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-public class MaterializedViewProjectScanRule extends MaterializedViewScanRule{
+/**
+ * MaterializedViewProjectScanRule
+ */
+public class MaterializedViewProjectScanRule extends MaterializedViewScanRule {
 
     public static final MaterializedViewProjectScanRule INSTANCE = new MaterializedViewProjectScanRule();
 

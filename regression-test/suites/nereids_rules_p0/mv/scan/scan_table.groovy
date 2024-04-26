@@ -145,7 +145,6 @@ suite("mv_scan_table") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
 
-
     def mv1_1 =
             """
             select *
@@ -159,4 +158,34 @@ suite("mv_scan_table") {
     check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+
+
+    def mv1_2 =
+            """
+            select *
+            from lineitem where l_comment like '%xx%'
+            """
+    def query1_2 = """
+            select l_linenumber, l_receiptdate
+            from lineitem where l_comment like '%xx%'
+            """
+    order_qt_query1_2_before "${query1_2}"
+    check_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
+    order_qt_query1_2_after "${query1_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
+
+
+    def mv1_3 =
+            """
+            select l_linenumber, l_receiptdate
+            from lineitem where l_comment like '%xx%'
+            """
+    def query1_3 = """
+            select l_linenumber
+            from lineitem where l_comment like '%xx%'
+            """
+    order_qt_query1_3_before "${query1_3}"
+    check_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
+    order_qt_query1_3_after "${query1_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 }
