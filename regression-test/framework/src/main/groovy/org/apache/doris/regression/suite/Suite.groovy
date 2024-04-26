@@ -60,6 +60,9 @@ import org.junit.Assert
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
+    final SuiteCluster cluster
+    final DebugPoint debugPoint
+
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
@@ -70,14 +73,11 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
 
-    SuiteCluster cluster
-    DebugPoint debugPoint
-
-    Suite(String name, String group, SuiteContext context) {
+    Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
         this.context = context
-        this.cluster = null
+        this.cluster = cluster
         this.debugPoint = new DebugPoint(this)
     }
 
@@ -157,35 +157,49 @@ class Suite implements GroovyInterceptable {
         return SuiteUtils.timer(actionSupplier)
     }
 
-    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
-        return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
-            long startTime = System.currentTimeMillis()
-            def originThreadName = Thread.currentThread().name
-            try {
-                Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
-                context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
-
-                return actionSupplier.call()
-            } catch (Throwable t) {
-                context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
-                throw t
-            } finally {
-                try {
-                    context.closeThreadLocal()
-                } catch (Throwable t) {
-                    logger.warn("Close thread local context failed", t)
-                }
-                long finishTime = System.currentTimeMillis()
-                context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
-                Thread.currentThread().setName(originThreadName)
-            }
-        })
-    }
 
     public <T> ListenableFuture<T> lazyCheckThread(String threadName = null, Closure<T> actionSupplier) {
         return lazyCheck {
             thread(threadName, actionSupplier)
         }
+    }
+
+    public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        return MoreExecutors.listeningDecorator(context.actionExecutors).submit(
+                buildThreadCallable(threadName, connInfo, actionSupplier)
+        )
+    }
+
+    private <T> Callable<T> buildThreadCallable(String threadName, ConnectionInfo connInfo, Closure<T> actionSupplier) {
+        return new Callable<T>() {
+            @Override
+            T call() throws Exception {
+                long startTime = System.currentTimeMillis()
+                def originThreadName = Thread.currentThread().name
+                try {
+                    Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                    if (connInfo != null) {
+                        context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+                    }
+                    context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
+
+                    return actionSupplier.call()
+                } catch (Throwable t) {
+                    context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
+                    throw t
+                } finally {
+                    try {
+                        context.closeThreadLocal()
+                    } catch (Throwable t) {
+                        logger.warn("Close thread local context failed", t)
+                    }
+                    long finishTime = System.currentTimeMillis()
+                    context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
+                    Thread.currentThread().setName(originThreadName)
+                }
+            }
+        };
     }
 
     public <T> ListenableFuture<T> combineFutures(ListenableFuture<T> ... futures) {
@@ -206,17 +220,49 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        cluster = new SuiteCluster(name, context.config)
+        boolean dockerIsCloud = false
+        boolean pipelineIsCloud = isCloudMode()
+        if (options.cloudMode == null) {
+            dockerIsCloud = pipelineIsCloud
+        } else {
+            dockerIsCloud = options.cloudMode
+            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+                return
+            }
+        }
+
+        if (dockerIsCloud) {
+            return
+        }
+
         try {
             cluster.destroy(true)
-            cluster.init(options)
+            cluster.init(options, dockerIsCloud)
 
-            def user = "root"
-            def password = ""
-            def masterFe = cluster.getMasterFe()
+            def user = context.config.jdbcUser
+            def password = context.config.jdbcPassword
+            Frontend fe = null
+            for (def i=0; fe == null && i<30; i++) {
+                if (options.connectToFollower) {
+                    fe = cluster.getOneFollowerFe()
+                } else {
+                    fe = cluster.getMasterFe()
+                }
+                Thread.sleep(1000)
+            }
+
+            assertNotNull(fe)
+            if (!dockerIsCloud) {
+                for (def be : cluster.getAllBackends()) {
+                    be_report_disk(be.host, be.httpPort)
+                }
+            }
+
+            // wait be report
+            Thread.sleep(5000)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
-                    masterFe.host, masterFe.queryPort)
+                    fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
@@ -226,7 +272,9 @@ class Suite implements GroovyInterceptable {
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
-            cluster.destroy(context.config.dockerEndDeleteFiles)
+            if (!context.config.dockerEndNoKill) {
+                cluster.destroy(context.config.dockerEndDeleteFiles)
+            }
         }
     }
 
@@ -778,7 +826,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+        return false
     }
 
     String getFeConfig(String key) {

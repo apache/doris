@@ -66,7 +66,9 @@ class Config {
     public String sslCertificatePath
     public String dorisComposePath
     public String image
+    public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
+    public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
 
     public String testGroups
@@ -169,6 +171,7 @@ class Config {
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -322,7 +325,9 @@ class Config {
         config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
         config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
+        config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()

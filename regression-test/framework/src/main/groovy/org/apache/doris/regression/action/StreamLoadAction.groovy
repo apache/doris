@@ -55,7 +55,7 @@ class StreamLoadAction implements SuiteAction {
     SuiteContext context
 
     StreamLoadAction(SuiteContext context) {
-        this.address = context.config.feHttpInetSocketAddress
+        this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
 

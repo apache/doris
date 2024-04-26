@@ -42,11 +42,9 @@ suite("test_docker_example") {
     // run another docker
     def options = new ClusterOptions()
     // add fe config items
-    options.feConfigs = ["example_conf_k1=v1", "example_conf_k2=v2"]
+    options.feConfigs += ["example_conf_k1=v1", "example_conf_k2=v2"]
     // contains 5 backends
     options.beNum = 5
-    // each backend has 3 disks
-    options.beDiskNum = 3
     docker (options) {
         sql """create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")"""
     }
