@@ -77,13 +77,17 @@ suite("test_iot_auto_detect") {
    qt_sql " select * from list1 order by k0; "
 
    // with label - transactions
-   sql """ insert overwrite table list1 partition(*) with label `txn1` values ("BEIJING"), ("7654321"); """
-   sql """ insert overwrite table list1 partition(*) with label `txn2` values ("SHANGHAI"), ("LIST"); """
-   sql """ insert overwrite table list1 partition(*) with label `txn3` values  ("XXX"); """
+   def uniqueID1 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID2 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID3 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID1}` values ("BEIJING"), ("7654321"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID2}` values ("SHANGHAI"), ("LIST"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID3}` values  ("XXX"); """
 
    def max_try_milli_secs = 10000
    while(max_try_milli_secs) {
-      def result = sql " show load where label like 'txn_' "
+      def result = sql " show load where label like 'iot_auto_txn%' order by LoadStartTime desc "
+      // the last three loads are loads upper
       if(result[0][2] == "FINISHED" && result[1][2] == "FINISHED" && result[2][2] == "FINISHED" ) {
          break
       } else {
