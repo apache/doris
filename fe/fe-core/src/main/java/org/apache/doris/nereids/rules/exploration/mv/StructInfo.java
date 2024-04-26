@@ -611,31 +611,6 @@ public class StructInfo {
      * ScanPlanPatternChecker, this is used to check the plan pattern is valid or not
      */
     public static class ScanPlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
-        @Override
-        public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-                PlanCheckContext checkContext) {
-            checkContext.setAlreadyMeetJoin(true);
-            if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
-                return false;
-            }
-            if (!join.getOtherJoinConjuncts().isEmpty()) {
-                return false;
-            }
-            return visit(join, checkContext);
-        }
-
-        @Override
-        public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
-                PlanCheckContext checkContext) {
-            if (!checkContext.isAlreadyMeetJoin()) {
-                checkContext.setContainsTopAggregate(true);
-                checkContext.plusTopAggregateNum();
-            }
-            if (aggregate.getSourceRepeat().isPresent()) {
-                return false;
-            }
-            return visit(aggregate, checkContext);
-        }
 
         @Override
         public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
@@ -648,7 +623,6 @@ public class StructInfo {
             if (plan instanceof Filter
                     || plan instanceof Project
                     || plan instanceof CatalogRelation
-                    || plan instanceof LogicalSort
                     || plan instanceof GroupPlan) {
                 return doVisit(plan, checkContext);
             }
