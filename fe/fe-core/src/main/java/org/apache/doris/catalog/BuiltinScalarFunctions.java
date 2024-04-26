@@ -404,9 +404,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4Int;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6Int;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
@@ -652,7 +654,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToIpv4.class, "to_ipv4"),
             scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
             scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),
+            scalar(ToIpv4Int.class, "to_ipv4_int"),
             scalar(ToIpv6.class, "to_ipv6"),
+            scalar(ToIpv6Int.class, "to_ipv6_int"),
             scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
             scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(JsonArray.class, "json_array"),

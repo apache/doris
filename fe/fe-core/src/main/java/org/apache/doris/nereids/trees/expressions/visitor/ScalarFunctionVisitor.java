@@ -401,9 +401,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4Int;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6Int;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
@@ -1275,6 +1277,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toIpv4, context);
     }
 
+    default R visitToIpv4Int(ToIpv4Int toIpv4int, C context) {
+        return visitScalarFunction(toIpv4int, context);
+    }
+
     default R visitToIpv4OrDefault(ToIpv4OrDefault toIpv4OrDefault, C context) {
         return visitScalarFunction(toIpv4OrDefault, context);
     }
@@ -1285,6 +1291,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToIpv6(ToIpv6 toIpv6, C context) {
         return visitScalarFunction(toIpv6, context);
+    }
+
+    default R visitToIpv6Int(ToIpv6Int toIpv6int, C context) {
+        return visitScalarFunction(toIpv6int, context);
     }
 
     default R visitToIpv6OrDefault(ToIpv6OrDefault toIpv6OrDefault, C context) {

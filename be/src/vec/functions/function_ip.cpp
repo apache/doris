@@ -17,6 +17,9 @@
 
 #include "vec/functions/function_ip.h"
 
+#include "common/logging.h"
+#include "vec/core/types.h"
+
 namespace doris::vectorized {
 
 void register_function_ip(SimpleFunctionFactory& factory) {
@@ -56,5 +59,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, IPv6>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, IPv6>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, IPv6>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, Int32>>();
+    factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, Int128>>();
 }
 } // namespace doris::vectorized

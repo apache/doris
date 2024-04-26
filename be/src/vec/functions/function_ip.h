@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "vec/columns/column.h"
@@ -1088,7 +1089,11 @@ private:
 
 template <IPConvertExceptionMode exception_mode, typename Type>
 inline constexpr auto to_ip_func_name() {
-    if constexpr (std::is_same_v<Type, IPv4>) {
+    if constexpr (std::is_same_v<Type, Int32>) {
+        return "to_ipv4_int";
+    } else if constexpr (std::is_same_v<Type, Int128>) {
+        return "to_ipv6_int";
+    } else if constexpr (std::is_same_v<Type, IPv4>) {
         return exception_mode == IPConvertExceptionMode::Throw
                        ? "to_ipv4"
                        : (exception_mode == IPConvertExceptionMode::Default ? "to_ipv4_or_default"
@@ -1103,9 +1108,12 @@ inline constexpr auto to_ip_func_name() {
 
 template <IPConvertExceptionMode exception_mode, typename Type>
 class FunctionToIP : public IFunction {
-    static_assert(std::is_same_v<Type, IPv4> || std::is_same_v<Type, IPv6>);
+    static_assert(std::is_same_v<Type, IPv4> || std::is_same_v<Type, IPv6> ||
+                  std::is_same_v<Type, Int32> || std::is_same_v<Type, Int128>);
+    static_assert(sizeof(Type) == 4 || sizeof(Type) == 16);
 
 public:
+    static constexpr bool is_ipv4_type() { return sizeof(Type) == 4; }
     static constexpr auto name = to_ip_func_name<exception_mode, Type>();
 
     static FunctionPtr create() { return std::make_shared<FunctionToIP<exception_mode, Type>>(); }
@@ -1122,8 +1130,11 @@ public:
         }
 
         DataTypePtr result_type;
-
-        if constexpr (std::is_same_v<Type, IPv4>) {
+        if constexpr (std::is_same_v<Type, Int32>) {
+            result_type = std::make_shared<DataTypeInt32>();
+        } else if constexpr (std::is_same_v<Type, Int128>) {
+            result_type = std::make_shared<DataTypeInt128>();
+        } else if constexpr (std::is_same_v<Type, IPv4>) {
             result_type = std::make_shared<DataTypeIPv4>();
         } else {
             result_type = std::make_shared<DataTypeIPv6>();
@@ -1176,7 +1187,7 @@ public:
                 }
             }
 
-            if constexpr (std::is_same_v<Type, IPv4>) {
+            if constexpr (is_ipv4_type()) {
                 StringRef ipv4_str = str_addr_column->get_data_at(i);
                 IPv4 ipv4_val = 0;
                 if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {
