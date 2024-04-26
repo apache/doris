@@ -242,7 +242,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         }
         assertTrue(containeHide7)
 
-        order_qt_sql_7_19 """select * from test3_20231005"""
+        order_qt_sql_7_24 """select * from test3_20231005"""
 
         sql """switch test_es_query_es8"""
         order_qt_sql_8_01 """select * from test1 where test2='text#1'"""
