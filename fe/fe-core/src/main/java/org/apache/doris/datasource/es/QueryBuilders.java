@@ -143,7 +143,7 @@ public final class QueryBuilders {
                 // It equals
                 // '{"bool":{"must":{"bool":{"must_not":{"term":{"col":""}},"must":{"exists":{"field":"col"}}}}}}'
                 // in Elasticsearch
-                if (StringUtils.isEmpty((String) value)) {
+                if (value instanceof String && StringUtils.isEmpty((String) value)) {
                     return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value))
                         .must(QueryBuilders.existsQuery(column));
                 }
