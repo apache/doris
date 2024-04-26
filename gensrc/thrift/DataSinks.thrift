@@ -39,6 +39,7 @@ enum TDataSinkType {
     GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
     HIVE_TABLE_SINK,
+    ICEBERG_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -372,6 +373,25 @@ struct TIcebergCommitData {
     6: optional list<string> referenced_data_files
 }
 
+struct TSortField {
+    1: optional i32 source_column_id
+    2: optional bool ascending
+    3: optional bool null_first
+}
+
+struct TIcebergTableSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string schema_json
+    4: optional map<i32, string> partition_specs_json
+    5: optional i32 partition_spec_id
+    6: optional list<TSortField> sort_fields
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional string outputPath
+    9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -385,4 +405,5 @@ struct TDataSink {
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
+  14: optional TIcebergTableSink iceberg_table_sink
 }

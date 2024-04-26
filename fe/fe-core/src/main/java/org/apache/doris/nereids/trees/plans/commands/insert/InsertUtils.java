@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -356,8 +357,11 @@ public class InsertUtils {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundHiveTableSink) {
             unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundIcebergTableSink) {
+            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else {
-            throw new AnalysisException("the root of plan should be UnboundTableSink or UnboundHiveTableSink"
+            throw new AnalysisException("the root of plan should be"
+                    + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
                     + " but it is " + plan.getType());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());

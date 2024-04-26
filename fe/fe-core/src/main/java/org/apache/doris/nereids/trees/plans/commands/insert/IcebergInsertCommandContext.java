@@ -15,22 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fs.FileSystemProvider;
+/**
+ * For Iceberg Table
+ */
+public class IcebergInsertCommandContext extends InsertCommandContext {
+    private boolean overwrite = false;
+    private String writePath;
 
-import java.util.concurrent.Executor;
-
-public class TransactionManagerFactory {
-
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+    public boolean isOverwrite() {
+        return overwrite;
     }
 
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
+    public void setOverwrite(boolean overwrite) {
+        this.overwrite = overwrite;
     }
 }
