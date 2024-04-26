@@ -50,7 +50,7 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
+        root.getstructInfoMap().refresh(root, 1);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -76,7 +76,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
+        root.getstructInfoMap().refresh(root, 1);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -97,8 +97,8 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
+        root.getstructInfoMap().refresh(root, 1);
+        root.getstructInfoMap().refresh(root, 1);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
@@ -124,8 +124,8 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
+        root.getstructInfoMap().refresh(root, 1);
+        root.getstructInfoMap().refresh(root, 1);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -162,7 +162,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, 1, new BitSet());
+        root.getstructInfoMap().refresh(root, 1);
         StructInfoMap structInfoMap = root.getstructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
         BitSet mvMap = structInfoMap.getTableMaps().stream()
