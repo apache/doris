@@ -129,6 +129,28 @@ suite("create_vault") {
         """
     }, "already created")
 
+    sql """
+        CREATE TABLE IF NOT EXISTS create_table_use_s3_vault (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "create_s3_vault"
+                )
+    """
+
+    sql """
+        insert into create_table_use_s3_vault values(1,1);
+    """
+
+    sql """
+        select * from create_table_use_s3_vault;
+    """
+
+
     def vaults_info = try_sql """
         show storage vault
     """
