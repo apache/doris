@@ -385,12 +385,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         for (Table table : tableList) {
             OlapTable olapTable = (OlapTable) table;
-            olapTable.getPartitions().stream()
-                    .map(Partition::getBaseIndex)
-                    .map(MaterializedIndex::getTablets)
-                    .flatMap(Collection::stream)
-                    .map(Tablet::getId)
-                    .forEach(baseTabletIds::add);
+            try {
+                olapTable.readLock();
+                olapTable.getPartitions().stream()
+                        .map(Partition::getBaseIndex)
+                        .map(MaterializedIndex::getTablets)
+                        .flatMap(Collection::stream)
+                        .map(Tablet::getId)
+                        .forEach(baseTabletIds::add);
+            } finally {
+                olapTable.readUnlock();
+            }
         }
         Set<Long> tabletIds = tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).collect(Collectors.toSet());
         baseTabletIds.retainAll(tabletIds);
