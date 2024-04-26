@@ -132,8 +132,8 @@ struct S3Conf {
     cloud::ObjectStoreInfoPB::Provider provider;
 
     std::string to_string() const {
-        return fmt::format("(bucket={}, prefix={}, client_conf={})", bucket, prefix,
-                           client_conf.to_string());
+        return fmt::format("(bucket={}, prefix={}, client_conf={}, sse_enabled={})", bucket, prefix,
+                           client_conf.to_string(), sse_enabled);
     }
 };
 
