@@ -67,8 +67,8 @@ public class HdfsStorageVault extends StorageVault {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    public HdfsStorageVault(String name, boolean ifNotExists) {
-        super(name, StorageVault.StorageVaultType.HDFS, ifNotExists);
+    public HdfsStorageVault(String name, boolean ifNotExists, boolean setAsDefault) {
+        super(name, StorageVault.StorageVaultType.HDFS, ifNotExists, setAsDefault);
         properties = Maps.newHashMap();
     }
 

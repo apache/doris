@@ -37,10 +37,12 @@ import java.util.Map;
 // PROPERTIES (key1 = value1, ...)
 public class CreateStorageVaultStmt extends DdlStmt {
     private static final String TYPE = "type";
+    private static final String SET_AS_DEFAULT = "set_as_default";
 
     private final boolean ifNotExists;
     private final String vaultName;
     private final Map<String, String> properties;
+    private boolean setAsDefault;
     private StorageVault.StorageVaultType vaultType;
 
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
@@ -52,6 +54,10 @@ public class CreateStorageVaultStmt extends DdlStmt {
 
     public boolean isIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean setAsDefault() {
+        return setAsDefault;
     }
 
     public String getStorageVaultName() {
@@ -102,6 +108,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         if (type == null) {
             throw new AnalysisException("Storage Vault type can't be null");
         }
+        setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
     }
 

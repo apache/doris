@@ -152,6 +152,7 @@ public class StorageVaultMgr {
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
         requestBuilder.setVault(alterHdfsInfoBuilder.build());
+        requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
@@ -190,6 +191,7 @@ public class StorageVaultMgr {
         alterObjVaultBuilder.setName(s3StorageVault.getName());
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
         requestBuilder.setVault(alterObjVaultBuilder.build());
+        requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
