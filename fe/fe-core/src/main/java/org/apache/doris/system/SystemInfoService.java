@@ -424,7 +424,7 @@ public class SystemInfoService {
     public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium, boolean isStorageMediumSpecified) {
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                 .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(tag))
-                .setStorageMedium(storageMedium).setStorageMedium(storageMedium);
+                .setStorageMedium(storageMedium);
         if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
             builder.allowOnSameHost();
         }
