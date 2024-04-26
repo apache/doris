@@ -2430,27 +2430,32 @@ public class ShowExecutor {
     // Show transaction statement.
     private void handleShowTransaction() throws AnalysisException {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
         DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
-        if (status != TransactionStatus.UNKNOWN) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByStatus(db.getId(), status));
-        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
-        } else {
-            Long txnId = showStmt.getTxnId();
-            String label = showStmt.getLabel();
-            if (!label.isEmpty()) {
-                txnId = transactionMgr.getTransactionId(db.getId(), label);
-                if (txnId == null) {
-                    throw new AnalysisException("transaction with label " + label + " does not exist");
+        try {
+            if (status != TransactionStatus.UNKNOWN) {
+                rows = transactionMgr.getDbTransInfoByStatus(db.getId(), status);
+            } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
+                rows = transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel());
+            } else {
+                Long txnId = showStmt.getTxnId();
+                String label = showStmt.getLabel();
+                if (!label.isEmpty()) {
+                    txnId = transactionMgr.getTransactionId(db.getId(), label);
+                    if (txnId == null) {
+                        throw new AnalysisException("transaction with label " + label + " does not exist");
+                    }
                 }
+                rows = transactionMgr.getSingleTranInfo(db.getId(), txnId);
             }
-            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+        } catch (AnalysisException e) {
+            LOG.warn("", e);
         }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowCloudWarmUpJob() throws AnalysisException {
