@@ -124,6 +124,32 @@ public class LeadingHint extends Hint {
             }
             lastParameter = parameter;
         }
+        normalizeLevelList();
+    }
+
+    private void removeGap(int left, int right, int gap) {
+        for (int i = left; i <= right; i++) {
+            levellist.set(i, levellist.get(i) - (gap - 1));
+        }
+    }
+
+    // when leading extract levellist like 0 2 2 3 3 0, it could be reduced to 0 1 1 2 2 0
+    private void normalizeLevelList() {
+        int leftIndex = 0;
+        // at lease two tables were needed
+        for (int i = 1; i < levellist.size(); i++) {
+            if ((levellist.get(i) - levellist.get(leftIndex)) > 1) {
+                int rightIndex = i;
+                for (int j = i; j < levellist.size(); j++) {
+                    if ((levellist.get(rightIndex) - levellist.get(j)) > 1) {
+                        removeGap(i, rightIndex, Math.min(levellist.get(i) - levellist.get(leftIndex),
+                                levellist.get(rightIndex) - levellist.get(j)));
+                    }
+                    rightIndex = j;
+                }
+            }
+            leftIndex = i;
+        }
     }
 
     public List<String> getTablelist() {
