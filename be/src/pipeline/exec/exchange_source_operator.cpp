@@ -30,16 +30,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, SourceOperator)
-
-bool ExchangeSourceOperator::can_read() {
-    return _node->_stream_recvr->ready_to_read();
-}
-
-bool ExchangeSourceOperator::is_pending_finish() const {
-    return false;
-}
-
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 

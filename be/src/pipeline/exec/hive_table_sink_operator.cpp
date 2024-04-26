@@ -21,10 +21,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr HiveTableSinkOperatorBuilder::build_operator() {
-    return std::make_shared<HiveTableSinkOperator>(this, _sink);
-}
-
 Status HiveTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());

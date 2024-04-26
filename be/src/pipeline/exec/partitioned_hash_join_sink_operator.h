@@ -29,7 +29,6 @@
 #include "vec/sink/vdata_stream_sender.h" // ShuffleChannelIds
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
