@@ -400,19 +400,18 @@ public:
 
         auto total = *n;
         auto read_count = 0;
-        std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> buffer(
-                total);
+        _buffer.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elements)) {
                 break;
             }
 
-            buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)buffer.data(), read_count);
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
         }
 
         *n = read_count;
@@ -448,6 +447,8 @@ private:
 
     int _size_of_element;
     size_t _cur_index;
+
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 
     friend class BinaryDictPageDecoder;
 };
