@@ -264,10 +264,10 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
-        PRECISION_INFER_RULE.put("floor", roundRule);
+        PRECISION_INFER_RULE.put("floor", truncateRule);
         PRECISION_INFER_RULE.put("dround", roundRule);
         PRECISION_INFER_RULE.put("dceil", roundRule);
-        PRECISION_INFER_RULE.put("dfloor", roundRule);
+        PRECISION_INFER_RULE.put("dfloor", truncateRule);
         PRECISION_INFER_RULE.put("truncate", truncateRule);
     }
 

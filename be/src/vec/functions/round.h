@@ -483,10 +483,10 @@ struct Dispatcher {
     // NOTE: This function is only tested for truncate
     // DO NOT USE THIS METHOD FOR OTHER ROUNDING BASED FUNCTION UNTIL YOU KNOW EXACTLY WHAT YOU ARE DOING !!!
     static ColumnPtr apply_vec_vec(const IColumn* col_general, const IColumn* col_scale) {
-        if constexpr (rounding_mode != RoundingMode::Trunc) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Using column as scale is only supported for function truncate");
-        }
+        // if constexpr (rounding_mode != RoundingMode::Trunc) {
+        //     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+        //                            "Using column as scale is only supported for function truncate");
+        // }
 
         const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
         const size_t input_row_count = col_scale_i32.size();
@@ -568,10 +568,10 @@ struct Dispatcher {
     // DO NOT USE THIS METHOD FOR OTHER ROUNDING BASED FUNCTION UNTIL YOU KNOW EXACTLY WHAT YOU ARE DOING !!! only test for truncate
     static ColumnPtr apply_const_vec(const ColumnConst* const_col_general,
                                      const IColumn* col_scale) {
-        if constexpr (rounding_mode != RoundingMode::Trunc) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Using column as scale is only supported for function truncate");
-        }
+        // if constexpr (rounding_mode != RoundingMode::Trunc) {
+        //     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+        //                            "Using column as scale is only supported for function truncate");
+        // }
 
         const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
         const size_t input_rows_count = col_scale->size();

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -40,7 +41,7 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             Expression floatLength = getArgument(1);
             int scale;
 
-            if (this instanceof Truncate) {
+            if (this instanceof Truncate || this instanceof Floor) {
                 if (floatLength.isLiteral() || (
                         floatLength instanceof Cast && floatLength.child(0).isLiteral()
                                 && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {

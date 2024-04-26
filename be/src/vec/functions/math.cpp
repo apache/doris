@@ -42,6 +42,7 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
+#include "vec/functions/function_floor.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_string.h"
@@ -397,8 +398,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<                                                                \
             FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
     factory.register_function<                                                                \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
             FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
     factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,   \
                                                TieBreakingMode::Bankers>>();
@@ -448,5 +447,9 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTruncate<TruncateFloatTwoArgImpl>>();
     factory.register_function<FunctionTruncate<TruncateDecimalOneArgImpl>>();
     factory.register_function<FunctionTruncate<TruncateDecimalTwoArgImpl>>();
+    factory.register_function<FunctionFloor<FloorFloatOneArgImpl>>();
+    factory.register_function<FunctionFloor<FloorFloatTwoArgImpl>>();
+    factory.register_function<FunctionFloor<FloorDecimalOneArgImpl>>();
+    factory.register_function<FunctionFloor<FloorDecimalTwoArgImpl>>();
 }
 } // namespace doris::vectorized
