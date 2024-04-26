@@ -600,47 +600,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (!need_commit) return;
 
     // Update table version only when deleting non-empty partitions
-    if (request->has_db_id()) {
-        bool need_update_table_version = false;
-        for (auto part_id : request->partition_ids()) {
-            std::string partition_ver_key = partition_version_key(
-                    {instance_id, request->db_id(), request->table_id(), part_id});
-            std::string ver_val_str;
-            err = txn->get(partition_ver_key, &ver_val_str);
-            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                code = cast_as<ErrCategory::READ>(err);
-                ss << "failed to get partition version, table_id=" << request->table_id()
-                   << " partition_id=" << part_id << " key=" << hex(partition_ver_key)
-                   << " err=" << err;
-                msg = ss.str();
-                LOG_WARNING(msg);
-                return;
-            }
-            int64_t part_version = -1;
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                // may be it is an empty partition
-                part_version = 1;
-            } else {
-                VersionPB pb;
-                if (!pb.ParseFromString(ver_val_str)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "malformed partition version value";
-                    LOG_WARNING(msg).tag("partition_id", part_id);
-                    return;
-                }
-                part_version = pb.version();
-            }
-            if (part_version > 1) {
-                need_update_table_version = true;
-                break;
-            }
-        }
-        if (need_update_table_version) {
-            std::string ver_key =
-                    table_version_key({instance_id, request->db_id(), request->table_id()});
-            txn->atomic_add(ver_key, 1);
-            LOG_INFO("update table version").tag("ver_key", hex(ver_key));
-        }
+    if (request->has_db_id() && request->has_need_update_table_version() &&
+        request->need_update_table_version()) {
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(ver_key, 1);
+        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
     }
 
     err = txn->commit();

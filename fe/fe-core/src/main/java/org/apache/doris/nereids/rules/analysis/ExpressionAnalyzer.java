@@ -101,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** ExpressionAnalyzer */
@@ -153,14 +154,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 @Override
                 public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
                     Expression fold = super.visitBoundFunction(boundFunction, context);
-                    if (fold instanceof Nondeterministic) {
+                    boolean unfold = fold instanceof Nondeterministic;
+                    if (unfold) {
                         sqlCacheContext.setCannotProcessExpression(true);
+                    }
+                    if (boundFunction instanceof Nondeterministic && !unfold) {
+                        sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
                     }
                     return fold;
                 }
             }.rewrite(analyzeResult, context);
 
-            sqlCacheContext.addFoldNondeterministicPair(analyzeResult, foldNondeterministic);
+            sqlCacheContext.addFoldFullNondeterministicPair(analyzeResult, foldNondeterministic);
             return foldNondeterministic;
         }
         return analyzeResult;
@@ -423,7 +428,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 return boundFunction;
             }
-            Slot slot = boundFunction.getInputSlots().stream().findFirst().get();
+            // TODO: push down logic here is very tricky, we will refactor it later
+            Set<Slot> inputSlots = boundFunction.getInputSlots();
+            if (inputSlots.isEmpty()) {
+                return boundFunction;
+            }
+            Slot slot = inputSlots.iterator().next();
             if (slot.hasUnbound()) {
                 slot = (Slot) slot.accept(this, context);
             }

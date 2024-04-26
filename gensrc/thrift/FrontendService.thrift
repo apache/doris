@@ -416,6 +416,20 @@ struct TReportWorkloadRuntimeStatusParams {
     2: optional map<string, TQueryStatistics> query_statistics_map
 }
 
+struct TQueryProfile {
+    1: optional Types.TUniqueId query_id
+
+    2: optional map<i32, list<TDetailedReportParams>> fragment_id_to_profile
+
+    // Types.TUniqueId should not be used as key in thrift map, so we use two lists instead
+    // https://thrift.apache.org/docs/types#containers
+    3: optional list<Types.TUniqueId> fragment_instance_ids
+    // Types.TUniqueId can not be used as key in thrift map, so we use two lists instead
+    4: optional list<RuntimeProfile.TRuntimeProfileTree> instance_profiles
+
+    5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -443,7 +457,7 @@ struct TReportExecStatusParams {
   // cumulative profile
   // required in V1
   // Move to TDetailedReportParams for pipelineX
-  7: optional RuntimeProfile.TRuntimeProfileTree profile
+  7: optional RuntimeProfile.TRuntimeProfileTree profile // to be deprecated
 
   // New errors that have not been reported to the coordinator
   // optional in V1
@@ -473,17 +487,22 @@ struct TReportExecStatusParams {
   20: optional PaloInternalService.TQueryType query_type
 
   // Move to TDetailedReportParams for pipelineX
-  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile // to be deprecated
 
   22: optional i32 finished_scan_ranges
 
-  23: optional list<TDetailedReportParams> detailed_report
+  23: optional list<TDetailedReportParams> detailed_report // to be deprecated
 
   24: optional TQueryStatistics query_statistics // deprecated
 
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
+
+  27: optional TQueryProfile query_profile
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
 }
 
 struct TFeResult {
@@ -926,6 +945,7 @@ enum TSchemaTableName {
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
+  WORKLOAD_SCHEDULE_POLICY = 5,
 }
 
 struct TMetadataTableRequestParams {
@@ -1448,6 +1468,18 @@ struct TReportCommitTxnResultRequest {
     4: optional binary payload
 }
 
+struct TQueryColumn {
+    1: optional string catalogId
+    2: optional string dbId
+    3: optional string tblId
+    4: optional string colName
+}
+
+struct TSyncQueryColumns {
+    1: optional list<TQueryColumn> highPriorityColumns;
+    2: optional list<TQueryColumn> midPriorityColumns;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1538,4 +1570,5 @@ service FrontendService {
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
+    Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 }

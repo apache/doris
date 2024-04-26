@@ -129,6 +129,8 @@ public class DorisFE {
                 ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
             }
 
+            overwriteConfigs();
+
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
                 throw new IllegalArgumentException("Java version doesn't match");
@@ -483,6 +485,13 @@ public class DorisFE {
             }
         }
 
+    }
+
+    public static void overwriteConfigs() {
+        if (Config.isCloudMode() && Config.enable_feature_binlog) {
+            Config.enable_feature_binlog = false;
+            LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
+        }
     }
 
     public static class StartupOptions {

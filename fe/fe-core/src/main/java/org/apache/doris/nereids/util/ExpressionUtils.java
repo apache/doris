@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -65,6 +66,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -127,6 +129,13 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {
+        if (expr instanceof EqualTo && expr.child(0).isSlot() && expr.child(1).isSlot()) {
+            return Optional.of(Pair.of((Slot) expr.child(0), (Slot) expr.child(1)));
+        }
+        return Optional.empty();
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
@@ -225,14 +234,14 @@ public class ExpressionUtils {
         return result;
     }
 
-    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
         return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of()).get(0);
+                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
+            Plan plan, BitSet tableBitSet) {
+        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
     }
 
     /**
@@ -247,7 +256,8 @@ public class ExpressionUtils {
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan,
             Set<TableType> targetTypes,
-            Set<String> tableIdentifiers) {
+            Set<String> tableIdentifiers,
+            BitSet tableBitSet) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
@@ -255,7 +265,8 @@ public class ExpressionUtils {
                 new ExpressionLineageReplacer.ExpressionReplaceContext(
                         expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
                         targetTypes,
-                        tableIdentifiers);
+                        tableIdentifiers,
+                        tableBitSet);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map

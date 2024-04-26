@@ -37,6 +37,7 @@
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
@@ -69,8 +70,6 @@
 #include "pipeline/exec/spill_sort_sink_operator.h"
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
-#include "pipeline/exec/streaming_aggregation_sink_operator.h"
-#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
@@ -109,6 +108,19 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
+    if (!tnode.intermediate_output_tuple_id_list.empty()) {
+        if (!tnode.__isset.output_tuple_id) {
+            return Status::InternalError("no final output tuple id");
+        }
+        if (tnode.intermediate_output_tuple_id_list.size() !=
+            tnode.intermediate_projections_list.size()) {
+            return Status::InternalError(
+                    "intermediate_output_tuple_id_list size:{} not match "
+                    "intermediate_projections_list size:{}",
+                    tnode.intermediate_output_tuple_id_list.size(),
+                    tnode.intermediate_projections_list.size());
+        }
+    }
     auto substr = node_name.substr(0, node_name.find("_NODE"));
     _op_name = substr + "_OPERATOR";
 
@@ -622,6 +634,7 @@ DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
 DECLARE_OPERATOR_X(SetSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetSinkLocalState<false>)
 DECLARE_OPERATOR_X(PartitionedHashJoinSinkLocalState)
+DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 

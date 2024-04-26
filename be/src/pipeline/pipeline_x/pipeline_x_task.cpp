@@ -29,8 +29,8 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/task_queue.h"
-#include "pipeline_x_fragment_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
@@ -257,6 +257,14 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
+
+        /// When a task is cancelled,
+        /// its blocking state will be cleared and it will transition to a ready state (though it is not truly ready).
+        /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
+        if (_fragment_context->is_canceled()) {
+            break;
+        }
+
         if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;

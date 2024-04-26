@@ -94,7 +94,6 @@ import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -183,6 +182,8 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -243,9 +244,11 @@ import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.FollowerColumnSender;
 import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -254,10 +257,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
-import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TGetMetaDBMeta;
@@ -350,7 +353,7 @@ public class Env {
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
-    private LoadManager loadManager;
+    protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
@@ -455,6 +458,8 @@ public class Env {
     private Auth auth;
     private AccessControllerManager accessManager;
 
+    private AuthenticatorManager authenticatorManager;
+
     private DomainResolver domainResolver;
 
     private TabletSchedulerStat stat;
@@ -467,7 +472,7 @@ public class Env {
     private MasterTaskExecutor pendingLoadTaskScheduler;
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
-    private LoadJobScheduler loadJobScheduler;
+    protected LoadJobScheduler loadJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;
@@ -520,6 +525,10 @@ public class Env {
     private final LoadManagerAdapter loadManagerAdapter;
 
     private StatisticsAutoCollector statisticsAutoCollector;
+
+    private StatisticsJobAppender statisticsJobAppender;
+
+    private FollowerColumnSender followerColumnSender;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -703,6 +712,7 @@ public class Env {
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
+        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfig());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -752,6 +762,7 @@ public class Env {
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
+        this.statisticsJobAppender = new StatisticsJobAppender();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
@@ -829,6 +840,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public AuthenticatorManager getAuthenticatorManager() {
+        return authenticatorManager;
     }
 
     public MTMVService getMtmvService() {
@@ -1050,24 +1065,7 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
-        if (statisticsCleaner != null) {
-            statisticsCleaner.start();
-        }
-        if (statisticsAutoCollector != null) {
-            statisticsAutoCollector.start();
-        }
-
         queryCancelWorker.start();
-
-        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wgPublisher);
-        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wpPublisher);
-        topicPublisherThread.start();
-
-        workloadGroupMgr.startUpdateThread();
-        workloadSchedPolicyMgr.start();
-        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -1551,6 +1549,10 @@ public class Env {
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
                 VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                         SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
+                if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                }
             }
         }
 
@@ -1706,6 +1708,17 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
+        topicPublisherThread.start();
+
+        // auto analyze related threads.
+        statisticsCleaner.start();
+        statisticsAutoCollector.start();
+        statisticsJobAppender.start();
     }
 
     // start threads that should run on all FE
@@ -1727,6 +1740,11 @@ public class Env {
         }
 
         dnsCache.start();
+
+        workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadRuntimeStatusMgr.start();
+
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -1762,6 +1780,11 @@ public class Env {
 
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
+        }
+
+        if (followerColumnSender == null) {
+            followerColumnSender = new FollowerColumnSender();
+            followerColumnSender.start();
         }
     }
 
@@ -3528,7 +3551,7 @@ public class Env {
             // Storage Vault
             if (!olapTable.getStorageVaultName().isEmpty()) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_STORAGE_VAULT).append("\" = \"");
+                                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
                 sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
@@ -5361,6 +5384,15 @@ public class Env {
         } else {
             Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
             db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+            if (stmt.getFunction().isUDTFunction()) {
+                // all of the table function in doris will have two function
+                // one is the noraml, and another is outer, the different of them is deal with
+                // empty: whether need to insert NULL result value
+                Function outerFunction = stmt.getFunction().clone();
+                FunctionName name = outerFunction.getFunctionName();
+                name.setFn(name.getFunction() + "_outer");
+                db.addFunction(outerFunction, stmt.isIfNotExists());
+            }
         }
     }
 
@@ -5839,25 +5871,13 @@ public class Env {
 
     public void cleanTrash(AdminCleanTrashStmt stmt) {
         List<Backend> backends = stmt.getBackends();
+        AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backends) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
-            try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                client.cleanTrash(); // async
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("trash clean exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
-            }
+            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
+            batchTask.addTask(cleanTrashTask);
+            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
         }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
@@ -6100,6 +6120,10 @@ public class Env {
 
     public NereidsSqlCacheManager getSqlCacheManager() {
         return sqlCacheManager;
+    }
+
+    public StatisticsJobAppender getStatisticsJobAppender() {
+        return statisticsJobAppender;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

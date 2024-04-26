@@ -126,5 +126,13 @@ std::string FileCacheFactory::clear_file_caches(bool sync) {
     return ss.str();
 }
 
+std::vector<std::string> FileCacheFactory::get_base_paths() {
+    std::vector<std::string> paths;
+    for (const auto& pair : _path_to_cache) {
+        paths.push_back(pair.first);
+    }
+    return paths;
+}
+
 } // namespace io
 } // namespace doris

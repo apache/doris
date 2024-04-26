@@ -230,7 +230,6 @@ protected:
     segment_v2::CompressionTypePB _compression_type;
 
     bool _only_local_exchange = false;
-    bool _enable_pipeline_exec = false;
 
     BlockSerializer<VDataStreamSender> _serializer;
 

@@ -83,8 +83,9 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                         // 'case slot whenClause2 END'
                         // This is illegal.
                         Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
-                        Alias alias = new Alias(rewritten);
-                        aliasMap.put(expr, alias);
+                        // if rewritten is already alias, use it directly, because in materialized view rewriting
+                        // Should keep out slot immutably after rewritten successfully
+                        aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
                     }
                 });
                 layer.addAll(aliasMap.values());

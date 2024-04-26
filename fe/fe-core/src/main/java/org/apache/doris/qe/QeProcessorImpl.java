@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -26,7 +27,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryProfile;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -69,6 +72,27 @@ public final class QeProcessorImpl implements QeProcessor {
         // write profile to ProfileManager when query is running.
         writeProfileExecutor = ThreadPoolManager.newDaemonProfileThreadPool(3, 100,
                 "profile-write-pool", true);
+    }
+
+    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address) {
+        LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
+
+        ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
+        if (executionProfile == null) {
+            LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
+            return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
+                    + DebugUtil.printId(profile.query_id));
+        }
+
+        // Update profile may cost a lot of time, use a seperate pool to deal with it.
+        writeProfileExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                executionProfile.updateProfile(profile, address);
+            }
+        });
+
+        return Status.OK;
     }
 
     @Override
@@ -206,6 +230,15 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        if (params.isSetQueryProfile()) {
+            if (params.isSetBackendId()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
+                if (backend != null) {
+                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress());
+                }
+            }
+        }
+
         if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
             LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
                     DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),

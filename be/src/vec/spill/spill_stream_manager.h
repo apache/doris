@@ -31,48 +31,65 @@ class RuntimeProfile;
 
 namespace vectorized {
 
+class SpillStreamManager;
 class SpillDataDir {
 public:
-    SpillDataDir(const std::string& path, int64_t capacity_bytes = -1,
+    SpillDataDir(std::string path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium = TStorageMedium::HDD);
 
     Status init();
 
     const std::string& path() const { return _path; }
 
-    bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
-
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
-    // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
-    // so in order to avoid running out of disk capacity, we currently use the actual
-    // disk available capacity and total capacity to do the calculation.
-    // So that the capacity Doris actually used may exceeds the user specified capacity.
     bool reach_capacity_limit(int64_t incoming_data_size);
 
     Status update_capacity();
 
-    double get_usage(int64_t incoming_data_size) const {
+    void update_spill_data_usage(int64_t incoming_data_size) {
+        std::lock_guard<std::mutex> l(_mutex);
+        _spill_data_bytes += incoming_data_size;
+    }
+
+    int64_t get_spill_data_bytes() {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _spill_data_bytes;
+    }
+
+    int64_t get_spill_data_limit() {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _spill_data_limit_bytes;
+    }
+
+private:
+    bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0
                        : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                                  (double)_disk_capacity_bytes;
     }
 
-private:
+    friend class SpillStreamManager;
     std::string _path;
 
-    // the actual available capacity of the disk of this data dir
-    size_t _available_bytes;
+    // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
+    std::mutex _mutex;
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
+    int64_t _spill_data_limit_bytes = 0;
+    // the actual available capacity of the disk of this data dir
+    size_t _available_bytes = 0;
+    int64_t _spill_data_bytes = 0;
     TStorageMedium::type _storage_medium;
 };
 class SpillStreamManager {
 public:
-    SpillStreamManager(const std::vector<StorePath>& paths);
+    SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
+                               spill_store_map);
 
     Status init();
 
@@ -91,37 +108,21 @@ public:
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
+    void async_cleanup_query(TUniqueId query_id);
+
     void gc(int64_t max_file_count);
 
-    void update_usage(const std::string& path, int64_t incoming_data_size) {
-        path_to_spill_data_size_[path] += incoming_data_size;
-    }
-
-    static bool reach_capacity_limit(size_t size, size_t incoming_data_size) {
-        return size + incoming_data_size > config::spill_storage_limit;
-    }
-
-    int64_t spilled_data_size(const std::string& path) { return path_to_spill_data_size_[path]; }
-
-    ThreadPool* get_spill_io_thread_pool(const std::string& path) const {
-        const auto it = path_to_io_thread_pool_.find(path);
-        DCHECK(it != path_to_io_thread_pool_.end());
-        return it->second.get();
-    }
-    ThreadPool* get_async_task_thread_pool() const { return async_task_thread_pool_.get(); }
+    ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 
 private:
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
 
-    std::vector<StorePath> _spill_store_paths;
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
-    std::unique_ptr<ThreadPool> async_task_thread_pool_;
-    std::unordered_map<std::string, std::unique_ptr<ThreadPool>> path_to_io_thread_pool_;
-    std::unordered_map<std::string, std::atomic_int64_t> path_to_spill_data_size_;
+    std::unique_ptr<ThreadPool> _spill_io_thread_pool;
     scoped_refptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;

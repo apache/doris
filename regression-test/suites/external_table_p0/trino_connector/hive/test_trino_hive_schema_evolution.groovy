@@ -104,7 +104,7 @@ suite("test_trino_hive_schema_evolution", "p0,external,hive,external_docker,exte
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
             String catalog_name = "test_trino_hive_schema_evolution"
             sql """drop catalog if exists ${catalog_name}"""
             sql """

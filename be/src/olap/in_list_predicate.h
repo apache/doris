@@ -430,6 +430,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto& pred_col =
@@ -493,6 +494,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<

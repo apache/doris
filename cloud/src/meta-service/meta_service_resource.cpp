@@ -29,6 +29,7 @@
 
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/network_util.h"
 #include "common/string_util.h"
 #include "common/sync_point.h"
 #include "meta-service/keys.h"
@@ -278,6 +279,10 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     }
 
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
+    if (instance.has_default_storage_vault_id()) {
+        response->set_default_storage_vault_id(instance.default_storage_vault_id());
+        response->set_default_storage_vault_name(instance.default_storage_vault_name());
+    }
 }
 
 // The next available vault id would be max(max(obj info id), max(vault id)) + 1.
@@ -367,13 +372,6 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     if (!hdfs_param.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("vault_name={} passed invalid argument", hdfs_param.name());
-        return -1;
-    }
-    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                     [&hdfs_param](const auto& name) { return name == hdfs_param.name(); }) !=
-        instance.storage_vault_names().end()) {
-        code = MetaServiceCode::ALREADY_EXISTED;
-        msg = fmt::format("vault_name={} already created", hdfs_param.name());
         return -1;
     }
 
@@ -467,13 +465,23 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
 static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
                                    StorageVaultPB& vault_param, MetaServiceCode& code,
                                    std::string& msg) {
+    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                     [&vault_param](const auto& name) { return name == vault_param.name(); }) !=
+        instance.storage_vault_names().end()) {
+        code = MetaServiceCode::ALREADY_EXISTED;
+        msg = fmt::format("vault_name={} already created", vault_param.name());
+        return -1;
+    }
+
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
+
     create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
     if (code != MetaServiceCode::OK) {
         return -1;
     }
+
     vault_param.mutable_obj_info()->CopyFrom(vault_param.obj_info());
     vault_param.set_id(vault_param.obj_info().id());
     auto vault_key = storage_vault_key({instance.instance_id(), vault_param.obj_info().id()});
@@ -593,6 +601,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         msg = "Unknown alter info " + proto_to_json(*request);
         return;
     } break;
+    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
+        break;
     }
 
     // TODO(dx): check s3 info right
@@ -750,7 +760,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
-        if (auto ret = add_hdfs_storage_vault(
+        if (auto ret = add_vault_into_instance(
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
@@ -766,7 +776,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             msg = ss.str();
             return;
         }
-        if (auto ret = add_hdfs_storage_vault(
+        if (auto ret = add_vault_into_instance(
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
@@ -796,6 +806,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.set_default_storage_vault_id(*id_itr);
         instance.set_default_storage_vault_name(name);
         response->set_storage_vault_id(*id_itr);
+        break;
+    }
+    case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
+        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+                 instance.instance_id(), instance.default_storage_vault_name(),
+                 instance.default_storage_vault_id());
+        instance.clear_default_storage_vault_id();
+        instance.clear_default_storage_vault_name();
         break;
     }
     default: {
@@ -3266,12 +3284,9 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
                      << " err=" << err;
         return;
     }
-    std::string self_endpoint;
-    if (config::hostname.empty()) {
-        self_endpoint = fmt::format("{}:{}", butil::my_ip_cstr(), config::brpc_listen_port);
-    } else {
-        self_endpoint = fmt::format("{}:{}", config::hostname, config::brpc_listen_port);
-    }
+    std::string self_endpoint =
+            config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;
+    self_endpoint = fmt::format("{}:{}", self_endpoint, config::brpc_listen_port);
     ServiceRegistryPB reg;
     reg.ParseFromString(val);
 

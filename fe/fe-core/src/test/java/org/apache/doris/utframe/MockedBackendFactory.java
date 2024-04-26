@@ -36,9 +36,9 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
-import org.apache.doris.thrift.TCheckPreCacheRequest;
-import org.apache.doris.thrift.TCheckPreCacheResponse;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TDropTabletReq;
@@ -48,6 +48,8 @@ import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
@@ -55,8 +57,6 @@ import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPreCacheAsyncRequest;
-import org.apache.doris.thrift.TPreCacheAsyncResponse;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
 import org.apache.doris.thrift.TQueryIngestBinlogRequest;
@@ -81,6 +81,8 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
 import org.apache.doris.thrift.TWarmUpTabletsResponse;
 
@@ -412,23 +414,18 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void cleanTrash() throws TException {
-            return;
-        }
-
-        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
 
         @Override
-        public TPreCacheAsyncResponse preCacheAsync(TPreCacheAsyncRequest request) throws TException {
-            return new TPreCacheAsyncResponse();
+        public TWarmUpCacheAsyncResponse warmUpCacheAsync(TWarmUpCacheAsyncRequest request) throws TException {
+            return new TWarmUpCacheAsyncResponse();
         }
 
         @Override
-        public TCheckPreCacheResponse checkPreCache(TCheckPreCacheRequest request) throws TException {
-            return new TCheckPreCacheResponse();
+        public TCheckWarmUpCacheAsyncResponse checkWarmUpCacheAsync(TCheckWarmUpCacheAsyncRequest request) throws TException {
+            return new TCheckWarmUpCacheAsyncResponse();
         }
 
         @Override
@@ -453,6 +450,12 @@ public class MockedBackendFactory {
 
         @Override
         public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
                 throws TException {
             return null;
         }

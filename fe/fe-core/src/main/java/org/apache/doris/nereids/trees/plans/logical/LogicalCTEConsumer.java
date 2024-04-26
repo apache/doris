@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -43,7 +45,7 @@ import java.util.Optional;
  * LogicalCTEConsumer
  */
 //TODO: find cte producer and propagate its functional dependencies
-public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDepsPropagation {
+public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDepsPropagation, OutputPrunable {
 
     private final String name;
     private final CTEId cteId;
@@ -143,6 +145,24 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.copyOf(producerToConsumerOutputMap.values());
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        Map<Slot, Slot> consumerToProducerOutputMap = new LinkedHashMap<>(this.consumerToProducerOutputMap.size());
+        Map<Slot, Slot> producerToConsumerOutputMap = new LinkedHashMap<>(this.consumerToProducerOutputMap.size());
+        for (Entry<Slot, Slot> consumerToProducerSlot : this.consumerToProducerOutputMap.entrySet()) {
+            if (prunedOutputs.contains(consumerToProducerSlot.getKey())) {
+                consumerToProducerOutputMap.put(consumerToProducerSlot.getKey(), consumerToProducerSlot.getValue());
+                producerToConsumerOutputMap.put(consumerToProducerSlot.getValue(), consumerToProducerSlot.getKey());
+            }
+        }
+        return withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return (List) this.getOutput();
     }
 
     public CTEId getCteId() {

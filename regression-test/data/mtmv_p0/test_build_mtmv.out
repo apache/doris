@@ -63,3 +63,9 @@ zhangsang	200
 -- !desc_mv --
 field_1	VARCHAR(16)	No	false	\N	NONE
 
+-- !query_mv_with_cte --
+2	3
+2	4
+3	3
+4	3
+

@@ -223,14 +223,23 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return tWorkloadGroups;
     }
 
-    public List<TPipelineWorkloadGroup> getTWorkloadGroupByUserIdentity(UserIdentity user) throws UserException {
+    public List<TPipelineWorkloadGroup> getWorkloadGroupByUser(UserIdentity user) throws UserException {
         String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
         List<TPipelineWorkloadGroup> ret = new ArrayList<>();
+        WorkloadGroup wg = null;
         readLock();
         try {
-            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
-            if (wg == null) {
-                throw new UserException("can not find workload group " + groupName);
+            if (groupName == null || groupName.isEmpty()) {
+                wg = nameToWorkloadGroup.get(DEFAULT_GROUP_NAME);
+                if (wg == null) {
+                    throw new RuntimeException("can not find normal workload group for routineload");
+                }
+            } else {
+                wg = nameToWorkloadGroup.get(groupName);
+                if (wg == null) {
+                    throw new UserException(
+                            "can not find workload group " + groupName + " for user " + user.getQualifiedUser());
+                }
             }
             ret.add(wg.toThrift());
         } finally {
@@ -392,6 +401,17 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second);
         }
 
+        // A group with related policies should not be deleted.
+        Long wgId = getWorkloadGroupIdByName(workloadGroupName);
+        if (wgId != null) {
+            boolean groupHasPolicy = Env.getCurrentEnv().getWorkloadSchedPolicyMgr()
+                    .checkWhetherGroupHasPolicy(wgId.longValue());
+            if (groupHasPolicy) {
+                throw new DdlException(
+                        "workload group " + workloadGroupName + " can't be dropped, because it has related policy");
+            }
+        }
+
         writeLock();
         try {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
@@ -479,6 +499,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return null;
             }
             return wg.getId();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, String> getIdToNameMap() {
+        Map<Long, String> ret = Maps.newHashMap();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                ret.put(entry.getKey(), entry.getValue().getName());
+            }
+            return ret;
         } finally {
             readUnlock();
         }

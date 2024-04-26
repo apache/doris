@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -145,6 +146,9 @@ public:
     bool is_canceled() { return _runtime_state->is_cancelled(); }
 
     Status update_status(Status status);
+
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_query_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
 private:
     ExecEnv* _exec_env = nullptr; // not owned

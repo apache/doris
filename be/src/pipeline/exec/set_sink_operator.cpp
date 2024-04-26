@@ -22,33 +22,8 @@
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/core/materialize_block.h"
-#include "vec/exec/vset_operation_node.h"
-
-namespace doris {
-class ExecNode;
-} // namespace doris
 
 namespace doris::pipeline {
-
-template <bool is_intersect>
-SetSinkOperatorBuilder<is_intersect>::SetSinkOperatorBuilder(int32_t id, ExecNode* set_node)
-        : OperatorBuilder<vectorized::VSetOperationNode<is_intersect>>(id, builder_name, set_node) {
-}
-
-template <bool is_intersect>
-OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
-    return std::make_shared<SetSinkOperator<is_intersect>>(this, this->_node);
-}
-
-template <bool is_intersect>
-SetSinkOperator<is_intersect>::SetSinkOperator(
-        OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
-
-template class SetSinkOperatorBuilder<true>;
-template class SetSinkOperatorBuilder<false>;
-template class SetSinkOperator<true>;
-template class SetSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -122,6 +97,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);

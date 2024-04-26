@@ -20,7 +20,6 @@
 #include <foundationdb/fdb_c.h>
 #include <foundationdb/fdb_c_options.g.h>
 
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -147,10 +146,18 @@ public:
     virtual TxnErrorCode abort() = 0;
 
     struct BatchGetOptions {
-        BatchGetOptions() : snapshot(false) {};
+        BatchGetOptions() : BatchGetOptions(false) {};
+        BatchGetOptions(bool s) : snapshot(s), concurrency(1000) {};
+
+        // if true, `key` will not be included in txn conflict detection this time.
+        //
+        // Default: false
         bool snapshot;
-        // TODO: Avoid consuming too many resources in one batch
-        // int limit = 1000;
+
+        // the maximum number of concurrent requests submitted to fdb at one time.
+        //
+        // Default: 1000
+        int concurrency;
     };
     /**
      * @brief batch get keys
@@ -163,6 +170,31 @@ public:
     virtual TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                                    const std::vector<std::string>& keys,
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
+
+    /**
+     * @brief return the approximate bytes consumed by the underlying transaction buffer.
+     **/
+    virtual size_t approximate_bytes() const = 0;
+
+    /**
+     * @brief return the num delete keys submitted to this txn.
+     **/
+    virtual size_t num_del_keys() const = 0;
+
+    /**
+     * @brief return the num put keys submitted to this txn.
+     **/
+    virtual size_t num_put_keys() const = 0;
+
+    /**
+     * @brief return the bytes of the delete keys consumed.
+     **/
+    virtual size_t delete_bytes() const = 0;
+
+    /**
+     * @brief return the bytes of the put key and values consumed.
+     **/
+    virtual size_t put_bytes() const = 0;
 };
 
 class RangeGetIterator {
@@ -452,11 +484,27 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    size_t approximate_bytes() const override { return approximate_bytes_; }
+
+    size_t num_del_keys() const override { return num_del_keys_; }
+
+    size_t num_put_keys() const override { return num_put_keys_; }
+
+    size_t delete_bytes() const override { return delete_bytes_; }
+
+    size_t put_bytes() const override { return put_bytes_; }
+
 private:
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
     bool aborted_ = false;
     FDBTransaction* txn_ = nullptr;
+
+    size_t num_del_keys_ {0};
+    size_t num_put_keys_ {0};
+    size_t delete_bytes_ {0};
+    size_t put_bytes_ {0};
+    size_t approximate_bytes_ {0};
 };
 
 } // namespace fdb

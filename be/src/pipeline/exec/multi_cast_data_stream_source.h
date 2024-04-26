@@ -27,7 +27,6 @@
 #include "vec/exec/runtime_filter_consumer.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace vectorized {
@@ -102,11 +101,7 @@ public:
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
-        RETURN_IF_ERROR(_acquire_runtime_filter(true));
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 

@@ -120,3 +120,124 @@ nation=us/city=washington
 
 -- !q21 --
 
+-- !q01 --
+33	1.11xyz
+34	1.11XYZ
+35	1.12xyz
+36	1.12XYZ
+37	1.21xyz
+38	1.21XYZ
+39	1.22xyz
+40	1.22XYZ
+41	2.11xyz
+42	2.11XYZ
+43	2.12xyz
+44	2.12XYZ
+45	2.21xyz
+46	2.21XYZ
+47	2.22xyz
+48	2.22XYZ
+49	1.11zxy
+50	1.11ZXY
+51	1.12zxy
+52	1.12ZXY
+53	1.21zxy
+54	1.21ZXY
+55	1.22zxy
+56	1.22ZXY
+57	2.11zxy
+58	2.11ZXY
+59	2.12zxy
+60	2.12ZXY
+61	2.21zxy
+62	2.21ZXY
+63	2.22zxy
+64	2.22ZXY
+
+-- !q02 --
+49	1.11zxy
+50	1.11ZXY
+51	1.12zxy
+52	1.12ZXY
+53	1.21zxy
+54	1.21ZXY
+55	1.22zxy
+56	1.22ZXY
+57	2.11zxy
+58	2.11ZXY
+59	2.12zxy
+60	2.12ZXY
+61	2.21zxy
+62	2.21ZXY
+63	2.22zxy
+64	2.22ZXY
+
+-- !q03 --
+49	1.11zxy
+50	1.11ZXY
+51	1.12zxy
+52	1.12ZXY
+53	1.21zxy
+54	1.21ZXY
+55	1.22zxy
+56	1.22ZXY
+
+-- !q04 --
+53	1.21zxy
+54	1.21ZXY
+55	1.22zxy
+56	1.22ZXY
+
+-- !q05 --
+55	1.22zxy
+56	1.22ZXY
+
+-- !q11 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q12 --
+nation=cn/city=beijing
+
+-- !q13 --
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q14 --
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q16 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+
+-- !q17 --
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+
+-- !q18 --
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q19 --
+nation=rus/city=moscow
+nation=jp/city=tokyo
+nation=cn/city=shanghai
+
+-- !q20 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q21 --
+

@@ -78,7 +78,9 @@ public class SystemHandler extends AlterHandler {
     @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runAlterJobV2();
+        if (Config.isNotCloudMode()) {
+            runAlterJobV2();
+        }
     }
 
     // check all decommissioned backends, if there is no available tablet on that backend, drop it.
@@ -314,7 +316,7 @@ public class SystemHandler extends AlterHandler {
             for (Table table : db.getTables()) {
                 table.readLock();
                 try {
-                    if (!table.needSchedule()) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

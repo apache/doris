@@ -18,8 +18,8 @@
 #pragma once
 
 #include <gen_cpp/parquet_types.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -29,6 +29,7 @@
 #include "decoder.h"
 #include "level_decoder.h"
 #include "util/slice.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
@@ -44,13 +45,15 @@ namespace io {
 class BufferedStreamReader;
 struct IOContext;
 } // namespace io
-namespace vectorized {
-class ColumnString;
-struct FieldSchema;
-} // namespace vectorized
+
 } // namespace doris
 
 namespace doris::vectorized {
+
+struct FieldSchema;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 /**
  * Read and decode parquet column data into doris block column.
@@ -68,7 +71,7 @@ namespace doris::vectorized {
  *   // Or, we can call the chunk_reader.skip_page() to skip current page.
  *   chunk_reader.load_page_data();
  *   // Decode values into column or slice.
- *   // Or, we can call chunk_reader.slip_values(num_values) to skip some values.
+ *   // Or, we can call chunk_reader.skip_values(num_values) to skip some values.
  *   chunk_reader.decode_values(slice, num_values);
  * }
  */
@@ -81,17 +84,20 @@ public:
         int64_t decode_value_time = 0;
         int64_t decode_dict_time = 0;
         int64_t decode_level_time = 0;
+        int64_t skip_page_header_num = 0;
+        int64_t parse_page_header_num = 0;
     };
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
+                      cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() { return _chunk_parsed_values < _metadata.num_values; }
+    bool has_next_page() const { return _chunk_parsed_values < _metadata.num_values; }
 
     // Deprecated
     // Seek to the specific page, page_header_offset must be the start offset of the page header.
@@ -167,6 +173,8 @@ public:
 
     Statistics& statistics() {
         _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
+        _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
+        _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
         return _statistics;
     }
 
@@ -201,6 +209,7 @@ private:
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
+    const tparquet::OffsetIndex* _offset_index;
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
 
@@ -216,6 +225,7 @@ private:
     size_t _decompress_buf_size = 0;
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
+    bool _dict_checked = false;
     bool _has_dict = false;
     Decoder* _page_decoder = nullptr;
     // Map: encoding -> Decoder

@@ -28,7 +28,7 @@ suite("load") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "ssb_sf1_p2"
+        "path_prefix" = "ssb_sf1_p2"
         );
     """
 

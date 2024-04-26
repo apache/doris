@@ -262,7 +262,7 @@ public enum ErrorCode {
     ERR_VIEW_NO_EXPLAIN(1345, new byte[]{'H', 'Y', '0', '0', '0'}, "EXPLAIN/SHOW can not be issued; lacking "
             + "privileges for underlying table"),
     ERR_FRM_UNKNOWN_TYPE(1346, new byte[]{'H', 'Y', '0', '0', '0'}, "File '%s' has unknown type '%s' in its header"),
-    ERR_WRONG_OBJECT(1347, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s.%s' is not %s"),
+    ERR_WRONG_OBJECT(1347, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s.%s' is not %s. %s."),
     ERR_NONUPDATEABLE_COLUMN(1348, new byte[]{'H', 'Y', '0', '0', '0'}, "Column '%s' is not updatable"),
     ERR_VIEW_SELECT_DERIVED(1349, new byte[]{'H', 'Y', '0', '0', '0'}, "View's SELECT contains a subquery in the FROM"
             + " clause"),

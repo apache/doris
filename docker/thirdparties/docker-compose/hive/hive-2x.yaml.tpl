@@ -19,87 +19,87 @@
 version: "3.8"
 
 services:
-  doris--namenode:
+  namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     environment:
       - CLUSTER_NAME=test
     env_file:
       - ./hadoop-hive.env
-    container_name: doris--namenode
-    expose:
-      - "50070"
-      - "8020"
-      - "9000"
+    container_name: ${CONTAINER_UID}hadoop2-namenode
+    ports:
+      - "${FS_PORT}:8020"
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:50070/" ]
       interval: 5s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
-  doris--datanode:
+  datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "externalEnvIp:50070"
-    container_name: doris--datanode
-    expose:
-      - "50075"
+      SERVICE_PRECONDITION: "namenode:50070"
+    container_name: ${CONTAINER_UID}hadoop2-datanode
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:50075" ]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
 
-  doris--hive-server:
+  hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-metastore.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://externalEnvIp:5432/metastore"
-      SERVICE_PRECONDITION: "externalEnvIp:9083"
-    container_name: doris--hive-server
-    expose:
-      - "10000"
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
+    container_name: ${CONTAINER_UID}hive2-server
+    ports:
+      - "${HS_PORT}:10000"
     depends_on:
-      - doris--datanode
-      - doris--namenode
+      - datanode
+      - namenode
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:10000/default" -n health_check -e "show databases;"
       interval: 10s
       timeout: 120s
       retries: 120
-    network_mode: "host"
 
 
-  doris--hive-metastore:
+  hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-metastore.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     # command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "externalEnvIp:50070 externalEnvIp:50075 externalEnvIp:5432"
-    container_name: doris--hive-metastore
-    expose:
-      - "9083"
+      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432"
+    container_name: ${CONTAINER_UID}hive2-metastore
+    ports:
+      - "${HMS_PORT}:9083"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - doris--hive-metastore-postgresql
-    network_mode: "host"
+      - hive-metastore-postgresql
 
-  doris--hive-metastore-postgresql:
+  hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
-    restart: always
-    container_name: doris--hive-metastore-postgresql
-    expose:
-      - "5432"
+    container_name: ${CONTAINER_UID}hive2-metastore-postgresql
+    ports:
+      - "${PG_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    network_mode: "host"
+
+# solve HiveServer2 connect error:
+# java.net.URISyntaxException Illegal character in hostname :thrift://${CONTAINER_UID}hive2_default:9083
+networks:
+  default:
+    name: ${CONTAINER_UID}hive2-default
+    ipam:
+      driver: default
+      config: 
+        - subnet: 168.58.0.0/24

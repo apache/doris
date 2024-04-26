@@ -54,16 +54,7 @@ public:
     }
 
     virtual void get_value(MutableColumnPtr& column) = 0;
-
-    virtual int get_value(MutableColumnPtr& column, int max_step) {
-        max_step = std::max(1, std::min(max_step, (int)(_cur_size - _cur_offset)));
-        int i = 0;
-        for (; i < max_step && !eos(); i++) {
-            get_value(column);
-            forward();
-        }
-        return i;
-    }
+    virtual int get_value(MutableColumnPtr& column, int max_step) = 0;
 
     virtual Status close() { return Status::OK(); }
 

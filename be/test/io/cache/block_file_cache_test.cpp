@@ -679,6 +679,59 @@ TEST_F(BlockFileCacheTest, resize) {
     }
 }
 
+TEST_F(BlockFileCacheTest, max_ttl_size) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 100000000;
+    settings.query_queue_elements = 100000;
+    settings.capacity = 100000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t cur_time = UnixSeconds();
+    context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key5");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_lazy_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_lazy_open_success());
+    int64_t offset = 0;
+    for (; offset < 100000000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        if (offset < 90000000) {
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+        } else {
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::SKIP_CACHE);
+        }
+        blocks.clear();
+    }
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -1773,10 +1826,10 @@ TEST_F(BlockFileCacheTest, ttl_reverse) {
     query_id.hi = 1;
     query_id.lo = 1;
     io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
+    settings.query_queue_size = 36;
     settings.query_queue_elements = 5;
-    settings.capacity = 30;
-    settings.max_file_block_size = 5;
+    settings.capacity = 36;
+    settings.max_file_block_size = 7;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
     context.cache_type = io::FileCacheType::TTL;
@@ -1792,25 +1845,23 @@ TEST_F(BlockFileCacheTest, ttl_reverse) {
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    {
-        auto holder = cache.get_or_set(key2, 0, 30, context); /// Add range [0, 29]
+    ASSERT_TRUE(cache.get_lazy_open_success());
+    for (size_t offset = 0; offset < 30; offset += 6) {
+        auto holder = cache.get_or_set(key2, offset, 6, context);
         auto blocks = fromHolder(holder);
-        for (auto& block : blocks) {
-            ASSERT_TRUE(block->get_or_set_downloader() == io::FileBlock::get_caller_id());
-            download(block);
-        }
-        EXPECT_EQ(blocks.size(), 6);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
     }
     {
-        auto holder = cache.get_or_set(key2, 50, 5, context); /// Add range [50, 54]
+        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
         auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 54), io::FileBlock::State::SKIP_CACHE);
+        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
     }
     {
         context.cache_type = io::FileCacheType::NORMAL;
-        auto holder = cache.get_or_set(key2, 50, 5, context); /// Add range [50, 54]
+        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
         auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 54), io::FileBlock::State::SKIP_CACHE);
+        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
     }
 
     if (fs::exists(cache_base_path)) {

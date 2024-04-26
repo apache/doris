@@ -37,7 +37,6 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -65,11 +64,14 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        List<Pair<String, String>> columnList = info.jobColumns;
-        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
+        if (killed) {
+            return;
+        }
+        // For empty table, write empty result directly, no need to run SQL to collect stats.
+        if (info.rowCount == 0 && tableSample != null) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
-            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
+            job.appendBuf(this, Collections.singletonList(new ColStatsData(statsId)));
             return;
         }
         if (tableSample != null) {
@@ -84,7 +86,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 2. estimate partition stats
      * 3. insert col stats and partition stats
      */
-    protected void doSample() throws Exception {
+    protected void doSample() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
@@ -209,7 +211,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 2. insert partition in batch
      * 3. calculate column stats based on partition stats
      */
-    protected void doFull() throws Exception {
+    protected void doFull() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
         }
@@ -228,8 +230,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
-        runQuery(collectColStats);
+        runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
     }
 
     protected String getIndex() {
@@ -316,10 +317,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return false;
         }
         // Partition column need to scan tablets from all partitions.
-        if (tbl.isPartitionColumn(col.getName())) {
-            return false;
-        }
-        return true;
+        return !tbl.isPartitionColumn(col.getName());
     }
 
     /**
@@ -382,12 +380,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected String concatColumnStatsId() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append(info.tblId);
-        stringBuilder.append("-");
-        stringBuilder.append(info.indexId);
-        stringBuilder.append("-");
-        stringBuilder.append(info.colName);
-        return stringBuilder.toString();
+        return info.tblId + "-" + info.indexId + "-" + info.colName;
     }
 }

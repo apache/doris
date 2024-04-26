@@ -36,7 +36,7 @@ public class AnalysisInfoBuilder {
     private long catalogId;
     private long dbId;
     private long tblId;
-    private List<Pair<String, String>> jobColumns;
+    private Set<Pair<String, String>> jobColumns;
     private Set<String> partitionNames;
     private String colName;
     private long indexId = -1L;
@@ -62,8 +62,10 @@ public class AnalysisInfoBuilder {
     private boolean forceFull;
     private boolean usingSqlForPartitionColumn;
     private long tblUpdateTime;
-    private boolean emptyJob;
+    private long rowCount;
     private boolean userInject;
+    private long updateRows;
+    private JobPriority priority;
 
     public AnalysisInfoBuilder() {
     }
@@ -101,8 +103,10 @@ public class AnalysisInfoBuilder {
         forceFull = info.forceFull;
         usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
         tblUpdateTime = info.tblUpdateTime;
-        emptyJob = info.emptyJob;
+        rowCount = info.rowCount;
         userInject = info.userInject;
+        updateRows = info.updateRows;
+        priority = info.priority;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -135,7 +139,7 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setJobColumns(List<Pair<String, String>> jobColumns) {
+    public AnalysisInfoBuilder setJobColumns(Set<Pair<String, String>> jobColumns) {
         this.jobColumns = jobColumns;
         return this;
     }
@@ -265,8 +269,8 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setEmptyJob(boolean emptyJob) {
-        this.emptyJob = emptyJob;
+    public AnalysisInfoBuilder setRowCount(long rowCount) {
+        this.rowCount = rowCount;
         return this;
     }
 
@@ -275,12 +279,23 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setUpdateRows(long updateRows) {
+        this.updateRows = updateRows;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setPriority(JobPriority priority) {
+        this.priority = priority;
+        return this;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, emptyJob, userInject);
+                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows,
+                priority);
     }
 
 }
