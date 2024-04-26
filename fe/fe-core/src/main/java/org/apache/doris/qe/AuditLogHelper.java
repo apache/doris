@@ -112,8 +112,10 @@ public class AuditLogHelper {
                 }
             }
             auditEventBuilder.setIsQuery(true)
-                .setScanBytesFromLocalStorage(statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
-                .setScanBytesFromRemoteStorage(statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
+                    .setScanBytesFromLocalStorage(
+                            statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
+                    .setScanBytesFromRemoteStorage(
+                            statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         } else {
             auditEventBuilder.setIsQuery(false);
         }
