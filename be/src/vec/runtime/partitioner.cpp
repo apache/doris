@@ -103,6 +103,5 @@ template class Partitioner<size_t, ShuffleChannelIds>;
 template class XXHashPartitioner<ShuffleChannelIds>;
 template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
-template class Crc32HashPartitioner<pipeline::LocalExchangeChannelIds>;
 
 } // namespace doris::vectorized
