@@ -23,6 +23,7 @@ suite("nested_materialized_view") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
+    sql "SET enable_materialized_view_nest_rewrite = true"
 
     def create_mtmv = { db_name, mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
@@ -179,4 +180,19 @@ suite("nested_materialized_view") {
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0_inner_mv"""
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+
+
+    sql "SET enable_materialized_view_nest_rewrite = false"
+
+    order_qt_query1_1_before "${query1_0}"
+    create_mtmv(db, "mv1_0_inner_mv", mv1_0_inner_mv)
+    check_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
+
+    explain {
+        sql("${query1_0}")
+        contains("mv1_0_inner_mv(mv1_0_inner_mv)")
+    }
+
+    order_qt_query1_1_after "${query1_0}"
+
 }
