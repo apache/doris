@@ -28,11 +28,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------filter((inv1.d_moy = 1))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter((inv1.d_moy = 1))
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------filter((inv2.d_moy = 2))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------filter((inv2.d_moy = 2))
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

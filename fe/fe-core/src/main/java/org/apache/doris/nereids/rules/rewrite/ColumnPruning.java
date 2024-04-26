@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -200,13 +201,21 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneAggregate(repeat, context);
     }
 
-    private Plan pruneAggregate(Aggregate agg, PruneContext context) {
+    @Override
+    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(cteProducer);
+    }
+
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, PruneContext context) {
+        return super.visitLogicalCTEConsumer(cteConsumer, context);
+    }
+
+    private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {
         // first try to prune group by and aggregate functions
-        Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
-
-        Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
-
-        return pruneChildren(fillUpAggr);
+        Aggregate<? extends Plan> prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
+        Aggregate<?> fillUpAggregate = fillUpGroupByAndOutput(prunedOutputAgg);
+        return pruneChildren(fillUpAggregate);
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
@@ -217,7 +226,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(plan, requireAllOutputOfChildren.build());
     }
 
-    private static Aggregate<Plan> fillUpGroupByAndOutput(Aggregate<Plan> prunedOutputAgg) {
+    private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {
         List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
         List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
 
@@ -239,12 +248,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         ImmutableList.Builder<Expression> newGroupByExprList
                 = ImmutableList.builderWithExpectedSize(newOutputList.size());
         for (NamedExpression e : newOutputList) {
-            if (!(aggregateFunctions.contains(e)
-                    || (e instanceof Alias && aggregateFunctions.contains(e.child(0))))) {
+            if (!(e instanceof Alias && aggregateFunctions.contains(e.child(0)))) {
                 newGroupByExprList.add(e);
             }
         }
-        return ((LogicalAggregate<Plan>) prunedOutputAgg).withGroupByAndOutput(
+        return ((LogicalAggregate<? extends Plan>) prunedOutputAgg).withGroupByAndOutput(
                 newGroupByExprList.build(), newOutputList);
     }
 
@@ -369,11 +377,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
         }
         return prunedChild;
-    }
-
-    @Override
-    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(cteProducer);
     }
 
     /** PruneContext */

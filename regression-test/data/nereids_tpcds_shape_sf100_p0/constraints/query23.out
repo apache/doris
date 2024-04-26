@@ -69,11 +69,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = frequent_ss_items.item_sk)) otherCondition=()
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -88,9 +86,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

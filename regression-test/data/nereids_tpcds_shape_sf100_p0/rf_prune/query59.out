@@ -2,17 +2,16 @@
 -- !ds_shape_59 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------hashAgg[GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[LOCAL]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[store_sales]
+--------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim]
+------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

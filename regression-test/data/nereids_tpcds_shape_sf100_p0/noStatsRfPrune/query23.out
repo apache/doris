@@ -65,11 +65,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
 ------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
@@ -84,11 +82,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4
 ------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
