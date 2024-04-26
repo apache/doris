@@ -105,7 +105,6 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
     }
-    LOG(INFO)<<"write_column_to_arrow: ";
 }
 
 template <typename T>
@@ -223,9 +222,6 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const T*>(buffer->data()) + start;
-    if constexpr (std::is_same_v<T, IPv4>)
-        LOG(INFO)<<"reinterpret_cast<const T*>: "<<(*reinterpret_cast<const T*>(raw_data));
-    LOG(INFO)<<"read_column_from_arrow";                                                
     col_data.insert(raw_data, raw_data + row_count);
 }
 
@@ -349,7 +345,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     } else if constexpr (std::is_same_v<T, Float64>) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     } else if constexpr (std::is_same_v<T, IPv4>) { // ipv4
-        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     }
     return Status::OK();
 }

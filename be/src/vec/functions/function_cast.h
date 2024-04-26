@@ -985,24 +985,23 @@ struct NameToDateTime {
 };
 
 template <typename DataType, typename Additions = void*, typename FromDataType = void*>
-bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                    const cctz::time_zone& local_time_zone,
+bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionContext* context,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb, local_time_zone);
+        return try_read_datetime_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb, local_time_zone);
+        return try_read_date_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb, local_time_zone);
+        return try_read_date_v2_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
+        return try_read_datetime_v2_text(x, rb, context->state()->timezone_obj(), scale);
     }
 
     if constexpr (IsIPv4Type<DataType>) {
@@ -1019,7 +1018,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone);
+        auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
         x *= (1000 * 1000);
         return ret;
     }
@@ -1546,12 +1545,11 @@ struct ConvertThroughParsing {
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                 const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                         block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
-                                                    context->state()->timezone_obj(),
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
                                                     type->get_scale());
             } else {
-                parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj());
+                parsed = try_parse_impl<ToDataType, void*, FromDataType>(vec_to[i], read_buffer,
+                                                                         context);
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;

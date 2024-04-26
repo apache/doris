@@ -212,7 +212,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
             type = TypeDescriptor(TYPE_INT);
             break;
         case tparquet::Type::INT64:
-            type = TypeDescriptor(TYPE_BIGINT);//type = TypeDescriptor(TYPE_IPV4);
+            type = TypeDescriptor(TYPE_BIGINT);
             break;
         case tparquet::Type::INT96:
             // in most cases, it's a nano timestamp

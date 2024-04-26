@@ -310,7 +310,7 @@ public class OutFileClause {
                 orcType = "varchar(" + dorisType.getLength() + ")";
                 break;
             case IPV4:
-                orcType = "bigint";
+                orcType = "int";
                 break;
             case LARGEINT:
             case DATE:
@@ -428,7 +428,7 @@ public class OutFileClause {
                     checkOrcType(schema.second, "varchar", false, resultType.getPrimitiveType().toString());
                     break;
                 case IPV4:
-                    checkOrcType(schema.second, "bigint", false, resultType.getPrimitiveType().toString());
+                    checkOrcType(schema.second, "int", false, resultType.getPrimitiveType().toString());
                     break;
                 case LARGEINT:
                 case DATE:

@@ -73,7 +73,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::float64();
         break;
     case TYPE_IPV4:
-        *result = arrow::uint32();
+        // ipv4 is uint32, but parquet not uint32, it's will be convert to int64
+        // so use int32 directly
+        *result = arrow::int32();
+        break;
+    case TYPE_IPV6:
+        *result = arrow::utf8();
         break;
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
@@ -81,7 +86,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_IPV6:
     case TYPE_STRING:
     case TYPE_JSONB:
     case TYPE_OBJECT:
