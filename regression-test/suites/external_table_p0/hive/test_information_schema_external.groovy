@@ -20,12 +20,16 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
     //files  partitions no imp 
 
     def enabled = context.config.otherConfigs.get("enableHiveTest")
-    def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
 
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            def hms_port = context.config.otherConfigs.get("hms_port")
-            def catalog_name = "test_information_schema_external"
+            def hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            def catalog_name = "test_information_schema_external_${hivePrefix}"
+            def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",

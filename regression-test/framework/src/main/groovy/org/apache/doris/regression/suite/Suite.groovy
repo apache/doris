@@ -72,6 +72,9 @@ class Suite implements GroovyInterceptable {
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
 
+    // set this in suite to determine which hive docker to use
+    String hivePrefix = "hive2"
+
     final List<Closure> successCallbacks = new Vector<>()
     final List<Closure> failCallbacks = new Vector<>()
     final List<Closure> finishCallbacks = new Vector<>()
@@ -806,16 +809,20 @@ class Suite implements GroovyInterceptable {
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
     }
 
-    List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false){
+    void setHivePrefix(String hivePrefix) {
+        this.hivePrefix = hivePrefix
+    }
+
+    List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
-        def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(), cleanedSqlStr)
+        def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(hivePrefix), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
         return result
     }
 
-    List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
+    List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
         if (isOrder) {
@@ -824,7 +831,7 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false){
+    List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)
         if (isOrder) {
@@ -838,7 +845,7 @@ class Suite implements GroovyInterceptable {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
@@ -849,7 +856,7 @@ class Suite implements GroovyInterceptable {
                 }
             } else {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
@@ -881,7 +888,7 @@ class Suite implements GroovyInterceptable {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
@@ -892,7 +899,7 @@ class Suite implements GroovyInterceptable {
                 }
             } else {
                 if (tag.contains("hive_docker")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
                 } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
