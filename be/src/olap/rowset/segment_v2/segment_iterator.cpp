@@ -309,6 +309,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
     _common_expr_ctxs_push_down = opts.common_expr_ctxs_push_down;
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
+    _enable_common_expr_pushdown =
+            _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index();
     _column_predicate_info.reset(new ColumnPredicateInfo());
 
     for (auto& expr : _remaining_conjunct_roots) {
@@ -1241,31 +1243,43 @@ Status SegmentIterator::_apply_inverted_index() {
         }
     }
 
-    // support expr to evaluate inverted index
-    std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
-            iter_map;
+    // add a switch for inverted index filter
+    if (_opts.runtime_state &&
+        _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
+        // support expr to evaluate inverted index
+        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+                iter_map;
 
-    for (auto col_id : _common_expr_columns_for_index) {
-        if (_check_apply_by_inverted_index(col_id)) {
-            iter_map[col_id] = std::make_pair(_storage_name_and_type[col_id],
-                                              _inverted_index_iterators[col_id].get());
+        for (auto col_id : _common_expr_columns_for_index) {
+            if (_check_apply_by_inverted_index(col_id)) {
+                iter_map[col_id] = std::make_pair(_storage_name_and_type[col_id],
+                                                  _inverted_index_iterators[col_id].get());
+            }
         }
-    }
-    for (auto expr_ctx : _common_expr_ctxs_push_down) {
-        // _inverted_index_iterators has all column ids which has inverted index
-        // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
-        // if current bitmap is already empty just return
-        if (_row_bitmap.isEmpty()) {
-            break;
-        }
-        std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
-        if (Status st = expr_ctx->eval_inverted_index(iter_map, num_rows(), result_bitmap.get());
-            !st.ok() && st.code() != ErrorCode::NOT_IMPLEMENTED_ERROR) {
-            LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
-                         << expr_ctx->root()->debug_string() << ", error msg: " << st.to_string();
-        } else {
-            // every single result of expr_ctx must be `and` collection relationship
-            _row_bitmap &= *result_bitmap;
+        for (auto expr_ctx : _common_expr_ctxs_push_down) {
+            // _inverted_index_iterators has all column ids which has inverted index
+            // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
+            // if current bitmap is already empty just return
+            if (_row_bitmap.isEmpty()) {
+                break;
+            }
+            std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
+            if (Status st =
+                        expr_ctx->eval_inverted_index(iter_map, num_rows(), result_bitmap.get());
+                !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    // other code is not to be handled, we should just break
+                    LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    break;
+                }
+            } else {
+                // every single result of expr_ctx must be `and` collection relationship
+                _row_bitmap &= *result_bitmap;
+            }
         }
     }
 

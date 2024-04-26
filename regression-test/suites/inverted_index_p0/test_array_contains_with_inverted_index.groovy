@@ -27,6 +27,7 @@ suite("test_array_contains_with_inverted_index"){
 
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table

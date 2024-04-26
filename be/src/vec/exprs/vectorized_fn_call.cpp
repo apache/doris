@@ -155,8 +155,8 @@ Status VectorizedFnCall::eval_inverted_index(
                                          " not found in colid_to_inverted_index_iter");
         }
     } else {
-        return Status::InternalError("we can only eval inverted index for slot ref expr, but got ",
-                                     get_child(0)->expr_name());
+        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
+                                    get_child(0)->expr_name());
     }
     return Status::OK();
 }

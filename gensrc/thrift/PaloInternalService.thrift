@@ -285,7 +285,9 @@ struct TQueryOptions {
   104: optional i64 min_revocable_mem = 0
 
   105: optional i64 spill_streaming_agg_mem_limit = 0;
-  
+  // expr pushdown for index filter rows
+  106: optional bool enable_common_expr_pushdown_for_inverted_index = false;  
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

@@ -115,7 +115,7 @@ public:
             all_rows->addRange(0, num_rows);
             *bitmap = *all_rows - *res;
         } else {
-            return Status::InternalError(
+            return Status::NotSupported(
                     "Compound operator must be AND or OR or Not can execute with inverted index.");
         }
         return Status::OK();
