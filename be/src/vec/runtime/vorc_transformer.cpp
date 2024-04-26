@@ -119,7 +119,6 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VOrcTransformer::open() {
-    LOG(INFO)<<"_schema_str != nullptr: "<<(_schema_str != nullptr);
     if (_schema_str != nullptr) {
         try {
             _schema = orc::Type::buildTypeFromString(*_schema_str);
@@ -149,7 +148,6 @@ Status VOrcTransformer::open() {
 
 std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor& type_descriptor) {
     std::pair<Status, std::unique_ptr<orc::Type>> result;
-    LOG(INFO)<<"type_descriptor: "<<type_descriptor.debug_string()<<" "<<type_descriptor.type;
     switch (type_descriptor.type) {
     case TYPE_BOOLEAN: {
         return orc::createPrimitiveType(orc::BOOLEAN);
@@ -160,10 +158,10 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
     case TYPE_SMALLINT: {
         return orc::createPrimitiveType(orc::SHORT);
     }
+    case TYPE_IPV4:
     case TYPE_INT: {
         return orc::createPrimitiveType(orc::INT);
     }
-    case TYPE_IPV4:
     case TYPE_BIGINT: {
         return orc::createPrimitiveType(orc::LONG);
     }

@@ -1001,7 +1001,6 @@ TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::INT:
         return TypeDescriptor(PrimitiveType::TYPE_INT);
     case orc::TypeKind::LONG:
-        //return TypeDescriptor(PrimitiveType::TYPE_IPV4);
         return TypeDescriptor(PrimitiveType::TYPE_BIGINT);
     case orc::TypeKind::FLOAT:
         return TypeDescriptor(PrimitiveType::TYPE_FLOAT);

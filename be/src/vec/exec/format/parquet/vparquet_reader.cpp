@@ -471,14 +471,10 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     for (auto& col : _missing_cols) {
         missing_cols->insert(col);
     }
-    for (auto& it: *name_to_type) {
-        LOG(INFO)<<"get_columns: "<<it.first<<" "<<it.second.debug_string();
-    }
     return Status::OK();
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    LOG(INFO)<<"ParquetReader::get_next_block: "<<block->dump_structure();
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();
         if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
