@@ -775,6 +775,7 @@ message AlterObjStoreInfoRequest {
         DROP_HDFS_INFO = 101;
         ADD_BUILT_IN_VAULT = 102;
         ADD_S3_VAULT = 103;
+        DROP_S3_VAULT = 104;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
