@@ -62,11 +62,8 @@ struct AggregateFunctionUniqDistributeKeyData {
 
     // TODO: replace SipHash with xxhash to speed up
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
-        UInt128 key;
-        SipHash hash;
-        hash.update(value.data, value.size);
-        hash.get128(key.low, key.high);
-        return key;
+        auto hash_value = XXH_INLINE_XXH128(value.data, value.size, 0);
+        return UInt128 {hash_value.high64, hash_value.low64};
     }
 
     Set set;
@@ -82,7 +79,7 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>(
                       argument_types_) {}
 
-    String get_name() const override { return "uniqExactDistributeKey"; }
+    String get_name() const override { return "multi_distinct_distribute_key"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
