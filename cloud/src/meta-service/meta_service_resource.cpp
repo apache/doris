@@ -529,6 +529,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
         if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
@@ -816,6 +817,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.clear_default_storage_vault_name();
         break;
     }
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
+    [[fallthrough]];
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();

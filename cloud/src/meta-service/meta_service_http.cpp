@@ -209,8 +209,8 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
             {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
-            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_OBJ_INFO},
-            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
+            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
+            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
             {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
             {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
