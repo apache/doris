@@ -373,6 +373,7 @@ int main(int argc, char** argv) {
                 it = paths.erase(it);
             } else {
                 LOG(ERROR) << "read write test file failed, path=" << it->path;
+                // if only one disk and the disk is full, also need exit because rocksdb will open failed
                 exit(-1);
             }
         } else {
