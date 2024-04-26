@@ -818,7 +818,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
-    [[fallthrough]];
+        [[fallthrough]];
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();
