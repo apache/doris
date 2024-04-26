@@ -116,7 +116,7 @@ public class VariableVarConverters {
         @Override
         public String decode(Long value) throws DdlException {
             if (value == Long.MAX_VALUE) {
-                return "DEFAULT";
+                return String.valueOf(Long.MAX_VALUE);
             }
             return String.valueOf(value);
         }
