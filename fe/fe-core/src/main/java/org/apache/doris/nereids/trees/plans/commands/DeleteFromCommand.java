@@ -326,6 +326,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 checkIsNull((IsNull) child);
             } else if (child instanceof ComparisonPredicate) {
                 checkComparisonPredicate((ComparisonPredicate) child);
+            } else if (child instanceof InPredicate) {
+                checkInPredicate((InPredicate) child);
             } else {
                 throw new AnalysisException("Where clause only supports compound predicate,"
                         + " binary predicate, is_null predicate or in predicate. But we meet "
