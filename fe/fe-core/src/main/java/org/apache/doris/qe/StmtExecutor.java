@@ -2698,10 +2698,7 @@ public class StmtExecutor {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-            if (iotStmt.isAutoDetectPartition()) {
-                // insert overwrite table auto detect which partitions need to replace
-                handleAutoOverwritePartition(iotStmt);
-            } else if (iotStmt.getPartitionNames().size() == 0) {
+            if (iotStmt.getPartitionNames().size() == 0) {
                 // insert overwrite table
                 handleOverwriteTable(iotStmt);
             } else if (iotStmt.isAutoDetectPartition()) {
