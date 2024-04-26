@@ -43,16 +43,20 @@ public class ColStatsMeta {
     @SerializedName("trigger")
     public JobType jobType;
 
-    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod,
-            AnalysisType analysisType, JobType jobType, long queriedTimes) {
+    @SerializedName("updatedRows")
+    public long updatedRows;
+
+    @SerializedName("rowCount")
+    public long rowCount;
+
+    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod, AnalysisType analysisType, JobType jobType,
+            long queriedTimes, long rowCount, long updatedRows) {
         this.updatedTime = updatedTime;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.jobType = jobType;
         this.queriedTimes.addAndGet(queriedTimes);
-    }
-
-    public void clear() {
-        updatedTime = 0;
+        this.updatedRows = updatedRows;
+        this.rowCount = rowCount;
     }
 }
