@@ -712,4 +712,149 @@ suite("partition_mv_rewrite_dimension_1") {
 //    }
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${rewriting_mv_name_1};"""
 
+
+    // single table
+    mv_name_1 = "single_tb_mv_1"
+    def single_table_mv_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where l_commitdate like '2023-10-%'
+        """
+
+    create_mv_lineitem(mv_name_1, single_table_mv_stmt_1)
+    job_name_1 = getJobName(db, mv_name_1)
+    waitingMTMVTaskFinished(job_name_1)
+
+    def single_table_query_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where l_commitdate like '2023-10-%'
+        """
+    def single_table_query_stmt_2 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where l_commitdate like '2023-10-%' and l_partkey > 0 + 1
+        """
+
+    explain {
+        sql("${single_table_query_stmt_1}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_1 + " order by 1,2,3")
+
+    explain {
+        sql("${single_table_query_stmt_2}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_2 + " order by 1,2,3")
+
+
+    single_table_mv_stmt_1 = """
+        select sum(o_totalprice) as sum_total, 
+            max(o_totalpricE) as max_total, 
+            min(o_totalprice) as min_total, 
+            count(*) as count_all, 
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+            from orders_1 where o_orderdate >= '2022-10-17' + interval '1' year
+        """
+
+    create_mv_orders(mv_name_1, single_table_mv_stmt_1)
+    job_name_1 = getJobName(db, mv_name_1)
+    waitingMTMVTaskFinished(job_name_1)
+
+    single_table_query_stmt_1 = """
+        select sum(o_totalprice) as sum_total, 
+            max(o_totalpricE) as max_total, 
+            min(o_totalprice) as min_total, 
+            count(*) as count_all, 
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+            from orders_1 where o_orderdate >= '2022-10-17' + interval '1' year 
+        """
+    single_table_query_stmt_2 = """
+        select sum(o_totalprice) as sum_total, 
+            max(o_totalpricE) as max_total, 
+            min(o_totalprice) as min_total, 
+            count(*) as count_all, 
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+            from orders_1 where o_orderdate > '2022-10-17' + interval '1' year 
+        """
+    explain {
+        sql("${single_table_query_stmt_1}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_1 + " order by 1,2,3,4,5,6")
+    explain {
+        sql("${single_table_query_stmt_2}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_2 + " order by 1,2,3,4,5,6")
+
+
+    single_table_mv_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where l_commitdate in (select l_commitdate from lineitem_1) 
+        """
+
+    create_mv_lineitem(mv_name_1, single_table_mv_stmt_1)
+    job_name_1 = getJobName(db, mv_name_1)
+    waitingMTMVTaskFinished(job_name_1)
+
+    single_table_query_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where l_commitdate in (select l_commitdate from lineitem_1) 
+        """
+    explain {
+        sql("${single_table_query_stmt_1}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_1 + " order by 1,2,3")
+
+
+    single_table_mv_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where exists (select l_commitdate from lineitem_1 where l_commitdate like "2023-10-17") 
+        """
+
+    create_mv_lineitem(mv_name_1, single_table_mv_stmt_1)
+    job_name_1 = getJobName(db, mv_name_1)
+    waitingMTMVTaskFinished(job_name_1)
+
+    single_table_query_stmt_1 = """
+        select l_Shipdate, l_partkey, l_suppkey 
+        from lineitem_1 
+        where exists (select l_commitdate from lineitem_1 where l_commitdate like "2023-10-17") 
+        """
+    explain {
+        sql("${single_table_query_stmt_1}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_1 + " order by 1,2,3")
+
+
+    single_table_mv_stmt_1 = """
+        select t.l_Shipdate, t.l_partkey, t.l_suppkey 
+        from (select * from lineitem_1) as t   
+        where exists (select l_commitdate from lineitem_1 where l_commitdate like "2023-10-17") 
+        """
+
+    create_mv_lineitem(mv_name_1, single_table_mv_stmt_1)
+    job_name_1 = getJobName(db, mv_name_1)
+    waitingMTMVTaskFinished(job_name_1)
+
+    single_table_query_stmt_1 = """
+        select t.l_Shipdate, t.l_partkey, t.l_suppkey 
+        from (select * from lineitem_1) as t   
+        where exists (select l_commitdate from lineitem_1 where l_commitdate like "2023-10-17") 
+        """
+    explain {
+        sql("${single_table_query_stmt_1}")
+        contains "${mv_name_1}(${mv_name_1})"
+    }
+    compare_res(single_table_query_stmt_1 + " order by 1,2,3")
 }
