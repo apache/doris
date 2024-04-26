@@ -101,6 +101,25 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
                                  node_id, print_id(fragment_instance_id));
 }
 
+bool VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
+    VLOG_ROW << "looking up fragment_instance_id=" << print_id(fragment_instance_id)
+             << ", node=" << node_id;
+    size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    std::unique_lock recvr_lock(_lock, std::defer_lock);
+    recvr_lock.lock();
+    std::pair<StreamMap::iterator, StreamMap::iterator> range =
+            _receiver_map.equal_range(hash_value);
+    while (range.first != range.second) {
+        auto recvr = range.first->second;
+        if (recvr->fragment_instance_id() == fragment_instance_id &&
+            recvr->dest_node_id() == node_id) {
+            return true;
+        }
+        ++range.first;
+    }
+    return false;
+}
+
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
                                       ::google::protobuf::Closure** done) {
     const PUniqueId& finst_id = request->finst_id();

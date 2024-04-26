@@ -241,6 +241,7 @@ public:
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
+    bool is_ready_to_execute() override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;

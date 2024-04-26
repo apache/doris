@@ -68,6 +68,8 @@ public:
                              const std::function<void(RuntimeState*, Status*)>& call_back,
                              const report_status_callback& report_status_cb);
 
+    void wait_for_local_channel();
+
     ~PipelineXFragmentContext() override;
 
     void instance_ids(std::vector<TUniqueId>& ins_ids) const override {

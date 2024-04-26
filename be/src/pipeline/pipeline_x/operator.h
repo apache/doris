@@ -618,6 +618,7 @@ public:
     }
 
     [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
+    [[nodiscard]] virtual bool is_ready_to_execute() { return true; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
