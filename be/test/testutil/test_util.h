@@ -28,9 +28,8 @@ struct TestCaseInfo {
     inline static int arg_size {};
 };
 
-
 //"Rewrite the virtual functions of the gtest framework to enable listening to test events.
-// If a test fails, output the constant conditions of the corresponding data case number and parameters 
+// If a test fails, output the constant conditions of the corresponding data case number and parameters
 // that caused the failure."
 struct TestListener : public ::testing::EmptyTestEventListener {
     void OnTestPartResult(const ::testing::TestPartResult& test_part_result) override {
@@ -41,7 +40,7 @@ struct TestListener : public ::testing::EmptyTestEventListener {
             }
             for (int i = 0; i < TestCaseInfo::arg_size; i++) {
                 if ((1 << i) & TestCaseInfo::arg_const_info) {
-                    std::cout << "const arg" << i + 1 <<" ";
+                    std::cout << "const arg" << i + 1 << " ";
                 } else {
                     std::cout << "arg" << i + 1 << " ";
                 }
