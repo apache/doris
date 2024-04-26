@@ -64,7 +64,7 @@ suite("default_vault") {
         def name = vaults_info[i][0]
         if (name.equals("create_s3_vault_for_default")) {
             // isDefault is true
-            assertTrue(vaults_info[i][3])
+            assertEquals(vaults_info[i][3], "true")
         }
     }
 

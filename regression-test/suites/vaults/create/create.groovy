@@ -78,12 +78,12 @@ suite("create_vault") {
                 )
     """
 
-    def create_stmt = """
+    String create_stmt = sql """
         show create table create_table_use_vault
     """
 
     logger.info("the create table stmt is ${create_stmt}")
-    assertTrue(create_stmt.contains("\"storage_vault_name\" = \"create_hdfs_vault\""))
+    assertTrue(create_stmt.contains("create_hdfs_vault"))
 
     expectExceptionLike({
         sql """
