@@ -361,9 +361,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         }
         auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::TaskScheduler>(
-                        exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
-                        "Pipe_" + tg_name, cg_cpu_ctl_ptr);
+                std::make_unique<pipeline::TaskScheduler>(exec_env, std::move(task_queue),
+                                                          "Pipe_" + tg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);

@@ -364,15 +364,10 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler =
-            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
-    _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
+    _without_group_task_scheduler =
+            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
-    RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -627,10 +622,8 @@ void ExecEnv::destroy() {
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
-    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
-    SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);

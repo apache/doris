@@ -22,12 +22,9 @@
 
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "vec//utils/util.hpp"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),

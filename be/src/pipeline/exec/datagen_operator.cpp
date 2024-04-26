@@ -23,26 +23,12 @@
 #include "util/runtime_profile.h"
 #include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 #include "vec/exec/data_gen_functions/vnumbers_tvf.h"
-#include "vec/exec/vdata_gen_scan_node.h"
 
 namespace doris {
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(DataGenOperator, SourceOperator)
-
-Status DataGenOperator::open(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::open(state));
-    return _node->open(state);
-}
-
-Status DataGenOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::close(state));
-    RETURN_IF_ERROR(_node->close(state));
-    return Status::OK();
-}
 
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)

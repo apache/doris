@@ -28,8 +28,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(HashJoinBuildSink, StreamingOperator)
-
 template <typename... Callables>
 struct Overload : Callables... {
     using Callables::operator()...;

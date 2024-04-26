@@ -24,8 +24,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
-
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
