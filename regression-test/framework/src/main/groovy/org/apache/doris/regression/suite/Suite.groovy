@@ -221,6 +221,20 @@ class Suite implements GroovyInterceptable {
         }
 
         boolean dockerIsCloud = false
+        boolean pipelineIsCloud = isCloudMode()
+        if (options.cloudMode == null) {
+            dockerIsCloud = pipelineIsCloud
+        } else {
+            dockerIsCloud = options.cloudMode
+            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+                return
+            }
+        }
+
+        if (dockerIsCloud) {
+            return
+        }
+
         try {
             cluster.destroy(true)
             cluster.init(options, dockerIsCloud)
