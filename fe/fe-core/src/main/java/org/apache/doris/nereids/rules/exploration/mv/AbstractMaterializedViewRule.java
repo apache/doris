@@ -107,7 +107,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (checkIfRewritten(queryPlan, context)) {
                 continue;
             }
-            context.tryReGenerateMvScanPlan(cascadesContext);
             // check mv plan is valid or not
             if (!checkPattern(context.getStructInfo())) {
                 context.recordFailReason(context.getStructInfo(),
@@ -321,6 +320,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
+            // if rewrite successfully, try to regenerate mv scan because it maybe used again
+            materializationContext.tryReGenerateMvScanPlan(cascadesContext);
             rewriteResults.add(rewrittenPlan);
         }
         return rewriteResults;

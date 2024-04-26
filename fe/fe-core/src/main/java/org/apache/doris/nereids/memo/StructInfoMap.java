@@ -113,7 +113,8 @@ public class StructInfoMap {
      *
      */
     public void refresh(Group group, long memoVersion) {
-        if (memoVersion == group.getstructInfoMap().refreshVersion) {
+        StructInfoMap structInfoMap = group.getstructInfoMap();
+        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
         Set<Integer> refreshedGroup = new HashSet<>();
