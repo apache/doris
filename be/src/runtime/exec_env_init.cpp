@@ -212,6 +212,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_send_table_stats_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadPollerThreadPool")
+                              .set_abbrev_name("S3DownPoller")
                               .set_min_threads(4)
                               .set_max_threads(16)
                               .build(&_s3_downloader_download_poller_thread_pool));
@@ -249,11 +250,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_lazy_release_obj_pool));
 
     static_cast<void>(ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+                              .set_abbrev_name("SyncLoad")
                               .set_max_threads(config::sync_load_for_tablets_thread)
                               .set_min_threads(config::sync_load_for_tablets_thread)
                               .build(&_sync_load_for_tablets_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadThreadPool")
+                              .set_abbrev_name("S3Download")
                               .set_min_threads(16)
                               .set_max_threads(64)
                               .build(&_s3_downloader_download_thread_pool));
