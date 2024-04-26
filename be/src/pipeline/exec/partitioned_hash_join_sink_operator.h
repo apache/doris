@@ -29,7 +29,6 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {

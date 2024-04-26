@@ -21,33 +21,8 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "vec/exec/vset_operation_node.h"
-
-namespace doris {
-class ExecNode;
-} // namespace doris
 
 namespace doris::pipeline {
-
-template <bool is_intersect>
-SetSourceOperatorBuilder<is_intersect>::SetSourceOperatorBuilder(int32_t id, ExecNode* set_node)
-        : OperatorBuilder<vectorized::VSetOperationNode<is_intersect>>(id, builder_name, set_node) {
-}
-
-template <bool is_intersect>
-OperatorPtr SetSourceOperatorBuilder<is_intersect>::build_operator() {
-    return std::make_shared<SetSourceOperator<is_intersect>>(this, this->_node);
-}
-
-template <bool is_intersect>
-SetSourceOperator<is_intersect>::SetSourceOperator(
-        OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : SourceOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
-
-template class SetSourceOperatorBuilder<true>;
-template class SetSourceOperatorBuilder<false>;
-template class SetSourceOperator<true>;
-template class SetSourceOperator<false>;
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {

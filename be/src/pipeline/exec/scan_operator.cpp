@@ -45,39 +45,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
-
-bool ScanOperator::can_read() {
-    if (!_node->_opened) {
-        return _node->_should_create_scanner || _node->ready_to_open();
-    } else {
-        // If scanner meet any error, done == true
-        if (_node->_eos || _node->_scanner_ctx->done()) {
-            // _eos: need eos
-            // _scanner_ctx->done(): need finish
-            // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
-            return true;
-        } else {
-            return _node->ready_to_read(); // there are some blocks to process
-        }
-    }
-}
-
-bool ScanOperator::runtime_filters_are_ready_or_timeout() {
-    return _node->runtime_filters_are_ready_or_timeout();
-}
-
-std::string ScanOperator::debug_string() const {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
-                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
-    if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", scanner ctx detail = {}",
-                       _node->_scanner_ctx->debug_string());
-    }
-    return fmt::to_string(debug_string_buffer);
-}
-
 #define RETURN_IF_PUSH_DOWN(stmt, status)                           \
     if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE) { \
         status = stmt;                                              \

@@ -20,10 +20,9 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)

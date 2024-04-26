@@ -22,25 +22,12 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vrepeat_node.h"
 
 namespace doris {
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
-
-Status RepeatOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_child_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status RepeatOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
 
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),

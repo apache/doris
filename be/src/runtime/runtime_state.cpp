@@ -141,7 +141,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
             query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
-RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                            const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
