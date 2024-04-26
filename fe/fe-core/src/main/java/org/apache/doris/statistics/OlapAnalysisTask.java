@@ -64,6 +64,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         // For empty table, write empty result directly, no need to run SQL to collect stats.
         if (info.rowCount == 0 && tableSample != null) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,

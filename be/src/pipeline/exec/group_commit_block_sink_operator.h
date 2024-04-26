@@ -21,27 +21,7 @@
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/group_commit_block_sink.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class GroupCommitBlockSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::GroupCommitBlockSink> {
-public:
-    GroupCommitBlockSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "GroupCommitBlockSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class GroupCommitBlockSinkOperator final
-        : public DataSinkOperator<vectorized::GroupCommitBlockSink> {
-public:
-    GroupCommitBlockSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return true; } // TODO: need use mem_limit
-};
+namespace doris::pipeline {
 
 class GroupCommitBlockSinkOperatorX;
 class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -122,5 +102,4 @@ private:
     TGroupCommitMode::type _group_commit_mode;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

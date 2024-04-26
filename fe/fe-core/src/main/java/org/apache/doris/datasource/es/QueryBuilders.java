@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.format.DateTimeFormat;
@@ -137,6 +138,15 @@ public final class QueryBuilders {
             case EQ_FOR_NULL:
                 return QueryBuilders.termQuery(column, value);
             case NE:
+                // col != '' means col.length() > 0 in SQL syntax.
+                // The `NULL` value should not present in results.
+                // It equals
+                // '{"bool":{"must":{"bool":{"must_not":{"term":{"col":""}},"must":{"exists":{"field":"col"}}}}}}'
+                // in Elasticsearch
+                if (value instanceof String && StringUtils.isEmpty((String) value)) {
+                    return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value))
+                        .must(QueryBuilders.existsQuery(column));
+                }
                 return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value));
             case GE:
                 return QueryBuilders.rangeQuery(column).gte(value);
