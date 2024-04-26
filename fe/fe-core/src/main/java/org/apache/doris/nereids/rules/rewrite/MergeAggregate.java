@@ -146,7 +146,7 @@ public class MergeAggregate implements RewriteRuleFactory {
                         (existValue, newValue) -> existValue));
         Set<AggregateFunction> aggregateFunctions = outerAgg.getAggregateFunctions();
         List<AggregateFunction> replacedAggFunctions = projectOptional.map(project ->
-                (List<AggregateFunction>) PlanUtils.replaceExpressionByProjections(
+                (List<AggregateFunction>) (List) PlanUtils.replaceExpressionByProjections(
                 projectOptional.get().getProjects(), new ArrayList<>(aggregateFunctions)))
                 .orElse(new ArrayList<>(aggregateFunctions));
         for (AggregateFunction outerFunc : replacedAggFunctions) {
