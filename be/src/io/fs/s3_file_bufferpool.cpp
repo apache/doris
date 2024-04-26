@@ -128,27 +128,10 @@ std::ostream& operator<<(std::ostream& os, const BufferType& value) {
     return os;
 }
 
-/**
- * submit the on_download() task to executor
- */
-static Status submit_download_buffer(std::shared_ptr<FileBuffer> buffer) {
-    // Currently download file buffer is only served for cache prefetching
-    // so we just skip executing the download task when file cache is not enabled
-    if (!config::enable_file_cache) [[unlikely]] {
-        LOG(INFO) << "Skip download file task because file cache is not enabled";
-        return Status::InternalError("Download failed because file cache not enabled");
-    }
-    return ExecEnv::GetInstance()->s3_downloader_download_thread_pool()->submit_func(
-            [buf = std::move(buffer)]() { buf->execute_async(); });
-}
-
 Status FileBuffer::submit(std::shared_ptr<FileBuffer> buf) {
     switch (buf->_type) {
     case BufferType::UPLOAD:
         return submit_upload_buffer(std::move(buf));
-        break;
-    case BufferType::DOWNLOAD:
-        return submit_download_buffer(std::move(buf));
         break;
     default:
         CHECK(false) << "should never come here, the illegal type is " << buf->_type;

@@ -56,7 +56,7 @@ public:
                                    const TCheckWarmUpCacheAsyncRequest& request) override;
 
 private:
-    [[maybe_unused]] CloudStorageEngine& _engine;
+    CloudStorageEngine& _engine;
 };
 
 } // namespace doris

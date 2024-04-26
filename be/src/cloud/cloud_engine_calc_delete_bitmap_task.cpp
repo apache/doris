@@ -64,7 +64,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to calculate delete bitmap. transaction_id=" << transaction_id;
     std::unique_ptr<ThreadPoolToken> token =
-            _engine.calc_tablet_delete_bitmap_task_thread_pool()->new_token(
+            _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
 
     for (const auto& partition : _cal_delete_bitmap_req.partitions) {

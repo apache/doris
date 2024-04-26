@@ -197,8 +197,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 #ifndef BE_TEST
                 // Warmup rowset data in background
                 for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                    io::S3FileMeta download_file_meta;
-                    auto rowset_meta = rs->rowset_meta();
+                    const auto& rowset_meta = rs->rowset_meta();
                     constexpr int64_t interval = 600; // 10 mins
                     // When BE restart and receive the `load_sync` rpc, it will sync all historical rowsets first time.
                     // So we need to filter out the old rowsets avoid to download the whole table.
@@ -206,17 +205,31 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         ::time(nullptr) - rowset_meta->newest_write_timestamp() >= interval) {
                         continue;
                     }
-                    download_file_meta.file_size = 0;
-                    download_file_meta.file_system = rowset_meta->fs();
-                    download_file_meta.path = io::Path(rs->segment_file_path(seg_id));
-                    download_file_meta.expiration_time =
+
+                    auto fs = rowset_meta->fs();
+                    if (!fs) {
+                        LOG(WARNING) << "failed to get fs. tablet_id=" << tablet_id()
+                                     << " rowset_id=" << rowset_meta->rowset_id()
+                                     << " resource_id=" << rowset_meta->resource_id();
+                        continue;
+                    }
+
+                    int64_t expiration_time =
                             _tablet_meta->ttl_seconds() == 0 ||
                                             rowset_meta->newest_write_timestamp() <= 0
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
-                    io::FileCacheBlockDownloader::instance()->submit_download_task(
-                            std::move(download_file_meta));
+                    _engine.file_cache_block_downloader().submit_download_task(
+                            io::DownloadFileMeta {
+                                    .path = rs->segment_file_path(seg_id),
+                                    .file_size = rs->rowset_meta()->segment_file_size(seg_id),
+                                    .file_system = std::move(fs),
+                                    .ctx =
+                                            {
+                                                    .expiration_time = expiration_time,
+                                            },
+                            });
                 }
 #endif
             }

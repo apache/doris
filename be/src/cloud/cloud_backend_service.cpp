@@ -72,12 +72,12 @@ void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
             }
         });
     };
-    static_cast<void>(_exec_env->sync_load_for_tablets_thread_pool()->submit_func(std::move(f)));
+    static_cast<void>(_engine.sync_load_for_tablets_thread_pool().submit_func(std::move(f)));
 }
 
 void CloudBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
                                                    const TGetTopNHotPartitionsRequest& request) {
-    TabletHotspot::instance()->get_top_n_hot_partition(&response.hot_tables);
+    _engine.tablet_hotspot().get_top_n_hot_partition(&response.hot_tables);
     response.file_cache_size = io::FileCacheFactory::instance()->get_capacity();
     response.__isset.hot_tables = !response.hot_tables.empty();
 }
@@ -85,13 +85,13 @@ void CloudBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse
 void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                           const TWarmUpTabletsRequest& request) {
     Status st;
-    auto* manager = CloudWarmUpManager::instance();
+    auto& manager = _engine.cloud_warm_up_manager();
     switch (request.type) {
     case TWarmUpTabletsRequestType::SET_JOB: {
         LOG_INFO("receive the warm up request.")
                 .tag("request_type", "SET_JOB")
                 .tag("job_id", request.job_id);
-        st = manager->check_and_set_job_id(request.job_id);
+        st = manager.check_and_set_job_id(request.job_id);
         if (!st) {
             LOG_WARNING("SET_JOB failed.").error(st);
             break;
@@ -105,9 +105,9 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                 .tag("batch_id", request.batch_id)
                 .tag("jobs size", request.job_metas.size());
         bool retry = false;
-        st = manager->check_and_set_batch_id(request.job_id, request.batch_id, &retry);
+        st = manager.check_and_set_batch_id(request.job_id, request.batch_id, &retry);
         if (!retry && st) {
-            manager->add_job(request.job_metas);
+            manager.add_job(request.job_metas);
         } else {
             if (retry) {
                 LOG_WARNING("retry the job.")
@@ -121,7 +121,7 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
     }
     case TWarmUpTabletsRequestType::GET_CURRENT_JOB_STATE_AND_LEASE: {
         auto [job_id, batch_id, pending_job_size, finish_job_size] =
-                manager->get_current_job_state();
+                manager.get_current_job_state();
         LOG_INFO("receive the warm up request.")
                 .tag("request_type", "GET_CURRENT_JOB_STATE_AND_LEASE")
                 .tag("job_id", job_id)
@@ -138,7 +138,7 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
         LOG_INFO("receive the warm up request.")
                 .tag("request_type", "CLEAR_JOB")
                 .tag("job_id", request.job_id);
-        st = manager->clear_job(request.job_id);
+        st = manager.clear_job(request.job_id);
         break;
     }
     default:
@@ -165,12 +165,8 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     PGetFileCacheMetaResponse brpc_response;
     brpc_stub->get_file_cache_meta_by_tablet_id(&cntl, &brpc_request, &brpc_response, nullptr);
     if (!cntl.Failed()) {
-        std::vector<FileCacheBlockMeta> metas;
-        std::transform(brpc_response.file_cache_block_metas().cbegin(),
-                       brpc_response.file_cache_block_metas().cend(), std::back_inserter(metas),
-                       [](const FileCacheBlockMeta& meta) { return meta; });
-        io::DownloadTask download_task(std::move(metas));
-        io::FileCacheBlockDownloader::instance()->submit_download_task(download_task);
+        _engine.file_cache_block_downloader().submit_download_task(
+                std::move(*brpc_response.mutable_file_cache_block_metas()));
     } else {
         st = Status::RpcError("{} isn't connected", brpc_addr);
     }
@@ -181,7 +177,7 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
 void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
                                                     const TCheckWarmUpCacheAsyncRequest& request) {
     std::map<int64_t, bool> task_done;
-    io::FileCacheBlockDownloader::instance()->check_download_task(request.tablets, &task_done);
+    _engine.file_cache_block_downloader().check_download_task(request.tablets, &task_done);
     response.__set_task_done(task_done);
 
     Status st = Status::OK();

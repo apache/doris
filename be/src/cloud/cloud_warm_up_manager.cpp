@@ -34,10 +34,6 @@
 
 namespace doris {
 
-CloudWarmUpManager* CloudWarmUpManager::instance() {
-    return ExecEnv::GetInstance()->cloud_warm_up_manager();
-}
-
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
 }
@@ -81,27 +77,41 @@ void CloudWarmUpManager::handle_jobs() {
             auto rs_metas = tablet_meta->snapshot_rs_metas();
             for (auto& [_, rs] : rs_metas) {
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    io::S3FileMeta download_file_meta;
-                    download_file_meta.file_system = rs->fs();
-                    std::string seg_path = BetaRowset::remote_segment_path(rs->tablet_id(),
-                                                                           rs->rowset_id(), seg_id);
-                    download_file_meta.path = seg_path;
-                    download_file_meta.expiration_time =
+                    auto fs = rs->fs();
+                    if (!fs) {
+                        LOG(WARNING) << "failed to get fs. tablet_id=" << tablet_id
+                                     << " rowset_id=" << rs->rowset_id()
+                                     << " resource_id=" << rs->resource_id();
+                        continue;
+                    }
+
+                    int64_t expiration_time =
                             tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
                                     ? 0
                                     : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                    if (download_file_meta.expiration_time <= UnixSeconds()) {
-                        download_file_meta.expiration_time = 0;
+                    if (expiration_time <= UnixSeconds()) {
+                        expiration_time = 0;
                     }
-                    download_file_meta.download_callback = [=](Status st) {
-                        if (!st) {
-                            LOG_WARNING("Warm up error ").error(st);
-                        }
-                        wait->signal();
-                    };
+
                     wait->add_count();
-                    io::FileCacheBlockDownloader::instance()->submit_download_task(
-                            std::move(download_file_meta));
+                    _engine.file_cache_block_downloader().submit_download_task(
+                            io::DownloadFileMeta {
+                                    .path = BetaRowset::remote_segment_path(
+                                            rs->tablet_id(), rs->rowset_id(), seg_id),
+                                    .file_size = rs->segment_file_size(seg_id),
+                                    .file_system = std::move(fs),
+                                    .ctx =
+                                            {
+                                                    .expiration_time = expiration_time,
+                                            },
+                                    .download_done =
+                                            [wait](Status st) {
+                                                if (!st) {
+                                                    LOG_WARNING("Warm up error ").error(st);
+                                                }
+                                                wait->signal();
+                                            },
+                            });
                 }
             }
             if (!wait->wait()) {

@@ -26,16 +26,15 @@
 
 namespace doris {
 
-void TabletHotspot::count(const BaseTabletSPtr& tablet) {
-    if (!config::is_cloud_mode()) return;
-    size_t slot_idx = tablet->tablet_id() % s_slot_size;
+void TabletHotspot::count(const BaseTablet& tablet) {
+    size_t slot_idx = tablet.tablet_id() % s_slot_size;
     auto& slot = _tablets_hotspot[slot_idx];
     std::lock_guard lock(slot.mtx);
     HotspotCounterPtr counter;
-    if (auto iter = slot.map.find(tablet->tablet_id()); iter == slot.map.end()) {
-        counter = std::make_shared<HotspotCounter>(tablet->table_id(), tablet->index_id(),
-                                                   tablet->partition_id());
-        slot.map.insert(std::make_pair(tablet->tablet_id(), counter));
+    if (auto iter = slot.map.find(tablet.tablet_id()); iter == slot.map.end()) {
+        counter = std::make_shared<HotspotCounter>(tablet.table_id(), tablet.index_id(),
+                                                   tablet.partition_id());
+        slot.map.insert(std::make_pair(tablet.tablet_id(), counter));
     } else {
         counter = iter->second;
     }
@@ -70,10 +69,6 @@ struct TabletHotspotMapValue {
 };
 
 using TabletHotspotMapKey = std::pair<int64_t, int64_t>;
-
-TabletHotspot* TabletHotspot::instance() {
-    return ExecEnv::GetInstance()->tablet_hotspot();
-}
 
 void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables) {
     // map<pair<table_id, index_id>, map<partition_id, value>> for day
