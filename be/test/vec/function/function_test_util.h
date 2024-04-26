@@ -38,7 +38,6 @@
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
-#include "testutil/test_util.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
@@ -298,10 +297,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     EXPECT_TRUE(column != nullptr);
 
     for (int i = 0; i < row_size; ++i) {
-        // update current line
-        if (row_size > 1) {
-            TestCaseInfo::cur_cast_line = i;
-        }
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
                 const auto& expect_data = any_cast<String>(data_set[i].second);
@@ -371,10 +366,8 @@ template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
                                  const DataSet& data_set) {
     int arg_cnt = base_set.size();
-    TestCaseInfo::arg_size = arg_cnt;
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
     for (int i = 0; i < (1 << arg_cnt); i++) {
-        TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
         InputTypeSet input_types {};
         for (int j = 0; j < arg_cnt; j++) {
             if ((1 << j) & i) {
@@ -384,12 +377,9 @@ void check_function_all_arg_comb(const std::string& func_name, const BaseInputTy
             }
         }
 
-        TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
         // exists parameter are const
         if (i != 0) {
-            int cur_case = 0;
             for (const auto& line : data_set) {
-                TestCaseInfo::cur_cast_line = cur_case++;
                 DataSet tmp_set {line};
                 static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
                                                                        tmp_set, false));
