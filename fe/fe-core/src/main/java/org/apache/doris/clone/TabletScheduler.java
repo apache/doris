@@ -413,6 +413,7 @@ public class TabletScheduler extends MasterDaemon {
                     Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                     // discard
                     stat.counterTabletScheduledDiscard.incrementAndGet();
+                    tabletCtx.setSchedFailedCode(e.getSubCode());
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
                 }
                 continue;

@@ -424,6 +424,18 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.errMsg = errMsg;
     }
 
+    public String getErrMsg() {
+        return errMsg;
+    }
+
+    public SubCode getSchedFailedCode() {
+        return schedFailedCode;
+    }
+
+    public void setSchedFailedCode(SubCode code) {
+        schedFailedCode = code;
+    }
+
     public CloneTask getCloneTask() {
         return cloneTask;
     }
