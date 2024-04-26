@@ -91,4 +91,6 @@ suite("test_bitmap_filter_nereids") {
         sql " select k1, k2 from (select 2 k1, 2 k2) t where k1 in (select k2 from bitmap_table_nereids)"
         notContains "RF000[bitmap]"
     }  
+    sql "set parallel_pipeline_task_num=6;"
+    qt_sql1 "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) order by k1;"
 }
