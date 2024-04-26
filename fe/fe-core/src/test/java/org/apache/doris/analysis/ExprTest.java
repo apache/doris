@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -269,5 +270,14 @@ public class ExprTest {
         // 3. delete files
         dis.close();
         file.delete();
+    }
+
+    @Test
+    public void testGson() {
+        IntLiteral intLiteral = new IntLiteral(3);
+        String json = GsonUtils.GSON.toJson(intLiteral, Expr.class);
+        Expr expr = GsonUtils.GSON.fromJson(json, Expr.class);
+        Assert.assertTrue(expr instanceof IntLiteral);
+        Assert.assertEquals(intLiteral, expr);
     }
 }
