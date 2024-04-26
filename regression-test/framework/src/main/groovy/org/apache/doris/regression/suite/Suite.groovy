@@ -778,7 +778,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+        return false
     }
 
     String getFeConfig(String key) {
