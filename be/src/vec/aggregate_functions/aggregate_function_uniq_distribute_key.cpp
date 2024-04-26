@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/aggregate_functions/aggregate_function_uniq_without_key.h"
+#include "vec/aggregate_functions/aggregate_function_uniq_distribute_key.h"
 
 #include <string>
 
