@@ -127,9 +127,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .collect(ImmutableList.toImmutableList());
 
         // replace the arguments of grouping scalar function to virtual slots
-        // replace some complex expression to slot, e.g. `a + 1`
-        List<NamedExpression> normalizedAggOutput = context.normalizeToUseSlotRef(
-                        repeat.getOutputExpressions(), this::normalizeGroupingScalarFunction);
+        List<NamedExpression> normalizedAggOutput = repeat.getOutputExpressions().stream()
+                .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
+                        e -> normalizeGroupingScalarFunction(context, e)))
+                .collect(Collectors.toList());
 
         Set<VirtualSlotReference> virtualSlotsInFunction =
                 ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
