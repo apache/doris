@@ -2406,10 +2406,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy_src`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 LOCATION
@@ -2423,10 +2421,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
@@ -2437,10 +2433,9 @@ CREATE TABLE `all_partition_types2_orc_zlib`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
+
