@@ -578,10 +578,7 @@ private:
 
     int64_t _io_error_times = 0;
 
-    // Check if full compaction is running in this tablet. We do not need to usd atomic because
-    // only one full compaction can run at the same time in one tablet. we set it to true
-    // at the beginning, set to false in the end. There is no race.
-    bool _is_full_compaction_running = false;
+    std::atomic_bool _is_full_compaction_running = false;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
