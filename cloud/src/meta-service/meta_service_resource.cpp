@@ -757,6 +757,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             vault.mutable_obj_info()->MergeFrom(last_item);
             auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
             txn->put(vault_key, vault.SerializeAsString());
+            if (request->has_set_as_default_storage_vault() &&
+                request->set_as_default_storage_vault()) {
+                instance.set_default_storage_vault_id(vault.id());
+                instance.set_default_storage_vault_name(vault.name());
+            }
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -764,6 +769,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
+        }
+        if (request->has_set_as_default_storage_vault() &&
+            request->set_as_default_storage_vault()) {
+            instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
+            instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
         break;
     }
