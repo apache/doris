@@ -81,6 +81,7 @@ import javax.annotation.Nullable;
  */
 public class StructInfo {
     public static final PlanPatternChecker PLAN_PATTERN_CHECKER = new PlanPatternChecker();
+    public static final ScanPlanPatternChecker SCAN_PLAN_PATTERN_CHECKER = new ScanPlanPatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -589,6 +590,65 @@ public class StructInfo {
                     || plan instanceof Join
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
+                    || plan instanceof GroupPlan) {
+                return doVisit(plan, checkContext);
+            }
+            return false;
+        }
+
+        private Boolean doVisit(Plan plan, PlanCheckContext checkContext) {
+            for (Plan child : plan.children()) {
+                boolean valid = child.accept(this, checkContext);
+                if (!valid) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    /**
+     * ScanPlanPatternChecker, this is used to check the plan pattern is valid or not
+     */
+    public static class ScanPlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
+        @Override
+        public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+                PlanCheckContext checkContext) {
+            checkContext.setAlreadyMeetJoin(true);
+            if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
+                return false;
+            }
+            if (!join.getOtherJoinConjuncts().isEmpty()) {
+                return false;
+            }
+            return visit(join, checkContext);
+        }
+
+        @Override
+        public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+                PlanCheckContext checkContext) {
+            if (!checkContext.isAlreadyMeetJoin()) {
+                checkContext.setContainsTopAggregate(true);
+                checkContext.plusTopAggregateNum();
+            }
+            if (aggregate.getSourceRepeat().isPresent()) {
+                return false;
+            }
+            return visit(aggregate, checkContext);
+        }
+
+        @Override
+        public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
+            return groupPlan.getGroup().getLogicalExpressions().stream()
+                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, checkContext));
+        }
+
+        @Override
+        public Boolean visit(Plan plan, PlanCheckContext checkContext) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
+                    || plan instanceof LogicalSort
                     || plan instanceof GroupPlan) {
                 return doVisit(plan, checkContext);
             }
