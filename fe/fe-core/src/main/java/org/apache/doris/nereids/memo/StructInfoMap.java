@@ -59,7 +59,7 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, memo.getRefreshVersion(), foldTableMap);
+            refresh(group, memo.getRefreshVersion());
             group.getstructInfoMap().setRefreshVersion(memo.getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
@@ -118,7 +118,10 @@ public class StructInfoMap {
      * @param group the root group
      *
      */
-    public void refresh(Group group, long refreshVersion, BitSet targetBitSet) {
+    public void refresh(Group group, long memoVersion) {
+        if (memoVersion == group.getstructInfoMap().refreshVersion) {
+            return;
+        }
         Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
@@ -129,10 +132,9 @@ public class StructInfoMap {
             }
             for (Group child : groupExpression.children()) {
                 StructInfoMap childStructInfoMap = child.getstructInfoMap();
-                if (!refreshedGroup.contains(child.getGroupId().asInt())
-                        && refreshVersion != childStructInfoMap.getRefreshVersion()) {
-                    childStructInfoMap.refresh(child, refreshVersion, targetBitSet);
-                    childStructInfoMap.setRefreshVersion(refreshVersion);
+                if (!refreshedGroup.contains(child.getGroupId().asInt())) {
+                    childStructInfoMap.refresh(child, memoVersion);
+                    childStructInfoMap.setRefreshVersion(memoVersion);
                 }
                 refreshedGroup.add(child.getGroupId().asInt());
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());

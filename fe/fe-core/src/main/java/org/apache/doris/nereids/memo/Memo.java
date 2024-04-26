@@ -416,7 +416,9 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         // TODO Support sync materialized view in the future
-        if (plan instanceof CatalogRelation && ((CatalogRelation) plan).getTable() instanceof MTMV) {
+        if (plan instanceof LogicalPlan && plan instanceof CatalogRelation
+                && ((CatalogRelation) plan).getTable() instanceof MTMV
+                && !plan.getGroupExpression().isPresent()) {
             refreshVersion.incrementAndGet();
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
