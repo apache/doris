@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_with_large_dataset"){
+suite("test_array_with_large_dataset", "p2"){
 
     def StreamLoad = {tableName, fileName ->
         streamLoad {
