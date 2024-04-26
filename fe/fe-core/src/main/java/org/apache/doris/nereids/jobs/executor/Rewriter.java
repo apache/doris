@@ -43,8 +43,8 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
-import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -417,7 +417,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Push project and filter on cte consumer to cte producer",
                     topDown(
                             new CollectFilterAboveConsumer(),
-                            new CollectProjectAboveConsumer()
+                            new CollectCteConsumerOutput()
                     )
             )
     );
