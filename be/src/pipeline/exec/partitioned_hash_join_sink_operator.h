@@ -24,9 +24,9 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h" // LocalExchangeChannelIds
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/runtime/partitioner.h"
+#include "vec/sink/vdata_stream_sender.h" // ShuffleChannelIds
 
 namespace doris {
 class ExecNode;
@@ -34,7 +34,7 @@ class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>;
 
 class PartitionedHashJoinSinkOperatorX;
 
