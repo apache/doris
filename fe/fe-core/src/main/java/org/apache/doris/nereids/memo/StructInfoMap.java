@@ -48,12 +48,10 @@ public class StructInfoMap {
      * get struct info according to table map
      *
      * @param tableMap the original table map
-     * @param foldTableMap the fold table map
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(Memo memo, BitSet tableMap, BitSet foldTableMap,
-            Group group, Plan originPlan) {
+    public @Nullable StructInfo getStructInfo(Memo memo, BitSet tableMap, Group group, Plan originPlan) {
         StructInfo structInfo = infoMap.get(tableMap);
         if (structInfo != null) {
             return structInfo;
@@ -82,10 +80,6 @@ public class StructInfoMap {
 
     public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap) {
         return groupExpressionMap.get(tableMap);
-    }
-
-    public long getRefreshVersion() {
-        return refreshVersion;
     }
 
     public void setRefreshVersion(long refreshVersion) {
@@ -119,7 +113,8 @@ public class StructInfoMap {
      *
      */
     public void refresh(Group group, long memoVersion) {
-        if (memoVersion == group.getstructInfoMap().refreshVersion) {
+        StructInfoMap structInfoMap = group.getstructInfoMap();
+        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
         Set<Integer> refreshedGroup = new HashSet<>();
@@ -152,8 +147,7 @@ public class StructInfoMap {
             }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
-            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap,
-                    new BitSet());
+            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
             for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
                 groupExpressionMap.putIfAbsent(bitSetWithChild.first,
                         Pair.of(groupExpression, bitSetWithChild.second));
@@ -173,18 +167,13 @@ public class StructInfoMap {
         return tableMap;
     }
 
-    private Collection<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap,
-            BitSet targetBitSet) {
+    private Collection<Pair<BitSet, List<BitSet>>> cartesianProduct(List<Set<BitSet>> childrenTableMap) {
         Set<List<BitSet>> cartesianLists = Sets.cartesianProduct(childrenTableMap);
         List<Pair<BitSet, List<BitSet>>> resultPairSet = new LinkedList<>();
         for (List<BitSet> bitSetList : cartesianLists) {
             BitSet bitSet = new BitSet();
             for (BitSet b : bitSetList) {
                 bitSet.or(b);
-            }
-            // filter the useless bitset which targetBitSet not contains, avoid exponential expansion
-            if (!targetBitSet.isEmpty() && !StructInfo.containsAll(targetBitSet, bitSet)) {
-                continue;
             }
             resultPairSet.add(Pair.of(bitSet, bitSetList));
         }
