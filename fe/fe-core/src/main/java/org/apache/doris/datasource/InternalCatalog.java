@@ -1573,7 +1573,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long partitionId = idGeneratorBuffer.getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                     olapTable.getName(), olapTable.getBaseIndexId(), partitionId, partitionName, indexIdToMeta,
-                    distributionInfo, dataProperty.getStorageMedium(), singlePartitionDesc.getReplicaAlloc(),
+                    distributionInfo, dataProperty, singlePartitionDesc.getReplicaAlloc(),
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
@@ -1828,7 +1828,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId, String tableName,
             long baseIndexId, long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
-            DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
+            DistributionInfo distributionInfo, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
@@ -1868,6 +1868,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long version = partition.getVisibleVersion();
 
         short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
+        TStorageMedium realStorageMedium = null;
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
@@ -1875,9 +1876,16 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
-            createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc, tabletMeta,
-                    tabletIdSet, idGeneratorBuffer, isStorageMediumSpecified);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId,
+                    schemaHash, dataProperty.getStorageMedium());
+            realStorageMedium = createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version,
+                replicaAlloc, tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
+            if (realStorageMedium != null && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
+                dataProperty.setStorageMedium(realStorageMedium);
+                LOG.info("real medium not eq default "
+                        + "tableName={} tableId={} partitionName={} partitionId={} readMedium {}",
+                        tableName, tableId, partitionName, partitionId, realStorageMedium);
+            }
 
             boolean ok = false;
             String errMsg = null;
@@ -1898,8 +1906,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     countDownLatch.addMark(backendId, tabletId);
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
-                            storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
+                            realStorageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory,
+                            tabletType, dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
                             disableAutoCompaction, enableSingleReplicaCompaction, skipWriteIndexOnLoad,
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
@@ -2486,7 +2494,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                         olapTable.getName(), olapTable.getBaseIndexId(), partitionId, partitionName,
                         olapTable.getIndexIdToMeta(), partitionDistributionInfo,
-                        partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                        partitionInfo.getDataProperty(partitionId),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
@@ -2561,7 +2569,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                             olapTable.getId(), olapTable.getName(), olapTable.getBaseIndexId(), entry.getValue(),
                             entry.getKey(), olapTable.getIndexIdToMeta(), partitionDistributionInfo,
-                            dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
+                            dataProperty, partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
                             storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(),
@@ -2760,11 +2768,12 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @VisibleForTesting
-    public void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
+    public TStorageMedium createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
             Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
         GroupId groupId = null;
         if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
@@ -2784,19 +2793,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             backendsPerBucketSeq = Maps.newHashMap();
         }
 
+        TStorageMedium storageMedium = Config.disable_storage_medium_check ? null : tabletMeta.getStorageMedium();
+
         Map<Tag, Integer> nextIndexs = new HashMap<>();
 
         if (Config.enable_round_robin_create_tablet) {
-            for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(),
-                        tabletMeta.getStorageMedium());
-                if (startPos == -1) {
-                    throw new DdlException("The number of BEs that match the policy is insufficient");
+            for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+                int startPos = -1;
+                if (Config.create_tablet_round_robin_from_start) {
+                    startPos = 0;
+                } else {
+                    startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
+                        isStorageMediumSpecified);
                 }
-                nextIndexs.put(entry.getKey(), startPos);
+                nextIndexs.put(tag, startPos);
             }
         }
-
+        TStorageMedium realStorageMedium = Config.disable_storage_medium_check ? null : tabletMeta.getStorageMedium();
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
             Tablet tablet = new Tablet(idGeneratorBuffer.getNextId());
@@ -2807,30 +2820,15 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // get BackendIds
             Map<Tag, List<Long>> chosenBackendIds;
+
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
                 // choose backends
-                if (Config.enable_round_robin_create_tablet) {
-                    if (!Config.disable_storage_medium_check) {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        nextIndexs);
-                    } else {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, null,
-                                        nextIndexs);
-                    }
-                } else {
-                    if (!Config.disable_storage_medium_check) {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        isStorageMediumSpecified, false);
-                    } else {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, null,
-                                        isStorageMediumSpecified, false);
-                    }
-                }
+                Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
+                        =  systemInfoService.selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs,
+                        storageMedium, isStorageMediumSpecified, false);
+                chosenBackendIds = chosenBackendIdsAndMedium.first;
+                storageMedium = chosenBackendIdsAndMedium.second;
 
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
                     backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
@@ -2863,6 +2861,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
         }
+        return realStorageMedium;
     }
 
     /*
@@ -2992,7 +2991,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(), db.getId(), copiedTbl.getId(),
                         copiedTbl.getName(), copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToMeta(), partitionsDistributionInfo.get(oldPartitionId),
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
+                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId),
                         copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
                         copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet, copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),

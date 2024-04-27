@@ -594,6 +594,7 @@ public class OlapTable extends Table {
                 reserveReplica ? null : restoreReplicaAlloc, isSinglePartition);
 
         // for each partition, reset rollup index map
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
             // entry.getKey() is the new partition id, use it to get the restore specified
@@ -630,9 +631,10 @@ public class OlapTable extends Table {
 
                     // replicas
                     try {
-                        Map<Tag, List<Long>> tag2beIds =
+                        Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, null, false, false);
+                                        replicaAlloc, nextIndexs, null, false, false);
+                        Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
