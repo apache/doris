@@ -582,6 +582,10 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void set_is_full_compaction_running(bool is_full_compaction_running) {
+        _is_full_compaction_running = is_full_compaction_running;
+    }
+    inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache();
 
 private:
@@ -719,6 +723,8 @@ private:
     std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
+
+    std::atomic_bool _is_full_compaction_running = false;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

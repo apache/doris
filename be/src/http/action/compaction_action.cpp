@@ -193,6 +193,20 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
         bool run_status = false;
 
         {
+            // Full compaction holds both base compaction lock and cumu compaction lock.
+            // So we can not judge if full compaction is running by check these two locks holding.
+            // Here, we use a variable 'is_full_compaction_running' to check if full compaction is running.
+            if (tablet->is_full_compaction_running()) {
+                msg = "compaction task for this tablet is running";
+                compaction_type = "full";
+                run_status = true;
+                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
+                                                   compaction_type);
+                return Status::OK();
+            }
+        }
+
+        {
             // use try lock to check this tablet is running cumulative compaction
             std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(),
                                                          std::try_to_lock);
