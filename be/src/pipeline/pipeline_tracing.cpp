@@ -121,7 +121,7 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
     THROW_IF_ERROR(writer.finalize());
     THROW_IF_ERROR(writer.close());
 
-        _last_dump_time = MonotonicSeconds();
+    _last_dump_time = MonotonicSeconds();
 
     _datas.erase(query_id);
     {
