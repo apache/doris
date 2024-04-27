@@ -78,38 +78,25 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->number_total_rows = state->num_rows_load_total();
+        ctx->number_loaded_rows = state->num_rows_load_success();
+        ctx->number_filtered_rows = state->num_rows_load_filtered();
+        ctx->number_unselected_rows = state->num_rows_load_unselected();
+        int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+        if (!ctx->group_commit && num_selected_rows > 0 &&
+            (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
+            // NOTE: Do not modify the error message here, for historical reasons,
+            // some users may rely on this error message.
+            *status = Status::DataQualityError("too many filtered rows");
+        }
+        if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+            ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+        }
+
         if (status->ok()) {
-            ctx->number_total_rows = state->num_rows_load_total();
-            ctx->number_loaded_rows = state->num_rows_load_success();
-            ctx->number_filtered_rows = state->num_rows_load_filtered();
-            ctx->number_unselected_rows = state->num_rows_load_unselected();
-
-            int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
-            if (!ctx->group_commit && num_selected_rows > 0 &&
-                (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
-                // NOTE: Do not modify the error message here, for historical reasons,
-                // some users may rely on this error message.
-                *status = Status::DataQualityError("too many filtered rows");
-            }
-            if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-            }
-
-            if (status->ok()) {
-                DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
-                DorisMetrics::instance()->stream_load_rows_total->increment(
-                        ctx->number_loaded_rows);
-            }
+            DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
+            DorisMetrics::instance()->stream_load_rows_total->increment(ctx->number_loaded_rows);
         } else {
-            if (ctx->group_commit) {
-                ctx->number_total_rows = state->num_rows_load_total();
-                ctx->number_loaded_rows = state->num_rows_load_success();
-                ctx->number_filtered_rows = state->num_rows_load_filtered();
-                ctx->number_unselected_rows = state->num_rows_load_unselected();
-                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                }
-            }
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             // cancel body_sink, make sender known it
