@@ -1284,12 +1284,16 @@ public class NativeInsertStmt extends InsertStmt {
         if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             return;
         }
+        // when enable_unique_key_partial_update = true,
+        // only unique table with MOW insert with target columns can consider be a partial update,
+        // and unique table without MOW, insert will be like a normal insert.
+        // when enable_unique_key_partial_update = false,
+        // unique table with MOW, insert will be a normal insert, and column that not set will insert default value.
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+            return;
         }
         if (hasEmptyTargetColumns) {
-            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                    + "updating partial columns using the INSERT statement.");
+            return;
         }
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
