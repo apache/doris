@@ -44,7 +44,9 @@ using namespace ErrorCode;
 FullCompaction::FullCompaction(const TabletSharedPtr& tablet)
         : Compaction(tablet, "FullCompaction:" + std::to_string(tablet->tablet_id())) {}
 
-FullCompaction::~FullCompaction() {}
+FullCompaction::~FullCompaction() {
+    tablet()->set_is_full_compaction_running(false);
+}
 
 Status FullCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
@@ -56,7 +58,6 @@ Status FullCompaction::prepare_compact() {
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-
     return Status::OK();
 }
 

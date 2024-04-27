@@ -436,6 +436,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _peer_replica_infos_mutex;
     // key: tabletId
