@@ -26,7 +26,6 @@
 #include "pipeline/exec/join_build_sink_operator.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/runtime/partitioner.h"
-#include "vec/sink/vdata_stream_sender.h" // ShuffleChannelIds
 
 namespace doris {
 class ExecNode;
@@ -34,7 +33,7 @@ class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinSinkOperatorX;
 
