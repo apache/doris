@@ -143,15 +143,20 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
     int32_t data_dir_num = data_dirs.size();
-    size_t min_threads = std::max(1, config::flush_thread_num_per_store);
-    size_t max_threads = data_dir_num * min_threads;
-    ThreadPoolBuilder("MemTableFlushThreadPool")
-            .set_min_threads(min_threads)
-            .set_max_threads(max_threads)
-            .build(&_flush_pool);
+    int num_cpus = std::thread::hardware_concurrency();
+    int min_threads = std::max(1, config::flush_thread_num_per_store);
+    int max_threads = num_cpus == 0 ? data_dir_num * min_threads
+                                    : std::min(data_dir_num * min_threads,
+                                               num_cpus * config::max_flush_thread_num_per_cpu);
+    static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
+                              .set_min_threads(min_threads)
+                              .set_max_threads(max_threads)
+                              .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = data_dir_num * min_threads;
+    max_threads = num_cpus == 0 ? data_dir_num * min_threads
+                                : std::min(data_dir_num * min_threads,
+                                           num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
