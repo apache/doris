@@ -1149,6 +1149,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt1[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertEquals(Integer.valueOf(cnt1[0][0]), 1)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
@@ -1156,6 +1161,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt2[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
 
     // test analyze specific column
