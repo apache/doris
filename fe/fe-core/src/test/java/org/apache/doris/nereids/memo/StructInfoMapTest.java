@@ -59,6 +59,7 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -107,6 +108,7 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -146,6 +148,7 @@ class StructInfoMapTest extends SqlTestBase {
             }
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -168,7 +171,7 @@ class StructInfoMapTest extends SqlTestBase {
         BitSet mvMap = structInfoMap.getTableMaps().stream()
                 .filter(b -> b.cardinality() == 2)
                 .collect(Collectors.toList()).get(0);
-        StructInfo structInfo = structInfoMap.getStructInfo(c1.getMemo(), mvMap, mvMap, root, null);
+        StructInfo structInfo = structInfoMap.getStructInfo(c1.getMemo(), mvMap, root, null);
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         structInfo.getRelations().forEach(r -> bitSet.set((int) r.getTable().getId()));
