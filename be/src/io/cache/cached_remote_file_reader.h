@@ -20,14 +20,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -60,10 +63,13 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    void _insert_file_reader(FileBlockSPtr file_block);
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;
+    std::shared_mutex _mtx;
+    std::map<size_t, FileBlockSPtr> _cache_file_readers;
 
     struct ReadStatistics {
         bool hit_cache = true;

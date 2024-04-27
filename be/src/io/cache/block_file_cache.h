@@ -94,7 +94,7 @@ public:
      */
     std::string clear_file_cache_async();
     std::string clear_file_cache_directly();
-
+    std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);
 
