@@ -336,6 +336,8 @@ public class Column implements Writable, GsonPostProcessable {
         return name;
     }
 
+    // In order for the copy constructor to get the real defineName value.
+    // getDefineName() cannot meet this requirement
     public String getRealDefineName() {
         return defineName;
     }

@@ -44,9 +44,13 @@ suite("test_add_rename_column") {
 
     sql """ truncate table ${tableName} """
 
+    sql """ sync """
+
     qt_sql """ select * from ${tableName} """
 
     sql """ insert into ${tableName} values (3, 'cc', 'dd') """
+
+    sql """ sync """
 
     qt_sql """ select * from ${tableName} """
 }
