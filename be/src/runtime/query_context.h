@@ -62,7 +62,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
-    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::function<void(const Status&)> cancel_fn;
 };
 
 // Save the common components of fragments in a query.
@@ -107,10 +107,8 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
 
-    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
-                                     const std::string& msg);
-    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
-                                   const std::string& msg);
+    void cancel_all_pipeline_context(const Status& reason);
+    Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(std::string msg, Status new_status, int fragment_id = -1);

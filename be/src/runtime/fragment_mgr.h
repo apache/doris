@@ -100,16 +100,13 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                         const std::string& msg = "");
+    void cancel_instance(const TUniqueId& instance_id, const Status& reason);
     // Cancel fragment (only pipelineX).
     // {query id fragment} -> PipelineFragmentContext
-    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
-                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id, const Status& reason);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                      const std::string& msg = "");
+    void cancel_query(const TUniqueId& query_id, const Status& reason);
 
     void cancel_worker();
 
@@ -156,9 +153,8 @@ public:
                                     TReportExecStatusParams* exec_status);
 
 private:
-    void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
-                              const std::string& msg = "");
+    void cancel_unlocked_impl(const TUniqueId& id, const Status& reason,
+                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline);
 
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);

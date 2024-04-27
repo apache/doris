@@ -200,7 +200,7 @@ void QueryContext::set_execution_dependency_ready() {
     _execution_dependency->set_ready();
 }
 
-void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
+void QueryContext::cancel(Status new_status, int fragment_id) {
     // we must get this wrong status once query ctx's `_is_cancelled` = true.
     set_exec_status(new_status);
     // Just for CAS need a left value
@@ -225,13 +225,12 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
     // ctx cancel and fragment ctx will call query ctx cancel.
     for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+            pipeline_ctx->cancel(new_status);
         }
     }
 }
 
-void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
-                                               const std::string& msg) {
+void QueryContext::cancel_all_pipeline_context(const Status& reason) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -241,14 +240,12 @@ void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& 
     }
     for (auto& f_context : ctx_to_cancel) {
         if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(reason, msg);
+            pipeline_ctx->cancel(reason);
         }
     }
 }
 
-Status QueryContext::cancel_pipeline_context(const int fragment_id,
-                                             const PPlanFragmentCancelReason& reason,
-                                             const std::string& msg) {
+Status QueryContext::cancel_pipeline_context(const int fragment_id, const Status& reason) {
     std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -258,7 +255,7 @@ Status QueryContext::cancel_pipeline_context(const int fragment_id,
         ctx_to_cancel = _fragment_id_to_pipeline_ctx[fragment_id];
     }
     if (auto pipeline_ctx = ctx_to_cancel.lock()) {
-        pipeline_ctx->cancel(reason, msg);
+        pipeline_ctx->cancel(reason);
     }
     return Status::OK();
 }

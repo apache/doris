@@ -54,17 +54,8 @@ public class ResultReceiver {
     private Long backendId;
     private Thread currentThread;
     private Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
-    public String cancelReason = "";
 
     int maxMsgSizeOfResultReceiver;
-
-    private void setRunStatus(Status status) {
-        runStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
-    }
-
-    private boolean isCancel() {
-        return !runStatus.ok();
-    }
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver) {
@@ -82,7 +73,7 @@ public class ResultReceiver {
         }
         final RowBatch rowBatch = new RowBatch();
         try {
-            while (!isDone && !isCancel()) {
+            while (!isDone && runStatus.ok()) {
                 InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
                         .setFinstId(finstId)
                         .setRespInAttachment(false)
@@ -100,28 +91,31 @@ public class ResultReceiver {
                     try {
                         pResult = fetchDataAsyncFuture.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
                     } catch (CancellationException e) {
+                        // When get this exception, it means another thread call cancel, so that the run status
+                        // should be set already.
                         LOG.warn("Future of ResultReceiver of query {} is cancelled", DebugUtil.printId(this.queryId));
-                        if (!isCancel()) {
+                        if (runStatus.ok()) {
                             LOG.warn("ResultReceiver is not set to cancelled state, this should not happen");
                         } else {
-                            status.updateStatus(TStatusCode.CANCELLED, this.cancelReason);
+                            status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
                             return null;
                         }
                     } catch (TimeoutException e) {
-                        LOG.warn("Query {} get result timeout, get result duration {} ms",
-                                DebugUtil.printId(this.queryId), timeoutTs - currentTs);
-                        setRunStatus(Status.TIMEOUT);
-                        status.updateStatus(TStatusCode.TIMEOUT, "");
-                        updateCancelReason("fetch data timeout");
+                        String timeoutReason = "Query " + DebugUtil.printId(this.queryId) + " get result timeout"
+                                + ", get result duration " + (timeoutTs - currentTs) + " ms";
+                        LOG.warn(timeoutReason);
+                        runStatus.updateStatus(TStatusCode.TIMEOUT, timeoutReason);
+                        status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
                         return null;
                     } catch (InterruptedException e) {
                         // continue to get result
                         LOG.warn("Future of ResultReceiver of query {} got interrupted Exception",
                                 DebugUtil.printId(this.queryId), e);
-                        if (isCancel()) {
-                            status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-                            return null;
+                        if (runStatus.ok()) {
+                            runStatus.updateStatus(TStatusCode.INTERNAL_ERROR, "got interrupted Exception");
                         }
+                        status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
+                        return null;
                     }
                 }
 
@@ -190,43 +184,32 @@ public class ResultReceiver {
             }
         }
 
-        if ((isCancel())) {
+        if (!runStatus.ok()) {
             status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
         }
         return rowBatch;
     }
 
-    private void updateCancelReason(String reason) {
-        if (this.cancelReason.isEmpty()) {
-            this.cancelReason = reason;
-        } else {
-            LOG.warn("Query {} already has cancel reason: {}, new reason {} will be ignored",
-                    DebugUtil.printId(queryId), cancelReason, reason);
+    public synchronized void cancel(Status reason) {
+        if (!runStatus.ok()) {
+            LOG.info("ResultReceiver of query {} cancel failed, because its status not ok, maybe cancelled already",
+                            DebugUtil.printId(queryId), runStatus.toString());
+            return;
         }
-    }
-
-    public void cancel(Types.PPlanFragmentCancelReason reason) {
-        if (reason == Types.PPlanFragmentCancelReason.TIMEOUT) {
-            setRunStatus(Status.TIMEOUT);
-        } else {
-            setRunStatus(Status.CANCELLED);
+        runStatus.updateStatus(reason.getErrorCode(), reason.getErrorMsg());
+        if (currentThread != null) {
+            // TODO(cmy): we cannot interrupt this thread, or we may throw
+            // java.nio.channels.ClosedByInterruptException when we call
+            // MysqlChannel.realNetSend -> SocketChannelImpl.write
+            // And user will lost connection to Palo
+            // currentThread.interrupt();
         }
-        updateCancelReason(reason.toString());
-        synchronized (this) {
-            if (currentThread != null) {
-                // TODO(cmy): we cannot interrupt this thread, or we may throw
-                // java.nio.channels.ClosedByInterruptException when we call
-                // MysqlChannel.realNetSend -> SocketChannelImpl.write
-                // And user will lost connection to Palo
-                // currentThread.interrupt();
-            }
-            if (fetchDataAsyncFuture != null) {
-                if (fetchDataAsyncFuture.cancel(true)) {
-                    LOG.info("ResultReceiver of query {} is cancelled", DebugUtil.printId(queryId));
-                } else {
-                    LOG.warn("ResultReceiver of query {} cancel failed, typically means the future is finished",
-                            DebugUtil.printId(queryId));
-                }
+        if (fetchDataAsyncFuture != null) {
+            if (fetchDataAsyncFuture.cancel(true)) {
+                LOG.info("ResultReceiver of query {} is cancelled", DebugUtil.printId(queryId));
+            } else {
+                LOG.warn("ResultReceiver of query {} cancel failed, typically means the future is finished",
+                        DebugUtil.printId(queryId));
             }
         }
     }

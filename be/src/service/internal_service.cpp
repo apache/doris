@@ -579,10 +579,20 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
                     "Cancel query {}, reason: {}", print_id(query_id),
                     has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
                                       : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_fragment(
-                    query_id, request->fragment_id(),
-                    has_cancel_reason ? request->cancel_reason()
-                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            // During upgrade only LIMIT_REACH is used, other reason is changed to internal error
+            Status actual_cancel_status = Status::OK();
+            if (has_cancel_reason) {
+                if (request->cancel_reason() == PPlanFragmentCancelReason::LIMIT_REACH) {
+                    actual_cancel_status = Status::Error<ErrorCode::LIMIT_REACH>();
+                } else {
+                    actual_cancel_status = Status::InternalError("");
+                }
+            } else {
+                if () {
+                }
+            }
+            _exec_env->fragment_mgr()->cancel_fragment(query_id, request->fragment_id(),
+                                                       actual_cancel_status);
         } else {
             LOG(INFO) << fmt::format(
                     "Cancel instance {}, reason: {}", print_id(tid),

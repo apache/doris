@@ -230,14 +230,6 @@ public:
     int be_number(void) const { return _be_number; }
 
     // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const std::string& err_msg) {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = Status::InternalError(err_msg);
-    }
-
     void set_process_status(const Status& status) {
         if (status.ok()) {
             return;
@@ -248,12 +240,6 @@ public:
         }
         _process_status = status;
     }
-
-    // Sets _process_status to MEM_LIMIT_EXCEEDED.
-    // Subsequent calls to this will be no-ops. Returns _process_status.
-    // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
-    // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     std::vector<std::string>& output_files() { return _output_files; }
 
