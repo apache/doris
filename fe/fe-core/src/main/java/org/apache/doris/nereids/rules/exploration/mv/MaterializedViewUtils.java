@@ -150,8 +150,7 @@ public class MaterializedViewUtils {
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             if (cascadesContext.getMemo().getRefreshVersion() != structInfoMap.getRefreshVersion()
                     || structInfoMap.getTableMaps().isEmpty()) {
-                structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion(),
-                        materializedViewTableSet);
+                structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
                 structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
             }
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
