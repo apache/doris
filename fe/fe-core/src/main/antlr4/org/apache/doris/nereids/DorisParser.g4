@@ -831,6 +831,7 @@ nonReserved
     | UNCOMMITTED
     | UNLOCK
     | USER
+    | UUID
     | VALUE
     | VARCHAR
     | VARIABLES
