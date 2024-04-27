@@ -97,9 +97,9 @@ suite("agg_window_project") {
 
     sql """sync"""
     
-    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
+    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
 
-    order_qt_select5 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) dd from test_window_table2 group by a, c having dd < 4;"""
+    order_qt_select5 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) dd from test_window_table2 group by a, c having dd < 4;"""
     
     explain {
         sql("select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;")
