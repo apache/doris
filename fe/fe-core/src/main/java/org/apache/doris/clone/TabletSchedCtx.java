@@ -775,7 +775,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             boolean allCatchup = true;
             for (Replica replica : furtherRepairs) {
-                if (checkFurthurRepairFinish(replica, visibleVersion)) {
+                if (checkFurtherRepairFinish(replica, visibleVersion)) {
                     replica.setNeedFurtherRepair(false);
                     replica.setFurtherRepairWatermarkTxnTd(-1);
                 } else {
@@ -858,7 +858,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
 
-    private boolean checkFurthurRepairFinish(Replica replica, long version) {
+    private boolean checkFurtherRepairFinish(Replica replica, long version) {
         if (replica.getVersion() < version || replica.getLastFailedVersion() > 0) {
             return false;
         }
@@ -1209,7 +1209,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // change from prepare to committed or visible, this replica will be fall behind and be removed
             // in REDUNDANT detection.
             //
-            boolean isCatchup = checkFurthurRepairFinish(replica, partition.getVisibleVersion());
+            boolean isCatchup = checkFurtherRepairFinish(replica, partition.getVisibleVersion());
             replica.incrFurtherRepairCount();
             if (isCatchup || replica.getLeftFurtherRepairCount() <= 0) {
                 replica.setNeedFurtherRepair(false);
