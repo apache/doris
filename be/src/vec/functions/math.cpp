@@ -42,14 +42,11 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
-#include "vec/functions/function_floor.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
-#include "vec/functions/function_truncate.h"
 #include "vec/functions/function_unary_arithmetic.h"
-#include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -331,82 +328,9 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
-struct TruncateName {
-    static constexpr auto name = "truncate";
-};
-
-struct CeilName {
-    static constexpr auto name = "ceil";
-};
-
-struct FloorName {
-    static constexpr auto name = "floor";
-};
-
-struct RoundName {
-    static constexpr auto name = "round";
-};
-
-struct RoundBankersName {
-    static constexpr auto name = "round_bankers";
-};
-
-/// round(double,int32)-->double
-/// key_str:roundFloat64Int32
-template <typename Name>
-struct DoubleRoundTwoImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
-    }
-};
-
-template <typename Name>
-struct DoubleRoundOneImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
-    }
-};
-
-template <typename Name>
-struct DecimalRoundTwoImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
-                std::make_shared<vectorized::DataTypeInt32>()};
-    }
-};
-
-template <typename Name>
-struct DecimalRoundOneImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
-    }
-};
-
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                        \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
-    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,   \
-                                               TieBreakingMode::Bankers>>();
-
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
-    factory.register_alias("round", "dround");
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
@@ -443,13 +367,5 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
-    factory.register_function<FunctionTruncate<TruncateFloatOneArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateFloatTwoArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateDecimalOneArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateDecimalTwoArgImpl>>();
-    factory.register_function<FunctionFloor<FloorFloatOneArgImpl>>();
-    factory.register_function<FunctionFloor<FloorFloatTwoArgImpl>>();
-    factory.register_function<FunctionFloor<FloorDecimalOneArgImpl>>();
-    factory.register_function<FunctionFloor<FloorDecimalTwoArgImpl>>();
 }
 } // namespace doris::vectorized

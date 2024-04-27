@@ -184,8 +184,6 @@ public:
         }
     }
 
-    // NOTE: This function is only tested for truncate
-    // DO NOT USE THIS METHOD FOR OTHER ROUNDING BASED FUNCTION UNTIL YOU KNOW EXACTLY WHAT YOU ARE DOING !!!
     static NO_INLINE void apply(const NativeType& in, UInt32 in_scale, NativeType& out,
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
@@ -480,15 +478,8 @@ struct Dispatcher {
         }
     }
 
-    // NOTE: This function is only tested for truncate
-    // DO NOT USE THIS METHOD FOR OTHER ROUNDING BASED FUNCTION UNTIL YOU KNOW EXACTLY WHAT YOU ARE DOING !!!
     static ColumnPtr apply_vec_vec(const IColumn* col_general, const IColumn* col_scale) {
-        // if constexpr (rounding_mode != RoundingMode::Trunc) {
-        //     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-        //                            "Using column as scale is only supported for function truncate");
-        // }
-
-        const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
+        const auto& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
         const size_t input_row_count = col_scale_i32.size();
         for (size_t i = 0; i < input_row_count; ++i) {
             const Int32 scale_arg = col_scale_i32.get_data()[i];
@@ -537,7 +528,7 @@ struct Dispatcher {
             }
 
             for (size_t i = 0; i < input_row_count; ++i) {
-                // For truncate(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
+                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
                 // So we need this check to make sure the result have correct digits count
                 //
                 // Case 0: scale_arg <= -(integer part digits count)
@@ -564,15 +555,8 @@ struct Dispatcher {
         }
     }
 
-    // NOTE: This function is only tested for truncate
-    // DO NOT USE THIS METHOD FOR OTHER ROUNDING BASED FUNCTION UNTIL YOU KNOW EXACTLY WHAT YOU ARE DOING !!! only test for truncate
     static ColumnPtr apply_const_vec(const ColumnConst* const_col_general,
                                      const IColumn* col_scale) {
-        // if constexpr (rounding_mode != RoundingMode::Trunc) {
-        //     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-        //                            "Using column as scale is only supported for function truncate");
-        // }
-
         const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
         const size_t input_rows_count = col_scale->size();
 
@@ -602,7 +586,7 @@ struct Dispatcher {
             }
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                // For truncate(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
+                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
                 // So we need this check to make sure the result have correct digits count
                 //
                 // Case 0: scale_arg <= -(integer part digits count)
@@ -696,48 +680,292 @@ public:
         return Status::OK();
     }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
+    // SELECT number, func(123.345, 1) FROM numbers("number"="10")
+    // should NOT behave like two column arguments, so we can not use const column default implementation
+    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override {
-        const ColumnWithTypeAndName& column = block.get_by_position(arguments[0]);
-        Int16 scale_arg = 0;
-        if (arguments.size() == 2) {
-            RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
-        }
-
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
         ColumnPtr res;
-        auto call = [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using DataType = typename Types::LeftType;
 
-            if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                using FieldType = typename DataType::FieldType;
-                res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
-                        column.column.get(), scale_arg);
-                return true;
-            }
-            return false;
-        };
+        // potential argument types:
+        // 0. func(ColumnConst, ColumnConst)
+        // 1. func(Column), func(ColumnConst), func(Column, ColumnConst)
+        // 2. func(Column, Column)
+        // 3. func(ColumnConst, Column)
+
+        if (arguments.size() == 2 && is_column_const(*block.get_by_position(arguments[0]).column) &&
+            is_column_const(*block.get_by_position(arguments[1]).column)) {
+            // func(ColumnConst, ColumnConst)
+            auto col_general =
+                    assert_cast<const ColumnConst&>(*column_general.column).get_data_column_ptr();
+            Int16 scale_arg = 0;
+            RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
+
+            auto call = [&](const auto& types) -> bool {
+                using Types = std::decay_t<decltype(types)>;
+                using DataType = typename Types::LeftType;
+
+                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
+                    using FieldType = typename DataType::FieldType;
+                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
+                            col_general, scale_arg);
+                    return true;
+                }
+
+                return false;
+            };
 
 #if !defined(__SSE4_1__) && !defined(__aarch64__)
-        /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
-        /// Actually it is by default. But we will set it just in case.
+            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
+            /// Actually it is by default. But we will set it just in case.
 
-        if constexpr (rounding_mode == RoundingMode::Round) {
-            if (0 != fesetround(FE_TONEAREST)) {
-                return Status::InvalidArgument("Cannot set floating point rounding mode");
+            if constexpr (rounding_mode == RoundingMode::Round) {
+                if (0 != fesetround(FE_TONEAREST)) {
+                    return Status::InvalidArgument("Cannot set floating point rounding mode");
+                }
             }
-        }
 #endif
 
-        if (!call_on_index_and_data_type<void>(column.type->get_type_id(), call)) {
-            return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                           column.type->get_name(), name);
+            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+                return Status::InvalidArgument("Invalid argument type {} for function {}",
+                                               column_general.type->get_name(), get_name());
+            }
+            // Important, make sure the result column has the same size as the input column
+            res = ColumnConst::create(std::move(res), input_rows_count);
+        } else if (arguments.size() == 1 ||
+                   (arguments.size() == 2 &&
+                    is_column_const(*block.get_by_position(arguments[1]).column))) {
+            // func(Column) or func(ColumnConst) or func(Column, ColumnConst)
+            Int16 scale_arg = 0;
+            const auto* col_general = column_general.column.get();
+            if (arguments.size() == 2) {
+                RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
+            } else if (is_column_const(*column_general.column)) {
+                // if we only have one ColumnConst
+                col_general = assert_cast<const ColumnConst&>(*column_general.column)
+                                      .get_data_column_ptr();
+            }
+
+            auto call = [&](const auto& types) -> bool {
+                using Types = std::decay_t<decltype(types)>;
+                using DataType = typename Types::LeftType;
+
+                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
+                    using FieldType = typename DataType::FieldType;
+                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
+                            col_general, scale_arg);
+                    return true;
+                }
+
+                return false;
+            };
+#if !defined(__SSE4_1__) && !defined(__aarch64__)
+            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
+            /// Actually it is by default. But we will set it just in case.
+
+            if constexpr (rounding_mode == RoundingMode::Round) {
+                if (0 != fesetround(FE_TONEAREST)) {
+                    return Status::InvalidArgument("Cannot set floating point rounding mode");
+                }
+            }
+#endif
+
+            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+                return Status::InvalidArgument("Invalid argument type {} for function {}",
+                                               column_general.type->get_name(), get_name());
+            }
+
+        } else if (is_column_const(*block.get_by_position(arguments[0]).column)) {
+            // func(ColumnConst, Column)
+            const ColumnWithTypeAndName& column_scale = block.get_by_position(arguments[1]);
+            const auto& const_col_general = assert_cast<const ColumnConst&>(*column_general.column);
+
+            auto call = [&](const auto& types) -> bool {
+                using Types = std::decay_t<decltype(types)>;
+                using DataType = typename Types::LeftType;
+
+                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
+                    using FieldType = typename DataType::FieldType;
+                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_const_vec(
+                            &const_col_general, column_scale.column.get());
+                    return true;
+                }
+
+                return false;
+            };
+
+#if !defined(__SSE4_1__) && !defined(__aarch64__)
+            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
+            /// Actually it is by default. But we will set it just in case.
+
+            if constexpr (rounding_mode == RoundingMode::Round) {
+                if (0 != fesetround(FE_TONEAREST)) {
+                    return Status::InvalidArgument("Cannot set floating point rounding mode");
+                }
+            }
+#endif
+
+            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+                return Status::InvalidArgument("Invalid argument type {} for function {}",
+                                               column_general.type->get_name(), get_name());
+            }
+        } else {
+            // func(Column, Column)
+            const ColumnWithTypeAndName& column_scale = block.get_by_position(arguments[1]);
+
+            auto call = [&](const auto& types) -> bool {
+                using Types = std::decay_t<decltype(types)>;
+                using DataType = typename Types::LeftType;
+
+                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
+                    using FieldType = typename DataType::FieldType;
+                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_vec(
+                            column_general.column.get(), column_scale.column.get());
+                    return true;
+                }
+                return false;
+            };
+
+#if !defined(__SSE4_1__) && !defined(__aarch64__)
+            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
+            /// Actually it is by default. But we will set it just in case.
+
+            if constexpr (rounding_mode == RoundingMode::Round) {
+                if (0 != fesetround(FE_TONEAREST)) {
+                    return Status::InvalidArgument("Cannot set floating point rounding mode");
+                }
+            }
+#endif
+
+            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+                return Status::InvalidArgument("Invalid argument type {} for function {}",
+                                               column_general.type->get_name(), get_name());
+            }
         }
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
+    }
+};
+
+struct TruncateFloatOneArgImpl {
+    static constexpr auto name = "truncate";
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
+};
+
+struct TruncateFloatTwoArgImpl {
+    static constexpr auto name = "truncate";
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeInt32>()};
+    }
+};
+
+struct TruncateDecimalOneArgImpl {
+    static constexpr auto name = "truncate";
+    static DataTypes get_variadic_argument_types() {
+        // All Decimal types are named Decimal, and real scale will be passed as type argument for execute function
+        // So we can just register Decimal32 here
+        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)};
+    }
+};
+
+struct TruncateDecimalTwoArgImpl {
+    static constexpr auto name = "truncate";
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0),
+                std::make_shared<DataTypeInt32>()};
+    }
+};
+
+struct FloorFloatOneArgImpl {
+    static constexpr auto name = "floor";
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
+};
+
+struct FloorFloatTwoArgImpl {
+    static constexpr auto name = "floor";
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeInt32>()};
+    }
+};
+
+struct FloorDecimalOneArgImpl {
+    static constexpr auto name = "floor";
+    static DataTypes get_variadic_argument_types() {
+        // All Decimal types are named Decimal, and real scale will be passed as type argument for execute function
+        // So we can just register Decimal32 here
+        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)};
+    }
+};
+
+struct FloorDecimalTwoArgImpl {
+    static constexpr auto name = "floor";
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0),
+                std::make_shared<DataTypeInt32>()};
+    }
+};
+
+struct TruncateName {
+    static constexpr auto name = "truncate";
+};
+
+struct FloorName {
+    static constexpr auto name = "floor";
+};
+
+struct CeilName {
+    static constexpr auto name = "ceil";
+};
+
+struct RoundName {
+    static constexpr auto name = "round";
+};
+
+struct RoundBankersName {
+    static constexpr auto name = "round_bankers";
+};
+
+/// round(double,int32)-->double
+/// key_str:roundFloat64Int32
+template <typename Name>
+struct DoubleRoundTwoImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeFloat64>(),
+                std::make_shared<vectorized::DataTypeInt32>()};
+    }
+};
+
+template <typename Name>
+struct DoubleRoundOneImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeFloat64>()};
+    }
+};
+
+template <typename Name>
+struct DecimalRoundTwoImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
+                std::make_shared<vectorized::DataTypeInt32>()};
+    }
+};
+
+template <typename Name>
+struct DecimalRoundOneImpl {
+    static constexpr auto name = Name::name;
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
     }
 };
 
