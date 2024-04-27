@@ -50,8 +50,15 @@ suite('dual') {
 
     test {
         sql "select 1 from `dual`"
+        exception "Table [dual] does not exist in database [regression_test_query_p0_dual]"
+    }
+
+    sql "set enable_nereids_planner = false"
+    test {
+        sql "select 1 from `dual`"
         exception "Unknown table 'dual'"
     }
+    sql "set enable_nereids_planner = true"
     test {
             sql "select a from dual"
             exception "Unknown column 'a' in 'table list'"
