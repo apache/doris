@@ -73,7 +73,6 @@ import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -91,6 +90,7 @@ public class HMSTransaction implements Transaction {
     private final Map<DatabaseTableName, Map<List<String>, Action<PartitionAndMore>>>
             partitionActions = new HashMap<>();
 
+    private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
     private String declaredIntentionsToWrite;
@@ -108,7 +108,7 @@ public class HMSTransaction implements Transaction {
 
     private Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
 
-    public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider) {
+    public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
         this.hiveOps = hiveOps;
         this.fs = fileSystemProvider.get(null);
         if (!(fs instanceof SwitchingFileSystem)) {
@@ -117,6 +117,7 @@ public class HMSTransaction implements Transaction {
         if (ConnectContext.get().getExecutor() != null) {
             summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
         }
+        this.fileSystemExecutor = fileSystemExecutor;
     }
 
     @Override
@@ -1104,8 +1105,6 @@ public class HMSTransaction implements Transaction {
 
         private final List<String> s3cleanWhenSuccess = new ArrayList<>();
 
-        private ExecutorService fileSystemExecutor = Executors.newFixedThreadPool(16);
-
         public void cancelUnStartedAsyncFileSystemTask() {
             fileSystemTaskCancelled.set(true);
         }
@@ -1566,7 +1565,7 @@ public class HMSTransaction implements Transaction {
         summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
 
-    private void s3Commit(ExecutorService fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
+    private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
         S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
         S3Client s3Client;

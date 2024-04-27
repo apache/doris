@@ -57,6 +57,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HmsCommitTest {
@@ -70,6 +71,7 @@ public class HmsCommitTest {
     private static final String tbWithoutPartition = "test_tb_without_partition";
     private static FileSystem fs;
     private static LocalDfsFileSystem localDFSFileSystem;
+    private static Executor fileSystemExecutor;
     static String dbLocation;
     static String writeLocation;
     static String uri = "thrift://127.0.0.1:9083";
@@ -111,6 +113,7 @@ public class HmsCommitTest {
         }
         hmsOps = new HiveMetadataOps(null, hmsClient);
         fileSystemProvider = ctx -> fs;
+        fileSystemExecutor = Executors.newFixedThreadPool(16);
     }
 
     public static void createTestHiveDatabase() {
@@ -377,7 +380,7 @@ public class HmsCommitTest {
     public void commit(String dbName,
                        String tableName,
                        List<THivePartitionUpdate> hivePUs) {
-        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider);
+        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
         hmsTransaction.setHivePartitionUpdates(hivePUs);
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());

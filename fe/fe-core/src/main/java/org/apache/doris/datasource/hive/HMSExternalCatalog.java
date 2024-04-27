@@ -22,6 +22,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.CatalogProperty;
@@ -48,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -64,6 +66,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final int FILE_META_CACHE_NO_TTL = -1;
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
+
+    private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
+    private ThreadPoolExecutor fileSystemExecutor;
 
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -151,7 +156,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                 this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
-        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider);
+        this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
+                fileSystemExecutor);
         metadataOps = hiveOps;
     }
 

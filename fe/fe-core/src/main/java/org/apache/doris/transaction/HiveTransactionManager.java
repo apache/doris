@@ -25,6 +25,7 @@ import org.apache.doris.fs.FileSystemProvider;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 public class HiveTransactionManager implements TransactionManager {
 
@@ -33,15 +34,19 @@ public class HiveTransactionManager implements TransactionManager {
 
     private final FileSystemProvider fileSystemProvider;
 
-    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider) {
+    private final Executor fileSystemExecutor;
+
+    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider,
+            Executor fileSystemExecutor) {
         this.ops = ops;
         this.fileSystemProvider = fileSystemProvider;
+        this.fileSystemExecutor = fileSystemExecutor;
     }
 
     @Override
     public long begin() {
         long id = Env.getCurrentEnv().getNextId();
-        HMSTransaction hiveTransaction = new HMSTransaction(ops, fileSystemProvider);
+        HMSTransaction hiveTransaction = new HMSTransaction(ops, fileSystemProvider, fileSystemExecutor);
         transactions.put(id, hiveTransaction);
         return id;
     }

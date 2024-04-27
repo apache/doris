@@ -129,7 +129,6 @@ struct S3Conf {
     S3ClientConf client_conf;
 
     bool sse_enabled = false;
-    bool used_by_s3_committer = false;
     cloud::ObjectStoreInfoPB::Provider provider;
 
     std::string to_string() const {

@@ -300,7 +300,7 @@ public class LocationPath {
                 fsType = FileSystemType.S3;
                 break;
             case OFS:
-                // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
+                // ofs:// use the underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
                 fsType = FileSystemType.OFS;
                 break;
             case HDFS:
