@@ -783,7 +783,6 @@ public:
 
         const auto* col_addr_column = check_and_get_column<ColumnIPv4>(addr_column.get());
         const auto* col_cidr_column = check_and_get_column<ColumnInt16>(cidr_column.get());
-        ColumnPtr col_res = nullptr;
 
         static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
 
@@ -808,7 +807,7 @@ public:
             }
         }
 
-        col_res = ColumnStruct::create(
+        ColumnPtr col_res = ColumnStruct::create(
                 Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
 
         block.replace_by_position(result, std::move(col_res));
@@ -872,30 +871,47 @@ public:
                 unpack_if_const(cidr_column_with_type_and_name.column);
 
         const auto* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
-        ColumnPtr col_res = nullptr;
+
+        auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
+        auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
+        auto& vec_res_lower_range = col_res_lower_range->get_data();
+        auto& vec_res_upper_range = col_res_upper_range->get_data();
 
         if (addr_type.is_ipv6()) {
+            static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
             const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
-            if (!addr_const && cidr_const) {
-                Int16 cidr = cidr_col->get_int(0);
-                col_res = vector_scalar<ColumnIPv6>(*ipv6_addr_column, cidr, input_rows_count);
-            } else if (addr_const && !cidr_const) {
-                StringRef addr_value = ipv6_addr_column->get_data_at(0);
-                col_res = scalar_vector<ColumnIPv6>(addr_value, *cidr_col, input_rows_count);
-            } else {
-                col_res = vector_vector<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count);
+
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto addr_idx = index_check_const(i, addr_const);
+                auto cidr_idx = index_check_const(i, cidr_const);
+                auto cidr = cidr_col->get_int(cidr_idx);
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
+                apply_cidr_mask(ipv6_addr_column->get_data_at(addr_idx).data,
+                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
             }
         } else if (addr_type.is_string()) {
+            static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
             const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
-            if (!addr_const && cidr_const) {
-                Int16 cidr = cidr_col->get_int(0);
-                col_res = vector_scalar<ColumnString>(*str_addr_column, cidr, input_rows_count);
-            } else if (addr_const && !cidr_const) {
-                StringRef addr_value = str_addr_column->get_data_at(0);
-                col_res = scalar_vector<ColumnString>(addr_value, *cidr_col, input_rows_count);
-            } else {
-                col_res =
-                        vector_vector<ColumnString>(*str_addr_column, *cidr_col, input_rows_count);
+            char src_data[IPV6_BINARY_LENGTH];
+
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto addr_idx = index_check_const(i, addr_const);
+                auto cidr_idx = index_check_const(i, cidr_const);
+                auto cidr = cidr_col->get_int(cidr_idx);
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
+                // 16 bytes ipv6 string is stored in big-endian byte order
+                // so transfer to little-endian firstly
+                std::memcpy(src_data, str_addr_column->get_data_at(addr_idx).data, IPV6_BINARY_LENGTH);
+                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
             }
         } else {
             return Status::RuntimeError(
@@ -903,6 +919,8 @@ public:
                     addr_column->get_name(), get_name());
         }
 
+        ColumnPtr col_res = ColumnStruct::create(
+                Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
@@ -917,107 +935,6 @@ private:
             dst_lower[i] = src[i] & mask[i];
             dst_upper[i] = dst_lower[i] | ~mask[i];
         }
-    }
-
-    template <typename FromColumn>
-    static ColumnPtr vector_vector(const FromColumn& from_column, const ColumnInt16& cidr_column,
-                                   size_t input_rows_count) {
-        static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
-
-        auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
-        auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
-        auto& vec_res_lower_range = col_res_lower_range->get_data();
-        auto& vec_res_upper_range = col_res_upper_range->get_data();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto cidr = cidr_column.get_int(i);
-            if (cidr < 0 || cidr > max_cidr_mask) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
-                                std::to_string(cidr));
-            }
-            if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                // 16 bytes ipv6 string is stored in big-endian byte order
-                // so transfer to little-endian firstly
-                auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
-                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            } else {
-                apply_cidr_mask(from_column.get_data_at(i).data,
-                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            }
-        }
-
-        return ColumnStruct::create(
-                Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-    }
-
-    template <typename FromColumn>
-    static ColumnPtr vector_scalar(const FromColumn& from_column, Int16 cidr,
-                                   size_t input_rows_count) {
-        static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
-
-        if (cidr < 0 || cidr > max_cidr_mask) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
-                            std::to_string(cidr));
-        }
-
-        auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
-        auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
-        auto& vec_res_lower_range = col_res_lower_range->get_data();
-        auto& vec_res_upper_range = col_res_upper_range->get_data();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                // 16 bytes ipv6 string is stored in big-endian byte order
-                // so transfer to little-endian firstly
-                auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
-                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            } else {
-                apply_cidr_mask(from_column.get_data_at(i).data,
-                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            }
-        }
-
-        return ColumnStruct::create(
-                Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-    }
-
-    template <typename FromColumn>
-    static ColumnPtr scalar_vector(const StringRef& from_value, const ColumnInt16& cidr_column,
-                                   size_t input_rows_count) {
-        static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
-
-        auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
-        auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
-        auto& vec_res_lower_range = col_res_lower_range->get_data();
-        auto& vec_res_upper_range = col_res_upper_range->get_data();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto cidr = cidr_column.get_int(i);
-            if (cidr < 0 || cidr > max_cidr_mask) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
-                                std::to_string(cidr));
-            }
-            if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                // 16 bytes ipv6 string is stored in big-endian byte order
-                // so transfer to little-endian firstly
-                auto* src_data = const_cast<char*>(from_value.data);
-                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            } else {
-                apply_cidr_mask(from_value.data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            }
-        }
-
-        return ColumnStruct::create(
-                Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
     }
 };
 
