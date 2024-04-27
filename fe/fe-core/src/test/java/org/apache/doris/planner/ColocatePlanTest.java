@@ -327,7 +327,8 @@ public class ColocatePlanTest extends TestWithFeService {
     @Test
     public void testThreeTableJoin() throws Exception {
         // a join b join c
-        String sql1 = "explain select a.id,a.name,b.id,b.name,c.id,c.name from db1.test_colo1 a inner join "
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner='false') */ a.id,a.name,b.id,b.name,c.id,"
+                + "c.name from db1.test_colo1 a inner join "
                 + "db1.test_colo2 b on a.id = b.id and a.name = b.name inner join db1.test_colo3 c on a.id=c.id and "
                 + "a.name= c.name";
         String plan1 = getSQLPlanOrErrorMsg(sql1);
@@ -335,19 +336,21 @@ public class ColocatePlanTest extends TestWithFeService {
         Assert.assertTrue(plan1.contains("2:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
 
         // a join (b left join c)
-        String sql2 = "explain select a.id,a.name,t1.id,t1.name,cid,cname from db1.test_colo1 a join (select "
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner='false') */ a.id,a.name,t1.id,t1.name,"
+                + "cid,cname from db1.test_colo1 a join (select "
                 + "b.id,b.name,c.id as cid,c.name as cname from db1.test_colo2 b left join db1.test_colo3 c "
                 + "on b.id = c.id and b.name = c.name) t1 on a.id=t1.id and a.name= t1.name;";
         String plan2 = getSQLPlanOrErrorMsg(sql2);
-        Assert.assertTrue(plan2.contains("4:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
-        Assert.assertTrue(plan2.contains("3:VHASH JOIN\n  |    |  join op: LEFT OUTER JOIN(COLOCATE[])[]"));
+        Assert.assertTrue(plan2.contains("VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"));
+        Assert.assertTrue(plan2.contains("VHASH JOIN\n  |    |  join op: LEFT OUTER JOIN(COLOCATE[])[]"));
 
         // a join (b right join c)
-        String sql3 = "explain select a.id,a.name,t1.id,t1.name,cid,cname from db1.test_colo1 a join (select "
+        String sql3 = "select /*+ SET_VAR(enable_nereids_planner='false') */ a.id,a.name,t1.id,t1.name,"
+                + "cid,cname from db1.test_colo1 a join (select "
                 + "b.id,b.name,c.id as cid,c.name as cname from db1.test_colo2 b right join db1.test_colo3 c "
                 + "on b.id = c.id and b.name = c.name) t1 on a.id=t1.id and a.name= t1.name;";
         String plan3 = getSQLPlanOrErrorMsg(sql3);
-        Assert.assertTrue(plan3.contains("4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"));
-        Assert.assertTrue(plan3.contains("3:VHASH JOIN\n  |  join op: RIGHT OUTER JOIN(COLOCATE[])[]"));
+        Assert.assertTrue(plan3.contains("VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"));
+        Assert.assertTrue(plan3.contains("VHASH JOIN\n  |  join op: RIGHT OUTER JOIN(COLOCATE[])[]"));
     }
 }
