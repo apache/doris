@@ -30,7 +30,7 @@ CloudStreamLoadExecutor::CloudStreamLoadExecutor(ExecEnv* exec_env)
 CloudStreamLoadExecutor::~CloudStreamLoadExecutor() = default;
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    // forward to fe to excute commit transaction for MoW table
+    // forward to fe to execute commit transaction for MoW table
     Status st;
     int retry_times = 0;
     // mow table will retry when DELETE_BITMAP_LOCK_ERROR occurs

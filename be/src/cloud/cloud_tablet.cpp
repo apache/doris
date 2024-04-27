@@ -624,7 +624,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     return Status::OK();
 }
 
-Status CloudTablet::calc_delete_bitmap_for_compaciton(
+Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
         int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap) {
