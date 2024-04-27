@@ -44,11 +44,15 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterAggre
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -243,6 +247,10 @@ public class RuleSet {
             .add(MaterializedViewFilterAggregateRule.INSTANCE)
             .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
             .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterScanRule.INSTANCE)
+            .add(MaterializedViewFilterProjectScanRule.INSTANCE)
+            .add(MaterializedViewProjectScanRule.INSTANCE)
+            .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
