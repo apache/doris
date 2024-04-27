@@ -58,6 +58,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -643,6 +644,15 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
                                      _opts.rowset_ctx->partial_update_info->timezone);
                     default_value = dv.debug_string();
+                } else if (UNLIKELY(_tablet_schema->column(missing_cids[i]).type() ==
+                                            FieldType::OLAP_FIELD_TYPE_CHAR ||
+                                    _tablet_schema->column(missing_cids[i]).type() ==
+                                            FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                                    _tablet_schema->column(missing_cids[i]).type() ==
+                                            FieldType::OLAP_FIELD_TYPE_STRING) &&
+                           to_lower(_tablet_schema->column(missing_cids[i]).default_value())
+                                           .find(to_lower("UUID")) != std::string::npos) {
+                    default_value = boost::uuids::to_string(UUIDGenerator::instance()->next_uuid());
                 } else {
                     default_value = _tablet_schema->column(missing_cids[i]).default_value();
                 }

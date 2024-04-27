@@ -933,6 +933,7 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | TITLE
      | TOP
      | UR
+     | UUID
      | VAR
      | VARCHAR2
      | VARYING
