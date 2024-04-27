@@ -3496,6 +3496,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         if (ctx.valueExpression() != null) {
             // parser allows only LIKE or WhereClause.
+            // Mysql grammar: SHOW PROCEDURE STATUS [LIKE 'pattern' | WHERE expr]
             whereExpr = Sets.newHashSet(new Like(new UnboundSlot("ProcedureName"), getExpression(ctx.pattern)));
         }
 

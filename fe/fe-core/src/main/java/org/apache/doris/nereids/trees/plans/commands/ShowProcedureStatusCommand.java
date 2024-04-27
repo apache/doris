@@ -50,6 +50,9 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ProcedureName")
             .add("CatalogId").add("DbId").add("DbName").add("PackageName").add("OwnerName").add("CreateTime")
             .add("ModifyTime").build();
+    private static final String colDb = "db";
+    private static final String colProcName = "procedurename";
+    private static final String colName = "name";
     private final Set<Expression> whereExpr;
 
     /**
@@ -90,19 +93,22 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         // But one column we can put only once and support conjuncts
         for (Map.Entry<String, String> elem : filterMap.entrySet()) {
             String columnName = elem.getKey();
-            if ((!columnName.equals("Db")) && (!columnName.equals("Name")) && (!columnName.equals("ProcedureName"))) {
-                throw new AnalysisException("Only supports filter Db, Name, ProcedureName with equalTo or LIKE");
+            if ((!columnName.toLowerCase().equals(colDb))
+                    && (!columnName.toLowerCase().equals(colName))
+                    && (!columnName.toLowerCase().equals(colProcName))) {
+                throw new AnalysisException("Only supports filter" + colProcName + ", "
+                        + colName + "," + colProcName + "with equalTo or LIKE");
             }
-            if (columnName.equals("Db")) {
+            if (columnName.toLowerCase().equals(colDb)) {
                 if (dbFilter.length() != 0) {
                     throw new AnalysisException("Only supports filter Db only 1 time in where clause");
                 }
-                dbFilter.append(elem.getValue());
-            } else if ((columnName.equals("Name")) || (columnName.equals("ProcedureName"))) {
+                dbFilter.append(elem.getValue().toLowerCase());
+            } else if ((columnName.toLowerCase().equals(colName)) || (columnName.toLowerCase().equals(colProcName))) {
                 if (procFilter.length() != 0) {
                     throw new AnalysisException("Only supports filter Name/ProcedureName only 1 time in where clause");
                 }
-                procFilter.append(elem.getValue());
+                procFilter.append(elem.getValue().toLowerCase());
             }
         }
     }

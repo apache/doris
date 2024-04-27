@@ -104,26 +104,16 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         return dbName;
     }
 
-    public static boolean like(String str, String expr) {
-        expr = expr.toLowerCase();
-        expr = expr.replace(".", "\\.");
-        expr = expr.replace("?", ".");
-        expr = expr.replace("%", ".*");
+    public boolean like(String str, String wild) {
         str = str.toLowerCase();
-        return str.matches(expr);
+        return str.matches(wild.replace(".", "\\.").replace("?", ".").replace("%", ".*").toLowerCase());
     }
 
     public boolean applyFilter(String value, String filter) {
         if (filter.isEmpty()) {
             return true;
         }
-        if (filter.contains("%")) {
-            return like(value, filter);
-        }
-        if (value.equals(filter)) {
-            return true;
-        }
-        return false;
+        return like(value, filter);
     }
 
     @Override
