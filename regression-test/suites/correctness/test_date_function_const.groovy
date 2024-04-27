@@ -57,5 +57,8 @@ suite("test_date_function_const") {
     qt_select10 """
         select hours_add(cast('2023-03-30 22:23:45.23452' as datetimev2(6)),8)
     """ 
-
+    explain {
+        sql("""select date_add(CURRENT_DATE(),-2);""")
+        notContains("00:00:00")
+    }
 }

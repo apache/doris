@@ -22,28 +22,11 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vsort_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class SortSourceOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSourceOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSourceOperator final : public SourceOperator<vectorized::VSortNode> {
-public:
-    SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class SortSourceOperatorX;
 class SortLocalState final : public PipelineXLocalState<SortSharedState> {

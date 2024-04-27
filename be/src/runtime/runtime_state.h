@@ -49,7 +49,7 @@ class IRuntimeFilter;
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
-class PipelineXFragmentContext;
+class PipelineFragmentContext;
 class PipelineXTask;
 } // namespace pipeline
 
@@ -76,7 +76,7 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // for only use in pipelineX
-    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                  const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -662,7 +662,7 @@ private:
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
-    // owned by PipelineXFragmentContext
+    // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure

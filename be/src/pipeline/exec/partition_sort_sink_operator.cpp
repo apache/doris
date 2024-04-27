@@ -23,10 +23,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSinkOperator>(this, _node);
-}
-
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());

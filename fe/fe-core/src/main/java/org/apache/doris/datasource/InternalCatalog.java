@@ -1466,8 +1466,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
-                    LOG.info("add partition[{}] which already exists", partitionName);
-                    return;
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
+                    if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
+                        return;
+                    }
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
@@ -1624,6 +1626,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
             storagePolicy = dataProperty.getStoragePolicy();
         }
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             List<Long> partitionIds = Lists.newArrayList(partitionId);
@@ -1646,8 +1653,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        LOG.info("add partition[{}] which already exists", partitionName);
+                        failedCleanCallback.run();
                         return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
@@ -1696,8 +1704,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
 
-
-
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
@@ -1741,9 +1747,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.writeUnlock();
             }
         } catch (DdlException e) {
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
     }
@@ -2394,7 +2398,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
         String storageVaultId = null;
         // If user does not specify one storage vault then FE would use the default vault
-        if (storageVaultName == null || !storageVaultName.isEmpty()) {
+        if (Strings.isNullOrEmpty(storageVaultName)) {
             Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
             if (info != null) {
                 storageVaultName = info.first;
@@ -2844,10 +2848,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
-                // register or remove table from DynamicPartition after table created
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                // register or remove table from DynamicPartition after table created
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
@@ -3202,7 +3206,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
-                rowsToTruncate = olapTable.getRowCount();
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
@@ -3211,6 +3214,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
+                    rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
@@ -3371,10 +3375,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
             Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-        } else {
-            // Update the updated rows in table stats after truncate some partitions.
-            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         }
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 

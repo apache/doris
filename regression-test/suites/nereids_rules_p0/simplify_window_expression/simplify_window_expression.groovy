@@ -78,6 +78,9 @@ suite("simplify_window_expression") {
         explain shape plan
         select b, avg(b) over (partition by a,b,c) c1, avg(b) over (partition by a,b,c order by b) c2
         from mal_test_simplify_window"""
+    qt_select_count_star_col1 """
+        select a,count() over (partition by a,b) c1, count() over (partition by a,b order by a) c2
+        from mal_test_simplify_window order by 1,2,3;"""
 
     qt_select_upper_plan_use_all_rewrite """
         select b, c1 from (select b,avg(b) over (partition by a,b) c1 

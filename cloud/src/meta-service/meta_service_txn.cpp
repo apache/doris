@@ -789,10 +789,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         return;
     }
 
-    int64_t put_size = 0;
-    int64_t del_size = 0;
-    int num_put_keys = 0, num_del_keys = 0;
-
     // Get txn info with db_id and txn_id
     std::string info_val; // Will be reused when saving updated txn
     const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
@@ -1039,17 +1035,14 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     lock_values.clear();
 
     // Save rowset meta
-    num_put_keys += rowsets.size();
     for (auto& i : rowsets) {
         size_t rowset_size = i.first.size() + i.second.size();
         txn->put(i.first, i.second);
-        put_size += rowset_size;
         LOG(INFO) << "xxx put rowset_key=" << hex(i.first) << " txn_id=" << txn_id
                   << " rowset_size=" << rowset_size;
     }
 
     // Save versions
-    num_put_keys += new_versions.size();
     for (auto& i : new_versions) {
         std::string ver_val;
         VersionPB version_pb;
@@ -1062,7 +1055,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         }
 
         txn->put(i.first, ver_val);
-        put_size += i.first.size() + ver_val.size();
         LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
                   << " txn_id=" << txn_id;
 
@@ -1090,11 +1082,9 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     // Save table versions
-    num_put_keys += table_id_tablet_ids.size();
     for (auto& i : table_id_tablet_ids) {
         std::string ver_key = table_version_key({instance_id, db_id, i.first});
         txn->atomic_add(ver_key, 1);
-        put_size += ver_key.size();
         LOG(INFO) << "xxx atomic add table_version_key=" << hex(ver_key) << " txn_id=" << txn_id;
     }
 
@@ -1126,8 +1116,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         return;
     }
     txn->put(info_key, info_val);
-    put_size += info_key.size() + info_val.size();
-    ++num_put_keys;
     LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
     // Update stats of affected tablet
@@ -1145,14 +1133,10 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                 auto& num_segs_key = kv_pool.emplace_back();
                 stats_tablet_num_segs_key(info, &num_segs_key);
                 txn->atomic_add(num_segs_key, stats.num_segs);
-                put_size += data_size_key.size() + num_rows_key.size() + num_segs_key.size() + 24;
-                num_put_keys += 3;
             }
             auto& num_rowsets_key = kv_pool.emplace_back();
             stats_tablet_num_rowsets_key(info, &num_rowsets_key);
             txn->atomic_add(num_rowsets_key, stats.num_rowsets);
-            put_size += num_rowsets_key.size() + 8;
-            ++num_put_keys;
         };
     } else {
         update_tablet_stats = [&](const StatsTabletKeyInfo& info, const TabletStats& stats) {
@@ -1179,8 +1163,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
             stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
             stats_pb.SerializeToString(&val);
             txn->put(key, val);
-            put_size += key.size() + val.size();
-            ++num_put_keys;
         };
     }
     for (auto& [tablet_id, stats] : tablet_stats) {
@@ -1192,18 +1174,14 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         if (code != MetaServiceCode::OK) return;
     }
     // Remove tmp rowset meta
-    num_del_keys += tmp_rowsets_meta.size();
     for (auto& [k, _] : tmp_rowsets_meta) {
         txn->remove(k);
-        del_size += k.size();
         LOG(INFO) << "xxx remove tmp_rowset_key=" << hex(k) << " txn_id=" << txn_id;
     }
 
     const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
     LOG(INFO) << "xxx remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
     txn->remove(running_key);
-    del_size += running_key.size();
-    ++num_del_keys;
 
     std::string recycle_val;
     std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
@@ -1218,8 +1196,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         return;
     }
     txn->put(recycle_key, recycle_val);
-    put_size += recycle_key.size() + recycle_val.size();
-    ++num_put_keys;
 
     if (txn_info.load_job_source_type() ==
         LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
@@ -1227,9 +1203,9 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key) << " txn_id=" << txn_id;
-    LOG(INFO) << "commit_txn put_size=" << put_size << " del_size=" << del_size
-              << " num_put_keys=" << num_put_keys << " num_del_keys=" << num_del_keys
-              << " txn_id=" << txn_id;
+    LOG(INFO) << "commit_txn put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
+              << " num_put_keys=" << txn->num_put_keys() << " num_del_keys=" << txn->num_del_keys()
+              << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
     // Finally we are done...
     err = txn->commit();

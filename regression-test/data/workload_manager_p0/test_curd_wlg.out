@@ -64,3 +64,27 @@ tag1_wg1	0%	10%	tag1
 tag1_wg2	0%	10%	tag1
 tag1_wg3	0%	80%	tag1
 
+-- !select_remote_scan_num --
+20	10
+
+-- !select_remote_scan_num_2 --
+21	10
+
+-- !select_remote_scan_num_3 --
+21	2
+
+-- !select_remote_scan_num_4 --
+40	20
+
+-- !select_remote_scan_num_5 --
+10	5
+
+-- !select_remote_scan_num_6 --
+3	3
+
+-- !select_remote_scan_num_7 --
+10	5
+
+-- !select_remote_scan_num_8 --
+-1	-1
+

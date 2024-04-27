@@ -1468,6 +1468,18 @@ struct TReportCommitTxnResultRequest {
     4: optional binary payload
 }
 
+struct TQueryColumn {
+    1: optional string catalogId
+    2: optional string dbId
+    3: optional string tblId
+    4: optional string colName
+}
+
+struct TSyncQueryColumns {
+    1: optional list<TQueryColumn> highPriorityColumns;
+    2: optional list<TQueryColumn> midPriorityColumns;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1558,4 +1570,5 @@ service FrontendService {
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
+    Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 }

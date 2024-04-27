@@ -169,8 +169,9 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+
+    LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
+    exit(-1);
 }
 
 sigjmp_buf jmpbuf;
@@ -439,6 +440,7 @@ int main(int argc, char** argv) {
                 it = paths.erase(it);
             } else {
                 LOG(ERROR) << "read write test file failed, path=" << it->path;
+                // if only one disk and the disk is full, also need exit because rocksdb will open failed
                 exit(-1);
             }
         } else {

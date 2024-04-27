@@ -23,7 +23,6 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.RangeUtils;
@@ -266,14 +265,9 @@ public class RangePartitionInfo extends PartitionInfo {
         if (enableAutomaticPartition()) {
             sb.append("AUTO PARTITION BY RANGE ");
             for (Expr e : partitionExprs) {
-                boolean isSlotRef = (e instanceof SlotRef);
-                if (isSlotRef) {
-                    sb.append("(");
-                }
+                sb.append("(");
                 sb.append(e.toSql());
-                if (isSlotRef) {
-                    sb.append(")");
-                }
+                sb.append(")");
             }
             sb.append("\n(");
         } else {

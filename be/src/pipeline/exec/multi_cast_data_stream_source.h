@@ -27,7 +27,6 @@
 #include "vec/exec/runtime_filter_consumer.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace vectorized {

@@ -616,7 +616,8 @@ public class TableProperty implements Writable {
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold();
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

@@ -126,8 +126,6 @@ public:
         return _op_shared_states[id].get();
     }
 
-    bool is_pipelineX() const override { return true; }
-
     void wake_up();
 
     DataSinkOperatorXPtr sink() const { return _sink; }
