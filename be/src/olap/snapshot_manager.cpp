@@ -80,7 +80,7 @@ SnapshotManager* SnapshotManager::instance() {
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
@@ -106,7 +106,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
         std::string abs_path;
@@ -127,7 +127,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
         int32_t schema_hash) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
     bool exists = true;
@@ -687,26 +687,47 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 linked_success_files.push_back(snapshot_segment_file_path);
 
-                for (const auto& index : tablet_schema.indexes()) {
-                    if (index.index_type() != IndexType::INVERTED) {
-                        continue;
+                if (tablet_schema.get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index : tablet_schema.indexes()) {
+                        if (index.index_type() != IndexType::INVERTED) {
+                            continue;
+                        }
+                        auto index_id = index.index_id();
+                        auto index_file = ref_tablet->get_segment_index_filepath(
+                                rowset_id, segment_index, index_id);
+                        auto snapshot_segment_index_file_path =
+                                fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
+                                            segment_index, index_id);
+                        VLOG_DEBUG << "link " << index_file << " to "
+                                   << snapshot_segment_index_file_path;
+                        res = io::global_local_filesystem()->link_file(
+                                index_file, snapshot_segment_index_file_path);
+                        if (!res.ok()) {
+                            LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
+                                         << ", dest=" << snapshot_segment_index_file_path << "]";
+                            break;
+                        }
+                        linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
-                    auto index_id = index.index_id();
-                    auto index_file = ref_tablet->get_segment_index_filepath(
-                            rowset_id, segment_index, index_id);
-                    auto snapshot_segment_index_file_path =
-                            fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
-                                        segment_index, index_id);
-                    VLOG_DEBUG << "link " << index_file << " to "
-                               << snapshot_segment_index_file_path;
-                    res = io::global_local_filesystem()->link_file(
-                            index_file, snapshot_segment_index_file_path);
-                    if (!res.ok()) {
-                        LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
-                                     << ", dest=" << snapshot_segment_index_file_path << "]";
-                        break;
+                } else {
+                    if (tablet_schema.has_inverted_index()) {
+                        auto index_file =
+                                InvertedIndexDescriptor::get_index_file_name(segment_file_path);
+                        auto snapshot_segment_index_file_path =
+                                fmt::format("{}/{}_{}.binlog-index", schema_full_path, rowset_id,
+                                            segment_index);
+                        VLOG_DEBUG << "link " << index_file << " to "
+                                   << snapshot_segment_index_file_path;
+                        res = io::global_local_filesystem()->link_file(
+                                index_file, snapshot_segment_index_file_path);
+                        if (!res.ok()) {
+                            LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
+                                         << ", dest=" << snapshot_segment_index_file_path << "]";
+                            break;
+                        }
+                        linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
-                    linked_success_files.push_back(snapshot_segment_index_file_path);
                 }
             }
 

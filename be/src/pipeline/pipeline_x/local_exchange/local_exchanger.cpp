@@ -32,7 +32,7 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     {
         SCOPED_TIMER(local_state._distribute_timer);
         RETURN_IF_ERROR(_split_rows(state,
-                                    (const uint32_t*)local_state._partitioner->get_channel_ids(),
+                                    local_state._partitioner->get_channel_ids().get<uint32_t>(),
                                     in_block, eos, local_state));
     }
 

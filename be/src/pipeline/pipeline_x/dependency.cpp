@@ -89,20 +89,6 @@ Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
     return ready ? nullptr : this;
 }
 
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
-    if (!_blocked_by_rf) {
-        return nullptr;
-    }
-    std::unique_lock<std::mutex> lc(_task_lock);
-    if (*_blocked_by_rf && !_is_cancelled()) {
-        if (LIKELY(task)) {
-            _add_block_task(task);
-        }
-        return this;
-    }
-    return nullptr;
-}
-
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
@@ -112,84 +98,72 @@ std::string Dependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block task = {}, ready={}, _filters = {}, _blocked_by_rf = {}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _filters.load(), _blocked_by_rf ? _blocked_by_rf->load() : false);
+    fmt::format_to(
+            debug_string_buffer,
+            "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}, count={}",
+            std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(), _ready,
+            _always_ready, _is_cancelled(), _counter);
     return fmt::to_string(debug_string_buffer);
 }
 
-bool RuntimeFilterTimer::has_ready() {
-    std::unique_lock<std::mutex> lc(_lock);
-    return _is_ready;
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
+                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
+    return fmt::to_string(debug_string_buffer);
+}
+
+Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    auto ready = _ready.load() || _is_cancelled();
+    if (!ready && task) {
+        _add_block_task(task);
+        task->_blocked_dep = this;
+    }
+    return ready ? nullptr : this;
 }
 
 void RuntimeFilterTimer::call_timeout() {
-    std::unique_lock<std::mutex> lc(_lock);
-    if (_call_ready) {
-        return;
-    }
-    _call_timeout = true;
-    if (_parent) {
-        _parent->sub_filters(_filter_id);
-    }
+    _parent->set_ready();
 }
 
 void RuntimeFilterTimer::call_ready() {
-    std::unique_lock<std::mutex> lc(_lock);
-    if (_call_timeout) {
-        return;
-    }
-    _call_ready = true;
-    if (_parent) {
-        _parent->sub_filters(_filter_id);
-    }
-    _is_ready = true;
+    _parent->set_ready();
 }
 
-void RuntimeFilterTimer::call_has_ready() {
-    std::unique_lock<std::mutex> lc(_lock);
-    DCHECK(!_call_timeout);
-    if (!_call_ready) {
-        _parent->sub_filters(_filter_id);
-    }
-}
+void RuntimeFilterTimerQueue::start() {
+    while (!_stop) {
+        std::unique_lock<std::mutex> lk(cv_m);
 
-void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
-    const auto filter_id = runtime_filter->filter_id();
-    ;
-    _filters++;
-    _filter_ready_map[filter_id] = false;
-    int64_t registration_time = runtime_filter->registration_time();
-    int32 wait_time_ms = runtime_filter->wait_time_ms();
-    auto filter_timer = std::make_shared<RuntimeFilterTimer>(
-            filter_id, registration_time, wait_time_ms,
-            std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()));
-    runtime_filter->set_filter_timer(filter_timer);
-    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(filter_timer);
-}
-
-void RuntimeFilterDependency::sub_filters(int id) {
-    std::vector<PipelineXTask*> local_block_task {};
-    {
-        std::lock_guard<std::mutex> lk(_task_lock);
-        if (!_filter_ready_map[id]) {
-            _filter_ready_map[id] = true;
-            _filters--;
+        while (_que.empty() && !_stop) {
+            cv.wait_for(lk, std::chrono::seconds(3), [this] { return !_que.empty() || _stop; });
         }
-        if (_filters == 0) {
-            _watcher.stop();
-            {
-                *_blocked_by_rf = false;
-                local_block_task.swap(_blocked_task);
+        if (_stop) {
+            break;
+        }
+        {
+            std::unique_lock<std::mutex> lc(_que_lock);
+            std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> new_que;
+            for (auto& it : _que) {
+                if (it.use_count() == 1) {
+                    // `use_count == 1` means this runtime filter has been released
+                } else if (it->_parent->is_blocked_by(nullptr)) {
+                    // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
+                    int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                    if (ms_since_registration > it->wait_time_ms()) {
+                        it->call_timeout();
+                    } else {
+                        new_que.push_back(std::move(it));
+                    }
+                }
             }
+            new_que.swap(_que);
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(interval));
     }
-    for (auto* task : local_block_task) {
-        task->wake_up();
-    }
+    _shutdown = true;
 }
 
 void LocalExchangeSharedState::sub_running_sink_operators() {
@@ -257,7 +231,6 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
 }
 void AggSpillPartition::close() {
     if (spilling_stream_) {
-        (void)spilling_stream_->wait_spill();
         spilling_stream_.reset();
     }
     for (auto& stream : spill_streams_) {
@@ -267,11 +240,27 @@ void AggSpillPartition::close() {
 }
 
 void PartitionedAggSharedState::close() {
+    // need to use CAS instead of only `if (!is_closed)` statement,
+    // to avoid concurrent entry of close() both pass the if statement
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
+        return;
+    }
+    DCHECK(!false_close && is_closed);
     for (auto partition : spill_partitions) {
         partition->close();
     }
+    spill_partitions.clear();
 }
-void SpillSortSharedState::clear() {
+
+void SpillSortSharedState::close() {
+    // need to use CAS instead of only `if (!is_closed)` statement,
+    // to avoid concurrent entry of close() both pass the if statement
+    bool false_close = false;
+    if (!is_closed.compare_exchange_strong(false_close, true)) {
+        return;
+    }
+    DCHECK(!false_close && is_closed);
     for (auto& stream : sorted_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }

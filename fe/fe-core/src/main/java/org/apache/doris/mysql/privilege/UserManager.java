@@ -54,7 +54,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     // Concurrency control is delegated by Auth, so not concurrentMap
-    //One name may have multiple User,because host can be different
+    // One name may have multiple User,because host can be different
     @SerializedName(value = "nameToUsers")
     private Map<String, List<User>> nameToUsers = Maps.newHashMap();
 
@@ -181,7 +181,8 @@ public class UserManager implements Writable, GsonPostProcessable {
 
     }
 
-    public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
+    public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver,
+            String comment)
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
@@ -192,13 +193,14 @@ public class UserManager implements Writable, GsonPostProcessable {
                 return userByUserIdentity;
             }
             userByUserIdentity.setPassword(pwd);
+            userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
             return userByUserIdentity;
         }
 
         PatternMatcher hostPattern = PatternMatcher
                 .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern);
+        User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern, comment);
         List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
         if (CollectionUtils.isEmpty(nameToLists)) {
             nameToLists = Lists.newArrayList(user);
@@ -286,7 +288,7 @@ public class UserManager implements Writable, GsonPostProcessable {
                     byte[] password = domainUser.getPassword().getPassword();
                     Preconditions.checkNotNull(password, entry.getKey());
                     try {
-                        createUser(userIdent, password, domainUser.getUserIdentity(), true);
+                        createUser(userIdent, password, domainUser.getUserIdentity(), true, "");
                     } catch (PatternMatcherException e) {
                         LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                     }

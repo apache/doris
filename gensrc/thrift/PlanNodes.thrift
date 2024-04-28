@@ -1197,6 +1197,8 @@ struct TRuntimeFilterDesc {
  
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
+
+  16: optional bool sync_filter_size;
 }
 
 
@@ -1275,10 +1277,13 @@ struct TPlanNode {
   49: optional i64 push_down_count
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
-  
+  // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
   103: optional TPartitionSortNode partition_sort_node
+  // Intermediate projections will not materialize into the output block.
+  104: optional list<list<Exprs.TExpr>> intermediate_projections_list
+  105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

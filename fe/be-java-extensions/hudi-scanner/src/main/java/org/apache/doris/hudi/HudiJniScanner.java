@@ -160,9 +160,15 @@ public class HudiJniScanner extends JniScanner {
             cleanResolverLock.readLock().lock();
             try {
                 lastUpdateTime.set(System.currentTimeMillis());
-                recordIterator = HadoopUGI.ugiDoAs(
-                        AuthenticationConfig.getKerberosConfig(split.hadoopConf()), () -> new MORSnapshotSplitReader(
-                                split).buildScanIterator(new Filter[0]));
+                if (split.incrementalRead()) {
+                    recordIterator = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(
+                                    split.hadoopConf()),
+                            () -> new MORIncrementalSplitReader(split).buildScanIterator(new Filter[0]));
+                } else {
+                    recordIterator = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(
+                                    split.hadoopConf()),
+                            () -> new MORSnapshotSplitReader(split).buildScanIterator(new Filter[0]));
+                }
                 if (AVRO_RESOLVER_CACHE != null && AVRO_RESOLVER_CACHE.get() != null) {
                     cachedResolvers.computeIfAbsent(Thread.currentThread().getId(),
                             threadId -> AVRO_RESOLVER_CACHE.get());

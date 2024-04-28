@@ -178,6 +178,11 @@ public class Backend implements Writable {
         return id;
     }
 
+    // Return ip:heartbeat port
+    public String getAddress() {
+        return host + ":" + heartbeatPort;
+    }
+
     public String getHost() {
         return host;
     }
@@ -815,6 +820,10 @@ public class Backend implements Writable {
 
     public TNetworkAddress getBrpcAddress() {
         return new TNetworkAddress(getHost(), getBrpcPort());
+    }
+
+    public TNetworkAddress getHeartbeatAddress() {
+        return new TNetworkAddress(getHost(), getHeartbeatPort());
     }
 
     public TNetworkAddress getArrowFlightAddress() {

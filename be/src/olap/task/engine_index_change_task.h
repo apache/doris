@@ -35,8 +35,6 @@ public:
 
 private:
     const TAlterInvertedIndexReq& _alter_inverted_index_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

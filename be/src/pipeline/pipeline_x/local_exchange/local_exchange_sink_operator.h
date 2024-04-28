@@ -37,6 +37,8 @@ public:
     ~LocalExchangeSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
 
 private:
@@ -58,6 +60,7 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
+    bool _release_count = false;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -111,8 +114,8 @@ public:
                     _shuffle_idx_to_instance_idx[i] = {i, i};
                 }
             }
-            _partitioner.reset(
-                    new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
+            _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                    _num_partitions));
             RETURN_IF_ERROR(_partitioner->init(_texprs));
         } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
             _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(

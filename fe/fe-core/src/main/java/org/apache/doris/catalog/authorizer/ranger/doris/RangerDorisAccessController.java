@@ -20,7 +20,6 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -30,6 +29,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -53,14 +54,20 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, DorisAccessType accessType) {
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setAction(accessType.name());
+        request.setAccessType(accessType.name());
+        return request;
+    }
+
+    @Override
+    protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()));
         Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
         request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
                 Collectors.toSet()));
 
-        request.setAction(accessType.name());
-        request.setAccessType(accessType.name());
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
@@ -93,27 +100,6 @@ public class RangerDorisAccessController extends RangerAccessController {
 
         RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
         return checkRequestResult(request, result, accessType.name());
-    }
-
-    public String getFilterExpr(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        return result.getFilterExpr();
-    }
-
-    public void getColumnMask(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                    result.getMaskTypeDef(), result.getMaskedValue()));
-        }
     }
 
     @Override
@@ -166,6 +152,28 @@ public class RangerDorisAccessController extends RangerAccessController {
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+    }
+
+    @Override
+    protected RangerDorisResource createResource(String ctl, String db, String tbl) {
+        return new RangerDorisResource(DorisObjectType.TABLE,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+    }
+
+    @Override
+    protected RangerDorisResource createResource(String ctl, String db, String tbl, String col) {
+        return new RangerDorisResource(DorisObjectType.COLUMN,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
+    }
+
+    @Override
+    protected RangerBasePlugin getPlugin() {
+        return dorisPlugin;
+    }
+
+    @Override
+    protected RangerAccessResultProcessor getAccessResultProcessor() {
+        return null;
     }
 
     // For test only

@@ -17,18 +17,22 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -163,7 +167,7 @@ public class MasterOpExecutor {
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
-
+        params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
@@ -267,5 +271,16 @@ public class MasterOpExecutor {
         public String getMessage() {
             return msg;
         }
+    }
+
+    private Map<String, TExprNode> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
+        Map<String, TExprNode> forwardVariables = Maps.newHashMap();
+        for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
+            LiteralExpr literalExpr = entry.getValue();
+            TExpr tExpr = literalExpr.treeToThrift();
+            TExprNode tExprNode = tExpr.nodes.get(0);
+            forwardVariables.put(entry.getKey(), tExprNode);
+        }
+        return forwardVariables;
     }
 }

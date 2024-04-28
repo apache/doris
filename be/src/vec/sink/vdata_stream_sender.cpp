@@ -80,6 +80,57 @@ Status Channel<Parent>::init(RuntimeState* state) {
 
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
+    if (state->query_options().__isset.enable_local_exchange) {
+        _is_local &= state->query_options().enable_local_exchange;
+    }
+
+    if (_is_local) {
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+    } else {
+        if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
+            _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
+                    "127.0.0.1", _brpc_dest_addr.port);
+        } else {
+            _brpc_stub =
+                    state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
+        }
+
+        if (!_brpc_stub) {
+            std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                          _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+    }
+
+    _serializer.set_is_local(_is_local);
+
+    // In bucket shuffle join will set fragment_instance_id (-1, -1)
+    // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
+    // so the empty channel not need call function close_internal()
+    _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    _state = state;
+    return Status::OK();
+}
+
+template <typename Parent>
+Status Channel<Parent>::init_stub(RuntimeState* state) {
+    if (_brpc_dest_addr.hostname.empty()) {
+        LOG(WARNING) << "there is no brpc destination address's hostname"
+                        ", maybe version is not compatible.";
+        return Status::InternalError("no brpc destination");
+    }
+    if (state->query_options().__isset.enable_local_exchange) {
+        _is_local &= state->query_options().enable_local_exchange;
+    }
+    if (_is_local) {
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+        return Status::OK();
+    }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
@@ -93,15 +144,27 @@ Status Channel<Parent>::init(RuntimeState* state) {
         LOG(WARNING) << msg;
         return Status::InternalError(msg);
     }
+    return Status::OK();
+}
 
-    if (state->query_options().__isset.enable_local_exchange) {
-        _is_local &= state->query_options().enable_local_exchange;
-    }
+template <typename Parent>
+Status Channel<Parent>::open(RuntimeState* state) {
+    _be_number = state->be_number();
+    _brpc_request = std::make_shared<PTransmitDataParams>();
+    // initialize brpc request
+    _brpc_request->mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request->mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request->finst_id();
 
-    if (_is_local) {
-        _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id);
-    }
+    _brpc_request->mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request->mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request->query_id();
+
+    _brpc_request->set_node_id(_dest_node_id);
+    _brpc_request->set_sender_id(_parent->sender_id());
+    _brpc_request->set_be_number(_be_number);
+
+    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
     _serializer.set_is_local(_is_local);
 
@@ -215,7 +278,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     }
 
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto send_remote_block_closure =
                 AutoReleaseClosure<PTransmitDataParams, DummyBrpcCallback<PTransmitDataResult>>::
                         create_unique(_brpc_request, _send_remote_block_callback);
@@ -677,11 +739,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
-                                             (uint64_t*)_partitioner->get_channel_ids(), rows,
+                                             _partitioner->get_channel_ids().get<uint64_t>(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
-                                             (uint32_t*)_partitioner->get_channel_ids(), rows,
+                                             _partitioner->get_channel_ids().get<uint32_t>(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {

@@ -283,11 +283,12 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
         if (only_file && file.mKind == kObjectKindDirectory) {
             continue;
         }
-        FileInfo file_info;
-        file_info.file_name = file.mName;
+        auto& file_info = files->emplace_back();
+        std::string_view fname(file.mName);
+        fname.remove_prefix(fname.rfind('/') + 1);
+        file_info.file_name = fname;
         file_info.file_size = file.mSize;
         file_info.is_file = (file.mKind != kObjectKindDirectory);
-        files->emplace_back(std::move(file_info));
     }
     hdfsFreeFileInfo(hdfs_file_info, numEntries);
     return Status::OK();
@@ -380,8 +381,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 
         RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
     }
-
-    return Status::OK();
+    return local_writer->close();
 }
 
 HdfsFileSystemHandle* HdfsFileSystem::get_handle() {

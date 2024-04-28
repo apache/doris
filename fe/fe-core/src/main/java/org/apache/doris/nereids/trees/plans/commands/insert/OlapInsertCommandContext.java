@@ -21,10 +21,30 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  * For Olap Table
  */
 public class OlapInsertCommandContext extends InsertCommandContext {
-    private boolean allowAutoPartition = true;
+    private boolean allowAutoPartition;
+    private boolean autoDetectOverwrite = false;
+    private long overwriteGroupId = 0;
+
+    public OlapInsertCommandContext(boolean allowAutoPartition) {
+        this.allowAutoPartition = allowAutoPartition;
+    }
+
+    public OlapInsertCommandContext(boolean allowAutoPartition, boolean autoDetectOverwrite, long overwriteGroupId) {
+        this.allowAutoPartition = allowAutoPartition;
+        this.autoDetectOverwrite = autoDetectOverwrite;
+        this.overwriteGroupId = overwriteGroupId;
+    }
 
     public boolean isAllowAutoPartition() {
         return allowAutoPartition;
+    }
+
+    public boolean isAutoDetectOverwrite() {
+        return autoDetectOverwrite;
+    }
+
+    public long getOverwriteGroupId() {
+        return overwriteGroupId;
     }
 
     public void setAllowAutoPartition(boolean allowAutoPartition) {

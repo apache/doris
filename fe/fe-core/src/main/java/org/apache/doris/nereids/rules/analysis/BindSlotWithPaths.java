@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -34,7 +33,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Rule to bind slot with path in query plan.
@@ -60,21 +58,18 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                             Set<SlotReference> pathsSlots = ctx.statementContext.getAllPathsSlots();
                             // With new logical properties that contains new slots with paths
                             StatementContext stmtCtx = ConnectContext.get().getStatementContext();
-                            List<Slot> olapScanPathSlots = pathsSlots.stream().filter(
-                                    slot -> {
-                                        Preconditions.checkNotNull(stmtCtx.getRelationBySlot(slot),
-                                                "[Not implemented] Slot not found in relation map, slot ", slot);
-                                        return stmtCtx.getRelationBySlot(slot).getRelationId()
-                                                == logicalOlapScan.getRelationId();
-                                    }).collect(
-                                    Collectors.toList());
-                            List<NamedExpression> newExprs = olapScanPathSlots.stream()
-                                    .map(SlotReference.class::cast)
-                                    .map(slotReference ->
-                                            new Alias(slotReference.getExprId(),
-                                                    stmtCtx.getOriginalExpr(slotReference), slotReference.getName()))
-                                    .collect(
-                                            Collectors.toList());
+                            ImmutableList.Builder<NamedExpression> newExprsBuilder
+                                    = ImmutableList.builderWithExpectedSize(pathsSlots.size());
+                            for (SlotReference slot : pathsSlots) {
+                                Preconditions.checkNotNull(stmtCtx.getRelationBySlot(slot),
+                                        "[Not implemented] Slot not found in relation map, slot ", slot);
+                                if (stmtCtx.getRelationBySlot(slot).getRelationId()
+                                        == logicalOlapScan.getRelationId()) {
+                                    newExprsBuilder.add(new Alias(slot.getExprId(),
+                                            stmtCtx.getOriginalExpr(slot), slot.getName()));
+                                }
+                            }
+                            ImmutableList<NamedExpression> newExprs = newExprsBuilder.build();
                             if (newExprs.isEmpty()) {
                                 return ctx.root;
                             }

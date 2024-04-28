@@ -56,6 +56,7 @@ Status OlapScanLocalState::_init_profile() {
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
@@ -64,6 +65,8 @@ Status OlapScanLocalState::_init_profile() {
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
     _block_conditions_filtered_bf_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
+    _collect_iterator_normal_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorNormalTime");
     _block_conditions_filtered_zonemap_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
     _block_conditions_filtered_zonemap_rp_timer =
@@ -315,7 +318,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                 RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
                 olap_scanner->set_compound_filters(_compound_filters);
             }
-            LOG(INFO) << "parallel scanners count: " << scanners->size();
             return Status::OK();
         }
     }

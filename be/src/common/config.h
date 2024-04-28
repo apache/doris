@@ -178,6 +178,9 @@ DECLARE_mBool(disable_memory_gc);
 // If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+DECLARE_mBool(enable_memory_orphan_check);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
@@ -244,10 +247,10 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
 
-// log dir
+// deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
+// for udf
 DECLARE_String(user_function_dir);
-DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -613,6 +616,9 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
+// Sleep time in milliseconds between refresh iterations of workload group memory statistics
+DECLARE_mInt64(wg_mem_refresh_interval_ms);
+
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
 
@@ -845,6 +851,7 @@ DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_String(delete_bitmap_dynamic_agg_cache_limit);
 DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
 
 // A common object cache depends on an Sharded LRU Cache.
@@ -1023,6 +1030,7 @@ DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
+DECLARE_Int32(inverted_index_query_cache_shards);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
@@ -1230,13 +1238,18 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-DECLARE_mInt64(spill_storage_limit);
+// Spill storage limit specified as number of bytes
+// ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
+// or percentage of capaity ('<int>%').
+// Defaults to bytes if no unit is given.
+// Must larger than 0.
+// If specified as percentage, the final limit value is:
+//   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
-DECLARE_Int32(spill_io_thread_pool_per_disk_thread_num);
+DECLARE_mInt32(spill_gc_file_count);
+DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
-DECLARE_Int32(spill_async_task_thread_pool_thread_num);
-DECLARE_Int32(spill_async_task_thread_pool_queue_size);
-DECLARE_mInt32(spill_mem_warning_water_mark_multiplier);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
@@ -1250,17 +1263,23 @@ DECLARE_String(tmp_file_dir);
 DECLARE_mString(ca_cert_file_paths);
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DECLARE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold);
-// Minimum data processed to start rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_data_processed_threshold);
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold);
+DECLARE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold);
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold);
 // Maximum processed partition nums of per writer when partition writing
 DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
 /** Hive sink configurations **/
-DECLARE_mInt64(hive_sink_max_file_size); // 1GB
+DECLARE_mInt64(hive_sink_max_file_size);
+
+// Number of open tries, default 1 means only try to open once.
+// Retry the Open num_retries time waiting 100 milliseconds between retries.
+DECLARE_mInt32(thrift_client_open_num_tries);
+
+DECLARE_mBool(ignore_schema_change_check);
 
 #ifdef BE_TEST
 // test s3

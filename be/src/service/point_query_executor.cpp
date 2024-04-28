@@ -97,12 +97,14 @@ std::unique_ptr<vectorized::Block> Reusable::get_block() {
 
 void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     std::lock_guard lock(_block_mutex);
-    if (_block_pool.size() > s_preallocted_blocks_num) {
+    if (block == nullptr) {
         return;
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
-    _block_pool.resize(s_preallocted_blocks_num);
+    if (_block_pool.size() > s_preallocted_blocks_num) {
+        _block_pool.resize(s_preallocted_blocks_num);
+    }
 }
 
 int64_t Reusable::mem_size() const {
@@ -159,6 +161,14 @@ void RowCache::erase(const RowCacheKey& key) {
     LRUCachePolicy::erase(encoded_key);
 }
 
+PointQueryExecutor::~PointQueryExecutor() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _tablet.reset();
+    _reusable.reset();
+    _result_block.reset();
+    _row_read_ctxs.clear();
+}
+
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                 PTabletKeyLookupResponse* response) {
     SCOPED_TIMER(&_profile_metrics.init_ns);
@@ -166,6 +176,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     // using cache
     __int128_t uuid =
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::QUERY,
+            fmt::format("PointQueryExecutor:{}#{}", uuid, request->tablet_id()));
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
@@ -215,6 +229,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 }
 
 Status PointQueryExecutor::lookup_up() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());

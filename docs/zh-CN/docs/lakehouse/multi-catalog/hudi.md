@@ -29,12 +29,12 @@ under the License.
 
 ## 使用限制
 
-1. Hudi 表支持的查询类型如下，后续将支持 Incremental Query。
+1. Hudi 表支持的查询类型如下，后续将支持 CDC。
 
 |  表类型   | 支持的查询类型  |
 |  ----  | ----  |
-| Copy On Write  | Snapshot Query + Time Travel |
-| Merge On Read  | Snapshot Queries + Read Optimized Queries + Time Travel |
+| Copy On Write  | Snapshot Query, Time Travel, Icremental Read |
+| Merge On Read  | Snapshot Queries, Read Optimized Queries, Time Travel, Icremental Read |
 
 2. 目前支持 Hive Metastore 和兼容 Hive Metastore 类型(例如[AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md))的 Catalog。
 
@@ -96,16 +96,29 @@ Doris 使用 parquet native reader 读取 COW 表的数据文件，使用 Java S
 
 ## Time Travel
 
-支持读取 Hudi 表指定的 Snapshot。
+每一次对 Hudi 表的写操作都会产生一个新的快照，Time Travel 支持读取 Hudi 表指定的 Snapshot。默认情况下，查询请求只会读取最新版本的快照。
 
-每一次对 Hudi 表的写操作都会产生一个新的快照。
-
-默认情况下，查询请求只会读取最新版本的快照。
-
-可以使用 `FOR TIME AS OF` 语句，根据快照的时间([时间格式](https://hudi.apache.org/docs/quick-start-guide#time-travel-query)和Hudi官网保持一致)读取历史版本的数据。示例如下：
-
-`SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
-
-`SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";`
-
+可以使用 `FOR TIME AS OF` 语句，根据快照的时间([时间格式](https://hudi.apache.org/docs/0.14.0/quick-start-guide/#timetravel)和Hudi官网保持一致)读取历史版本的数据。示例如下：
+```
+SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";
+SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";
+SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07";
+```
 Hudi 表不支持 `FOR VERSION AS OF` 语句，使用该语法查询 Hudi 表将抛错。
+
+## Incremental Read
+Incremental Read 可以查询在 startTime 和 endTime 之间变化的数据，返回的结果集是数据在 endTime 的最终状态。
+
+Doris 提供了 `@incr` 语法支持 Incremental Read:
+```
+SELECT * from hudi_table@incr('beginTime'='xxx', ['endTime'='xxx'], ['hoodie.read.timeline.holes.resolution.policy'='FAIL'], ...);
+```
+`beginTime` 是必须的，时间格式和 hudi 官网 [hudi_table_changes](https://hudi.apache.org/docs/0.14.0/quick-start-guide/#incremental-query) 保持一致，支持 "earliest"。`endTime` 选填，默认最新commitTime。兼容 [Spark Read Options](https://hudi.apache.org/docs/0.14.0/configurations#Read-Options)。
+
+支持 Incremental Read 需要开启[新优化器](../../query-acceleration/nereids.md)，新优化器默认打开。通过 `desc` 查看执行计划，可以发现 Doris 将 `@incr` 转化为 `predicates` 下推给 `VHUDI_SCAN_NODE`:
+```
+|   0:VHUDI_SCAN_NODE(113)                                                                                            |
+|      table: lineitem_mor                                                                                            |
+|      predicates: (_hoodie_commit_time[#0] >= '20240311151019723'), (_hoodie_commit_time[#0] <= '20240311151606605') |
+|      inputSplitNum=1, totalFileSize=13099711, scanRanges=1                                                          |
+```

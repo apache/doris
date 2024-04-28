@@ -73,7 +73,7 @@ public:
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
-    virtual Status open(RuntimeState* state) { return Status::OK(); }
+    virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -102,7 +102,7 @@ public:
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
+    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
@@ -128,6 +128,7 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
@@ -135,6 +136,9 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
     bool _closed = false;
     vectorized::Block _origin_block;
 };
@@ -154,6 +158,19 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+        }
+        if (tnode.__isset.output_tuple_id) {
+            _output_row_descriptor = std::make_unique<RowDescriptor>(
+                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+        }
+        if (!tnode.intermediate_output_tuple_id_list.empty()) {
+            // common subexpression elimination
+            _intermediate_output_row_descriptor.reserve(
+                    tnode.intermediate_output_tuple_id_list.size());
+            for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
+                _intermediate_output_row_descriptor.push_back(
+                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
+            }
         }
     }
 
@@ -247,6 +264,25 @@ public:
         return _row_descriptor;
     }
 
+    //  input expr -> intermediate_projections[0] -> intermediate_projections[1] -> intermediate_projections[2]    ... ->     final projections         ->         output expr
+    //  prepare        _row_descriptor          intermediate_row_desc[0]             intermediate_row_desc[1]            intermediate_row_desc.end()          _output_row_descriptor
+
+    [[nodiscard]] const RowDescriptor& intermediate_row_desc(int idx) {
+        if (idx == 0) {
+            return intermediate_row_desc();
+        }
+        DCHECK((idx - 1) < _intermediate_output_row_descriptor.size());
+        return _intermediate_output_row_descriptor[idx - 1];
+    }
+
+    [[nodiscard]] const RowDescriptor& projections_row_desc() const {
+        if (_intermediate_output_row_descriptor.empty()) {
+            return intermediate_row_desc();
+        } else {
+            return _intermediate_output_row_descriptor.back();
+        }
+    }
+
     [[nodiscard]] std::string debug_string() const override { return ""; }
 
     virtual std::string debug_string(int indentation_level = 0) const;
@@ -289,6 +325,8 @@ public:
         return _output_row_descriptor.get();
     }
 
+    bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
@@ -318,6 +356,10 @@ protected:
     std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
 
+    std::vector<RowDescriptor> _intermediate_output_row_descriptor;
+    // Used in common subexpression elimination to compute intermediate results.
+    std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
+
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
@@ -328,8 +370,8 @@ protected:
     int _parallel_tasks = 0;
 
     //_keep_origin is used to avoid copying during projection,
-    // currently set to true only in the nestloop join.
-    bool _keep_origin = false;
+    // currently set to false only in the nestloop join.
+    bool _keep_origin = true;
 };
 
 template <typename LocalStateType>
@@ -358,6 +400,7 @@ public:
     ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
     virtual std::string name_suffix() const {
         return " (id=" + std::to_string(_parent->node_id()) + ")";
@@ -371,9 +414,27 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     SharedStateArg* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>
@@ -395,6 +456,12 @@ public:
                 ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
         _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
                                                          TUnit::BYTES, "Spill", 1);
+        _spill_wait_in_queue_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+        _spill_write_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
+        _spill_read_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
         return Status::OK();
     }
 
@@ -403,6 +470,9 @@ public:
     RuntimeProfile::Counter* _spill_read_data_time;
     RuntimeProfile::Counter* _spill_deserialize_time;
     RuntimeProfile::Counter* _spill_read_bytes;
+    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -471,6 +541,7 @@ protected:
             std::make_unique<RuntimeProfile>("faker profile");
 
     RuntimeProfile::Counter* _rows_input_counter = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
@@ -666,9 +737,27 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     SharedStateType* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>
@@ -692,6 +781,12 @@ public:
                                                         TUnit::BYTES, "Spill", 1);
         _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
                                                           TUnit::UNIT, "Spill", 1);
+        _spill_wait_in_queue_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
+        _spill_write_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
+        _spill_read_wait_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
         return Status::OK();
     }
 
@@ -701,6 +796,9 @@ public:
     RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
     RuntimeProfile::Counter* _spill_data_size = nullptr;
     RuntimeProfile::Counter* _spill_block_count = nullptr;
+    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
+    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
 };
 
 /**

@@ -1,4 +1,3 @@
-#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -51,6 +50,11 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
 ADD resource/init_fe.sh /usr/local/bin/
 
 COPY resource/fe_*.sh /opt/apache-doris/
+
+COPY --from=selectdb/doris-debug-ubuntu:latest /doris-debug /opt/apache-doris/
+
+# when you use beijing zone, please enable the set.
+# RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
 WORKDIR /opt/apache-doris
 

@@ -125,19 +125,13 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
     return ostr;
 }
 
-LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use)
-        : _use_cnt(num_use),
-          _load_id(load_id),
+LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
+                               std::shared_ptr<IndexToTabletSchema> schema_map,
+                               std::shared_ptr<IndexToEnableMoW> mow_map)
+        : _load_id(load_id),
           _src_id(src_id),
-          _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
-          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
-
-LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _use_cnt(stub._use_cnt.load()),
-          _load_id(stub._load_id),
-          _src_id(stub._src_id),
-          _tablet_schema_for_index(stub._tablet_schema_for_index),
-          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
+          _tablet_schema_for_index(schema_map),
+          _enable_unique_mow_for_index(mow_map) {};
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_is_closed.load()) {
@@ -241,23 +235,12 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
-    {
-        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
-        _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
-                                  tablets_to_commit.end());
-    }
-    if (--_use_cnt > 0) {
-        return Status::OK();
-    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    {
-        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
-        for (const auto& tablet : _tablets_to_commit) {
-            *header.add_tablets() = tablet;
-        }
+    for (const auto& tablet : tablets_to_commit) {
+        *header.add_tablets() = tablet;
     }
     return _encode_and_send(header);
 }
@@ -267,7 +250,7 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
-    header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    header.set_opcode(doris::PStreamHeader::GET_SCHEMA);
     std::ostringstream oss;
     oss << "fetching tablet schema from stream " << _stream_id
         << ", load id: " << print_id(_load_id) << ", tablet id:";
@@ -308,13 +291,9 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 }
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
-        while (true) {
-        };
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
     if (!_is_init.load()) {
-        return Status::InternalError("stream {} is not opened, load_id={}", _stream_id,
-                                     print_id(_load_id));
+        return Status::InternalError("stream {} is not opened, {}", _stream_id, to_string());
     }
     if (_is_closed.load()) {
         return _check_cancel();
@@ -325,19 +304,18 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
         //the query maybe cancel, so need check after wait 1s
         timeout_sec = timeout_sec - 1;
+        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
+                  << ", is_closed=" << _is_closed.load()
+                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
         int ret = _close_cv.wait_for(lock, 1000000);
         if (ret != 0 && timeout_sec <= 0) {
-            return Status::InternalError(
-                    "stream close_wait timeout, error={}, timeout_ms={}, load_id={}, dst_id={}, "
-                    "stream_id={}",
-                    ret, timeout_ms, print_id(_load_id), _dst_id, _stream_id);
+            return Status::InternalError("stream close_wait timeout, error={}, timeout_ms={}, {}",
+                                         ret, timeout_ms, to_string());
         }
     }
     RETURN_IF_ERROR(_check_cancel());
     if (!_is_eos.load()) {
-        return Status::InternalError(
-                "stream closed without eos, load_id={}, dst_id={}, stream_id={}",
-                print_id(_load_id), _dst_id, _stream_id);
+        return Status::InternalError("stream closed without eos, {}", to_string());
     }
     return Status::OK();
 }
@@ -392,7 +370,6 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         RETURN_IF_ERROR(_check_cancel());
         int ret;
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
                 int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
@@ -409,14 +386,21 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             const timespec time = butil::seconds_from_now(config::load_stream_eagain_wait_seconds);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err={}", wait_ret);
+                return Status::InternalError("StreamWait failed, err={}, {}", wait_ret,
+                                             to_string());
             }
             break;
         }
         default:
-            return Status::InternalError("StreamWrite failed, err={}", ret);
+            return Status::InternalError("StreamWrite failed, err={}, {}", ret, to_string());
         }
     }
+}
+
+std::string LoadStreamStub::to_string() {
+    std::ostringstream ss;
+    ss << *this;
+    return ss.str();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub) {

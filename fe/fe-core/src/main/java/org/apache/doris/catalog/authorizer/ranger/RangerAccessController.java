@@ -17,15 +17,27 @@
 
 package org.apache.doris.catalog.authorizer.ranger;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.mysql.privilege.RangerDataMaskPolicy;
+import org.apache.doris.mysql.privilege.RangerRowFilterPolicy;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
+import org.apache.ranger.plugin.policyengine.RangerAccessResourceImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 public abstract class RangerAccessController implements CatalogAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
@@ -74,4 +86,70 @@ public abstract class RangerAccessController implements CatalogAccessController 
             }
         }
     }
+
+    @Override
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl) {
+        RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger request: {}", request);
+        }
+        List<RangerRowFilterPolicy> res = Lists.newArrayList();
+        RangerAccessResult policy = getPlugin().evalRowFilterPolicies(request, getAccessResultProcessor());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger response: {}", policy);
+        }
+        if (policy == null) {
+            return res;
+        }
+        String filterExpr = policy.getFilterExpr();
+        if (StringUtils.isEmpty(filterExpr)) {
+            return res;
+        }
+        res.add(new RangerRowFilterPolicy(currentUser, ctl, db, tbl, policy.getPolicyId(), policy.getPolicyVersion(),
+                filterExpr));
+        return res;
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setResource(resource);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger request: {}", request);
+        }
+        RangerAccessResult policy = getPlugin().evalDataMaskPolicies(request, getAccessResultProcessor());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ranger response: {}", policy);
+        }
+        if (policy == null) {
+            return Optional.empty();
+        }
+        String maskType = policy.getMaskType();
+        if (StringUtils.isEmpty(maskType)) {
+            return Optional.empty();
+        }
+        String transformer = policy.getMaskTypeDef().getTransformer();
+        if (StringUtils.isEmpty(transformer)) {
+            return Optional.empty();
+        }
+        return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
+    }
+
+    protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);
+
+    protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl);
+
+    protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl, String col);
+
+    protected abstract RangerBasePlugin getPlugin();
+
+    protected abstract RangerAccessResultProcessor getAccessResultProcessor();
 }

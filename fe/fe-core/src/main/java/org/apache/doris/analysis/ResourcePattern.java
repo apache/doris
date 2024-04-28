@@ -22,6 +22,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -34,14 +35,14 @@ import java.io.IOException;
 // only the following 2 formats are allowed
 // *
 // resource
-public class ResourcePattern implements Writable {
+public class ResourcePattern implements Writable, GsonPostProcessable {
     @SerializedName(value = "resourceName")
     private String resourceName;
 
     public static ResourcePattern ALL;
 
     static {
-        ALL = new ResourcePattern("*");
+        ALL = new ResourcePattern("%");
         try {
             ALL.analyze();
         } catch (AnalysisException e) {
@@ -53,7 +54,11 @@ public class ResourcePattern implements Writable {
     }
 
     public ResourcePattern(String resourceName) {
-        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "*" : resourceName;
+        // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
+        this.resourceName = Strings.isNullOrEmpty(resourceName) ? "%" : resourceName;
     }
 
     public String getResourceName() {
@@ -61,15 +66,11 @@ public class ResourcePattern implements Writable {
     }
 
     public PrivLevel getPrivLevel() {
-        if (resourceName.equals("*")) {
-            return PrivLevel.GLOBAL;
-        } else {
-            return PrivLevel.RESOURCE;
-        }
+        return PrivLevel.RESOURCE;
     }
 
     public void analyze() throws AnalysisException {
-        if (!resourceName.equals("*")) {
+        if (!resourceName.equals("%")) {
             FeNameFormat.checkResourceName(resourceName);
         }
     }
@@ -104,5 +105,13 @@ public class ResourcePattern implements Writable {
     public static ResourcePattern read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // // To be compatible with previous syntax
+        if ("*".equals(resourceName)) {
+            resourceName = "%";
+        }
     }
 }

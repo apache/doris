@@ -17,15 +17,14 @@
 
 #include "olap/task/engine_index_change_task.h"
 
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 
 EngineIndexChangeTask::EngineIndexChangeTask(
         const TAlterInvertedIndexReq& alter_inverted_index_request)
         : _alter_inverted_index_req(alter_inverted_index_request) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+    _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineIndexChangeTask#tabletId={}",
                         std::to_string(_alter_inverted_index_req.tablet_id)),
@@ -33,7 +32,6 @@ EngineIndexChangeTask::EngineIndexChangeTask(
 }
 
 Status EngineIndexChangeTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
     uint64_t start = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())

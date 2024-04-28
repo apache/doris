@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.rules.expression.check;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
@@ -31,18 +31,24 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /**
  * check cast valid
  */
-public class CheckCast extends AbstractExpressionRewriteRule {
-
-    public static final CheckCast INSTANCE = new CheckCast();
+public class CheckCast implements ExpressionPatternRuleFactory {
+    public static CheckCast INSTANCE = new CheckCast();
 
     @Override
-    public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
-        rewrite(cast.child(), context);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(Cast.class).then(CheckCast::check)
+        );
+    }
+
+    private static Expression check(Cast cast) {
         DataType originalType = cast.child().getDataType();
         DataType targetType = cast.getDataType();
         if (!check(originalType, targetType)) {
@@ -51,7 +57,7 @@ public class CheckCast extends AbstractExpressionRewriteRule {
         return cast;
     }
 
-    private boolean check(DataType originalType, DataType targetType) {
+    private static boolean check(DataType originalType, DataType targetType) {
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -99,7 +105,7 @@ public class CheckCast extends AbstractExpressionRewriteRule {
      *   3. original type is same with target type
      *   4. target type is null type
      */
-    private boolean checkPrimitiveType(DataType originalType, DataType targetType) {
+    private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
         if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
             return false;
         }

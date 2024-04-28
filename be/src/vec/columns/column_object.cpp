@@ -732,18 +732,7 @@ Field ColumnObject::operator[](size_t n) const {
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    auto& map = res.get<VariantMap&>();
-    for (const auto& entry : subcolumns) {
-        auto it = map.try_emplace(entry->path.get_path()).first;
-        if (WhichDataType(remove_nullable(entry->data.data_types.back())).is_json()) {
-            // JsonbFiled is special case
-            it->second = JsonbField();
-        }
-        entry->data.data.back()->get(n, it->second);
-    }
+    res = (*this)[n];
 }
 
 Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -1446,11 +1435,6 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
     return Status::OK();
 }
 
-void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
-                                           const IColumn::Selector& selector) const {
-    return append_data_by_selector_impl<ColumnObject>(res, selector);
-}
-
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
@@ -1511,6 +1495,14 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
+}
+
+void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
+    LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+}
+
+void ColumnObject::replace_column_data_default(size_t self_row) {
+    LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

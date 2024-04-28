@@ -288,6 +288,9 @@ import javax.security.auth.login.LoginException;
  * 17. renamePartition()
  * 18. truncateTable()
  * 19. drop_table_with_environment_context()
+ *
+ * ATTN: There is a copy of this file in be-java-extensions.
+ * If you want to modify this file, please modify the file in be-java-extensions.
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
@@ -352,6 +355,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     }
 
     hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSProperties.HIVE_VERSION));
+    LOG.info("Loading Doris HiveMetaStoreClient. Hive version: " + conf.get(HMSProperties.HIVE_VERSION));
 
     // For hive 2.3.7, there is no ClientCapability.INSERT_ONLY_TABLES
     if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
@@ -1085,7 +1089,10 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     List<SQLCheckConstraint> checkConstraints)
         throws AlreadyExistsException, InvalidObjectException,
         MetaException, NoSuchObjectException, TException {
-
+    if (hiveVersion != HiveVersion.V3_0) {
+      throw new UnsupportedOperationException("Table with default values is not supported "
+          + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
+    }
     if (!tbl.isSetCatName()) {
       String defaultCat = getDefaultCatalog(conf);
       tbl.setCatName(defaultCat);

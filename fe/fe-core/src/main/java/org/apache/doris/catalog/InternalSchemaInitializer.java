@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -164,8 +165,8 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, FeConstants.INTERNAL_DB_NAME,
-                null);
+        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+                new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {

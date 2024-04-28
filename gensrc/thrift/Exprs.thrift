@@ -191,6 +191,11 @@ struct TStringLiteral {
   1: required string value;
 }
 
+struct TNullableStringLiteral {
+  1: optional string value;
+  2: optional bool is_null = false;
+}
+
 struct TJsonLiteral {
   1: required string value;
 }
@@ -260,6 +265,7 @@ struct TExprNode {
   33: optional TMatchPredicate match_predicate
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
+  36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

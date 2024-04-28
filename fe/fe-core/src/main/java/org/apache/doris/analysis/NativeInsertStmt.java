@@ -162,6 +162,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
+    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -314,6 +315,11 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
+    }
+
+    public NativeInsertStmt withAutoDetectOverwrite() {
+        this.withAutoDetectOverwrite = true;
+        return this;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
@@ -1325,5 +1331,10 @@ public class NativeInsertStmt extends InsertStmt {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
+    }
+
+    public boolean containTargetColumnName(String columnName) {
+        return targetColumnNames != null && targetColumnNames.stream()
+                .anyMatch(col -> col.equalsIgnoreCase(columnName));
     }
 }

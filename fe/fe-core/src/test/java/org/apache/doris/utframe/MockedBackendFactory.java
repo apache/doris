@@ -402,11 +402,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void cleanTrash() throws TException {
-            return;
-        }
-
-        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }

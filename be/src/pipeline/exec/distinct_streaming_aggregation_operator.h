@@ -43,6 +43,7 @@ public:
     DistinctStreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
 private:
@@ -58,15 +59,20 @@ private:
     void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
 
+    void _swap_cache_block(vectorized::Block* block) {
+        DCHECK(!_cache_block.is_empty_column());
+        block->swap(_cache_block);
+        _cache_block = block->clone_empty();
+    }
+
+    bool _opened = false;
     std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
-    int64_t _output_distinct_rows = 0;
     size_t _input_num_rows = 0;
     bool _should_expand_hash_table = true;
-    int64_t _cur_num_rows_returned = 0;
     bool _stop_emplace_flag = false;
-
+    const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
@@ -75,13 +81,16 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
+    bool _reach_limit = false;
     std::unique_ptr<vectorized::Block> _aggregated_block = nullptr;
-
+    vectorized::Block _cache_block;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 };
 
 class DistinctStreamingAggOperatorX final

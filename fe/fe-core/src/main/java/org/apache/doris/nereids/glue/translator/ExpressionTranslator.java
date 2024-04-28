@@ -209,8 +209,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             }
             SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
                     .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
-            Preconditions.checkNotNull(rewrittenSlot);
-            return context.findSlotRef(rewrittenSlot.getExprId());
+            // rewrittenSlot == null means variant is not from table. so keep element_at function
+            if (rewrittenSlot != null) {
+                return context.findSlotRef(rewrittenSlot.getExprId());
+            }
         }
         return visitScalarFunction(elementAt, context);
     }

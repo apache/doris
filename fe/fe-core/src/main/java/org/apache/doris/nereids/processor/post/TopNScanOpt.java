@@ -103,26 +103,44 @@ public class TopNScanOpt extends PlanPostProcessor {
     }
 
     private OlapScan findScanNodeBySlotReference(Plan root, SlotReference slot, boolean nullsFirst) {
-        // topn-filter cannot be pushed through right/full outer join if the first orderKey is nulls first
-        if (nullsFirst && root instanceof Join) {
-            Join join = (Join) root;
-            if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) {
+        if (root instanceof PhysicalWindow) {
+            return null;
+        }
+
+        if (root instanceof OlapScan) {
+            if (root.getOutputSet().contains(slot)) {
+                return (OlapScan) root;
+            } else {
                 return null;
             }
         }
+
         OlapScan target = null;
-        if (root instanceof OlapScan && root.getOutputSet().contains(slot)) {
-            return (OlapScan) root;
-        } else {
-            if (! root.children().isEmpty()) {
-                // for join and intersect, push topn-filter to their left child.
-                // TODO for union, topn-filter can be pushed down to all of its children.
-                Plan child = root.child(0);
-                if (!(child instanceof PhysicalWindow) && child.getOutputSet().contains(slot)) {
-                    target = findScanNodeBySlotReference(child, slot, nullsFirst);
-                    if (target != null) {
-                        return target;
-                    }
+        if (root instanceof Join) {
+            Join join = (Join) root;
+            if (nullsFirst && join.getJoinType().isOuterJoin()) {
+                // in fact, topn-filter can be pushed down to the left child of leftOuterJoin
+                // and to the right child of rightOuterJoin.
+                // but we have rule to push topn down to the left/right side. and topn-filter
+                // will be generated according to the inferred topn node.
+                return null;
+            }
+            // try to push to both left and right child
+            if (root.child(0).getOutputSet().contains(slot)) {
+                target = findScanNodeBySlotReference(root.child(0), slot, nullsFirst);
+            } else {
+                target = findScanNodeBySlotReference(root.child(1), slot, nullsFirst);
+            }
+            return target;
+        }
+
+        if (!root.children().isEmpty()) {
+            // TODO for set operator, topn-filter can be pushed down to all of its children.
+            Plan child = root.child(0);
+            if (child.getOutputSet().contains(slot)) {
+                target = findScanNodeBySlotReference(child, slot, nullsFirst);
+                if (target != null) {
+                    return target;
                 }
             }
         }

@@ -24,10 +24,13 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +69,20 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     @Override
     public OutFileClause getOutFileClause() {
+        if (logicalPlan instanceof LogicalFileSink) {
+            LogicalFileSink fileSink = (LogicalFileSink) logicalPlan;
+            OutFileClause outFile = new OutFileClause(
+                    fileSink.getFilePath(),
+                    fileSink.getFormat(),
+                    fileSink.getProperties()
+            );
+            try {
+                outFile.analyze(null, Lists.newArrayList(), Lists.newArrayList());
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+            return outFile;
+        }
         return null;
     }
 

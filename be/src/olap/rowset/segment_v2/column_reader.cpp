@@ -1536,7 +1536,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
     obj.incr_num_rows(count);
     for (auto& entry : obj.get_subcolumns()) {
-        if (entry->data.size() != size + count) {
+        if (entry->data.size() != (size + count)) {
             entry->data.insertManyDefaults(count);
         }
     }
@@ -1546,7 +1546,8 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
         vectorized::ColumnUInt8& src_null_map =
                 assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+        DCHECK_EQ(src_null_map.size() - size, count);
+        dst_null_map.insert_range_from(src_null_map, size, count);
     }
 #ifndef NDEBUG
     obj.check_consistency();

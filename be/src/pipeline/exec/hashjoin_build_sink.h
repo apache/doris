@@ -70,6 +70,10 @@ public:
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
+    Status close(RuntimeState* state, Status exec_status) override;
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -81,12 +85,9 @@ protected:
                                 vectorized::ColumnRawPtrs& raw_ptrs,
                                 const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
+    friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    template <typename Parent>
-    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
-                                                           vectorized::Block* block, Parent* parent,
-                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -107,6 +108,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;

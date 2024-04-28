@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF5 r_regionkey->[n_regionkey]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[s_nationkey,c_nationkey]
+--------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[c_nationkey,s_nationkey]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = supplier.s_nationkey) and (lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey];RF3 s_nationkey->[c_nationkey]
 --------------------------PhysicalProject

@@ -44,6 +44,7 @@ Usage: $0 <shell_options> <framework_options>
      -forceGenOut                      delete and generate .out file
      -parallel                         run tests using specified threads
      -randomOrder                      run tests in a random order
+     -noKillDocker                     don't kill container when finish docker suites
      -times                            rum tests {times} times
 
   Eg.

@@ -91,6 +91,7 @@ protected:
     bool should_vertical_compaction();
     int64_t get_avg_segment_rows();
 
+    // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);

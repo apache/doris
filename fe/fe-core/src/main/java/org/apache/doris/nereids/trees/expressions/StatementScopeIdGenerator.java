@@ -29,8 +29,9 @@ import com.google.common.annotations.VisibleForTesting;
  */
 public class StatementScopeIdGenerator {
 
-    // for test only
-    private static StatementContext statementContext = new StatementContext();
+    // for ut test only, ExprId starts with 10000 to avoid duplicate ExprId. In ut, before creating ConnectContext,
+    // table is already created, and hence column.exprId may be recreated during applying rules.
+    private static StatementContext statementContext = new StatementContext(10000);
 
     public static ExprId newExprId() {
         // this branch is for test only

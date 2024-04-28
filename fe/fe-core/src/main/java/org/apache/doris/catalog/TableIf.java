@@ -25,6 +25,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -159,6 +160,11 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the row count from cache,
+    // If miss, just return 0
+    // This is used for external table, because for external table, the fetching row count may be expensive
+    long getCachedRowCount();
+
     long fetchRowCount();
 
     long getDataLength();
@@ -184,7 +190,11 @@ public interface TableIf {
 
     boolean needReAnalyzeTable(TableStatsMeta tblStats);
 
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+    /**
+     * @param columns Set of column names.
+     * @return List of pairs. Each pair is <IndexName, ColumnName>. For external table, index name is table name.
+     */
+    List<Pair<String, String>> getColumnIndexPairs(Set<String> columns);
 
     // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
     // For HMS external table, the return result is a list of all the files' size.

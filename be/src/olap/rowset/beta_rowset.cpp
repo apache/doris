@@ -573,24 +573,41 @@ Status BetaRowset::add_to_binlog() {
         }
         linked_success_files.push_back(binlog_file);
 
-        for (const auto& index : _schema->indexes()) {
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
+        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index : _schema->indexes()) {
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                auto index_id = index.index_id();
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_file, index_id, index.get_index_suffix());
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            auto index_id = index.index_id();
-            auto index_file = InvertedIndexDescriptor::get_index_file_name(
-                    seg_file, index_id, index.get_index_suffix());
-            auto binlog_index_file = (std::filesystem::path(binlog_dir) /
-                                      std::filesystem::path(index_file).filename())
-                                             .string();
-            VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-            if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
-                status = Status::Error<OS_ERROR>(
-                        "fail to create hard link. from={}, to={}, errno={}", index_file,
-                        binlog_index_file, Errno::no());
-                return status;
+        } else {
+            if (_schema->has_inverted_index()) {
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(seg_file);
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            linked_success_files.push_back(binlog_index_file);
         }
     }
 

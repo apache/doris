@@ -47,7 +47,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class HiveTableSink extends DataSink {
@@ -88,7 +87,6 @@ public class HiveTableSink extends DataSink {
 
     /**
      * check sink params and generate thrift data sink to BE
-     * @param insertCols target table columns
      * @param insertCtx insert info context
      * @throws AnalysisException if source file format cannot be read
      */
@@ -98,22 +96,19 @@ public class HiveTableSink extends DataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
-        Set<String> colNames = targetTable.getColumns()
-                .stream().map(Column::getName)
-                .collect(Collectors.toSet());
+        List<Column> allColumns = targetTable.getColumns();
+        Set<String> colNames = allColumns.stream().map(Column::getName).collect(Collectors.toSet());
         colNames.removeAll(partNames);
         List<THiveColumn> targetColumns = new ArrayList<>();
-        for (Column col : insertCols) {
+        for (Column col : allColumns) {
             if (partNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
-                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
                 targetColumns.add(tHiveColumn);
             } else if (colNames.contains(col.getName())) {
                 THiveColumn tHiveColumn = new THiveColumn();
                 tHiveColumn.setName(col.getName());
-                tHiveColumn.setDataType(col.getType().toThrift());
                 tHiveColumn.setColumnType(THiveColumnType.REGULAR);
                 targetColumns.add(tHiveColumn);
             }
@@ -146,6 +141,7 @@ public class HiveTableSink extends DataSink {
         if (insertCtx.isPresent()) {
             HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
+            context.setWritePath(writeTempPath);
         }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
@@ -153,7 +149,7 @@ public class HiveTableSink extends DataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getUserIdentity().getQualifiedUser();
-        return location + "/.doris_staging/" + user + "/" + UUID.randomUUID().toString().replace("-", "");
+        return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {

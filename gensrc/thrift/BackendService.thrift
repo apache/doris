@@ -221,6 +221,7 @@ struct TWorkloadSchedPolicy {
     5: optional bool enabled
     6: optional list<TWorkloadCondition> condition_list
     7: optional list<TWorkloadAction> action_list
+    8: optional list<i64> wg_id_list
 }
 
 struct TopicInfo {
@@ -284,8 +285,6 @@ service BackendService {
     DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
-
-    oneway void clean_trash();
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();

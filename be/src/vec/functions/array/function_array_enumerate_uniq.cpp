@@ -81,6 +81,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
             LOG(FATAL) << "Incorrect number of arguments for array_enumerate_uniq function";
+            __builtin_unreachable();
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {

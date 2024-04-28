@@ -23,18 +23,14 @@
 #include <glog/logging.h>
 
 #include <functional>
-#include <ostream>
 #include <utility>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
@@ -170,6 +166,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeLevelTime", parquet_profile, 1);
         _parquet_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", parquet_profile, 1);
+        _parquet_profile.skip_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
     }
 }
 
@@ -921,6 +921,9 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
 
+    COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
+                   _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);

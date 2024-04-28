@@ -28,7 +28,6 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
-class MemTrackerLimiter;
 class TPushReq;
 class TTabletInfo;
 
@@ -71,7 +70,6 @@ private:
     std::vector<TTabletInfo>* _tablet_infos;
     std::string _remote_file_path;
     std::string _local_file_path;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

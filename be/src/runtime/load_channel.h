@@ -33,7 +33,7 @@
 #include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/thrift_util.h"
@@ -114,6 +114,8 @@ private:
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
+
+    QueryThreadContext _query_thread_context;
 
     std::atomic<time_t> _last_updated_time;
 

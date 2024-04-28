@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -25,18 +27,24 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
+
 public class CreateRoleStmt extends DdlStmt {
 
     private boolean ifNotExists;
     private String role;
 
+    private String comment;
+
     public CreateRoleStmt(String role) {
         this.role = role;
     }
 
-    public CreateRoleStmt(boolean ifNotExists, String role) {
+    public CreateRoleStmt(boolean ifNotExists, String role, String comment) {
         this.ifNotExists = ifNotExists;
         this.role = role;
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isSetIfNotExists() {
@@ -47,9 +55,18 @@ public class CreateRoleStmt extends DdlStmt {
         return role;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Create role is prohibited when Ranger is enabled.");
+        }
+
         FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create role");
 
         // check if current user has GRANT priv on GLOBAL level.
@@ -60,6 +77,12 @@ public class CreateRoleStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "CREATE ROLE " + role;
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE ROLE ");
+        sb.append(role);
+        if (!StringUtils.isEmpty(comment)) {
+            sb.append(" COMMENT \"").append(comment).append("\"");
+        }
+        return sb.toString();
     }
 }

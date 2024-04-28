@@ -54,7 +54,8 @@ public class ShowCreateMaterializedViewTest {
         AtomicBoolean privilege = new AtomicBoolean(false);
         new MockUp<AccessControllerManager>() {
             @Mock
-            public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
+            public boolean checkTblPriv(ConnectContext ctx, String ctl, String qualifiedDb, String tbl,
+                    PrivPredicate wanted) {
                 return privilege.get();
             }
         };

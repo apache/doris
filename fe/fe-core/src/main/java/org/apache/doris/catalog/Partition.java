@@ -102,7 +102,7 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -331,7 +331,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
+        Partition partition = EnvFactory.createPartition();
         partition.readFields(in);
         return partition;
     }

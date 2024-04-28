@@ -26,12 +26,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -39,7 +36,6 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -87,6 +83,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
+#include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -98,7 +95,7 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
 #include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -149,6 +146,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
+    }
+    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -229,11 +232,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
+    _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
-    _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
-
+    _dns_cache = new DNSCache();
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
+    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -478,8 +482,8 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    _inverted_index_query_cache =
-            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 256);
+    _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
+            inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
@@ -490,15 +494,26 @@ Status ExecEnv::_init_mem_env() {
 }
 
 void ExecEnv::init_mem_tracker() {
+    mem_tracker_limiter_pool.resize(MEM_TRACKER_GROUP_NUM,
+                                    TrackerLimiterGroup()); // before all mem tracker init.
+    _s_tracking_memory = true;
     _orphan_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _details_mem_tracker_set =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "DetailsTrackerSet");
     _page_no_cache_mem_tracker =
-            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("PageNoCache", _details_mem_tracker_set.get());
     _brpc_iobuf_block_memory_tracker =
-            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
+    _segcompaction_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _rowid_storage_reader_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
+    _subcolumns_tree_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
+    _s3_file_buffer_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
 }
 
 void ExecEnv::_register_metrics() {
@@ -552,9 +567,12 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
-    _load_stream_stub_pool.reset();
+    _load_stream_map_pool.reset();
+
     SAFE_STOP(_storage_engine);
+    SAFE_STOP(_write_cooldown_meta_executors);
     SAFE_STOP(_spill_stream_mgr);
+
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -563,12 +581,6 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
-
-    // shared_ptr maybe no need to be reset
-    // _brpc_iobuf_block_memory_tracker.reset();
-    // _page_no_cache_mem_tracker.reset();
-    // _experimental_mem_tracker.reset();
-    // _orphan_mem_tracker.reset();
 
     SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_block_spill_mgr);
@@ -617,6 +629,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -647,6 +660,10 @@ void ExecEnv::destroy() {
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
 
+    // dns cache is a global instance and need to be released at last
+    SAFE_DELETE(_dns_cache);
+
+    _s_tracking_memory = false;
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

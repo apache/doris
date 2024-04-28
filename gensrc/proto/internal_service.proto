@@ -395,6 +395,7 @@ message PKafkaMetaProxyRequest {
 
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+    optional int64 timeout_secs = 2;
 };
 
 message PKafkaMetaProxyResult {
@@ -509,6 +510,27 @@ enum PFilterType {
     MAX_FILTER = 6;
 };
 
+message PSendFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PNetworkAddress source_addr = 3;
+    required uint64 filter_size = 4;
+};
+
+message PSendFilterSizeResponse {
+    required PStatus status = 1;
+};
+
+message PSyncFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required uint64 filter_size = 3;
+};
+
+message PSyncFilterSizeResponse {
+    required PStatus status = 1;
+};
+
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -521,6 +543,7 @@ message PMergeFilterRequest {
     optional bool opt_remote_rf = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PMergeFilterResponse {
@@ -540,6 +563,7 @@ message PPublishFilterRequest {
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PPublishFilterRequestV2 {
@@ -553,6 +577,7 @@ message PPublishFilterRequestV2 {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
+    optional bool ignored = 11;
 };
 
 message PPublishFilterResponse {
@@ -561,8 +586,10 @@ message PPublishFilterResponse {
 
 message PExprResult {
     required PScalarType type = 1;
-    required string content = 2;
+    required string content = 2; //maybe need remove after next version of 2.1
     required bool success = 3;
+    optional PTypeDesc type_desc = 4;
+    optional PValues result_content = 5;
 };
 
 message PExprResultMap {
@@ -646,6 +673,17 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message POutfileWriteSuccessRequest {
+    // optional string file_path = 1;
+    // optional string success_file_name = 2;
+    // map<string, string> broker_properties = 4; // only for remote file
+    optional bytes result_file_sink = 1;
+}
+
+message POutfileWriteSuccessResult {
+    optional PStatus status = 1;
 }
 
 message PJdbcTestConnectionRequest {
@@ -874,6 +912,8 @@ service PBackendService {
     rpc commit(PCommitRequest) returns (PCommitResult);
     rpc rollback(PRollbackRequest) returns (PRollbackResult);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc send_filter_size(PSendFilterSizeRequest) returns (PSendFilterSizeResponse);
+    rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
@@ -884,6 +924,7 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);

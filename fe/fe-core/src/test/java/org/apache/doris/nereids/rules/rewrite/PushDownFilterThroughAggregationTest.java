@@ -47,8 +47,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-            ImmutableList.of(""));
+    private final LogicalOlapScan scan = new LogicalOlapScan(
+            StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(""));
 
     /*-
      * origin plan:

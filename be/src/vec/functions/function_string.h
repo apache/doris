@@ -294,6 +294,68 @@ private:
     }
 };
 
+class FunctionStrcmp : public IFunction {
+public:
+    static constexpr auto name = "strcmp";
+
+    static FunctionPtr create() { return std::make_shared<FunctionStrcmp>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt8>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& [arg0_column, arg0_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [arg1_column, arg1_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnInt8::create(input_rows_count);
+
+        if (auto arg0 = check_and_get_column<ColumnString>(arg0_column.get())) {
+            if (auto arg1 = check_and_get_column<ColumnString>(arg1_column.get())) {
+                if (arg0_const) {
+                    scalar_vector(arg0->get_data_at(0), *arg1, *result_column);
+                } else if (arg1_const) {
+                    vector_scalar(*arg0, arg1->get_data_at(0), *result_column);
+                } else {
+                    vector_vector(*arg0, *arg1, *result_column);
+                }
+            }
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
+private:
+    static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt8& res) {
+        size_t size = vec1.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = str.compare(vec1.get_data_at(i));
+        }
+    }
+
+    static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt8& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(str);
+        }
+    }
+
+    static void vector_vector(const ColumnString& vec0, const ColumnString& vec1, ColumnInt8& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
+        }
+    }
+};
+
 struct SubstringUtilOld {
     static constexpr auto name = "substring";
 

@@ -17,12 +17,17 @@
 
 suite("test_hive_parquet_alter_column", "p2,external,hive,external_remote,external_remote_hive") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
-        String catalog_name = "test_hive_parquet_alter_column"
+        String catalog_name = "test_${hivePrefix}_parquet_alter_column"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (

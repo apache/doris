@@ -72,25 +72,30 @@ public:
 
     void insert_from(const IColumn& src, size_t n) override {
         LOG(FATAL) << "insert_from not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         LOG(FATAL) << "insert_range_from not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
         LOG(FATAL) << "insert_indices_from not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported in ColumnDictionary"; }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         LOG(FATAL) << "update_hash_with_value not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
         LOG(FATAL) << "insert_data not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void insert_default() override { _codes.push_back(_dict.get_null_code()); }
@@ -109,6 +114,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { _codes.reserve(n); }
@@ -122,6 +128,7 @@ public:
 
     void insert(const Field& x) override {
         LOG(FATAL) << "insert not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     Field operator[](size_t n) const override { return _codes[n]; }
@@ -155,6 +162,7 @@ public:
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
@@ -190,15 +198,16 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                                        const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "scatter not supported in ColumnDictionary";
-        __builtin_unreachable();
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+        __builtin_unreachable();
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
@@ -224,10 +233,12 @@ public:
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data_default in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     /**

@@ -261,7 +261,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
 
             order_qt_desc_db "show databases from ${catalog_name};"
 
-            order_qt_select_xml "select * from db2.TEST.BOOKS;"
+            order_qt_select_xml "select * from TEST.BOOKS;"
 
             sql """ drop catalog if exists ${catalog_name} """
 

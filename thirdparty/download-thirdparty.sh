@@ -421,3 +421,14 @@ if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
     cd -
 fi
 echo "Finished patching ${BASE64_SOURCE}"
+
+# patch krb
+if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
+    cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/krb5-1.19.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${KRB5_SOURCE}"

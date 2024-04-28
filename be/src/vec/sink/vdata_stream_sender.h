@@ -286,6 +286,9 @@ public:
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
 
+    Status init_stub(RuntimeState* state);
+    Status open(RuntimeState* state);
+
     // Asynchronously sends a row batch.
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
@@ -347,7 +350,7 @@ protected:
         if (_local_recvr && !_local_recvr->is_closed()) {
             return true;
         }
-        _receiver_status = Status::EndOfFile("local data stream receiver closed");
+        _receiver_status = Status::OK(); // local data stream receiver closed
         return false;
     }
 
@@ -380,7 +383,7 @@ protected:
     Parent* _parent = nullptr;
 
     const RowDescriptor& _row_desc;
-    TUniqueId _fragment_instance_id;
+    const TUniqueId _fragment_instance_id;
     PlanNodeId _dest_node_id;
 
     // the number of RowBatch.data bytes sent successfully
@@ -396,8 +399,8 @@ protected:
     PUniqueId _finst_id;
     PUniqueId _query_id;
     PBlock _pb_block;
-    std::shared_ptr<PTransmitDataParams> _brpc_request;
-    std::shared_ptr<PBackendService_Stub> _brpc_stub;
+    std::shared_ptr<PTransmitDataParams> _brpc_request = nullptr;
+    std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;

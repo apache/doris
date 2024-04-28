@@ -66,12 +66,12 @@ public:
         }
         return MutableBlock(block);
     }
-    static ColumnsWithTypeAndName create_columns_with_type_and_name(
-            const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
+
+    static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                if (!slot_desc->need_materialize()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
@@ -79,6 +79,19 @@ public:
             }
         }
         return columns_with_type_and_name;
+    }
+
+    static NameAndTypePairs create_name_and_data_types(const RowDescriptor& row_desc) {
+        NameAndTypePairs name_with_types;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                if (!slot_desc->need_materialize()) {
+                    continue;
+                }
+                name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+            }
+        }
+        return name_with_types;
     }
 
     static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,

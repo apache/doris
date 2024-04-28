@@ -23,6 +23,8 @@
 #include <string>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "exec/exec_node.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -107,6 +109,19 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
+    if (!tnode.intermediate_output_tuple_id_list.empty()) {
+        if (!tnode.__isset.output_tuple_id) {
+            return Status::InternalError("no final output tuple id");
+        }
+        if (tnode.intermediate_output_tuple_id_list.size() !=
+            tnode.intermediate_projections_list.size()) {
+            return Status::InternalError(
+                    "intermediate_output_tuple_id_list size:{} not match "
+                    "intermediate_projections_list size:{}",
+                    tnode.intermediate_output_tuple_id_list.size(),
+                    tnode.intermediate_projections_list.size());
+        }
+    }
     auto substr = node_name.substr(0, node_name.find("_NODE"));
     _op_name = substr + "_OPERATOR";
 
@@ -123,9 +138,19 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     }
 
     // create the projections expr
+
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
+    }
+    if (!tnode.intermediate_projections_list.empty()) {
+        DCHECK(tnode.__isset.projections) << "no final projections";
+        _intermediate_projections.reserve(tnode.intermediate_projections_list.size());
+        for (const auto& tnode_projections : tnode.intermediate_projections_list) {
+            vectorized::VExprContextSPtrs projections;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode_projections, projections));
+            _intermediate_projections.push_back(projections);
+        }
     }
     return Status::OK();
 }
@@ -134,8 +159,16 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
+    for (int i = 0; i < _intermediate_projections.size(); i++) {
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_intermediate_projections[i], state,
+                                                   intermediate_row_desc(i)));
+    }
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, projections_row_desc()));
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
+    if (has_output_row_desc()) {
+        RETURN_IF_ERROR(
+                vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+    }
 
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->prepare(state));
@@ -149,6 +182,9 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
+    for (auto& projections : _intermediate_projections) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(projections, state));
+    }
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->open(state));
     }
@@ -167,7 +203,7 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(_parent->_row_descriptor.num_materialized_slots());
+    _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -175,7 +211,22 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     auto* local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
+    const size_t rows = origin_block->rows();
+    if (rows == 0) {
+        return Status::OK();
+    }
+    vectorized::Block input_block = *origin_block;
 
+    std::vector<int> result_column_ids;
+    for (const auto& projections : _intermediate_projections) {
+        result_column_ids.resize(projections.size());
+        for (int i = 0; i < projections.size(); i++) {
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+        }
+        input_block.shuffle_columns(result_column_ids);
+    }
+
+    DCHECK_EQ(rows, input_block.rows());
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
@@ -198,15 +249,13 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::MutableBlock mutable_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                        *_output_row_descriptor);
-    auto rows = origin_block->rows();
-
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK(mutable_columns.size() == local_state->_projections.size());
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
-            auto column_ptr = origin_block->get_by_position(result_column_id)
+            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
+            auto column_ptr = input_block.get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
@@ -299,7 +348,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else {
         std::shared_ptr<BasicSharedState> ss = nullptr;
-        ss.reset(new typename LocalStateType::SharedStateType());
+        ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);
@@ -357,6 +406,24 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
         }
     }
 
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
+    _blocks_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "InitTime", 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
+    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
+    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", 1);
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
+    return Status::OK();
+}
+
+template <typename SharedStateArg>
+Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
     _conjuncts.resize(_parent->_conjuncts.size());
     _projections.resize(_parent->_projections.size());
     for (size_t i = 0; i < _conjuncts.size(); i++) {
@@ -365,18 +432,14 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     for (size_t i = 0; i < _projections.size(); i++) {
         RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
     }
-    _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
-    _blocks_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
-    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
-    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", 1);
-    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
-            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
+    _intermediate_projections.resize(_parent->_intermediate_projections.size());
+    for (int i = 0; i < _parent->_intermediate_projections.size(); i++) {
+        _intermediate_projections[i].resize(_parent->_intermediate_projections[i].size());
+        for (int j = 0; j < _parent->_intermediate_projections[i].size(); j++) {
+            RETURN_IF_ERROR(_parent->_intermediate_projections[i][j]->clone(
+                    state, _intermediate_projections[i][j]));
+        }
+    }
     return Status::OK();
 }
 
@@ -422,6 +485,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         _dependency = nullptr;
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_profile, "InitTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
@@ -492,11 +556,6 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     _async_writer_dependency = AsyncWriterDependency::create_shared(
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
@@ -511,6 +570,11 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
     RETURN_IF_ERROR(_writer->start_writer(state, _profile));
     return Status::OK();
 }

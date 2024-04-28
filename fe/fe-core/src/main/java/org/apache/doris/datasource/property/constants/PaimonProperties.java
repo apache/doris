@@ -27,7 +27,7 @@ public class PaimonProperties {
     public static final String WAREHOUSE = "warehouse";
     public static final String S3_PATH_STYLE = "s3.path.style.access";
     public static final String FILE_FORMAT = "file.format";
-    public static final String PAIMON_PREFIX = "paimon";
+    public static final String PAIMON_PREFIX = "paimon.";
     public static final String PAIMON_CATALOG_TYPE = "metastore";
     public static final String HIVE_METASTORE_URIS = "uri";
     public static final String PAIMON_S3_ENDPOINT = "s3.endpoint";

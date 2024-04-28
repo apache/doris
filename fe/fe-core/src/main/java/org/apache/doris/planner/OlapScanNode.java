@@ -121,7 +121,8 @@ public class OlapScanNode extends ScanNode {
      * When the field value is ON, the storage engine can return the data directly
      * without pre-aggregation.
      * When the field value is OFF, the storage engine needs to aggregate the data
-     * before returning to scan node.
+     * before returning to scan node. And if the table is an aggregation table,
+     * all key columns need to be read an participate in aggregation.
      * For example:
      * Aggregate table: k1, k2, v1 sum
      * Field value is ON
@@ -135,7 +136,9 @@ public class OlapScanNode extends ScanNode {
      * Query2: select k1, min(v1) from table group by k1
      * This aggregation function in query is min which different from the schema.
      * So the data stored in storage engine need to be merged firstly before
-     * returning to scan node.
+     * returning to scan node. Although we only queried key column k1, key column
+     * k2 still needs to be detected and participate in aggregation to ensure the
+     * results are correct.
      *
      * There are currently two places to modify this variable:
      * 1. The turnOffPreAgg() method of SingleNodePlanner.
@@ -1492,7 +1495,11 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        msg.olap_scan_node.setTableName(olapTable.getName());
+        String tableName = olapTable.getName();
+        if (selectedIndexId != -1) {
+            tableName = tableName + "(" + getSelectedIndexName() + ")";
+        }
+        msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
@@ -1770,5 +1777,10 @@ public class OlapScanNode extends ScanNode {
 
     public List<SortNode> getTopnFilterSortNodes() {
         return topnFilterSortNodes;
+    }
+
+    @Override
+    public int numScanBackends() {
+        return scanBackendIds.size();
     }
 }

@@ -115,6 +115,7 @@ import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -277,7 +278,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -430,7 +431,7 @@ public abstract class TestWithFeService {
     }
 
     private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = 10;
+        int maxTry = Config.heartbeat_interval_second + 2;
         boolean allAlive = false;
         while (maxTry-- > 0 && !allAlive) {
             Thread.sleep(1000);
@@ -462,7 +463,9 @@ public abstract class TestWithFeService {
     }
 
     protected Backend addNewBackend() throws IOException, InterruptedException {
-        return createBackend("127.0.0.1", lastFeRpcPort);
+        Backend be = createBackend("127.0.0.1", lastFeRpcPort);
+        checkBEHeartbeat(Lists.newArrayList(be));
+        return be;
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
@@ -580,7 +583,8 @@ public abstract class TestWithFeService {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
-        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR
+                && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
             return null;
@@ -602,6 +606,11 @@ public abstract class TestWithFeService {
         String createDbStmtStr = "DROP DATABASE " + db;
         DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Env.getCurrentEnv().dropDb(createDbStmt);
+    }
+
+    public void dropDatabaseWithSql(String dropDbSql) throws Exception {
+        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
     }
 
     public void useDatabase(String dbName) {
@@ -652,6 +661,11 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 
+    public void dropTableWithSql(String dropTableSql) throws Exception {
+        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(dropTableSql);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
+    }
+
     public void recoverTable(String table) throws Exception {
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
                 "recover table " + table + ";", connectContext);
@@ -677,10 +691,16 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(boolean enableNereids, String... sqls) throws Exception {
+        createTablesAndReturnPlans(enableNereids, sqls);
+    }
+
+    public List<LogicalPlan> createTablesAndReturnPlans(boolean enableNereids, String... sqls) throws Exception {
+        List<LogicalPlan> logicalPlans = new ArrayList<>();
         if (enableNereids) {
             for (String sql : sqls) {
                 NereidsParser nereidsParser = new NereidsParser();
                 LogicalPlan parsed = nereidsParser.parseSingle(sql);
+                logicalPlans.add(parsed);
                 StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
                 if (parsed instanceof CreateTableCommand) {
                     ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
@@ -693,6 +713,7 @@ public abstract class TestWithFeService {
             }
         }
         updateReplicaPathHash();
+        return logicalPlans;
     }
 
     public void createView(String sql) throws Exception {

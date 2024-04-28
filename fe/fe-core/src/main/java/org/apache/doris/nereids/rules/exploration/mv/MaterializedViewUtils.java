@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -31,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -44,13 +49,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -132,18 +142,95 @@ public class MaterializedViewUtils {
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
-        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
-                .isEmpty()) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
-        } else {
-            // build struct info and add them to current group
-            List<StructInfo> structInfos = StructInfo.of(plan);
-            if (plan.getGroupExpression().isPresent()) {
-                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+            BitSet materializedViewTableSet) {
+        // If plan belong to some group, construct it with group struct info
+        if (plan.getGroupExpression().isPresent()) {
+            Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
+            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            if (cascadesContext.getMemo().getRefreshVersion() != structInfoMap.getRefreshVersion()
+                    || structInfoMap.getTableMaps().isEmpty()) {
+                structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
+                structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
             }
-            return structInfos;
+            Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
+            ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
+            if (!queryTableSets.isEmpty()) {
+                for (BitSet queryTableSet : queryTableSets) {
+                    // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
+                    if (!materializedViewTableSet.isEmpty()
+                            && !materializedViewTableSet.equals(queryTableSet)) {
+                        continue;
+                    }
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext.getMemo(),
+                            queryTableSet, queryTableSet, ownerGroup, plan);
+                    if (structInfo != null) {
+                        structInfosBuilder.add(structInfo);
+                    }
+                }
+                return structInfosBuilder.build();
+            }
         }
+        // if plan doesn't belong to any group, construct it directly
+        return ImmutableList.of(StructInfo.of(plan));
+    }
+
+    /**
+     * Generate scan plan for materialized view
+     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
+     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * should be different
+     */
+    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
+        LogicalOlapScan mvScan = new LogicalOlapScan(
+                cascadesContext.getStatementContext().getNextRelationId(),
+                materializedView,
+                ImmutableList.of(materializedView.getQualifiedDbName()),
+                // this must be empty, or it will be used to sample
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty());
+        mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
+        List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
+                .collect(Collectors.toList());
+        return new LogicalProject<Plan>(mvProjects, mvScan);
+    }
+
+    /**
+     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
+     * rules
+     */
+    public static Plan rewriteByRules(
+            CascadesContext cascadesContext,
+            Function<CascadesContext, Plan> planRewriter,
+            Plan rewrittenPlan, Plan originPlan) {
+        List<Slot> originOutputs = originPlan.getOutput();
+        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
+            return null;
+        }
+        // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
+        // origin plan slot order
+        List<ExprId> originalRewrittenPlanExprIds =
+                rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
+        // run rbo job on mv rewritten plan
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
+                cascadesContext.getStatementContext(), rewrittenPlan,
+                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
+        for (Slot slot : rewrittenPlan.getOutput()) {
+            exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
+        }
+        List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toList());
+        // If project order doesn't change, return rewrittenPlan directly
+        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds)) {
+            return rewrittenPlan;
+        }
+        // If project order change, return rewrittenPlan with reordered projects
+        return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
+                .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
+                rewrittenPlan);
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {

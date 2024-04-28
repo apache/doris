@@ -109,10 +109,14 @@ class LoadStreamStub {
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id,
+                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<IndexToEnableMoW> mow_map);
 
-    // copy constructor, shared_ptr members are shared
-    LoadStreamStub(LoadStreamStub& stub);
+    LoadStreamStub(UniqueId load_id, int64_t src_id,
+                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<IndexToEnableMoW> mow_map)
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -194,6 +198,20 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
+    std::string to_string();
+
+    // for tests only
+    void add_success_tablet(int64_t tablet_id) {
+        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+        _success_tablets.push_back(tablet_id);
+    }
+
+    // for tests only
+    void add_failed_tablet(int64_t tablet_id, Status reason) {
+        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        _failed_tablets[tablet_id] = reason;
+    }
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
@@ -213,7 +231,6 @@ protected:
     std::atomic<bool> _is_closed;
     std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
-    std::atomic<int> _use_cnt;
 
     PUniqueId _load_id;
     brpc::StreamId _stream_id;
@@ -225,9 +242,6 @@ protected:
     bthread::Mutex _close_mutex;
     bthread::Mutex _cancel_mutex;
     bthread::ConditionVariable _close_cv;
-
-    std::mutex _tablets_to_commit_mutex;
-    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;

@@ -123,7 +123,7 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+        result.mutable_string_value()->Reserve(end - start);
         auto* ptype = result.mutable_type();
         ptype->set_id(PGenericType::STRING);
         for (size_t row_num = start; row_num < end; ++row_num) {
@@ -133,10 +133,10 @@ public:
         return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.string_value_size());
+        auto& column_dest = assert_cast<ColumnType&>(column);
+        column_dest.reserve(column_dest.size() + arg.string_value_size());
         for (int i = 0; i < arg.string_value_size(); ++i) {
-            assert_cast<ColumnType&>(column).insert_data(arg.string_value(i).c_str(),
-                                                         arg.string_value(i).size());
+            column_dest.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
         }
         return Status::OK();
     }

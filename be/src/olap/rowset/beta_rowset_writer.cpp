@@ -110,8 +110,6 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) { // abnormal exit, remove all files generated
-        WARN_IF_ERROR(_segment_creator.close(),
-                      "close segment creator failed"); // ensure all files are closed
         const auto& fs = _rowset_meta->fs();
         if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
@@ -416,6 +414,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
+        _context.tablet_schema->num_variant_columns() > 0 ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -503,6 +502,7 @@ Status BaseBetaRowsetWriter::flush() {
 
 Status BaseBetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
                                             int64_t* flush_size) {
+    SCOPED_SKIP_MEMORY_CHECK();
     if (block->rows() == 0) {
         return Status::OK();
     }

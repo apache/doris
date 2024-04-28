@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -30,16 +31,12 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -53,7 +50,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -143,80 +139,7 @@ public class StatisticsAutoCollectorTest {
         StatisticsAutoCollector saa = new StatisticsAutoCollector();
         List<AnalysisInfo> analysisInfoList = saa.constructAnalysisInfo(new Database(1, "anydb"));
         Assertions.assertEquals(1, analysisInfoList.size());
-        Assertions.assertEquals("c1", analysisInfoList.get(0).colName.split(",")[0]);
-    }
-
-    @Test
-    public void testGetReAnalyzeRequiredPart0() {
-
-        TableIf tableIf = new OlapTable();
-
-        new MockUp<OlapTable>() {
-            @Mock
-            protected Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-                Set<String> partitionNames = new HashSet<>();
-                partitionNames.add("p1");
-                partitionNames.add("p2");
-                Map<String, Set<String>> map = new HashMap<>();
-                map.put("col1", partitionNames);
-                return map;
-            }
-
-            @Mock
-            public long getRowCount() {
-                return 100;
-            }
-
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public TableIf findTable(long catalogName, long dbName, long tblName) {
-                return tableIf;
-            }
-        };
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
-                .setColToPartitions(new HashMap<>()).setAnalysisType(
-                AnalysisType.FUNDAMENTALS).setColName("col1").setJobType(JobType.SYSTEM).build();
-        new MockUp<AnalysisManager>() {
-
-            int count = 0;
-
-            TableStatsMeta[] tableStatsArr =
-                    new TableStatsMeta[] {new TableStatsMeta(0, analysisInfo, tableIf),
-                            new TableStatsMeta(0, analysisInfo, tableIf), null};
-
-            {
-                tableStatsArr[0].updatedRows.addAndGet(100);
-                tableStatsArr[1].updatedRows.addAndGet(0);
-            }
-
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return tableStatsArr[count++];
-            }
-        };
-
-        new MockUp<StatisticsAutoCollector>() {
-            @Mock
-            public AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
-                    Set<String> needRunPartitions) {
-                return new AnalysisInfoBuilder().build();
-            }
-        };
-        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
-        AnalysisInfo analysisInfo2 = new AnalysisInfoBuilder()
-                .setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0).build();
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
-        // uncomment it when updatedRows gets ready
-        // Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+        Assertions.assertNull(analysisInfoList.get(0).colName);
     }
 
     @Test
@@ -229,11 +152,19 @@ public class StatisticsAutoCollectorTest {
             public List<Column> getBaseSchema() {
                 return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
             }
+
+            @Mock
+            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+                ArrayList<Pair<String, String>> list = Lists.newArrayList();
+                list.add(Pair.of("1", "1"));
+                return list;
+            }
         };
 
         new MockUp<StatisticsUtil>() {
             int count = 0;
-            int [] thresholds = {1, 10};
+            int[] thresholds = {1, 10};
+
             @Mock
             public TableIf findTable(long catalogName, long dbName, long tblName) {
                 return tableIf;
@@ -245,19 +176,10 @@ public class StatisticsAutoCollectorTest {
             }
         };
 
-        new MockUp<OlapTable>() {
-            @Mock
-            public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-                HashMap<String, Set<String>> ret = Maps.newHashMap();
-                ret.put("key1", Sets.newHashSet());
-                return ret;
-            }
-        };
-
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
         StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
-        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
-        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+        Assertions.assertNull(statisticsAutoCollector.getNeedAnalyzeColumns(analysisInfo));
+        Assertions.assertNotNull(statisticsAutoCollector.getNeedAnalyzeColumns(analysisInfo));
     }
 
     @Test
@@ -399,13 +321,9 @@ public class StatisticsAutoCollectorTest {
         List<AnalysisInfo> jobInfos = new ArrayList<>();
         sac.createAnalyzeJobForTbl(db, jobInfos, t1);
         AnalysisInfo jobInfo = jobInfos.get(0);
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        colToPartitions.put("test", new HashSet<String>() {
-            {
-                add("p1");
-            }
-        });
-        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        List<Pair<String, String>> columnNames = Lists.newArrayList();
+        columnNames.add(Pair.of("test", "t1"));
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setJobColumns(columnNames).build();
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -471,13 +389,9 @@ public class StatisticsAutoCollectorTest {
         List<AnalysisInfo> jobInfos = new ArrayList<>();
         sac.createAnalyzeJobForTbl(db, jobInfos, t1);
         AnalysisInfo jobInfo = jobInfos.get(0);
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        colToPartitions.put("test", new HashSet<String>() {
-            {
-                add("p1");
-            }
-        });
-        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        List<Pair<String, String>> colNames = Lists.newArrayList();
+        colNames.add(Pair.of("test", "1"));
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setJobColumns(colNames).build();
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -489,7 +403,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto1() throws Exception {
-        InternalCatalog catalog1 = new InternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 
@@ -517,7 +431,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto2() throws Exception {
-        InternalCatalog catalog1 = new InternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 

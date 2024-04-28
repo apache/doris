@@ -125,6 +125,10 @@ class HoodieSplit(private val params: jutil.Map[String, String]) {
     conf
   }
 
+  def incrementalRead: Boolean = {
+    "true".equalsIgnoreCase(optParams.getOrElse("hoodie.datasource.read.incr.operation", "false"))
+  }
+
   // NOTE: In cases when Hive Metastore is used as catalog and the table is partitioned, schema in the HMS might contain
   //       Hive-specific partitioning columns created specifically for HMS to handle partitioning appropriately. In that
   //       case  we opt in to not be providing catalog's schema, and instead force Hudi relations to fetch the schema
@@ -168,6 +172,8 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
   protected val optParams: Map[String, String] = split.optParams
 
   protected val tableInformation: HoodieTableInformation = cache.get(split)
+
+  protected val timeline: HoodieTimeline = tableInformation.timeline
 
   protected val sparkSession: SparkSession = tableInformation.sparkSession
   protected val sqlContext: SQLContext = sparkSession.sqlContext
@@ -577,8 +583,6 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
       schema = schema
     )
   }
-
-  protected val timeline: HoodieTimeline = tableInformation.timeline
 
   protected def embedInternalSchema(conf: Configuration, internalSchemaOpt: Option[InternalSchema]): Configuration = {
     val internalSchema = internalSchemaOpt.getOrElse(InternalSchema.getEmptyInternalSchema)

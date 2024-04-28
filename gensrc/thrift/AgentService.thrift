@@ -99,6 +99,8 @@ struct TPushStoragePolicyReq {
     3: optional list<i64> dropped_storage_policy
 }
 
+struct TCleanTrashReq {}
+
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
     DEFAULT_COMPRESSION = 1,
@@ -388,6 +390,8 @@ struct TPublishVersionRequest {
     2: required list<TPartitionVersionInfo> partition_version_infos
     // strict mode means BE will check tablet missing version
     3: optional bool strict_mode = false
+    // for delta rows statistics to exclude rollup tablets
+    4: optional set<Types.TTabletId> base_tablet_ids
 }
 
 struct TClearAlterTaskRequest {
@@ -490,6 +494,7 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+    34: optional TCleanTrashReq clean_trash_req
 }
 
 struct TAgentResult {

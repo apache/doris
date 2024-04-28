@@ -126,7 +126,6 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // update statistics
     http_stream_requests_total->increment(1);
     http_stream_duration_ms->increment(ctx->load_cost_millis);
-    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
@@ -183,7 +182,6 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        http_stream_current_processing->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
@@ -287,6 +285,7 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
     }
     // remove stream load context from stream load manager and the resource will be released
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::process_put(HttpRequest* http_req,

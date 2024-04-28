@@ -220,6 +220,9 @@ Status NewOlapScanner::init() {
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
+                          : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
+    SCOPED_TIMER(timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -442,7 +445,7 @@ Status NewOlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_tablet_index(tablet_schema);
+    schema_util::inherit_root_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -574,6 +577,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                               \
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
+    COUNTER_UPDATE(Parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
     COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
@@ -586,6 +590,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
                    stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_collect_iterator_merge_next_timer,                                    \
+                   stats.collect_iterator_merge_next_timer);                                      \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
                    stats.block_conditions_filtered_zonemap_ns);                                   \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \

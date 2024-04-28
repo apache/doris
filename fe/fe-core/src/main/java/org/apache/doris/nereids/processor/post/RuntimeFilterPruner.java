@@ -195,9 +195,20 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
-        boolean visibleFilter = filter.getExpressions().stream()
-                .flatMap(expression -> expression.getInputSlots().stream())
-                .anyMatch(slot -> isVisibleColumn(slot));
+
+        boolean visibleFilter = false;
+
+        for (Expression expr : filter.getExpressions()) {
+            for (Slot inputSlot : expr.getInputSlots()) {
+                if (isVisibleColumn(inputSlot)) {
+                    visibleFilter = true;
+                    break;
+                }
+            }
+            if (visibleFilter) {
+                break;
+            }
+        }
         if (visibleFilter) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);

@@ -92,7 +92,7 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
         if (children().size() >= 2) {
             checkValidParams(getOffset(), true);
             if (getOffset() instanceof Literal) {
-                if (((Literal) getOffset()).getDouble() <= 0) {
+                if (((Literal) getOffset()).getDouble() < 0) {
                     throw new AnalysisException(
                             "The offset parameter of LAG must be a constant positive integer: " + this.toSql());
                 }

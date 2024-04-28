@@ -47,7 +47,15 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
 
-    uint64_t open_searcher_limit = fd_number * config::inverted_index_fd_number_limit_percent / 100;
+    static constexpr size_t fd_bound = 100000;
+    size_t search_limit_percent = config::inverted_index_fd_number_limit_percent;
+    if (fd_number <= fd_bound) {
+        search_limit_percent = size_t(search_limit_percent * 0.25); // default 10%
+    } else if (fd_number > fd_bound && fd_number < fd_bound * 5) {
+        search_limit_percent = size_t(search_limit_percent * 0.5); // default 20%
+    }
+
+    uint64_t open_searcher_limit = fd_number * search_limit_percent / 100;
     LOG(INFO) << "fd_number: " << fd_number
               << ", inverted index open searcher limit: " << open_searcher_limit;
 #ifdef BE_TEST

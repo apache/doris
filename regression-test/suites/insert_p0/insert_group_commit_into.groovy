@@ -444,5 +444,41 @@ suite("insert_group_commit_into") {
             }
         } finally {
         }
+
+        // column name contains keyword
+        tableName = "insert_group_commit_into_with_keyword"
+        table = dbName + "." + tableName
+        try {
+            // create table
+            sql """ drop table if exists ${table}; """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${table}
+                (
+                    k1 INT,
+                    `or` varchar(50)
+                )
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) 
+                BUCKETS 1 PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1"
+                ); 
+            """
+
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+                sql """ set group_commit = async_mode; """
+                if (item == "nereids") {
+                    sql """ set enable_nereids_dml = true; """
+                    sql """ set enable_nereids_planner = true; """
+                    sql """ set enable_fallback_to_original_planner = false; """
+                } else {
+                    sql """ set enable_nereids_dml = false; """
+                }
+                group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
+                group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1
+                getRowCount(2)
+                qt_sql """ select * from ${table}; """
+            }
+        } finally {
+        }
     }
 }

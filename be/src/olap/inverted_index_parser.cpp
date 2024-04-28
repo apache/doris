@@ -126,13 +126,4 @@ std::string get_parser_ignore_above_value_from_properties(
     }
 }
 
-std::string get_parser_lowercase_from_properties(
-        const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
-    } else {
-        return "";
-    }
-}
-
 } // namespace doris

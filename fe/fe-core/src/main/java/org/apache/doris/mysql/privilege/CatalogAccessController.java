@@ -20,6 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public interface CatalogAccessController {
@@ -73,4 +75,9 @@ public interface CatalogAccessController {
 
     void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
+
+    Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col);
+
+    List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db, String tbl);
 }

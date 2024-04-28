@@ -35,6 +35,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -159,9 +160,10 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            table.getName(),
-                            PrivPredicate.SHOW)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    table.getName(),
+                                    PrivPredicate.SHOW)) {
                         continue;
                     }
                     sortedTables.add(table);
@@ -433,7 +435,12 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 
-    private void getAllDbStats() {
+    private void getAllDbStats() throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
+        }
         List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             return;

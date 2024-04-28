@@ -217,8 +217,8 @@ private:
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
-    void _init_current_block(vectorized::Block* block,
-                             std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+    Status _init_current_block(vectorized::Block* block,
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
@@ -375,7 +375,12 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
-    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+    bool _no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                size_t nrows_read);
+
+    bool _has_delete_predicate(ColumnId cid);
+
+    bool _can_opt_topn_reads() const;
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;

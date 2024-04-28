@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -69,7 +70,8 @@ public class RuntimeProfile {
     private ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
 
     private List<String> planNodeInfos = Lists.newArrayList();
-    private String name;
+    // name should not changed.
+    private final String name;
 
     private Long timestamp = -1L;
 
@@ -85,22 +87,24 @@ public class RuntimeProfile {
     private int nodeid = -1;
 
     public RuntimeProfile(String name) {
-        this();
+        this.localTimePercent = 0;
+        if (Strings.isNullOrEmpty(name)) {
+            throw new RuntimeException("Profile name must not be null");
+        }
         this.name = name;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 1);
+        this.counterMap.put("TotalTime", counterTotalTime);
     }
 
     public RuntimeProfile(String name, int nodeId) {
-        this();
+        this.localTimePercent = 0;
+        if (Strings.isNullOrEmpty(name)) {
+            throw new RuntimeException("Profile name must not be null");
+        }
         this.name = name;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 3);
-        this.nodeid = nodeId;
-    }
-
-    public RuntimeProfile() {
-        this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 1);
-        this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
+        this.nodeid = nodeId;
     }
 
     public void setIsCancel(Boolean isCancel) {
@@ -143,16 +147,16 @@ public class RuntimeProfile {
         this.isPipelineX = isPipelineX;
     }
 
-    public boolean getIsPipelineX() {
-        return this.isPipelineX;
-    }
-
     public Map<String, Counter> getCounterMap() {
         return counterMap;
     }
 
     public List<Pair<RuntimeProfile, Boolean>> getChildList() {
         return childList;
+    }
+
+    public boolean isEmpty() {
+        return childList.isEmpty();
     }
 
     public Map<String, RuntimeProfile> getChildMap() {
@@ -748,10 +752,6 @@ public class RuntimeProfile {
         } finally {
             infoStringsLock.writeLock().unlock();
         }
-    }
-
-    public void setName(String name) {
-        this.name = name;
     }
 
     // Returns the value to which the specified key is mapped;

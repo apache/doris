@@ -35,16 +35,20 @@
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
+#include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "exec/schema_scanner/schema_workload_groups_scanner.h"
+#include "exec/schema_scanner/schema_workload_sched_policy_scanner.h"
 #include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
@@ -158,6 +162,14 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaActiveQueriesScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_GROUPS:
         return SchemaWorkloadGroupsScanner::create_unique();
+    case TSchemaTableType::SCH_PROCESSLIST:
+        return SchemaProcessListScanner::create_unique();
+    case TSchemaTableType::SCH_PROCEDURES:
+        return SchemaRoutinesScanner::create_unique();
+    case TSchemaTableType::SCH_USER:
+        return SchemaUserScanner::create_unique();
+    case TSchemaTableType::SCH_WORKLOAD_SCHEDULE_POLICY:
+        return SchemaWorkloadSchedulePolicyScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -328,6 +340,53 @@ std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
         return part[1];
     }
     return full_name;
+}
+
+Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized::Block* block,
+                                          PrimitiveType type) {
+    vectorized::MutableColumnPtr mutable_col_ptr;
+    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+
+    switch (type) {
+    case TYPE_BIGINT: {
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
+                cell.longVal);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
+
+    case TYPE_INT: {
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
+                cell.intVal);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
+
+    case TYPE_BOOLEAN: {
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
+                cell.boolVal);
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
+
+    case TYPE_STRING:
+    case TYPE_VARCHAR:
+    case TYPE_CHAR: {
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(cell.stringVal.data(),
+                                                                          cell.stringVal.size());
+        nullable_column->get_null_map_data().emplace_back(0);
+        break;
+    }
+
+    default: {
+        std::stringstream ss;
+        ss << "unsupported column type:" << type;
+        return Status::InternalError(ss.str());
+    }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

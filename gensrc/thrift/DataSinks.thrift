@@ -308,8 +308,7 @@ enum THiveColumnType {
 
 struct THiveColumn {
   1: optional string name
-  2: optional Types.TTypeDesc data_type
-  3: optional THiveColumnType column_type
+  2: optional THiveColumnType column_type
 }
 
 struct THivePartition {

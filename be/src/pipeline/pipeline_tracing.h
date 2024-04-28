@@ -52,6 +52,7 @@ struct ScheduleRecord {
 using OneQueryTraces = moodycamel::ConcurrentQueue<ScheduleRecord>;
 
 // belongs to exec_env, for all query, if enable
+// curl http://{host}:{web_server_port}/api/running_pipeline_tasks
 class PipelineTracerContext {
 public:
     enum class RecordType {
@@ -75,7 +76,6 @@ private:
     phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_workload_group;
 
     RecordType _dump_type = RecordType::None;
-    std::filesystem::path _dir = config::pipeline_tracing_log_dir;
     decltype(MonotonicSeconds()) _last_dump_time;
     decltype(MonotonicSeconds()) _dump_interval_s =
             60; // effective iff Periodic mode. 1 minute default.

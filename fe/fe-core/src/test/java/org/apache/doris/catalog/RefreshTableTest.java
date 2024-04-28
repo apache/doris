@@ -30,6 +30,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
@@ -109,6 +111,15 @@ public class RefreshTableTest extends TestWithFeService {
             List<Column> schema = infoTbl.getFullSchema();
             Assertions.assertEquals(SchemaTable.TABLE_MAP.get(tblName).getColumns().size(), schema.size());
         }
+        // external mysql db
+        ExternalMysqlDatabase mysqlDb = (ExternalMysqlDatabase) test1.getDbNullable(MysqlDb.DATABASE_NAME);
+        Assertions.assertNotNull(mysqlDb);
+        for (String tblName : MysqlDBTable.TABLE_MAP.keySet()) {
+            ExternalMysqlTable mysqlTbl = (ExternalMysqlTable) mysqlDb.getTableNullable(tblName);
+            Assertions.assertNotNull(mysqlTbl);
+            List<Column> schema = mysqlTbl.getFullSchema();
+            Assertions.assertEquals(MysqlDBTable.TABLE_MAP.get(tblName).getColumns().size(), schema.size());
+        }
     }
 
     @Test
@@ -127,7 +138,7 @@ public class RefreshTableTest extends TestWithFeService {
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Access denied; you need (at least one of) the DROP privilege(s) for this operation",
+                "Access denied",
                 () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
         ConnectContext.remove();
 

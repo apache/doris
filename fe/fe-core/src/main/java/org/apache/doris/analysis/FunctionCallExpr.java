@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -122,7 +123,7 @@ public class FunctionCallExpr extends Expr {
                 Preconditions.checkArgument(children.get(1) instanceof IntLiteral
                         || (children.get(1) instanceof CastExpr
                                 && children.get(1).getChild(0) instanceof IntLiteral),
-                        "2nd argument of function round/floor/ceil/truncate must be literal");
+                        "2nd argument of function round/floor/ceil must be literal");
                 if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
                     children.get(1).getChild(0).setType(children.get(1).getType());
                     children.set(1, children.get(1).getChild(0));
@@ -136,6 +137,34 @@ public class FunctionCallExpr extends Expr {
                 return returnType;
             }
         };
+
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> truncateRule = (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
+            } else if (children.size() == 2) {
+                Expr scaleExpr = children.get(1);
+                if (scaleExpr instanceof IntLiteral
+                        || (scaleExpr instanceof CastExpr && scaleExpr.getChild(0) instanceof IntLiteral)) {
+                    if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
+                        children.get(1).getChild(0).setType(children.get(1).getType());
+                        children.set(1, children.get(1).getChild(0));
+                    } else {
+                        children.get(1).setType(Type.INT);
+                    }
+                    int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
+                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                            Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
+                } else {
+                    // Scale argument is a Column, always use same scale with input decimal
+                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                            ((ScalarType) children.get(0).getType()).decimalScale());
+                }
+            } else {
+                return returnType;
+            }
+        };
+
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDateTimeV2OrDecimalV3Rule
                 = (children, returnType) -> {
                     Preconditions.checkArgument(children != null && children.size() > 0);
@@ -239,7 +268,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("dround", roundRule);
         PRECISION_INFER_RULE.put("dceil", roundRule);
         PRECISION_INFER_RULE.put("dfloor", roundRule);
-        PRECISION_INFER_RULE.put("truncate", roundRule);
+        PRECISION_INFER_RULE.put("truncate", truncateRule);
     }
 
     public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION = new ImmutableSortedSet.Builder(
@@ -1629,6 +1658,22 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("date_add")
+                || fnName.getFunction().equalsIgnoreCase("days_add")
+                || fnName.getFunction().equalsIgnoreCase("adddate")
+                || fnName.getFunction().equalsIgnoreCase("date_sub")
+                || fnName.getFunction().equalsIgnoreCase("days_sub")
+                || fnName.getFunction().equalsIgnoreCase("subdate")) {
+            Type[] childTypes = collectChildReturnTypes();
+            argTypes[0] = childTypes[0];
+            argTypes[1] = childTypes[1];
+            if (childTypes[1] == Type.TINYINT || childTypes[1] == Type.SMALLINT) {
+                // be only support second param as int type
+                uncheckedCastChild(Type.INT, 1);
+                argTypes[1] = Type.INT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -2478,7 +2523,7 @@ public class FunctionCallExpr extends Expr {
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
             if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    dbName, PrivPredicate.SELECT)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

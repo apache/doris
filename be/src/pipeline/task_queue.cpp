@@ -71,7 +71,7 @@ PipelineTask* PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
         }
     }
     DCHECK(level != -1);
-    _queue_level_min_vruntime = min_vruntime;
+    _queue_level_min_vruntime = uint64_t(min_vruntime);
 
     auto task = _sub_queues[level].try_take(is_steal);
     if (task) {

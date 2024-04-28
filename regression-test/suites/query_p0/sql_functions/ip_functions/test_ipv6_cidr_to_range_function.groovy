@@ -48,6 +48,10 @@ suite("test_ipv6_cidr_to_range_function") {
         """
 
     qt_sql "select id, struct_element(ipv6_cidr_to_range(addr, cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(addr, cidr), 'max') as max_range from test_ipv6_cidr_to_range_function order by id"
+    qt_sql "select id, ipv6_cidr_to_range(addr, 16) from test_ipv6_cidr_to_range_function order by id;"
+    sql """ delete from test_ipv6_cidr_to_range_function where id in (2,3,6);"""
+    qt_sql """ select id, ipv6_cidr_to_range("127.0.0.1", cidr) from test_ipv6_cidr_to_range_function order by id;"""
+    qt_sql """ select number, ipv6_cidr_to_range("127.0.0.1", 16) from numbers("number"="10") order by number;"""
 
     sql """ DROP TABLE IF EXISTS test_ipv6_cidr_to_range_function """
     sql """ DROP TABLE IF EXISTS test_str_cidr_to_range_function """

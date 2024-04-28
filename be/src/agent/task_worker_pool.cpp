@@ -75,6 +75,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -189,6 +190,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
 
@@ -631,6 +633,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -857,6 +860,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (!status.ok()) {
         LOG_WARNING("failed to check consistency")
@@ -1438,6 +1442,7 @@ void push_callback(const TAgentTaskRequest& req) {
     std::vector<TTabletInfo> tablet_infos;
 
     EngineBatchLoadTask engine_task(const_cast<TPushReq&>(push_req), &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1497,6 +1502,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids, &succ_tablets,
                                              &discontinuous_version_tablets,
                                              &table_id_to_num_delta_rows);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
             break;
@@ -1695,6 +1701,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;
@@ -1730,6 +1737,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     auto status = check_migrate_request(engine, storage_medium_migrate_req, tablet, &dest_store);
     if (status.ok()) {
         EngineStorageMigrationTask engine_task(tablet, dest_store);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
     // fe should ignore this err
@@ -1755,6 +1763,14 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean trash start";
+    DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })
+    static_cast<void>(engine.start_trash_sweep(nullptr, true));
+    static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
+    LOG(INFO) << "clean trash finish";
 }
 
 } // namespace doris

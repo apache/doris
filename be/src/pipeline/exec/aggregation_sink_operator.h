@@ -213,6 +213,8 @@ protected:
 
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace pipeline

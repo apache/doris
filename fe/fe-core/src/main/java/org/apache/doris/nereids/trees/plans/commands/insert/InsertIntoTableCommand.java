@@ -27,6 +27,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -75,7 +76,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-            Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
@@ -105,7 +106,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     */
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -147,13 +153,17 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
             DataSink sink = planner.getFragments().get(0).getSink();
-            String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+            // Transaction insert should reuse the label in the transaction.
+            String label = this.labelName.orElse(
+                    ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    return;
+                    // return;
+                    throw new AnalysisException("group commit is not supported in Nereids now");
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
+                // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
@@ -163,7 +173,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
                 // set hive query options
             } else {
                 // TODO: support other table types
@@ -180,7 +191,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
         executor.setCoord(insertExecutor.getCoordinator());
+        return insertExecutor;
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
+    }
+
+    public boolean isExternalTableSink() {
+        return !(logicalQuery instanceof UnboundTableSink);
     }
 
     @Override

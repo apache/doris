@@ -778,6 +778,14 @@ public class OutFileClause {
         return fileFormatType == TFileFormatType.FORMAT_ORC;
     }
 
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public String getSuccessFileName() {
+        return successFileName;
+    }
+
     @Override
     public OutFileClause clone() {
         return new OutFileClause(this);

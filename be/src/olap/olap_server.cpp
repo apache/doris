@@ -277,6 +277,9 @@ void StorageEngine::_cache_clean_callback() {
                          << "], force set to 3600 ";
             interval = 3600;
         }
+        if (config::disable_memory_gc) {
+            continue;
+        }
 
         CacheManager::instance()->for_each_cache_prune_stale();
 
@@ -328,7 +331,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        uint32_t curr_interval = max_interval * ratio;
+        auto curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -680,7 +683,8 @@ void StorageEngine::_update_replica_infos_callback() {
 
         int start = 0;
         int tablet_size = all_tablets.size();
-        while (start < tablet_size) {
+        // The while loop may take a long time, we should skip it when stop
+        while (start < tablet_size && _stop_background_threads_latch.count() > 0) {
             int batch_size = std::min(100, tablet_size - start);
             int end = start + batch_size;
             TGetTabletReplicaInfosRequest request;
@@ -796,7 +800,7 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         return;
     }
-    std::vector<Version> local_versions = tablet->get_all_versions();
+    std::vector<Version> local_versions = tablet->get_all_local_versions();
     for (const auto& local_version : local_versions) {
         auto version = response->add_versions();
         version->set_first(local_version.first);

@@ -25,8 +25,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
+import java.util.BitSet;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -50,8 +50,8 @@ public class CustomRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext context) {
-        Set<Integer> disableRules = Job.getDisableRules(context);
-        if (disableRules.contains(ruleType.type())) {
+        BitSet disableRules = Job.getDisableRules(context);
+        if (disableRules.get(ruleType.type())) {
             return;
         }
         CascadesContext cascadesContext = context.getCascadesContext();

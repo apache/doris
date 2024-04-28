@@ -43,6 +43,8 @@ public:
 
     void reset() override;
     void get_value(MutableColumnPtr& column) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
+
     void forward(int step = 1) override;
 
     Status process_init(Block* block, RuntimeState* state) override;

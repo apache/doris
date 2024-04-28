@@ -228,7 +228,7 @@ public class ExportJob implements Writable {
         this.lineDelimiter = "\n";
         this.columns = "";
         this.withBom = "false";
-        this.dataConsistency = "all";
+        this.dataConsistency = CONSISTENT_PARTITION;
     }
 
     public ExportJob(long jobId) {

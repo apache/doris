@@ -53,6 +53,8 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& ta
                                                        DataDir* dest_store)
         : _tablet(tablet), _dest_store(dest_store) {
     _task_start_time = time(nullptr);
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "EngineStorageMigrationTask");
 }
 
 Status EngineStorageMigrationTask::execute() {

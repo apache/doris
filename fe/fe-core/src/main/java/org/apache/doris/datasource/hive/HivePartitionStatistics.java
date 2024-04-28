@@ -25,7 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 
 public class HivePartitionStatistics {
-    private static final HivePartitionStatistics EMPTY =
+    public static final HivePartitionStatistics EMPTY =
             new HivePartitionStatistics(HiveCommonStatistics.EMPTY, ImmutableMap.of());
 
     private final HiveCommonStatistics commonStatistics;

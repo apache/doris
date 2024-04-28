@@ -78,6 +78,7 @@ suite("test_multi_partition_key", "p0") {
 
     // partition columns are int & datetime
 
+    sql " drop table if exists err_1 "
     sql """
     CREATE TABLE err_1 ( 
       k1 TINYINT NOT NULL,  

@@ -50,11 +50,10 @@ suite("test_timezone") {
     sql """ set enable_nereids_planner = true """
     sql """insert into ${table} values('2022-01-01 01:02:55', '2022-01-01 01:02:55.123')"""
     sql """insert into ${table} values('2022-02-01 01:02:55Z', '2022-02-01 01:02:55.123Z')"""
-    sql """insert into ${table} values('2022-03-01 01:02:55UTC+8', '2022-03-01 01:02:55.123UTC')"""
-    sql """insert into ${table} values('2022-04-01T01:02:55UTC-6', '2022-04-01T01:02:55.123UTC+6')"""
+    sql """ set enable_nereids_planner = false """ // TODO remove it after nereids support this format
     sql """insert into ${table} values('2022-05-01 01:02:55+02:30', '2022-05-01 01:02:55.123-02:30')"""
     sql """insert into ${table} values('2022-06-01T01:02:55+04:30', '2022-06-01 01:02:55.123-07:30')"""
     sql """insert into ${table} values('20220701010255+07:00', '20220701010255-05:00')"""
-    sql """insert into ${table} values('20220801GMT+5', '20220801GMT-3')"""
+    sql """ set enable_nereids_planner = true """
     qt_nereids "select * from ${table} order by k1"
 }

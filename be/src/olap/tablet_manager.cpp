@@ -46,6 +46,7 @@
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/pb_helper.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
@@ -88,7 +89,7 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
           _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
+                  "TabletMeta(experimental)", ExecEnv::GetInstance()->details_mem_tracker_set())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -561,6 +562,29 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         };
         recycle_segment_cache(to_drop_tablet->rowset_map());
         recycle_segment_cache(to_drop_tablet->stale_rowset_map());
+        // recycle inverted index cache
+        static auto recycle_inverted_index_cache = [](const auto& rowset_map) {
+            for (auto& [_, rowset] : rowset_map) {
+                auto rs = std::static_pointer_cast<BetaRowset>(rowset);
+                for (int i = 0; i < rs->num_segments(); ++i) {
+                    auto seg_path = rs->segment_file_path(i);
+                    for (auto& column : rs->tablet_schema()->columns()) {
+                        const TabletIndex* index_meta =
+                                rs->tablet_schema()->get_inverted_index(*column);
+                        if (index_meta) {
+                            std::string inverted_index_file =
+                                    InvertedIndexDescriptor::get_index_file_name(
+                                            seg_path, index_meta->index_id(),
+                                            index_meta->get_index_suffix());
+                            (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                                    inverted_index_file);
+                        }
+                    }
+                }
+            }
+        };
+        recycle_inverted_index_cache(to_drop_tablet->rowset_map());
+        recycle_inverted_index_cache(to_drop_tablet->stale_rowset_map());
     }
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock

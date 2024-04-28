@@ -35,7 +35,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
     // "A<=> Null" to "A is null"
     @Test
     void testNullSafeEqualToIsNull() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
         SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
         assertRewrite(new NullSafeEqual(slot, NullLiteral.INSTANCE), new IsNull(slot));
     }
@@ -43,7 +45,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
     // "A<=> Null" to "False", when A is not nullable
     @Test
     void testNullSafeEqualToFalse() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
         SlotReference slot = new SlotReference("a", StringType.INSTANCE, false);
         assertRewrite(new NullSafeEqual(slot, NullLiteral.INSTANCE), BooleanLiteral.FALSE);
     }
@@ -51,7 +55,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
     // "A(nullable)<=>B" not changed
     @Test
     void testNullSafeEqualNotChangedLeft() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
         SlotReference a = new SlotReference("a", StringType.INSTANCE, true);
         SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
@@ -60,7 +66,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
     // "A<=>B(nullable)" not changed
     @Test
     void testNullSafeEqualNotChangedRight() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
         SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
         assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
@@ -69,7 +77,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
     // "A<=>B" changed
     @Test
     void testNullSafeEqualToEqual() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(NullSafeEqualToEqual.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
         SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         assertRewrite(new NullSafeEqual(a, b), new EqualTo(a, b));

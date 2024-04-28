@@ -30,12 +30,14 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -141,14 +143,6 @@ public class AccessControllerManager {
     }
 
     // ==== Database ====
-    public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getCurrentUserIdentity(), qualifiedDb, wanted);
-    }
-
-    public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
-        return checkDbPriv(currentUser, Auth.DEFAULT_CATALOG, db, wanted);
-    }
-
     public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
         return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
     }
@@ -159,10 +153,6 @@ public class AccessControllerManager {
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
-    }
-
     public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
         Preconditions.checkState(tableName.isFullyQualified());
         return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
@@ -176,28 +166,12 @@ public class AccessControllerManager {
         return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
     }
 
-    public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(currentUser, Auth.DEFAULT_CATALOG, db, tbl, wanted);
-    }
-
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
     }
 
     // ==== Column ====
-    public void checkColumnsPriv(UserIdentity currentUser, String
-            ctl, HashMultimap<TableName, String> tableToColsMap,
-            PrivPredicate wanted) throws UserException {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
-        for (TableName tableName : tableToColsMap.keySet()) {
-            accessController.checkColsPriv(hasGlobal, currentUser, ctl,
-                    tableName.getDb(),
-                    tableName.getTbl(), tableToColsMap.get(tableName), wanted);
-        }
-    }
-
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
             PrivPredicate wanted) throws UserException {
@@ -206,11 +180,6 @@ public class AccessControllerManager {
         accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
                 tbl, cols, wanted);
 
-    }
-
-    public void checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws UserException {
-        checkColumnsPriv(currentUser, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, cols, wanted);
     }
 
     // ==== Resource ====
@@ -239,13 +208,42 @@ public class AccessControllerManager {
             return false;
         }
         if (authInfo.getTableNameList() == null || authInfo.getTableNameList().isEmpty()) {
-            return checkDbPriv(ctx, authInfo.getDbName(), wanted);
+            return checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, authInfo.getDbName(), wanted);
         }
         for (String tblName : authInfo.getTableNameList()) {
-            if (!checkTblPriv(ConnectContext.get(), authInfo.getDbName(), tblName, wanted)) {
+            if (!checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, authInfo.getDbName(),
+                    tblName, wanted)) {
                 return false;
             }
         }
         return true;
+    }
+
+    public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl, Set<String> cols) {
+        Map<String, Optional<DataMaskPolicy>> res = Maps.newHashMap();
+        for (String col : cols) {
+            res.put(col, evalDataMaskPolicy(currentUser, ctl, db, tbl, col));
+        }
+        return res;
+    }
+
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String
+            ctl, String db, String tbl, String col) {
+        Objects.requireNonNull(currentUser, "require currentUser object");
+        Objects.requireNonNull(ctl, "require ctl object");
+        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(tbl, "require tbl object");
+        Objects.requireNonNull(col, "require col object");
+        return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(currentUser, ctl, db, tbl, col.toLowerCase());
+    }
+
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String
+            ctl, String db, String tbl) {
+        Objects.requireNonNull(currentUser, "require currentUser object");
+        Objects.requireNonNull(ctl, "require ctl object");
+        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(tbl, "require tbl object");
+        return getAccessControllerOrDefault(ctl).evalRowFilterPolicies(currentUser, ctl, db, tbl);
     }
 }

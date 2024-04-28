@@ -85,6 +85,10 @@ public class KafkaProgress extends RoutineLoadProgress {
         return partitionIdToOffset.get(kafkaPartition);
     }
 
+    public Map<Integer, Long> getOffsetByPartition() {
+        return partitionIdToOffset;
+    }
+
     public boolean containsPartition(Integer kafkaPartition) {
         return partitionIdToOffset.containsKey(kafkaPartition);
     }

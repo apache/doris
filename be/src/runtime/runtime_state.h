@@ -50,6 +50,7 @@ namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineXFragmentContext;
+class PipelineXTask;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -65,13 +66,10 @@ class RuntimeState {
     ENABLE_FACTORY_CREATOR(RuntimeState);
 
 public:
-    // for ut only
-    RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
-
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env, QueryContext* ctx);
+                 ExecEnv* exec_env, QueryContext* ctx,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
@@ -101,7 +99,9 @@ public:
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
-    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
+
+    // for ut and non-query.
+    void init_mem_trackers(const std::string& name = "ut", const TUniqueId& id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -569,7 +569,18 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+    auto& pipeline_id_to_profile() {
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            // pipeline 0
+            //  pipeline task 0
+            //  pipeline task 1
+            //  pipleine task 2
+            //  .......
+            // sort by pipeline task total time
+            pipeline_profile->sort_children_by_total_time();
+        }
+        return _pipeline_id_to_profile;
+    }
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
@@ -619,12 +630,16 @@ public:
 
     int task_id() const { return _task_id; }
 
+    void set_task_num(int task_num) { _task_num = task_num; }
+
+    int task_num() const { return _task_num; }
+
 private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // Could not find a better way to record if the weak ptr is inited, use a bool to record
     // it. In some unit test cases, the runtime state's task ctx is not inited, then the test
@@ -729,6 +744,7 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+    int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 

@@ -61,6 +61,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -75,13 +76,19 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_row_num(0),
           _input_num_segments(0),
           _input_index_size(0),
-          _state(CompactionState::INITED),
-          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+          _state(CompactionState::INITED) {
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label);
     init_profile(label);
 }
 
-Compaction::~Compaction() {}
+Compaction::~Compaction() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _output_rs_writer.reset();
+    _tablet.reset();
+    _input_rowsets.clear();
+    _output_rowset.reset();
+    _cur_tablet_schema.reset();
+}
 
 void Compaction::init_profile(const std::string& label) {
     _profile = std::make_unique<RuntimeProfile>(label);
@@ -268,6 +275,12 @@ bool Compaction::handle_ordered_data_compaction() {
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
+
+    if (_tablet->tablet_meta()->tablet_schema()->skip_write_index_on_load()) {
+        // Expected to create index through normal compaction
+        return false;
+    }
+
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -296,9 +309,11 @@ bool Compaction::handle_ordered_data_compaction() {
     // just handle nonoverlappint rowsets
     auto st = do_compact_ordered_rowsets();
     if (!st.ok()) {
-        return false;
+        LOG(WARNING) << "failed to compact ordered rowsets: " << st;
+        _pending_rs_guard.drop();
     }
-    return true;
+
+    return st.ok();
 }
 
 Status Compaction::do_compaction_impl(int64_t permits) {
@@ -422,6 +437,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         if (!allow_delete_in_cumu_compaction()) {
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING &&
                 stats.merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -460,9 +476,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             // src index files
             // format: rowsetId_segmentId
             std::vector<std::string> src_index_files(src_segment_num);
+            std::vector<RowsetId> src_rowset_ids;
             for (const auto& m : src_seg_to_id_map) {
                 std::pair<RowsetId, uint32_t> p = m.first;
                 src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
+                src_rowset_ids.push_back(p.first);
             }
 
             // dest index files
@@ -480,7 +498,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                               const std::string& file_name) {
                     io::FileWriterPtr file_writer;
                     std::string file_path =
-                            fmt::format("{}/{}.json", config::sys_log_dir, file_name);
+                            fmt::format("{}/{}.json", std::string(getenv("LOG_DIR")), file_name);
                     RETURN_IF_ERROR(
                             io::global_local_filesystem()->create_file(file_path, &file_writer));
                     RETURN_IF_ERROR(file_writer->append(json_obj.dump()));
@@ -597,9 +615,36 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 }
             };
 
+            Status status = Status::OK();
             for (auto&& column_uniq_id : ctx.skip_inverted_index) {
                 auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
                 const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+
+                // if index properties are different, index compaction maybe needs to be skipped.
+                bool is_continue = false;
+                std::optional<std::map<std::string, std::string>> first_properties;
+                for (const auto& rowset_id : src_rowset_ids) {
+                    auto rowset_ptr = _tablet->get_rowset(rowset_id);
+                    const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+                    const auto& properties = tablet_index->properties();
+                    if (!first_properties.has_value()) {
+                        first_properties = properties;
+                    } else {
+                        if (properties != first_properties.value()) {
+                            error_handler(index_meta->index_id(), column_uniq_id);
+                            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                                    "if index properties are different, index compaction needs to "
+                                    "be "
+                                    "skipped.");
+                            is_continue = true;
+                            break;
+                        }
+                    }
+                }
+                if (is_continue) {
+                    continue;
+                }
+
                 std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
                 std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
                 try {
@@ -620,15 +665,21 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                            fs, index_tmp_path, trans_vec, dest_segment_num_rows);
                     if (!st.ok()) {
                         error_handler(index_meta->index_id(), column_uniq_id);
-                        return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+                        status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
                     }
                 } catch (CLuceneError& e) {
                     error_handler(index_meta->index_id(), column_uniq_id);
-                    return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
+                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
                 }
             }
             for (auto& inverted_index_file_writer : inverted_index_file_writers) {
-                RETURN_IF_ERROR(inverted_index_file_writer->close());
+                if (Status st = inverted_index_file_writer->close(); !st.ok()) {
+                    status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+                }
+            }
+            // check index compaction status. If status is not ok, we should return error and end this compaction round.
+            if (!status.ok()) {
+                return status;
             }
 
             LOG(INFO) << "succeed to do index compaction"
@@ -861,7 +912,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 &output_rowset_delete_bitmap);
         if (!allow_delete_in_cumu_compaction()) {
             missed_rows_size = missed_rows.size();
-            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION && stats != nullptr &&
+            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                _tablet->tablet_state() == TABLET_RUNNING && stats != nullptr &&
                 stats->merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "

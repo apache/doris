@@ -119,6 +119,7 @@ public:
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     RowRanges row_ranges;
+    size_t topn_limit = 0;
 };
 
 class RowwiseIterator;

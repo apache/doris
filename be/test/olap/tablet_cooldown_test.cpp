@@ -228,6 +228,7 @@ public:
         st = k_engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_write_cooldown_meta_executors(); // default cons
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
         exec_env->set_storage_engine(k_engine.get());
     }

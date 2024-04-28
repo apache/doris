@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -66,6 +67,28 @@ public class ShowTableStmtTest {
         Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
+    }
+
+    @Test
+    public void testShowViews() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("", null, false, TableType.VIEW,
+                null, null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW VIEWS FROM internal.testDb", stmt.toString());
+        Assert.assertEquals("testDb", stmt.getDb());
+        Assert.assertEquals(TableType.VIEW, stmt.getType());
+        Assert.assertFalse(stmt.isVerbose());
+        Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Tables_in_testDb", stmt.getMetaData().getColumn(0).getName());
+
+        stmt = new ShowTableStmt("abc", null, true, TableType.VIEW, "bcd", null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("bcd", stmt.getPattern());
+        Assert.assertEquals("SHOW FULL VIEWS FROM internal.abc LIKE 'bcd'", stmt.toString());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertEquals(TableType.VIEW, stmt.getType());
     }
 
     @Test

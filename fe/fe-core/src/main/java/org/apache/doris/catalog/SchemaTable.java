@@ -486,7 +486,30 @@ public class SchemaTable extends Table {
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
+                            .column("TAG", ScalarType.createVarchar(256))
                             .build()))
+            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                            .column("USER", ScalarType.createVarchar(32))
+                            .column("HOST", ScalarType.createVarchar(261))
+                            .column("CATALOG", ScalarType.createVarchar(64))
+                            .column("DB", ScalarType.createVarchar(64))
+                            .column("COMMAND", ScalarType.createVarchar(16))
+                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(64))
+                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                            .build()))
+            .put("workload_schedule_policy",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_schedule_policy", TableType.SCHEMA,
+                            builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NAME", ScalarType.createVarchar(256))
+                                    .column("CONDITION", ScalarType.createStringType())
+                                    .column("ACTION", ScalarType.createStringType())
+                                    .column("PRIORITY", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .column("WORKLOAD_GROUP", ScalarType.createStringType())
+                                    .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

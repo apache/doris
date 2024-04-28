@@ -107,7 +107,7 @@ WITH BROKER broker_name
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
 
   - `COMPRESS_TYPE AS`
-    指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。
+    指定文件压缩类型, 支持 GZ/BZ2/LZ4FRAME。仅在 CSV 或 JSON 格式下生效。
 
   - `column list`
 

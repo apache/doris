@@ -73,6 +73,7 @@ public:
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
     using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;

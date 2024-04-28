@@ -617,12 +617,12 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
     // array_range
-    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test"
-    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable"
-    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test"
-    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable"
-    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test"
-    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test order by id"
+    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test order by id"
+    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
+    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"

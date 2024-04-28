@@ -32,7 +32,6 @@
 
 namespace doris {
 class DataDir;
-class MemTrackerLimiter;
 class TCloneReq;
 class TMasterInfo;
 class TTabletInfo;
@@ -95,7 +94,6 @@ private:
     const TMasterInfo& _master_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 }; // EngineTask
 

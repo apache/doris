@@ -275,8 +275,6 @@ public class DefaultJdbcExecutor {
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new UdfRuntimeException("jdbc get block address: ", e);
-        } finally {
-            block.clear();
         }
         return outputTable.getMetaAddress();
     }

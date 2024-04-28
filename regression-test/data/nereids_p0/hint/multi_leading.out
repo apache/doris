@@ -264,7 +264,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t3 alias1 )
+Used: leading(t2 t1 ) leading(t3 alias1 cte )
 UnUsed:
 SyntaxError:
 
@@ -330,7 +330,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 t1 ) leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 )
+Used: leading(t2 t1 ) leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
 UnUsed:
 SyntaxError:
 
@@ -598,11 +598,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
@@ -612,8 +613,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
 ------------------------PhysicalOlapScan[t1]
 ------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !sql5_2 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -624,11 +624,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
@@ -637,8 +638,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
 ------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalOlapScan[t1]
 

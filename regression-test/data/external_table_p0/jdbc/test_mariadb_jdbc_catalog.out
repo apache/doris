@@ -5,7 +5,7 @@ internal
 -- !show_db --
 doris_test
 information_schema
-performance_schema
+mysql
 
 -- !sql --
 internal
@@ -43,6 +43,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines
@@ -58,6 +59,7 @@ triggers
 user_privileges
 views
 workload_groups
+workload_schedule_policy
 
 -- !auto_default_t --
 0

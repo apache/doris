@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -86,12 +87,12 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
-    public BoundFunction build(String name, List<? extends Object> arguments) {
+    public Pair<BoundFunction, BoundFunction> build(String name, List<? extends Object> arguments) {
         try {
             if (isVariableLength) {
-                return builderMethod.newInstance(toVariableLengthArguments(arguments));
+                return Pair.ofSame(builderMethod.newInstance(toVariableLengthArguments(arguments)));
             } else {
-                return builderMethod.newInstance(arguments.toArray());
+                return Pair.ofSame(builderMethod.newInstance(arguments.toArray()));
             }
         } catch (Throwable t) {
             String argString = arguments.stream()

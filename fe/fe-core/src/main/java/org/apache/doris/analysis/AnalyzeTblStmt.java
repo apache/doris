@@ -146,7 +146,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         if (table instanceof View) {
             throw new AnalysisException("Analyze view is not allowed");
         }
-        checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
+        checkAnalyzePriv(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
         if (columnNames == null) {
             columnNames = table.getSchemaAllIndexes(false).stream()
                 // Filter unsupported type columns.
@@ -255,11 +255,15 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         return partitions;
     }
 
-    public boolean isAllPartitions() {
+    /**
+     * @return for OLAP table, only in overwrite situation, overwrite auto detect partition
+     *         for External table, all partitions.
+     */
+    public boolean isStarPartition() {
         if (partitionNames == null) {
             return false;
         }
-        return partitionNames.isAllPartitions();
+        return partitionNames.isStar();
     }
 
     public long getPartitionCount() {
@@ -284,14 +288,14 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
     }
 
-    private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+    private void checkAnalyzePriv(String ctlName, String dbName, String tblName) throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         // means it a system analyze
         if (ctx == null) {
             return;
         }
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ctx, dbName, tblName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ctx, ctlName, dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "ANALYZE",

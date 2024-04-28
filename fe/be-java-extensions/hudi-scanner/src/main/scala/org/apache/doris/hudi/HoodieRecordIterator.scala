@@ -20,11 +20,14 @@ package org.apache.doris.hudi
 import org.apache.hadoop.conf.Configuration
 import org.apache.hudi.HoodieBaseRelation.{BaseFileReader, projectReader}
 import org.apache.hudi.MergeOnReadSnapshotRelation.isProjectionCompatible
+import org.apache.hudi.common.model.HoodieRecord
+import org.apache.hudi.common.util.StringUtils
 import org.apache.hudi.{DataSourceReadOptions, HoodieMergeOnReadFileSplit, HoodieTableSchema, HoodieTableState, LogFileIterator, RecordMergingFileIterator}
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection
 import org.apache.spark.sql.catalyst.InternalRow
 
 import java.io.Closeable
+import java.util.function.Predicate
 
 /**
  * Class holding base-file readers for 3 different use-cases:
@@ -84,29 +87,61 @@ class HoodieMORRecordIterator(config: Configuration,
                               requiredSchema: HoodieTableSchema,
                               tableState: HoodieTableState,
                               mergeType: String,
-                              fileSplit: HoodieMergeOnReadFileSplit) extends Iterator[InternalRow] with Closeable {
+                              fileSplit: HoodieMergeOnReadFileSplit,
+                              includeStartTime: Boolean = false,
+                              startTimestamp: String = null,
+                              endTimestamp: String = null) extends Iterator[InternalRow] with Closeable {
   protected val maxCompactionMemoryInBytes: Long = config.getLongBytes(
     "hoodie.compaction.memory", 512 * 1024 * 1024)
 
-  protected val recordIterator: Iterator[InternalRow] = fileSplit match {
-    case dataFileOnlySplit if dataFileOnlySplit.logFiles.isEmpty =>
-      val projectedReader = projectReader(fileReaders.requiredSchemaReaderSkipMerging, requiredSchema.structTypeSchema)
-      projectedReader(dataFileOnlySplit.dataFile.get)
+  protected val recordIterator: Iterator[InternalRow] = {
+    val iter = fileSplit match {
+      case dataFileOnlySplit if dataFileOnlySplit.logFiles.isEmpty =>
+        val projectedReader = projectReader(fileReaders.requiredSchemaReaderSkipMerging, requiredSchema.structTypeSchema)
+        projectedReader(dataFileOnlySplit.dataFile.get)
 
-    case logFileOnlySplit if logFileOnlySplit.dataFile.isEmpty =>
-      new LogFileIterator(logFileOnlySplit, tableSchema, requiredSchema, tableState, config)
+      case logFileOnlySplit if logFileOnlySplit.dataFile.isEmpty =>
+        new LogFileIterator(logFileOnlySplit, tableSchema, requiredSchema, tableState, config)
 
-    case split => mergeType match {
-      case DataSourceReadOptions.REALTIME_SKIP_MERGE_OPT_VAL =>
-        // val reader = fileReaders.requiredSchemaReaderSkipMerging
-        // new SkipMergeIterator(split, reader, tableSchema, requiredSchema, tableState, config)
-        throw new UnsupportedOperationException("Skip merge is optimized by native read")
+      case split => mergeType match {
+        case DataSourceReadOptions.REALTIME_SKIP_MERGE_OPT_VAL =>
+          val reader = fileReaders.requiredSchemaReaderSkipMerging
+          new SkipMergeIterator(split, reader, tableSchema, requiredSchema, tableState, config)
 
-      case DataSourceReadOptions.REALTIME_PAYLOAD_COMBINE_OPT_VAL =>
-        val reader = pickBaseFileReader()
-        new RecordMergingFileIterator(split, reader, tableSchema, requiredSchema, tableState, config)
+        case DataSourceReadOptions.REALTIME_PAYLOAD_COMBINE_OPT_VAL =>
+          val reader = pickBaseFileReader()
+          new RecordMergingFileIterator(split, reader, tableSchema, requiredSchema, tableState, config)
 
-      case _ => throw new UnsupportedOperationException(s"Not supported merge type ($mergeType)")
+        case _ => throw new UnsupportedOperationException(s"Not supported merge type ($mergeType)")
+      }
+    }
+
+    val commitTimeMetadataFieldIdx = requiredSchema.structTypeSchema.fieldNames.indexOf(HoodieRecord.COMMIT_TIME_METADATA_FIELD)
+    val needsFiltering = commitTimeMetadataFieldIdx >= 0 && !StringUtils.isNullOrEmpty(startTimestamp) && !StringUtils.isNullOrEmpty(endTimestamp)
+    if (needsFiltering) {
+      val filterT: Predicate[InternalRow] = getCommitTimeFilter(includeStartTime, commitTimeMetadataFieldIdx)
+      iter.filter(filterT.test)
+    }
+    else {
+      iter
+    }
+  }
+
+  private def getCommitTimeFilter(includeStartTime: Boolean, commitTimeMetadataFieldIdx: Int): Predicate[InternalRow] = {
+    if (includeStartTime) {
+      new Predicate[InternalRow] {
+        override def test(row: InternalRow): Boolean = {
+          val commitTime = row.getString(commitTimeMetadataFieldIdx)
+          commitTime >= startTimestamp && commitTime <= endTimestamp
+        }
+      }
+    } else {
+      new Predicate[InternalRow] {
+        override def test(row: InternalRow): Boolean = {
+          val commitTime = row.getString(commitTimeMetadataFieldIdx)
+          commitTime > startTimestamp && commitTime <= endTimestamp
+        }
+      }
     }
   }
 

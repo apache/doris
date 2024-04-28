@@ -9,7 +9,7 @@ doris
 doris_test
 information_schema
 init_db
-performance_schema
+mysql
 show_test_do_not_modify
 
 -- !sql --
@@ -217,6 +217,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines
@@ -232,6 +233,7 @@ triggers
 user_privileges
 views
 workload_groups
+workload_schedule_policy
 
 -- !dt --
 2023-06-17T10:00	2023-06-17T10:00:01	2023-06-17T10:00:02	2023-06-17T10:00:03	2023-06-17T10:00:04	2023-06-17T10:00:05	2023-06-17T10:00:06
@@ -283,10 +285,12 @@ doris3	20
 -- !specified_database_1 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_2 --
 doris_test
 information_schema
+mysql
 
 -- !specified_database_3 --
 DORIS
@@ -294,11 +298,12 @@ Doris
 doris
 information_schema
 init_db
-performance_schema
+mysql
 show_test_do_not_modify
 
 -- !specified_database_4 --
 information_schema
+mysql
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}
@@ -436,7 +441,7 @@ doris_3
 doris_test
 information_schema
 init_db
-performance_schema
+mysql
 show_test_do_not_modify
 
 -- !sql --

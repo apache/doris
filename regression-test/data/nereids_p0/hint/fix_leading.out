@@ -237,10 +237,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------PhysicalProject
---------NestedLoopJoin[RIGHT_OUTER_JOIN](t3.c3 > 500)
+--------NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------PhysicalProject
---------------NestedLoopJoin[LEFT_OUTER_JOIN](t1.c1 < 200)(t1.c1 > 500)
+--------------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -255,4 +255,29 @@ Hint log:
 Used: leading(t1 t2 t3 )
 UnUsed:
 SyntaxError:
+
+-- !select5_1 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------NestedLoopJoin[LEFT_OUTER_JOIN](t3.c3 > 500)
+------------PhysicalProject
+--------------PhysicalOlapScan[t3]
+------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalProject
+----------------NestedLoopJoin[LEFT_OUTER_JOIN](t1.c1 > 500)
+------------------PhysicalProject
+--------------------filter((t1.c1 < 200))
+----------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------filter((t2.c2 > 500))
+------------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed:
+SyntaxError: leading(t1 t2) Msg:leading should have all tables in query block, missing tables: t3 
 

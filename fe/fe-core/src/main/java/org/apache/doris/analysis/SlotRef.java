@@ -365,6 +365,7 @@ public class SlotRef extends Expr {
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
         msg.setOutputColumn(outputColumn);
+        msg.setLabel(label);
     }
 
     @Override
@@ -463,6 +464,11 @@ public class SlotRef extends Expr {
     @Override
     public boolean hasAggregateSlot() {
         return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean hasAutoInc() {
+        return desc.getColumn().isAutoInc();
     }
 
     @Override

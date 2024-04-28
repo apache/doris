@@ -75,13 +75,14 @@ public class CancelAlterTableStmt extends CancelStmt {
         Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
         // check access
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(),
-                                                                PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbTableName.getCtl(), dbTableName.getDb(),
+                        dbTableName.getTbl(),
+                        PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL ALTER TABLE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
     }
 

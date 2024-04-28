@@ -30,11 +30,10 @@
 #include "olap/tablet_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
-#include "time.h"
 #include "util/debug_util.h"
 #include "util/time.h"
 #include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_stub_pool.h"
+#include "vec/sink/load_stream_map_pool.h"
 
 namespace doris {
 
@@ -45,6 +44,15 @@ ExecEnv::~ExecEnv() {
 }
 
 // TODO(plat1ko): template <class Engine>
+#ifdef BE_TEST
+void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
+    _storage_engine = std::move(engine);
+}
+void ExecEnv::set_write_cooldown_meta_executors() {
+    _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
+}
+#endif // BE_TEST
+
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
     BaseTabletSPtr tablet;
     std::string err;

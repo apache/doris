@@ -23,7 +23,6 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
-class MemTrackerLimiter;
 class TAlterInvertedIndexReq;
 class TAlterTabletReqV2;
 
@@ -38,8 +37,6 @@ public:
 
 private:
     const TAlterTabletReqV2& _alter_tablet_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

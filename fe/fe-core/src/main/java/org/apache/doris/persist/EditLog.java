@@ -479,6 +479,11 @@ public class EditLog {
                     env.getAuth().replayCreateRole(privInfo);
                     break;
                 }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
+                    break;
+                }
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayDropRole(privInfo);
@@ -943,7 +948,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -1009,7 +1014,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1019,7 +1024,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
@@ -1502,6 +1507,10 @@ public class EditLog {
 
     public void logCreateRole(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_ROLE, info);
+    }
+
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
     }
 
     public void logDropRole(PrivInfo info) {

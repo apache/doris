@@ -18,15 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +56,7 @@ public class CreateUserStmt extends DdlStmt {
     private PassVar passVar;
     private String role;
     private PasswordOptions passwordOptions;
+    private String comment;
 
     public CreateUserStmt() {
     }
@@ -65,10 +70,11 @@ public class CreateUserStmt extends DdlStmt {
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {
-        this(ifNotExist, userDesc, role, null);
+        this(ifNotExist, userDesc, role, null, null);
     }
 
-    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
+    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
+            String comment) {
         this.ifNotExist = ifNotExist;
         userIdent = userDesc.getUserIdent();
         passVar = userDesc.getPassVar();
@@ -77,6 +83,7 @@ public class CreateUserStmt extends DdlStmt {
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
         }
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isIfNotExist() {
@@ -104,9 +111,19 @@ public class CreateUserStmt extends DdlStmt {
         return passwordOptions;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")
+                && AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP) {
+            throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
+        }
+
         userIdent.analyze();
 
         if (userIdent.isRootUser()) {
@@ -149,7 +166,9 @@ public class CreateUserStmt extends DdlStmt {
         if (passwordOptions != null) {
             sb.append(passwordOptions.toSql());
         }
-
+        if (!StringUtils.isEmpty(comment)) {
+            sb.append(" COMMENT \"").append(comment).append("\"");
+        }
         return sb.toString();
     }
 

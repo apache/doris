@@ -79,4 +79,6 @@ public interface ExternalMetadataOps {
      * @return
      */
     boolean tableExist(String dbName, String tblName);
+
+    boolean databaseExist(String dbName);
 }

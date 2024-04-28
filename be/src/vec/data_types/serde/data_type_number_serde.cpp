@@ -244,9 +244,19 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (std::is_same_v<T, Int128>) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (std::is_same_v<T, float>) {
-        buf_ret = result.push_float(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for float, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_float(data[col_index]);
+        }
     } else if constexpr (std::is_same_v<T, double>) {
-        buf_ret = result.push_double(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for double, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_double(data[col_index]);
+        }
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");

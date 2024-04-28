@@ -75,7 +75,8 @@ public class HistogramTask extends BaseAnalysisTask {
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
-        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(
+                tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
     }
 
     @Override

@@ -101,6 +101,10 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     const auto& local_tablet = arg->local_tablet;
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::SCHEMA_CHANGE, fmt::format("IngestBinlog#TxnId={}", txn_id));
+    SCOPED_ATTACH_TASK(mem_tracker);
+
     auto& request = arg->request;
 
     TStatus tstatus;
@@ -301,41 +305,81 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     std::vector<uint64_t> segment_index_file_sizes;
     std::vector<std::string> segment_index_file_names;
     auto tablet_schema = rowset_meta->tablet_schema();
-    for (const auto& index : tablet_schema->indexes()) {
-        if (index.index_type() != IndexType::INVERTED) {
-            continue;
-        }
-        auto index_id = index.index_id();
-        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            auto get_segment_index_file_size_url = fmt::format(
-                    "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
-                    "}",
-                    binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
-                    remote_rowset_id, segment_index, index_id);
-            uint64_t segment_index_file_size;
-            auto get_segment_index_file_size_cb = [&get_segment_index_file_size_url,
-                                                   &segment_index_file_size](HttpClient* client) {
-                RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
-                client->set_timeout_ms(kMaxTimeoutMs);
-                RETURN_IF_ERROR(client->head());
-                return client->get_content_length(&segment_index_file_size);
-            };
-            auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                    local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index, index_id,
-                    index.get_index_suffix());
-            segment_index_file_names.push_back(index_file);
-
-            status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to get segment file size from "
-                             << get_segment_index_file_size_url
-                             << ", status=" << status.to_string();
-                status.to_thrift(&tstatus);
-                return;
+    if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : tablet_schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
             }
+            auto index_id = index.index_id();
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, index_id);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
+                        index_id, index.get_index_suffix());
+                segment_index_file_names.push_back(index_file);
 
-            segment_index_file_sizes.push_back(segment_index_file_size);
-            segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    } else {
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            if (tablet_schema->has_inverted_index()) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, -1);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto local_segment_path = BetaRowset::segment_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
         }
     }
 
@@ -797,11 +841,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     } else {
         LOG(WARNING) << "stream_load_recorder is null.";
     }
-}
-
-void BackendService::clean_trash() {
-    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {

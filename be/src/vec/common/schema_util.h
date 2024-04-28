@@ -116,8 +116,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
-// inherit index info from it's parent column
-void inherit_tablet_index(TabletSchemaSPtr& schema);
+// inherit attributes like index/agg info from it's parent column
+void inherit_root_attributes(TabletSchemaSPtr& schema);
 
 // Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
 // Block consists of two parts, dynamic part of columns and static part of columns.

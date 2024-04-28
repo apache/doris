@@ -518,6 +518,31 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     if (is_append) {
+        if (_cur_mutable_block && !_cur_mutable_block->empty()) {
+            // When is-append is true, the previous block may not have been sent out yet.
+            // (e.x. The previous block is not load to single tablet, and its row num was
+            // 4064, which is smaller than the send batch size 8192).
+            // If we clear the previous block directly here, it will cause data loss.
+            {
+                SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
+                std::lock_guard<std::mutex> l(_pending_batches_lock);
+                // To simplify the add_row logic, postpone adding block into req until the time of sending req
+                _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
+                _cur_add_block_request->set_eos(
+                        false); // for multi-add, only when marking close we set it eos.
+                // Copy the request to tmp request to add to pend block queue
+                auto tmp_add_block_request = std::make_shared<PTabletWriterAddBlockRequest>();
+                *tmp_add_block_request = *_cur_add_block_request;
+                _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
+                _pending_batches_num++;
+                VLOG_DEBUG << "VTabletWriter:" << _parent << " VNodeChannel:" << this
+                           << " pending_batches_bytes:" << _pending_batches_bytes
+                           << " jobid:" << std::to_string(_state->load_job_id())
+                           << " loadinfo:" << _load_info;
+            }
+            _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+            _cur_add_block_request->clear_tablet_ids();
+        }
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_to_block_by_selector
         // TODO: we could write to local delta writer if single_replica_load is true
@@ -537,6 +562,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         for (auto tablet_id : payload->second) {
             _cur_add_block_request->add_tablet_ids(tablet_id);
         }
+        // need to reset to false avoid load data to incorrect tablet.
+        _cur_add_block_request->set_is_single_tablet_block(false);
     }
 
     if (is_append || _cur_mutable_block->rows() >= _batch_size ||
@@ -672,9 +699,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             request->add_partition_ids(pid);
         }
 
-        request->set_write_single_replica(false);
+        request->set_write_single_replica(_parent->_write_single_replica);
         if (_parent->_write_single_replica) {
-            request->set_write_single_replica(true);
             for (auto& _slave_tablet_node : _slave_tablet_nodes) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
@@ -724,7 +750,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->cntl_->http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(
                     send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
                     send_block_closure.get());
@@ -733,7 +758,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     } else {
         _send_block_callback->cntl_->http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
                     send_block_closure->response_.get(), send_block_closure.get());
@@ -972,20 +996,15 @@ VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& o
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
-Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 void VTabletWriter::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    int sleep_time = config::olap_table_sink_send_interval_microseconds *
-                     (_vpartition->is_auto_partition()
-                              ? config::olap_table_sink_send_interval_auto_partition_factor
-                              : 1);
+    int sleep_time = int(config::olap_table_sink_send_interval_microseconds *
+                         (_vpartition->is_auto_partition()
+                                  ? config::olap_table_sink_send_interval_auto_partition_factor
+                                  : 1));
 
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
@@ -1123,6 +1142,7 @@ Status VTabletWriter::_init_row_distribution() {
 
 Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_t_sink.__isset.olap_table_sink);
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -1131,6 +1151,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
     if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
@@ -1640,6 +1662,12 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
+    // update incrementally so that FE can get the progress.
+    // the real 'num_rows_load_total' will be set when sink being closed.
+    _state->update_num_rows_load_total(rows);
+    _state->update_num_bytes_load_total(bytes);
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
@@ -1652,12 +1680,6 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
     _row_distribution_watch.stop();
 
-    // update incrementally so that FE can get the progress.
-    // the real 'num_rows_load_total' will be set when sink being closed.
-    _state->update_num_rows_load_total(rows);
-    _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =

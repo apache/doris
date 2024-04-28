@@ -65,14 +65,7 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
           _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     g_memtable_cnt << 1;
-#ifndef BE_TEST
-    _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
-            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id)),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker());
-#else
-    _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
-            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id)));
-#endif
+    _query_thread_context.init();
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     // TODO: Support ZOrderComparator in the future
@@ -138,6 +131,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
@@ -161,6 +155,13 @@ MemTable::~MemTable() {
             << std::endl
             << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
     DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
+    _arena.reset();
+    _agg_buffer_pool.clear();
+    _vec_row_comparator.reset();
+    _row_in_blocks.clear();
+    _agg_functions.clear();
+    _input_mutable_block.clear();
+    _output_mutable_block.clear();
 }
 
 int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* right) const {
@@ -170,7 +171,6 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<uint32_t>& row_idxs,
                       bool is_append) {
-    SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
     target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
@@ -210,8 +210,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
     }
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
-    size_t input_size = target_block.bytes() * num_rows / target_block.rows() *
-                        config::memtable_insert_memory_ratio;
+    auto input_size = size_t(target_block.bytes() * num_rows / target_block.rows() *
+                             config::memtable_insert_memory_ratio);
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
@@ -473,7 +473,6 @@ void MemTable::_aggregate() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }

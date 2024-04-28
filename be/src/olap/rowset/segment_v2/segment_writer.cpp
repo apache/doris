@@ -42,6 +42,7 @@
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -57,6 +58,7 @@
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -64,6 +66,7 @@
 #include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -222,9 +225,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
-            (column.is_extracted_column() && column.is_array_type())) {
-            // variant and jsonb type skip write index
+        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+            // skip inverted index if invalid
             opts.indexes.clear();
             opts.need_zone_map = false;
             opts.need_bloom_filter = false;
@@ -453,19 +455,20 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 !_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update;
         specified_rowsets =
                 tablet->get_rowset_by_ids(&_mow_context->rowset_ids, should_include_stale);
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
-            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
             // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
             LOG(WARNING) << fmt::format(
                     "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
-                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in "
+                    "partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
                     specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
                     _mow_context->max_version, _mow_context->txn_id);
-            return Status::InternalError<false>(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction in strict mode partial update");
+            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
+                return Status::InternalError<false>(
+                        "[Memtable Flush] some rowsets have been deleted due to "
+                        "compaction in strict mode partial update");
+            }
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
@@ -563,7 +566,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
-    CHECK(use_default_or_null_flag.size() == num_rows);
+    CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
         tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
@@ -641,7 +644,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
-    CHECK(cids_missing.size() == old_value_block.columns());
+    CHECK_EQ(cids_missing.size(), old_value_block.columns());
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
@@ -695,7 +698,29 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
-                auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                std::string default_value;
+                if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
+                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                             to_lower(_tablet_schema->column(cids_missing[i]).default_value())
+                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                     std::string::npos)) {
+                    DateV2Value<DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                      _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dtv.debug_string();
+                } else if (UNLIKELY(
+                                   _tablet_schema->column(cids_missing[i]).type() ==
+                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                                   to_lower(_tablet_schema->column(cids_missing[i]).default_value())
+                                                   .find(to_lower("CURRENT_DATE")) !=
+                                           std::string::npos)) {
+                    DateV2Value<DateV2ValueType> dv;
+                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
+                                     _opts.rowset_ctx->partial_update_info->timezone);
+                    default_value = dv.debug_string();
+                } else {
+                    default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                }
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
@@ -1167,7 +1192,7 @@ Status SegmentWriter::_write_short_key_index() {
 }
 
 Status SegmentWriter::_write_primary_key_index() {
-    CHECK(_primary_key_index_builder->num_rows() == _row_count);
+    CHECK_EQ(_primary_key_index_builder->num_rows(), _row_count);
     return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
 }
 

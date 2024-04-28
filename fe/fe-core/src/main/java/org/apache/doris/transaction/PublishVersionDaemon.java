@@ -18,7 +18,12 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
@@ -37,9 +42,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class PublishVersionDaemon extends MasterDaemon {
@@ -80,6 +88,8 @@ public class PublishVersionDaemon extends MasterDaemon {
         long createPublishVersionTaskTime = System.currentTimeMillis();
         // every backend-transaction identified a single task
         AgentBatchTask batchTask = new AgentBatchTask();
+        // for delta rows statistics to exclude rollup tablets
+        Map<Long, Set<Long>> beIdToBaseTabletIds = Maps.newHashMap();
         // traverse all ready transactions and dispatch the publish version task to all backends
         for (TransactionState transactionState : readyTransactionStates) {
             if (transactionState.hasSendTask()) {
@@ -88,7 +98,14 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
             for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
                 partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
+
+                try {
+                    beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
+                } catch (MetaNotFoundException e) {
+                    LOG.warn("exception occur when trying to get rollup tablets info", e);
+                }
             }
+
             List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
             for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
@@ -100,6 +117,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                             commitInfo.getVersion());
                 }
             }
+
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
             // public version tasks are not persisted in catalog, so publishBackends may be empty.
             // so we have to try publish to all backends;
@@ -115,6 +133,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                         transactionState.getDbId(),
                         partitionVersionInfos,
                         createPublishVersionTaskTime);
+                task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
                 AgentTaskQueue.addTask(task);
@@ -182,5 +201,32 @@ public class PublishVersionDaemon extends MasterDaemon {
                 }
             }
         } // end for readyTransactionStates
+    }
+
+    private Map<Long, Set<Long>> getBaseTabletIdsForEachBe(TransactionState transactionState,
+            TableCommitInfo tableCommitInfo) throws MetaNotFoundException {
+
+        OlapTable table = (OlapTable) Env.getCurrentEnv()
+                .getInternalCatalog()
+                .getDb(transactionState.getDbId())
+                .orElseThrow(() -> new MetaNotFoundException(String.format("could not get db by id=%s",
+                        transactionState.getDbId())))
+                .getTable(tableCommitInfo.getTableId())
+                .orElseThrow(() -> new MetaNotFoundException(String.format("could not get tbl by id=%s",
+                        tableCommitInfo)));
+
+        return tableCommitInfo
+                .getIdToPartitionCommitInfo()
+                .values().stream()
+                .map(PartitionCommitInfo::getPartitionId)
+                .map(table::getPartition)
+                .map(Partition::getBaseIndex)
+                .map(MaterializedIndex::getTablets)
+                .flatMap(Collection::stream)
+                .flatMap(tablet ->
+                        tablet.getBackendIds()
+                                .stream().map(backendId -> Pair.of(backendId, tablet.getId())))
+                .collect(Collectors.groupingBy(p -> p.first,
+                        Collectors.mapping(p -> p.second, Collectors.toSet())));
     }
 }

@@ -83,6 +83,10 @@ public:
     // used for pipeline load, which use TUniqueId(lo: query_id.lo + fragment_id, hi: query_id.hi) as pipe_id
     static TUniqueId calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id);
 
+    size_t max_capacity() const { return _max_buffered_bytes; }
+
+    size_t current_capacity();
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

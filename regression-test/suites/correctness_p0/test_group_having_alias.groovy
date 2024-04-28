@@ -72,6 +72,7 @@
     """
 
     sql """set group_by_and_having_use_alias_first=true"""
+    sql "set enable_nereids_planner=false" // nereids not support it
 
     qt_sql """
         SELECT
@@ -83,6 +84,8 @@
         HAVING date = 20221111
         ORDER BY date;
     """
+
+    sql "set enable_nereids_planner=default" // nereids not support bellow sql
 
     qt_sql """
         SELECT

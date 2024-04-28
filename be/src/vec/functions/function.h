@@ -409,6 +409,7 @@ protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& /*arguments*/,
                                const DataTypePtr& /*return_type*/) const final {
         LOG(FATAL) << "build_impl is not implemented for IFunction";
+        __builtin_unreachable();
         return {};
     }
 };

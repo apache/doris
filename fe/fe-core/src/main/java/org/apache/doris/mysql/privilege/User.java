@@ -47,12 +47,14 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     protected boolean isAnyHost = false;
     @SerializedName(value = "password")
     private Password password;
+    @SerializedName(value = "comment")
+    private String comment;
 
     public User() {
     }
 
     public User(UserIdentity userIdent, byte[] pwd, boolean setByResolver, UserIdentity domainUserIdent,
-            PatternMatcher hostPattern) {
+            PatternMatcher hostPattern, String comment) {
         this.isAnyHost = userIdent.getHost().equals(UserManager.ANY_HOST);
         this.userIdentity = userIdent;
         this.password = new Password(pwd);
@@ -62,6 +64,7 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
             Preconditions.checkNotNull(domainUserIdent);
             this.domainUserIdentity = domainUserIdent;
         }
+        this.comment = comment;
     }
 
 
@@ -124,6 +127,14 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
 
     public boolean hasPassword() {
         return password != null && password.getPassword() != null && password.getPassword().length != 0;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     @Override

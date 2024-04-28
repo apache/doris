@@ -161,6 +161,8 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 
 void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
 void report_task_callback(const TMasterInfo& master_info);
 
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);

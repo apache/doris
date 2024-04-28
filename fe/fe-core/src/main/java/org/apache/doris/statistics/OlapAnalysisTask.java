@@ -65,13 +65,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
-                || partitionNames == null || partitionNames.isEmpty()) {
-            if (partitionNames == null) {
-                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
-                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
-            }
+        List<Pair<String, String>> columnList = info.jobColumns;
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
             job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
@@ -165,7 +160,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+                }
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
                     + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "

@@ -158,10 +158,9 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     if (_can_fast_execute) {
-        // if not find fast execute result column, means do not need check fast execute again
-        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
-                                         num_columns_without_result, block->rows());
-        if (_can_fast_execute) {
+        auto can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
+                                             num_columns_without_result, block->rows());
+        if (can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
         }

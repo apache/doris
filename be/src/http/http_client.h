@@ -109,7 +109,7 @@ public:
                                     "actrual is : {}",
                                     cl));
             }
-            *length = cl;
+            *length = (uint64_t)cl;
             return Status::OK();
         }
         return Status::InternalError("failed to get content length. err code: {}", code);

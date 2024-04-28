@@ -166,6 +166,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    QueryThreadContext _query_thread_context;
 };
 
 using LoadStreamSharedPtr = std::shared_ptr<LoadStream>;
