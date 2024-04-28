@@ -80,6 +80,49 @@ public class ProfileManager extends MasterDaemon {
         LOAD,
     }
 
+    public static class ProfileElement {
+        public ProfileElement(Profile profile) {
+            this.profile = profile;
+        }
+
+        private final Profile profile;
+        public Map<String, String> infoStrings = Maps.newHashMap();
+        public MultiProfileTreeBuilder builder = null;
+        public String errMsg = "";
+
+        public StatsErrorEstimator statsErrorEstimator;
+
+        // lazy load profileContent because sometimes profileContent is very large
+        public String getProfileContent() {
+            // Not cache the profile content because it may change during insert
+            // into select statement, we need use this to check process.
+            // And also, cache the content will double usage of the memory in FE.
+            return profile.getProfileByLevel();
+        }
+
+        public String getProfileBrief() {
+            return profile.getProfileBrief();
+        }
+
+        public double getError() {
+            return statsErrorEstimator.getQError();
+        }
+
+        public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+            this.statsErrorEstimator = statsErrorEstimator;
+        }
+
+        // Store profile to path
+        public void store(String profileStoragePath) {
+            profile.store(profileStoragePath);
+        }
+
+        // Remove profile from disk
+        public void remove() {
+            profile.remove();
+        }
+    }
+
     // this variable is assgiened to true the first time the profile is loaded from disk
     // no futher write operaiton, so no data race
     boolean isProfileLoaded = false;
@@ -91,20 +134,10 @@ public class ProfileManager extends MasterDaemon {
     private final ExecutorService fetchRealTimeProfileExecutor;
     // profile id is long string for brocker load
     // is TUniqueId for others.
-    private Map<String, ProfileElement> profileIdToProfileMap;
+    private Map<String, ProfileElement> queryIdToProfileMap;
     // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
-
-    private ProfileManager() {
-        lock = new ReentrantReadWriteLock(true);
-        readLock = lock.readLock();
-        writeLock = lock.writeLock();
-        profileIdToProfileMap = Maps.newHashMap();
-        queryIdToExecutionProfiles = Maps.newHashMap();
-        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(10, 100,
-                "fetch-realtime-profile-pool", true);
-    }
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -116,6 +149,16 @@ public class ProfileManager extends MasterDaemon {
             }
         }
         return INSTANCE;
+    }
+
+    private ProfileManager() {
+        lock = new ReentrantReadWriteLock(true);
+        readLock = lock.readLock();
+        writeLock = lock.writeLock();
+        queryIdToProfileMap = Maps.newHashMap();
+        queryIdToExecutionProfiles = Maps.newHashMap();
+        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(10, 100,
+                "fetch-realtime-profile-pool", true);
     }
 
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(TUniqueId queryID,
@@ -212,7 +255,7 @@ public class ProfileManager extends MasterDaemon {
         try {
             // a profile may be updated multiple times in queryIdToProfileMap,
             // and only needs to be inserted into the queryIdDeque for the first time.
-            profileIdToProfileMap.put(key, element);
+            queryIdToProfileMap.put(key, element);
         } finally {
             writeLock.unlock();
         }
@@ -221,7 +264,7 @@ public class ProfileManager extends MasterDaemon {
     public void removeProfile(String profileId) {
         writeLock.lock();
         try {
-            ProfileElement profileElementRemoved = profileIdToProfileMap.remove(profileId);
+            ProfileElement profileElementRemoved = queryIdToProfileMap.remove(profileId);
             // If the Profile object is removed from manager, then related execution profile is also useless.
             if (profileElementRemoved != null) {
                 for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
@@ -243,7 +286,7 @@ public class ProfileManager extends MasterDaemon {
         PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
                 (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
 
-        profileIdToProfileMap.forEach((queryId, profileElement) -> {
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
             queryIdDeque.add(profileElement);
         });
 
@@ -317,7 +360,7 @@ public class ProfileManager extends MasterDaemon {
 
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
             if (element == null) {
                 return null;
             }
@@ -328,20 +371,10 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public void cleanProfile() {
-        writeLock.lock();
-        try {
-            profileIdToProfileMap.clear();
-            queryIdToExecutionProfiles.clear();
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
     public String getProfileBrief(String queryID) {
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
             if (element == null) {
                 return null;
             }
@@ -352,7 +385,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public ProfileElement findProfileElementObject(String queryId) {
-        return profileIdToProfileMap.get(queryId);
+        return queryIdToProfileMap.get(queryId);
     }
 
     /**
@@ -365,7 +398,7 @@ public class ProfileManager extends MasterDaemon {
     public void checkAuthByUserAndQueryId(String user, String queryId) throws AuthenticationException {
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryId);
+            ProfileElement element = queryIdToProfileMap.get(queryId);
             if (element == null) {
                 throw new AuthenticationException("query with id " + queryId + " not found");
             }
@@ -381,7 +414,7 @@ public class ProfileManager extends MasterDaemon {
         MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
             if (element == null || element.builder == null) {
                 throw new AnalysisException("failed to get fragment profile tree. err: "
                         + (element == null ? "not found" : element.errMsg));
@@ -399,7 +432,7 @@ public class ProfileManager extends MasterDaemon {
         MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
             if (element == null || element.builder == null) {
                 throw new AnalysisException("failed to get instance list. err: "
                         + (element == null ? "not found" : element.errMsg));
@@ -418,7 +451,7 @@ public class ProfileManager extends MasterDaemon {
         MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
             if (element == null || element.builder == null) {
                 throw new AnalysisException("failed to get instance profile tree. err: "
                         + (element == null ? "not found" : element.errMsg));
@@ -446,7 +479,7 @@ public class ProfileManager extends MasterDaemon {
     private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException {
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(jobId);
+            ProfileElement element = queryIdToProfileMap.get(jobId);
             if (element == null || element.builder == null) {
                 throw new AnalysisException("failed to get task ids. err: "
                         + (element == null ? "not found" : element.errMsg));
@@ -460,7 +493,7 @@ public class ProfileManager extends MasterDaemon {
     public String getQueryIdByTraceId(String traceId) {
         readLock.lock();
         try {
-            for (Map.Entry<String, ProfileElement> entry : profileIdToProfileMap.entrySet()) {
+            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
                 if (entry.getValue().infoStrings.getOrDefault(SummaryProfile.TRACE_ID, "").equals(traceId)) {
                     return entry.getKey();
                 }
@@ -478,11 +511,21 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
+    public void cleanProfile() {
+        writeLock.lock();
+        try {
+            queryIdToProfileMap.clear();
+            queryIdToExecutionProfiles.clear();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
     // When the query is finished, the profile should be marked as finished
     public void markQueryFinished(TUniqueId queryId) {
         readLock.lock();
         try {
-            ProfileElement element = profileIdToProfileMap.get(DebugUtil.printId(queryId));
+            ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
             if (element == null) {
                 LOG.warn("Query {} does not exist or has already finished", DebugUtil.printId(queryId));
                 return;
@@ -588,7 +631,7 @@ public class ProfileManager extends MasterDaemon {
     private List<ProfileElement> getProfilesNeedStore() {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
-        profileIdToProfileMap.forEach((queryId, profileElement) -> {
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
             if (profileElement.profile.shouldStoreToDisk()) {
                 profilesToBeStored.add(profileElement);
             }
@@ -658,7 +701,7 @@ public class ProfileManager extends MasterDaemon {
                 (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
 
         // Collect all profiles that has been stored to disk
-        profileIdToProfileMap.forEach((queryId, profileElement) -> {
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
             if (profileElement.profile.profileHasBeenStoredToDisk()) {
                 profileDeque.add(profileElement);
             }
@@ -706,7 +749,7 @@ public class ProfileManager extends MasterDaemon {
             writeLock.lock();
             try {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
-                    profileIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
+                    queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
                     TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(
                             profileElement.profile.getSummaryProfile().getProfileId());
                     queryIdToExecutionProfiles.remove(thriftQueryId);
@@ -759,7 +802,7 @@ public class ProfileManager extends MasterDaemon {
 
             readLock.lock();
             try {
-                if (!profileIdToProfileMap.containsKey(profileId)) {
+                if (!queryIdToProfileMap.containsKey(profileId)) {
                     LOG.debug("Wild profile {}, need to be removed.", profileDirAbsPath);
                     brokenProfiles.add(profileDirAbsPath);
                 }
@@ -800,49 +843,6 @@ public class ProfileManager extends MasterDaemon {
             } catch (InterruptedException e) {
                 LOG.error("Failed to remove broken profile", e);
             }
-        }
-    }
-
-    public static class ProfileElement {
-        public ProfileElement(Profile profile) {
-            this.profile = profile;
-        }
-
-        private final Profile profile;
-        public Map<String, String> infoStrings = Maps.newHashMap();
-        public MultiProfileTreeBuilder builder = null;
-        public String errMsg = "";
-
-        public StatsErrorEstimator statsErrorEstimator;
-
-        // lazy load profileContent because sometimes profileContent is very large
-        public String getProfileContent() {
-            // Not cache the profile content because it may change during insert
-            // into select statement, we need use this to check process.
-            // And also, cache the content will double usage of the memory in FE.
-            return profile.getProfileByLevel();
-        }
-
-        public String getProfileBrief() {
-            return profile.getProfileBrief();
-        }
-
-        public double getError() {
-            return statsErrorEstimator.getQError();
-        }
-
-        public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
-            this.statsErrorEstimator = statsErrorEstimator;
-        }
-
-        // Store profile to path
-        public void store(String profileStoragePath) {
-            profile.store(profileStoragePath);
-        }
-
-        // Remove profile from disk
-        public void remove() {
-            profile.remove();
         }
     }
 }
