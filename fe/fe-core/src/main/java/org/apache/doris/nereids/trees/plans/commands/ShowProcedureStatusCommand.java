@@ -33,6 +33,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -88,8 +89,11 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         equalTo.addAll(likeSet);
         Map<String, String> filterMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         filterMap = equalTo.stream()
-                .collect(Collectors.toMap(exp -> ((Slot) exp.child(0)).getName(),
-                        exp -> ((Literal) exp.child(1)).getStringValue()));
+                .collect(ImmutableMap.toImmutableMap(exp -> ((Slot) exp.child(0)).getName().toLowerCase(),
+                        exp -> ((Literal) exp.child(1)).getStringValue().toLowerCase(),
+                        (a, b) -> {
+                            throw new AnalysisException("WhereClause can contain one predicate for one column.");
+                        }));
 
         // we support filter on Db and Name and ProcedureName.
         // But one column we can put only once and support conjuncts
