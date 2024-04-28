@@ -154,7 +154,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
-                "insuffient compation input rowset, #rowsets={}", _input_rowsets.size());
+                "insufficent compaction input rowset, #rowsets={}", _input_rowsets.size());
     }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
@@ -283,7 +283,7 @@ Status CloudBaseCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
                             std::numeric_limits<int64_t>::max();
-        RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaciton(
+        RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
                 _stats.merged_rows, initiator, output_rowset_delete_bitmap));
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
