@@ -2726,6 +2726,7 @@ TEST(function_string_test, function_uuid_test) {
 //                 check_function_all_arg_comb<DataTypeInt8, true>(func_name, input_types, data_set));
 //     }
 // }
+//
 
 TEST(function_string_test, function_initcap) {
     std::string func_name {"initcap"};
