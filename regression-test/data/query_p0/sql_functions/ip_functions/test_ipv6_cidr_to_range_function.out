@@ -23,23 +23,23 @@
 
 -- !sql --
 1	{"min": "::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-4	{"min": "3132:372e::", "max": "3132:372e:ffff:ffff:ffff:ffff:ffff:ffff"}
-5	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-7	{"min": "b000::", "max": "bfff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-8	{"min": "be00::", "max": "beff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+4	{"min": "::", "max": "::ffff:ffff:ffff:ffff:ffff:ffff"}
+5	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+7	{"min": "::", "max": "fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+8	{"min": "::", "max": "ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
 9	\N
 
 -- !sql --
-0	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-1	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-2	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-3	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-4	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-5	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-6	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-7	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-8	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
-9	{"min": "3132::", "max": "3132:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+0	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+1	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+2	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+3	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+4	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+5	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+6	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+7	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+8	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+9	{"min": "::", "max": "0:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
 
 -- !sql --
 1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
