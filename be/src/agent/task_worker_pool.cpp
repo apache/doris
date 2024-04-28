@@ -1248,6 +1248,7 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             S3Conf s3_conf;
             s3_conf.ak = std::move(resource.s3_storage_param.ak);
             s3_conf.sk = std::move(resource.s3_storage_param.sk);
+            s3_conf.token = std::move(resource.s3_storage_param.token);
             s3_conf.endpoint = std::move(resource.s3_storage_param.endpoint);
             s3_conf.region = std::move(resource.s3_storage_param.region);
             s3_conf.prefix = std::move(resource.s3_storage_param.root_path);
@@ -1263,7 +1264,7 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
                 st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
             } else {
                 fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                fs->set_conf(s3_conf);
+                st = fs->set_conf(s3_conf);
             }
             if (!st.ok()) {
                 LOG(WARNING) << "update s3 resource failed: " << st;
