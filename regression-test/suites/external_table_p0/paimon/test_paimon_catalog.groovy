@@ -59,7 +59,6 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
             // The timestamp type of paimon has no logical or converted type,
             // and is conflict with column type change from bigint to timestamp.
-            // Deprecated currently.
             def qt_all_type = { String table_name ->
                 qt_all """select * from ${table_name} order by c1"""
                 qt_predict_like_1 """select * from ${table_name} where c13 like '%3%' order by c1"""
@@ -275,6 +274,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c99 c99
             qt_c100 c100
             qt_c102 c102
+            sql """ set force_jni_scanner=true; """
             qt_c103 c103
 
             // test view from jion paimon
