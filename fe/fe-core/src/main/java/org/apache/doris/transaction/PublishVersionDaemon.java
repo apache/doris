@@ -32,6 +32,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
 
@@ -60,14 +61,18 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+
         try {
-            publishVersion();
+            publishVersion(partitionVisibleVersions, backendPartitions);
+            sendBackendVisibleVersion(partitionVisibleVersions, backendPartitions);
         } catch (Throwable t) {
             LOG.error("errors while publish version to all backends", t);
         }
     }
 
-    private void publishVersion() {
+    private void publishVersion(Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
@@ -176,7 +181,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 try {
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(),
-                            transactionState.getTransactionId());
+                            transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
                 } catch (Exception e) {
                     LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }
@@ -228,5 +233,24 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 .stream().map(backendId -> Pair.of(backendId, tablet.getId())))
                 .collect(Collectors.groupingBy(p -> p.first,
                         Collectors.mapping(p -> p.second, Collectors.toSet())));
+    }
+
+    private void sendBackendVisibleVersion(Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) {
+        if (partitionVisibleVersions.isEmpty() || backendPartitions.isEmpty()) {
+            return;
+        }
+
+        long createTime = System.currentTimeMillis();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        backendPartitions.forEach((backendId, partitionIds) -> {
+            Map<Long, Long> backendPartitionVersions = partitionVisibleVersions.entrySet().stream()
+                    .filter(entry -> partitionIds.contains(entry.getKey()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            UpdateVisibleVersionTask task = new UpdateVisibleVersionTask(backendId, backendPartitionVersions,
+                    createTime);
+            batchTask.addTask(task);
+        });
+        AgentTaskExecutor.submit(batchTask);
     }
 }
