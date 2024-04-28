@@ -763,6 +763,16 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             instance.add_obj_info()->CopyFrom(last_item);
             LOG_INFO("Instance {} tries to put obj info", instance.instance_id());
         } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {
+            if (instance.storage_vault_names().end() !=
+                std::find_if(instance.storage_vault_names().begin(),
+                             instance.storage_vault_names().end(),
+                             [&](const std::string& candidate_name) {
+                                 return candidate_name == request->vault().name();
+                             })) {
+                code = MetaServiceCode::ALREADY_EXISTED;
+                msg = fmt::format("vault_name={} already created", request->vault().name());
+                return;
+            }
             StorageVaultPB vault;
             vault.set_id(last_item.id());
             vault.set_name(request->vault().name());
