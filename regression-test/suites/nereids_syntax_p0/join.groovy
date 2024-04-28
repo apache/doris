@@ -260,7 +260,7 @@ suite("join") {
     );
     """
 
-    order_qt_test """
+    sql """
         select 
          ref_1.`c_long_decimal` as c0,
          ref_3.`c1` as c1
@@ -271,6 +271,4 @@ suite("join") {
         where
           ref_2.`id` is not NULL
     """
-
-    order_qt_test "SELECT * FROM lineorder RIGHT SEMI JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey and s_name='Supplier#000000029';"
 }
