@@ -651,6 +651,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DUAL
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY
