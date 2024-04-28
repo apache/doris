@@ -70,8 +70,4 @@ public enum AlterOpType {
     public boolean needCheckCapacity() {
         return this == ADD_ROLLUP || this == SCHEMA_CHANGE || this == ADD_PARTITION || this == ENABLE_FEATURE;
     }
-
-    public boolean mtmvAllowOp() {
-        return this == MODIFY_TABLE_PROPERTY || this == MODIFY_DISTRIBUTION || this == MODIFY_TABLE_COMMENT;
-    }
 }

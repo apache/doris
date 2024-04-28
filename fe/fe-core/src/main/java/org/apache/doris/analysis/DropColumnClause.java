@@ -66,6 +66,11 @@ public class DropColumnClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP COLUMN `").append(colName).append("`");

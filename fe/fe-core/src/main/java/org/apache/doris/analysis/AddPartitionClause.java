@@ -61,6 +61,11 @@ public class AddPartitionClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD ");

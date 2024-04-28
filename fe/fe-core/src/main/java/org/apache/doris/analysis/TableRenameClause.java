@@ -54,6 +54,11 @@ public class TableRenameClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME " + newTableName;
     }

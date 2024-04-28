@@ -85,6 +85,11 @@ public class EnableFeatureClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ENABLE FEATURE \"").append(featureName).append("\"");
