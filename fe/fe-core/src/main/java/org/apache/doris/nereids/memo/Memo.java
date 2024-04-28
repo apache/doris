@@ -129,7 +129,7 @@ public class Memo {
 
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
-        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
+        if (plan instanceof LogicalProject) {
             LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
             if (targetGroup != root) {
                 if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {

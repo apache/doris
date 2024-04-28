@@ -481,90 +481,6 @@ Used: leading(alias2 t1 ) leading(t3 alias1 )
 UnUsed:
 SyntaxError:
 
--- !sql4_5 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t4]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: leading(t3 alias1)
-SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause
-
--- !sql4_6 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t4]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: leading(alias2 t1)
-SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause
-
--- !sql4_7 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t2]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t4]
-
-Hint log:
-Used: leading(t3 alias1 )
-UnUsed: leading(alias2 t1)
-SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause
-
 -- !sql4_res_0 --
 6224
 
@@ -592,8 +508,7 @@ SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause
 -- !sql5_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------PhysicalOlapScan[t1]
+----PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
@@ -618,8 +533,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 -- !sql5_2 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------PhysicalOlapScan[t1]
+----PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalProject
