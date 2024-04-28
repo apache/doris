@@ -62,7 +62,16 @@ VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
 
 VOrcOutputStream::~VOrcOutputStream() {
     if (!_is_closed) {
-        close();
+        try {
+            close();
+        } catch (...) {
+            /*
+         * Under normal circumstances, close() will be called first, and then the destructor will be called.
+         * If the task is canceled, close() will not be executed, but the destructor will be called directly,
+         * which will cause the be core.When the task is canceled, since the log file has been written during
+         * close(), no operation is performed here.
+         */
+        }
     }
 }
 
