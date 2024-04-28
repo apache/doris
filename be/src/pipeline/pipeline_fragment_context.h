@@ -30,10 +30,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/local_exchange/local_exchanger.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
