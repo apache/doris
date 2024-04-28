@@ -118,11 +118,6 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-            // bool exists {false};
-            // RETURN_IF_ERROR(fs->exists(dir, &exists));
-            // if (!exists) {
-            //     RETURN_IF_ERROR(fs->create_directory(dir));
-            // }
             auto st = fs->create_directory(dir, true);
             if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
                 return st;
