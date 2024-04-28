@@ -77,6 +77,7 @@
 #include "olap/txn_manager.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -107,7 +108,10 @@ bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
-          _stop_background_threads_latch(1) {}
+          _stop_background_threads_latch(1) {
+    _memory_limitation_bytes_for_schema_change =
+            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
+}
 
 BaseStorageEngine::~BaseStorageEngine() = default;
 
@@ -123,6 +127,11 @@ StorageEngine& BaseStorageEngine::to_local() {
 CloudStorageEngine& BaseStorageEngine::to_cloud() {
     CHECK_EQ(_type, Type::CLOUD);
     return *static_cast<CloudStorageEngine*>(this);
+}
+
+int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
+    return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
+                    config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
 static Status _validate_options(const EngineOptions& options) {

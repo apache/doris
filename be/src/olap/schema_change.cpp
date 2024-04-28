@@ -1094,7 +1094,9 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     }
 
     // b. Generate historical data converter
-    auto sc_procedure = _get_sc_procedure(changer, sc_sorting, sc_directly);
+    auto sc_procedure = _get_sc_procedure(
+            changer, sc_sorting, sc_directly,
+            _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
     // c.Convert historical data
     bool have_failure_rowset = false;
