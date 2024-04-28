@@ -18,7 +18,7 @@
 #include "multi_cast_data_streamer.h"
 
 #include "pipeline/exec/multi_cast_data_stream_source.h"
-#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/dependency.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::pipeline {

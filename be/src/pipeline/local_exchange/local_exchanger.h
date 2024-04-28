@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
+#include "pipeline/dependency.h"
 
 namespace doris::pipeline {
 

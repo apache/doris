@@ -46,7 +46,6 @@ class SimplifiedScanScheduler;
 }
 
 namespace pipeline {
-class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 

@@ -31,7 +31,6 @@
 #include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
-#include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -47,7 +46,7 @@
 namespace doris::pipeline {
 
 class Dependency;
-class PipelineXTask;
+class PipelineTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
 using DependencyMap = std::map<int, std::vector<DependencySPtr>>;
@@ -118,7 +117,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineXTask* task = nullptr);
+    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
@@ -165,7 +164,7 @@ public:
     }
 
 protected:
-    void _add_block_task(PipelineXTask* task);
+    void _add_block_task(PipelineTask* task);
     bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
@@ -179,7 +178,7 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::mutex _task_lock;
-    std::vector<PipelineXTask*> _blocked_task;
+    std::vector<PipelineTask*> _blocked_task;
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;
@@ -196,7 +195,7 @@ public:
     FakeDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "FakeDependency", query_ctx) {}
 
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override { return nullptr; }
+    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override { return nullptr; }
 };
 
 struct FinishDependency : public Dependency {
@@ -205,7 +204,7 @@ public:
     FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : Dependency(id, node_id, name, true, query_ctx) {}
 
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
+    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override;
 };
 
 struct CountedFinishDependency final : public FinishDependency {
@@ -307,7 +306,7 @@ public:
             : Dependency(id, node_id, name, query_ctx), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
-    Dependency* is_blocked_by(PipelineXTask* task) override;
+    Dependency* is_blocked_by(PipelineTask* task) override;
 
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;

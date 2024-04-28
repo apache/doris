@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -96,7 +95,6 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
         state = PipelineTaskState::CANCELED;
     }
     task->set_state(state);
-    task->set_close_pipeline_time();
     task->finalize();
     task->set_running(false);
     task->fragment_context()->close_a_pipeline();
@@ -191,7 +189,6 @@ void TaskScheduler::_do_work(size_t index) {
             _close_task(task, PipelineTaskState::FINISHED, Status::OK());
             continue;
         } else if (!status.ok()) {
-            task->set_eos_time();
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(task->query_context()->query_id()),
                                         status.to_string());
@@ -208,7 +205,6 @@ void TaskScheduler::_do_work(size_t index) {
         fragment_ctx->trigger_report_if_necessary();
 
         if (eos) {
-            task->set_eos_time();
             // TODO: pipeline parallel need to wait the last task finish to call finalize
             //  and find_p_dependency
             VLOG_DEBUG << fmt::format("Try close task: {}, fragment_ctx->is_canceled(): {}",
