@@ -20,6 +20,8 @@ package org.apache.doris.load;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -36,7 +38,9 @@ public class FailMsg implements Writable {
         TXN_UNKNOWN // cancelled because txn status is unknown
     }
 
+    @SerializedName(value = "cancelType")
     private CancelType cancelType;
+    @SerializedName(value = "msg")
     private String msg = "";
 
     public FailMsg() {

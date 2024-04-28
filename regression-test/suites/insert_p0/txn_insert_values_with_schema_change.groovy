@@ -59,7 +59,7 @@ suite("txn_insert_values_with_schema_change") {
                 break
             }
         }
-        Assert.fail("alter table job state is not ${job_state} after retry 10 times")
+        assertTrue(false, "alter table job state is ${last_state}, not ${job_state} after retry ${retry} times")
     }
 
     def txnInsert = {
