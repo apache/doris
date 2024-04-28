@@ -57,8 +57,6 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            // The timestamp type of paimon has no logical or converted type,
-            // and is conflict with column type change from bigint to timestamp.
             def qt_all_type = { String table_name ->
                 qt_all """select * from ${table_name} order by c1"""
                 qt_predict_like_1 """select * from ${table_name} where c13 like '%3%' order by c1"""
