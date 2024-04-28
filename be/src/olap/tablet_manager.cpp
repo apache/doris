@@ -1016,13 +1016,14 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
             tablet_info.__set_transaction_ids(find->second);
             expire_txn_map.erase(find);
         }
-        tablet_version_num_hist.add(tablet->version_count());
+        tablet_version_num_hist.add(tablet_info.total_version_count);
         auto& t_tablet_stat = local_cache->emplace_back();
         t_tablet_stat.__set_tablet_id(tablet_info.tablet_id);
         t_tablet_stat.__set_data_size(tablet_info.data_size);
         t_tablet_stat.__set_remote_data_size(tablet_info.remote_data_size);
-        t_tablet_stat.__set_row_num(tablet_info.row_count);
-        t_tablet_stat.__set_version_count(tablet_info.version_count);
+        t_tablet_stat.__set_row_count(tablet_info.row_count);
+        t_tablet_stat.__set_total_version_count(tablet_info.total_version_count);
+        t_tablet_stat.__set_visible_version_count(tablet_info.visible_version_count);
     };
     for_each_tablet(handler, filter_all_tablets);
 
@@ -1257,9 +1258,29 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
 
 void TabletManager::get_partition_related_tablets(int64_t partition_id,
                                                   std::set<TabletInfo>* tablet_infos) {
-    std::shared_lock rdlock(_partition_tablet_map_lock);
-    if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
-        *tablet_infos = _partition_tablet_map[partition_id];
+    std::shared_lock rdlock(_partitions_lock);
+    auto it = _partitions.find(partition_id);
+    if (it != _partitions.end()) {
+        *tablet_infos = it->second.tablets;
+    }
+}
+
+void TabletManager::get_partitions_visible_version(std::map<int64_t, int64_t>* partitions_version) {
+    std::shared_lock rdlock(_partitions_lock);
+    for (const auto& [partition_id, partition] : _partitions) {
+        partitions_version->insert(
+                {partition_id, partition.visible_version->version.load(std::memory_order_relaxed)});
+    }
+}
+
+void TabletManager::update_partitions_visible_version(
+        const std::map<int64_t, int64_t>& partitions_version) {
+    std::shared_lock rdlock(_partitions_lock);
+    for (auto [partition_id, version] : partitions_version) {
+        auto it = _partitions.find(partition_id);
+        if (it != _partitions.end()) {
+            it->second.visible_version->update_version_monoto(version);
+        }
     }
 }
 
@@ -1348,15 +1369,25 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
 }
 
 void TabletManager::_add_tablet_to_partition(const TabletSharedPtr& tablet) {
-    std::lock_guard<std::shared_mutex> wrlock(_partition_tablet_map_lock);
-    _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
+    std::lock_guard<std::shared_mutex> wrlock(_partitions_lock);
+    auto& partition = _partitions[tablet->partition_id()];
+    partition.tablets.insert(tablet->get_tablet_info());
+    tablet->set_visible_version(
+            std::static_pointer_cast<const VersionWithTime>(partition.visible_version));
 }
 
 void TabletManager::_remove_tablet_from_partition(const TabletSharedPtr& tablet) {
-    std::lock_guard<std::shared_mutex> wrlock(_partition_tablet_map_lock);
-    _partition_tablet_map[tablet->partition_id()].erase(tablet->get_tablet_info());
-    if (_partition_tablet_map[tablet->partition_id()].empty()) {
-        _partition_tablet_map.erase(tablet->partition_id());
+    tablet->set_visible_version(nullptr);
+    std::lock_guard<std::shared_mutex> wrlock(_partitions_lock);
+    auto it = _partitions.find(tablet->partition_id());
+    if (it == _partitions.end()) {
+        return;
+    }
+
+    auto& tablets = it->second.tablets;
+    tablets.erase(tablet->get_tablet_info());
+    if (tablets.empty()) {
+        _partitions.erase(it);
     }
 }
 
@@ -1393,22 +1424,23 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
         std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk) {
     std::vector<DataDir*> data_dirs = _engine.get_stores();
-    std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
+    std::map<int64_t, Partition> partitions;
     {
-        // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
-        // To avoid locking 'tablet_shard_lock' in '_partition_tablet_map_lock', we lock and
-        // copy _partition_tablet_map here.
-        std::shared_lock rdlock(_partition_tablet_map_lock);
-        partition_tablet_map = _partition_tablet_map;
+        // When drop tablet, '_partitions_lock' is locked in 'tablet_shard_lock'.
+        // To avoid locking 'tablet_shard_lock' in '_partitions_lock', we lock and
+        // copy _partitions here.
+        std::shared_lock rdlock(_partitions_lock);
+        partitions = _partitions;
     }
-    for (auto& [partition_id, tablet_infos] : partition_tablet_map) {
+
+    for (const auto& [partition_id, partition] : partitions) {
         std::map<DataDir*, int64_t> tablets_num;
         std::map<DataDir*, std::vector<TabletSize>> tablets_info;
         for (auto* data_dir : data_dirs) {
             tablets_num[data_dir] = 0;
         }
 
-        for (const auto& tablet_info : tablet_infos) {
+        for (const auto& tablet_info : partition.tablets) {
             // get_tablet() will hold 'tablet_shard_lock'
             TabletSharedPtr tablet = get_tablet(tablet_info.tablet_id);
             if (tablet == nullptr) {
