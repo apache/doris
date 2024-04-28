@@ -1005,6 +1005,8 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_map_TinyInt_notnull "select array_map(x -> x is not null, katint) from fn_test_not_nullable"
     order_qt_sql_array_map_DecimalV3 "select array_map(x -> x is not null, kadcml) from fn_test"
     order_qt_sql_array_map_DecimalV3_notnull "select array_map(x -> x is not null, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_map_lambda_agg "select array_map(x->(x+100), collect_list(ktint)) from fn_test group by id;"
+
     // test array_exists
     order_qt_sql_array_exists_Double "select array_exists(x -> x > 1, kadbl) from fn_test"
     order_qt_sql_array_exists_Double_notnull "select array_exists(x -> x > 1, kadbl) from fn_test_not_nullable"
