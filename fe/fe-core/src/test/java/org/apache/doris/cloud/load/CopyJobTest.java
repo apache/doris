@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;

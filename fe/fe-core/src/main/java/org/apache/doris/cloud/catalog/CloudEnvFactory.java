@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
@@ -178,9 +179,9 @@ public class CloudEnvFactory extends EnvFactory {
         return new CloudRoutineLoadManager();
     }
 
-    @Override
-    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
-        return new CloudLoadManager(loadJobScheduler);
+    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler,
+                                        CleanCopyJobScheduler cleanCopyJobScheduler) {
+        return new CloudLoadManager(loadJobScheduler, cleanCopyJobScheduler);
     }
 
     public MasterDaemon createTabletStatMgr() {
