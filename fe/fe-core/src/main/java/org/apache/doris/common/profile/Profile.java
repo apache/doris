@@ -173,24 +173,6 @@ public class Profile {
         return builder.toString();
     }
 
-    private RuntimeProfile composeRootProfile() {
-        RuntimeProfile rootProfile = new RuntimeProfile(id);
-        rootProfile.setIsPipelineX(isPipelineX);
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
-        }
-        rootProfile.computeTimeInProfile();
-        return rootProfile;
-    }
-
-    public String getProfileBrief() {
-        RuntimeProfile rootProfile = composeRootProfile();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(rootProfile.toBrief());
-    }
-
     // Read file if profile has been stored to disk.
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
@@ -252,7 +234,6 @@ public class Profile {
             builder.append("build  profile failed");
         }
     }
-
 
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
@@ -508,5 +489,23 @@ public class Profile {
         if (!FileUtils.deleteQuietly(profileFile)) {
             LOG.warn("remove profile {} failed", profileFile.getAbsolutePath());
         }
+    }
+
+    private RuntimeProfile composeRootProfile() {
+        RuntimeProfile rootProfile = new RuntimeProfile(id);
+        rootProfile.setIsPipelineX(isPipelineX);
+        rootProfile.addChild(summaryProfile.getSummary());
+        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            rootProfile.addChild(executionProfile.getRoot());
+        }
+        rootProfile.computeTimeInProfile();
+        return rootProfile;
+    }
+
+    public String getProfileBrief() {
+        RuntimeProfile rootProfile = composeRootProfile();
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(rootProfile.toBrief());
     }
 }
