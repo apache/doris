@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CopyStmt;
@@ -40,6 +40,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -61,7 +63,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
-public class CopyJob extends BrokerLoadJob {
+public class CopyJob extends CloudBrokerLoadJob {
     private static final Logger LOG = LogManager.getLogger(CopyJob.class);
     private static final String TABLE_NAME_KEY = "TableName";
     private static final String USER_NAME_KEY = "UserName";
@@ -108,7 +110,7 @@ public class CopyJob extends BrokerLoadJob {
     }
 
     @Override
-    protected void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    public void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         super.checkAndSetDataSourceInfo(db, dataDescriptions);
         // now, copy into only support one table
         for (DataDescription dataDescription : dataDescriptions) {
@@ -138,7 +140,7 @@ public class CopyJob extends BrokerLoadJob {
                     && !isForceCopy()) {
                 CleanCopyJobTask copyJobCleanTask = new CleanCopyJobTask(objectInfo, stageId, stageType, tableId,
                         copyId, loadFiles);
-                Env.getCurrentEnv().getLoadManager().createCleanCopyJobTask(copyJobCleanTask);
+                ((CloudLoadManager) Env.getCurrentEnv().getLoadManager()).createCleanCopyJobTask(copyJobCleanTask);
             }
         }
     }

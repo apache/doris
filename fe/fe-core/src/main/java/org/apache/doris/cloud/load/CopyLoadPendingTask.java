@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
@@ -38,6 +38,8 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.loadv2.BrokerLoadPendingTask;
+import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -72,7 +74,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
     }
 
     @Override
-    void executeTask() throws UserException {
+    public void executeTask() throws UserException {
         super.executeTask(); // get all files and begin txn
         if (!isBeginCopyDone) {
             beginCopy((BrokerPendingTaskAttachment) attachment);

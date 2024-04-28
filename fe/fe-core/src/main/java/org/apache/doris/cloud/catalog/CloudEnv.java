@@ -27,6 +27,7 @@ import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
@@ -41,7 +42,6 @@ import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
-import org.apache.doris.load.loadv2.CleanCopyJobScheduler;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
@@ -80,7 +80,8 @@ public class CloudEnv extends Env {
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
-        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
+        this.loadManager = ((CloudEnvFactory) EnvFactory.getInstance())
+                                    .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
