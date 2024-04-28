@@ -38,9 +38,6 @@ suite("test_limit_op_mtmv") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
-    sql """
-        insert into ${tableName} values (1,1),(1,2);
-        """
     
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
