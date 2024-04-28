@@ -1883,7 +1883,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // mysql load request not carry user info, need fix it later.
             boolean hasUserName = !StringUtils.isEmpty(ctx.getQualifiedUser());
             if (Config.enable_workload_group && hasUserName) {
-                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ctx);
+                UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%");
+                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupByUser(userIdentity);
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result, ctx);
