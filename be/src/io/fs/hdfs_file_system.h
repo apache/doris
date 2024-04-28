@@ -45,13 +45,11 @@ public:
     HdfsFileSystemHandle(hdfsFS fs, bool cached)
             : hdfs_fs(fs),
               from_cache(cached),
-              _ref_cnt(0),
               _create_time(_now()),
               _last_access_time(0),
               _invalid(false) {}
 
     ~HdfsFileSystemHandle() {
-        DCHECK(_ref_cnt == 0) << _ref_cnt;
         if (hdfs_fs != nullptr) {
             // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
             // even if we create a new one
@@ -62,17 +60,13 @@ public:
 
     int64_t last_access_time() { return _last_access_time; }
 
-    void inc_ref() {
-        _ref_cnt++;
-        _last_access_time = _now();
+    void update_last_access_time() {
+        if (from_cache) {
+            _last_access_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+        }
     }
-
-    void dec_ref() {
-        _ref_cnt--;
-        _last_access_time = _now();
-    }
-
-    int ref_cnt() { return _ref_cnt; }
 
     bool invalid() { return _invalid; }
 
@@ -84,8 +78,6 @@ public:
     const bool from_cache;
 
 private:
-    // the number of referenced client
-    std::atomic<int> _ref_cnt;
     // For kerberos authentication, we need to save create time so that
     // we can know if the kerberos ticket is expired.
     std::atomic<uint64_t> _create_time;
@@ -108,8 +100,6 @@ public:
                          RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs);
 
     ~HdfsFileSystem() override;
-
-    HdfsFileSystemHandle* get_handle();
 
     friend class HdfsFileHandleCache;
 
@@ -143,9 +133,7 @@ private:
                    RuntimeProfile* profile);
     const THdfsParams& _hdfs_params;
     std::string _fs_name;
-    // do not use std::shared_ptr or std::unique_ptr
-    // _fs_handle is managed by HdfsFileSystemCache
-    HdfsFileSystemHandle* _fs_handle = nullptr;
+    std::shared_ptr<HdfsFileSystemHandle> _fs_handle = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
 } // namespace io
