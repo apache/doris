@@ -305,6 +305,19 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
+Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
+                                                std::vector<uint64_t>* col_attributes,
+                                                std::string attribute) {
+    RETURN_IF_ERROR(_create_file_reader());
+    auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
+    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+        col_names->emplace_back(get_field_name_lower_case(&root_type, i));
+        col_attributes->emplace_back(
+                std::stol(root_type.getSubtype(i)->getAttributeValue(attribute)));
+    }
+    return Status::OK();
+}
+
 Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::vector<std::string> orc_cols;
@@ -722,7 +735,11 @@ Status OrcReader::set_fill_columns(
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
-            auto& expr_name = slot_ref->expr_name();
+            auto expr_name = slot_ref->expr_name();
+            auto iter = _table_col_to_file_col.find(expr_name);
+            if (iter != _table_col_to_file_col.end()) {
+                expr_name = iter->second;
+            }
             predicate_columns.emplace(expr_name,
                                       std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
             if (slot_ref->column_id() == 0) {
@@ -1587,6 +1604,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             *read_rows = 0;
             return Status::OK();
         }
+        _execute_filter_position_delete_rowids(*_filter);
 
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
         if (!_not_single_slot_filter_conjuncts.empty()) {
@@ -1694,6 +1712,10 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             for (auto& conjunct : _non_dict_filter_conjuncts) {
                 filter_conjuncts.emplace_back(conjunct);
             }
+            //include missing_columns != missing_columns ; missing_column is null; missing_column != file_columns etc...
+            for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
+                filter_conjuncts.emplace_back(conjunct);
+            }
             std::vector<IColumn::Filter*> filters;
             if (_delete_rows_filter_ptr) {
                 filters.push_back(_delete_rows_filter_ptr.get());
@@ -1710,6 +1732,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 return Status::OK();
             }
+            _execute_filter_position_delete_rowids(result_filter);
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
@@ -1841,6 +1864,10 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     for (auto& conjunct : _non_dict_filter_conjuncts) {
         filter_conjuncts.emplace_back(conjunct);
     }
+    //include missing_columns != missing_columns ; missing_column is null; missing_column != file_columns etc...
+    for (auto& [missing_col, conjunct] : _lazy_read_ctx.predicate_missing_columns) {
+        filter_conjuncts.emplace_back(conjunct);
+    }
     std::vector<IColumn::Filter*> filters;
     if (_delete_rows_filter_ptr) {
         filters.push_back(_delete_rows_filter_ptr.get());
@@ -1918,6 +1945,9 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
             slot = each;
             break;
         }
+    }
+    if (slot == nullptr) {
+        return false;
     }
     if (!slot->type().is_string_type()) {
         return false;
@@ -2367,6 +2397,20 @@ void ORCFileInputStream::beforeReadStripe(
 void ORCFileInputStream::_collect_profile_before_close() {
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
+    }
+}
+void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) {
+    if (_position_delete_ordered_rowids == nullptr) {
+        return;
+    }
+    auto start = _row_reader->getRowNumber();
+    auto nums = _batch->numElements;
+    auto l = std::lower_bound(_position_delete_ordered_rowids->begin(),
+                              _position_delete_ordered_rowids->end(), start);
+    auto r = std::upper_bound(_position_delete_ordered_rowids->begin(),
+                              _position_delete_ordered_rowids->end(), start + nums - 1);
+    for (; l < r; l++) {
+        filter[*l - start] = 0;
     }
 }
 
