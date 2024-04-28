@@ -69,10 +69,40 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
+    // not allow modify partition
+    try {
+        sql """
+            alter table ${mvName} MODIFY PARTITION (*) SET("storage_medium"="HDD");
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow replace partition
+    try {
+        sql """
+            ALTER TABLE ${mvName} REPLACE PARTITION (p_20200102_20200103) WITH TEMPORARY PARTITION (tp_20200102_20200103);
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     // not allow rename
     try {
         sql """
             alter table ${mvName} rename ${mvNameRenamed}
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow replace table
+    try {
+        sql """
+            alter table ${mvName} REPLACE WITH TABLE tbl2
             """
         Assert.fail();
     } catch (Exception e) {
@@ -90,20 +120,61 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
-    // allow modify comment
+    // not allow add column
     try {
         sql """
-            alter table ${mvName} MODIFY COMMENT "new table comment";
+            alter table ${mvName} ADD COLUMN new_col INT DEFAULT "0" AFTER num;
             """
+        Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
+    }
+
+    // not allow add columns
+    try {
+        sql """
+            alter table ${mvName} ADD COLUMN (new_col1 INT DEFAULT "0" ,new_col2 INT DEFAULT "0");
+            """
         Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow drop column
+    try {
+        sql """
+            alter table ${mvName} DROP COLUMN num;
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
     }
 
     // not allow modify column
     try {
         sql """
-            alter table ${mvName} DROP COLUMN pv;
+            alter table ${mvName} modify COLUMN num BIGINT;
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+
+    // not allow reorder column
+    try {
+        sql """
+            alter table ${mvName} ORDER BY(num,k3,user_id);
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow modify column
+    try {
+        sql """
+            alter table ${mvName} modify COLUMN num BIGINT;
             """
         Assert.fail();
     } catch (Exception e) {
@@ -120,6 +191,56 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
+
+    // not allow add rollup
+    try {
+        sql """
+            alter table ${mvName} ADD ROLLUP example_rollup_index(num, k3);;
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow drop rollup
+    try {
+        sql """
+            alter table ${mvName} drop ROLLUP example_rollup_index;
+            """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // allow modify comment
+    try {
+        sql """
+            alter table ${mvName} MODIFY COMMENT "new table comment";
+            """
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        Assert.fail();
+    }
+
+    // allow add index
+    try {
+        sql """
+            CREATE INDEX index1 ON ${mvName} (num) USING INVERTED;
+            """
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        Assert.fail();
+    }
+
+    // allow drop index
+    try {
+        sql """
+            DROP INDEX index1 ON ${mvName};
+            """
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        Assert.fail();
+    }
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
