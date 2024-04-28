@@ -524,7 +524,7 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_conut,
+        std::string_view name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
@@ -537,8 +537,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
     CHECK(st.ok()) << name << ": " << st;
 
     st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_conut)
-                 .set_max_threads(high_prior_worker_conut)
+                 .set_min_threads(high_prior_worker_count)
+                 .set_max_threads(high_prior_worker_count)
                  .build(&_high_prior_pool);
     CHECK(st.ok()) << name << ": " << st;
 
@@ -2013,7 +2013,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
-void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletId> error_tablet_ids;
     std::vector<TTabletId> succ_tablet_ids;
     Status status;
