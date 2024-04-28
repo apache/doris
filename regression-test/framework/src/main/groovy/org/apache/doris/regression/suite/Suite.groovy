@@ -1123,7 +1123,25 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
-        return isCloudMode() && context.config.enableStorageVault;
+        def getInstanceInfo = { check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/get_instance?token=${token}&instance_id=${context.config.instanceId}"
+                op "get"
+                check check_func
+            }
+        }
+        boolean enableStorageVault = false;
+        getInstanceInfo.call() {
+            respCode, body ->
+                assertEquals("${respCode}".toString(), "200")
+                def json = parseJson(body)
+                if (json.instance.enableStorageVault == "true") {
+                    enableStorageVault = true;
+                }
+                
+        }
+        return enableStorageVault;
     }
 
     String getFeConfig(String key) {
