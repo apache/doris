@@ -99,8 +99,7 @@ namespace io {
 
 // Guarded by external lock.
 Status S3FileSystem::set_conf(S3Conf s3_conf) {
-    if (s3_conf.ak == _s3_conf.ak && s3_conf.sk == _s3_conf.sk && 
-        s3_conf.token == _s3_conf.token) {
+    if (s3_conf.ak == _s3_conf.ak && s3_conf.sk == _s3_conf.sk && s3_conf.token == _s3_conf.token) {
         return Status::OK(); // Same conf
     }
 
