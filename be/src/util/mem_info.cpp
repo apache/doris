@@ -443,7 +443,15 @@ void MemInfo::refresh_proc_meminfo() {
     }
     status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
     if (status.ok() && cgroup_mem_usage > 0 && cgroup_mem_limit > 0) {
-        mem_available = std::min(mem_available, cgroup_mem_limit - cgroup_mem_usage);
+        if (mem_available < 0) {
+            mem_available = cgroup_mem_limit - cgroup_mem_usage;
+        } else {
+            mem_available = std::min(mem_available, cgroup_mem_limit - cgroup_mem_usage);
+        }
+    }
+    if (mem_available < 0) {
+        LOG(WARNING) << "Failed to get available memory, set MAX_INT.";
+        mem_available = 9223372036854775807LL;
     }
     if (_s_sys_mem_available.load(std::memory_order_relaxed) != mem_available) {
         _s_sys_mem_available.store(mem_available);
