@@ -773,7 +773,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             txn->put(vault_key, vault.SerializeAsString());
             if (request->has_set_as_default_storage_vault() &&
                 request->set_as_default_storage_vault()) {
-                response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
+                response->set_default_storage_vault_replaced(
+                        instance.has_default_storage_vault_id());
                 set_default_vault_log_helper(instance, vault.name(), vault.id());
                 instance.set_default_storage_vault_id(vault.id());
                 instance.set_default_storage_vault_name(vault.name());
