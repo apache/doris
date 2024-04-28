@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -269,7 +270,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             List<Slot> errorSlots = new ArrayList<>(slots.size());
             for (Slot slot : slots) {
-                if (!aggOutputExprIds.contains(slot.getExprId())) {
+                if (!aggOutputExprIds.contains(slot.getExprId()) && !(slot instanceof SlotNotFromChildren)) {
                     errorSlots.add(slot);
                 }
             }
