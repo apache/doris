@@ -28,7 +28,7 @@ suite('test_alter_muti_modify_column') {
         UNIQUE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"quit
+            "replication_allocation" = "tag.location.default: 1"
         );
     """
 
