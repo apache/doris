@@ -146,6 +146,16 @@ public class CreateTableTest {
                 .expectThrowsNoException(() -> createTable("create table test.tb7(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.compression1(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 \n"
@@ -299,6 +309,19 @@ public class CreateTableTest {
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class,
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                                + "Create failed replications:\n"
+                                + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
+                                + "PARTITION BY RANGE(`key1`) (\n"
+                                + "    PARTITION `p1` VALUES LESS THAN (\"10\"),\n"
+                                + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
+                                + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
+                                + "distributed by hash(key1)\n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
