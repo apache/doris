@@ -71,11 +71,11 @@ public:
 
     // This function is thread-safe
     Status get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
-                          HdfsFileSystemHandle** fs_handle);
+                          std::shared_ptr<HdfsFileSystemHandle>* fs_handle);
 
 private:
     std::mutex _lock;
-    std::unordered_map<uint64, std::unique_ptr<HdfsFileSystemHandle>> _cache;
+    std::unordered_map<uint64, std::shared_ptr<HdfsFileSystemHandle>> _cache;
 
     HdfsFileSystemCache() = default;
 
@@ -148,15 +148,7 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string id,
     }
 }
 
-HdfsFileSystem::~HdfsFileSystem() {
-    if (_fs_handle != nullptr) {
-        if (_fs_handle->from_cache) {
-            _fs_handle->dec_ref();
-        } else {
-            delete _fs_handle;
-        }
-    }
-}
+HdfsFileSystem::~HdfsFileSystem() = default;
 
 Status HdfsFileSystem::connect_impl() {
     RETURN_IF_ERROR(
@@ -384,10 +376,6 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
     return local_writer->close();
 }
 
-HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
-    return _fs_handle;
-}
-
 // ************* HdfsFileSystemCache ******************
 int HdfsFileSystemCache::MAX_CACHE_HANDLE = 64;
 
@@ -406,7 +394,7 @@ Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, const std
 void HdfsFileSystemCache::_clean_invalid() {
     std::vector<uint64> removed_handle;
     for (auto& item : _cache) {
-        if (item.second->invalid() && item.second->ref_cnt() == 0) {
+        if (item.second.use_count() == 1 && item.second->invalid()) {
             removed_handle.emplace_back(item.first);
         }
     }
@@ -419,7 +407,7 @@ void HdfsFileSystemCache::_clean_oldest() {
     uint64_t oldest_time = ULONG_MAX;
     uint64 oldest = 0;
     for (auto& item : _cache) {
-        if (item.second->ref_cnt() == 0 && item.second->last_access_time() < oldest_time) {
+        if (item.second.use_count() == 1 && item.second->last_access_time() < oldest_time) {
             oldest_time = item.second->last_access_time();
             oldest = item.first;
         }
@@ -429,16 +417,16 @@ void HdfsFileSystemCache::_clean_oldest() {
 
 Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
                                            const std::string& fs_name,
-                                           HdfsFileSystemHandle** fs_handle) {
+                                           std::shared_ptr<HdfsFileSystemHandle>* fs_handle) {
     uint64 hash_code = _hdfs_hash_code(hdfs_params, fs_name);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);
         if (it != _cache.end()) {
-            HdfsFileSystemHandle* handle = it->second.get();
+            std::shared_ptr<HdfsFileSystemHandle> handle = it->second;
             if (!handle->invalid()) {
-                handle->inc_ref();
-                *fs_handle = handle;
+                handle->update_last_access_time();
+                *fs_handle = std::move(handle);
                 return Status::OK();
             }
             // fs handle is invalid, erase it.
@@ -455,13 +443,12 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
             _clean_oldest();
         }
         if (_cache.size() < MAX_CACHE_HANDLE) {
-            std::unique_ptr<HdfsFileSystemHandle> handle =
-                    std::make_unique<HdfsFileSystemHandle>(hdfs_fs, true);
-            handle->inc_ref();
-            *fs_handle = handle.get();
+            auto handle = std::make_shared<HdfsFileSystemHandle>(hdfs_fs, true);
+            handle->update_last_access_time();
+            *fs_handle = handle;
             _cache[hash_code] = std::move(handle);
         } else {
-            *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false);
+            *fs_handle = std::make_shared<HdfsFileSystemHandle>(hdfs_fs, false);
         }
     }
     return Status::OK();
