@@ -38,7 +38,7 @@ StringRef StringRef::trim() const {
         --end;
     }
 
-    return StringRef(data + begin, end - begin + 1);
+    return {data + begin, static_cast<size_t>(end - begin + 1)};
 }
 
 // TODO: rewrite in AVX2
@@ -48,11 +48,11 @@ size_t StringRef::find_first_of(char c) const {
 }
 
 StringRef StringRef::min_string_val() {
-    return StringRef((char*)(&StringRef::MIN_CHAR), 0);
+    return {(char*)(&StringRef::MIN_CHAR), 0};
 }
 
 StringRef StringRef::max_string_val() {
-    return StringRef((char*)(&StringRef::MAX_CHAR), 1);
+    return {(char*)(&StringRef::MAX_CHAR), 1};
 }
 
 bool StringRef::start_with(char ch) const {
@@ -74,11 +74,7 @@ bool StringRef::start_with(const StringRef& search_string) const {
         return true;
     }
 
-#if defined(__SSE2__) || defined(__aarch64__)
-    return memequalSSE2Wide(data, search_string.data, search_string.size);
-#else
     return 0 == memcmp(data, search_string.data, search_string.size);
-#endif
 }
 bool StringRef::end_with(const StringRef& search_string) const {
     DCHECK(size >= search_string.size);
@@ -86,11 +82,6 @@ bool StringRef::end_with(const StringRef& search_string) const {
         return true;
     }
 
-#if defined(__SSE2__) || defined(__aarch64__)
-    return memequalSSE2Wide(data + size - search_string.size, search_string.data,
-                            search_string.size);
-#else
     return 0 == memcmp(data + size - search_string.size, search_string.data, search_string.size);
-#endif
 }
 } // namespace doris

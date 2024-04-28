@@ -58,25 +58,6 @@ inline uint32_t bytes32_mask_to_bits32_mask(const bool* data) {
 inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
     size_t num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
-    const __m128i zero16 = _mm_setzero_si128();
-    const int8_t* end64 = data + (size / 64 * 64);
-
-    for (; data < end64; data += 64) {
-        num += __builtin_popcountll(
-                static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(data)), zero16))) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)), zero16)))
-                 << 16u) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)), zero16)))
-                 << 32u) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)), zero16)))
-                 << 48u));
-    }
-#endif
     for (; data < end; ++data) {
         num += (*data == 0);
     }
@@ -87,36 +68,6 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
                              size_t size) {
     size_t num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
-    const __m128i zero16 = _mm_setzero_si128();
-    const int8_t* end64 = data + (size / 64 * 64);
-
-    for (; data < end64; data += 64) {
-        num += __builtin_popcountll(
-                static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                        _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data)),
-                                       zero16),
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map))))) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                         _mm_cmpeq_epi8(
-                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)),
-                                 zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)))))
-                 << 16u) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                         _mm_cmpeq_epi8(
-                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)),
-                                 zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)))))
-                 << 32u) |
-                (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                         _mm_cmpeq_epi8(
-                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
-                                 zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)))))
-                 << 48u));
-    }
-#endif
     for (; data < end; ++data, ++null_map) {
         num += ((*data == 0) | *null_map);
     }

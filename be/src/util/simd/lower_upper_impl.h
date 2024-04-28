@@ -17,12 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <iostream>
-#include <string>
-
-#include "util/sse_util.hpp"
+#include <cstdint>
 
 // the code refer: https://clickhouse.tech/codebrowser/html_report//ClickHouse/src/Functions/LowerUpperImpl.h.html
 // Doris only handle one character at a time, this function use SIMD to more characters at a time
@@ -34,29 +29,13 @@ public:
     static void transfer(const uint8_t* src, const uint8_t* src_end, uint8_t* dst) {
         const auto flip_case_mask = 'A' ^ 'a';
 
-#if defined(__SSE2__) || defined(__aarch64__)
-        const auto bytes_sse = sizeof(__m128i);
-        const auto src_end_sse = src_end - (src_end - src) % bytes_sse;
-
-        const auto v_not_case_lower_bound = _mm_set1_epi8(not_case_lower_bound - 1);
-        const auto v_not_case_upper_bound = _mm_set1_epi8(not_case_upper_bound + 1);
-        const auto v_flip_case_mask = _mm_set1_epi8(flip_case_mask);
-
-        for (; src < src_end_sse; src += bytes_sse, dst += bytes_sse) {
-            const auto chars = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src));
-            const auto is_not_case = _mm_and_si128(_mm_cmpgt_epi8(chars, v_not_case_lower_bound),
-                                                   _mm_cmplt_epi8(chars, v_not_case_upper_bound));
-            const auto xor_mask = _mm_and_si128(v_flip_case_mask, is_not_case);
-            const auto cased_chars = _mm_xor_si128(chars, xor_mask);
-            _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), cased_chars);
-        }
-#endif
-
-        for (; src < src_end; ++src, ++dst)
-            if (*src >= not_case_lower_bound && *src <= not_case_upper_bound)
+        for (; src < src_end; ++src, ++dst) {
+            if (*src >= not_case_lower_bound && *src <= not_case_upper_bound) {
                 *dst = *src ^ flip_case_mask;
-            else
+            } else {
                 *dst = *src;
+            }
+        }
     }
 };
 } // namespace doris::simd

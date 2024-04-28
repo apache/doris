@@ -96,34 +96,12 @@ namespace simd {
 
 class VStringFunctions {
 public:
-#if defined(__SSE2__) || defined(__aarch64__)
-    /// n equals to 16 chars length
-    static constexpr auto REGISTER_SIZE = sizeof(__m128i);
-#endif
-public:
     static StringRef rtrim(const StringRef& str) {
         if (str.size == 0) {
             return str;
         }
         auto begin = 0;
         int64_t end = str.size - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern);
-            int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-            /// means not found
-            if (offset == 0) {
-                return StringRef(str.data + begin, end - begin + 1);
-            } else {
-                end -= offset;
-            }
-        }
-#endif
         while (end >= begin && str.data[end] == ' ') {
             --end;
         }
@@ -139,24 +117,6 @@ public:
         }
         auto begin = 0;
         auto end = str.size - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
-            /// zero means not found
-            if (mask == 0) {
-                begin += REGISTER_SIZE;
-            } else {
-                const auto offset = __builtin_ctz(mask);
-                begin += offset;
-                return StringRef(str.data + begin, end - begin + 1);
-            }
-        }
-#endif
         while (begin <= end && str.data[begin] == ' ') {
             ++begin;
         }
@@ -178,22 +138,6 @@ public:
             auto begin = 0;
             int64_t end = str.size - 1;
             const char blank = rhs.data[0];
-#if defined(__SSE2__) || defined(__aarch64__)
-            const auto pattern = _mm_set1_epi8(blank);
-            while (end - begin + 1 >= REGISTER_SIZE) {
-                const auto v_haystack = _mm_loadu_si128(
-                        reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
-                const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-                const auto mask = _mm_movemask_epi8(v_against_pattern);
-                int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-                /// means not found
-                if (offset == 0) {
-                    return StringRef(str.data + begin, end - begin + 1);
-                } else {
-                    end -= offset;
-                }
-            }
-#endif
             while (end >= begin && str.data[end] == blank) {
                 --end;
             }
@@ -223,23 +167,6 @@ public:
             auto begin = 0;
             auto end = str.size - 1;
             const char blank = rhs.data[0];
-#if defined(__SSE2__) || defined(__aarch64__)
-            const auto pattern = _mm_set1_epi8(blank);
-            while (end - begin + 1 >= REGISTER_SIZE) {
-                const auto v_haystack =
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
-                const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-                const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
-                /// zero means not found
-                if (mask == 0) {
-                    begin += REGISTER_SIZE;
-                } else {
-                    const auto offset = __builtin_ctz(mask);
-                    begin += offset;
-                    return StringRef(str.data + begin, end - begin + 1);
-                }
-            }
-#endif
             while (begin <= end && str.data[begin] == blank) {
                 ++begin;
             }
@@ -306,24 +233,6 @@ public:
         static constexpr auto hex_table = "0123456789ABCDEF";
         auto src_str_end = src_str + length;
 
-#if defined(__SSE2__) || defined(__aarch64__)
-        constexpr auto step = sizeof(uint64);
-        if (src_str + step < src_str_end) {
-            const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));
-            const auto mask_map = _mm_set1_epi8(0x0F);
-
-            do {
-                auto data = _mm_loadu_si64(src_str);
-                auto hex_loc =
-                        _mm_and_si128(_mm_unpacklo_epi8(_mm_srli_epi64(data, 4), data), mask_map);
-                _mm_storeu_si128(reinterpret_cast<__m128i*>(dst_str),
-                                 _mm_shuffle_epi8(hex_map, hex_loc));
-
-                src_str += step;
-                dst_str += step * 2;
-            } while (src_str + step < src_str_end);
-        }
-#endif
         char res[2];
         // hex(str) str length is n, result must be 2 * n length
         for (; src_str < src_str_end; src_str += 1, dst_str += 2) {
@@ -374,16 +283,6 @@ public:
         size_t char_len = 0;
         const char* p = src;
         const char* end = p + len;
-#if defined(__SSE2__) || defined(__aarch64__)
-        constexpr auto bytes_sse2 = sizeof(__m128i);
-        const auto src_end_sse2 = p + (len & ~(bytes_sse2 - 1));
-        // threshold = 1011_1111
-        const auto threshold = _mm_set1_epi8(0xBF);
-        for (; p < src_end_sse2; p += bytes_sse2) {
-            char_len += __builtin_popcount(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(p)), threshold)));
-        }
-#endif
         // process remaining bytes the number of which not exceed bytes_sse2 at the
         // tail of string, one by one.
         for (; p < end; ++p) {

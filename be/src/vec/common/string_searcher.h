@@ -20,12 +20,9 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string.h>
-
 #include <algorithm>
-#include <limits>
-#include <vector>
+#include <cstdint>
+#include <cstring>
 
 #include "util/sse_util.hpp"
 #include "vec/common/string_ref.h"

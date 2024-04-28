@@ -22,10 +22,10 @@
 
 // IWYU pragma: no_include <crc32intrin.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <cstring>
 #include <ostream>
 #include <string>
@@ -37,8 +37,6 @@
 #include "gutil/int128.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
-#include "util/sse_util.hpp"
-#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -46,99 +44,6 @@ namespace doris {
 
 /// unnamed namespace packaging simd-style equality compare functions.
 namespace {
-
-#if defined(__SSE2__) || defined(__aarch64__)
-
-/** Compare strings for equality.
-  * The approach is controversial and does not win in all cases.
-  * For more information, see hash_map_string_2.cpp
-  */
-
-inline bool compareSSE2(const char* p1, const char* p2) {
-    return 0xFFFF ==
-           _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p1)),
-                                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(p2))));
-}
-
-inline bool compareSSE2x4(const char* p1, const char* p2) {
-    return 0xFFFF ==
-           _mm_movemask_epi8(_mm_and_si128(
-                   _mm_and_si128(
-                           _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p1)),
-                                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(p2))),
-                           _mm_cmpeq_epi8(
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p1) + 1),
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p2) + 1))),
-                   _mm_and_si128(
-                           _mm_cmpeq_epi8(
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p1) + 2),
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p2) + 2)),
-                           _mm_cmpeq_epi8(
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p1) + 3),
-                                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(p2) + 3)))));
-}
-
-inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
-    /** The order of branches and the trick with overlapping comparisons
-      * are the same as in memcpy implementation.
-      * See the comments in
-      * https://github.com/ClickHouse/ClickHouse/blob/master/base/glibc-compatibility/memcpy/memcpy.h
-      */
-
-    if (size <= 16) {
-        if (size >= 8) {
-            /// Chunks of [8,16] bytes.
-            return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2) &&
-                   unaligned_load<uint64_t>(p1 + size - 8) ==
-                           unaligned_load<uint64_t>(p2 + size - 8);
-        } else if (size >= 4) {
-            /// Chunks of [4,7] bytes.
-            return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2) &&
-                   unaligned_load<uint32_t>(p1 + size - 4) ==
-                           unaligned_load<uint32_t>(p2 + size - 4);
-        } else if (size >= 2) {
-            /// Chunks of [2,3] bytes.
-            return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2) &&
-                   unaligned_load<uint16_t>(p1 + size - 2) ==
-                           unaligned_load<uint16_t>(p2 + size - 2);
-        } else if (size >= 1) {
-            /// A single byte.
-            return *p1 == *p2;
-        }
-        return true;
-    }
-
-    while (size >= 64) {
-        if (compareSSE2x4(p1, p2)) {
-            p1 += 64;
-            p2 += 64;
-            size -= 64;
-        } else {
-            return false;
-        }
-    }
-
-    switch (size / 16) {
-    case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) {
-            return false;
-        }
-        [[fallthrough]];
-    case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) {
-            return false;
-        }
-        [[fallthrough]];
-    case 1:
-        if (!compareSSE2(p1, p2)) {
-            return false;
-        }
-    }
-
-    return compareSSE2(p1 + size - 16, p2 + size - 16);
-}
-
-#endif
 
 // Compare two strings using sse4.2 intrinsics if they are available. This code assumes
 // that the trivial cases are already handled (i.e. one string is empty).
@@ -152,20 +57,7 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 //   - len: min(n1, n2) - this can be more cheaply passed in by the caller
 inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2, int64_t len) {
     DCHECK_EQ(len, std::min(n1, n2));
-#if defined(__SSE4_2__) || defined(__aarch64__)
-    while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
-        __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
-        __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
-        int chars_match = _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
-                                       sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
-        if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
-            return (unsigned char)s1[chars_match] - (unsigned char)s2[chars_match];
-        }
-        len -= sse_util::CHARS_PER_128_BIT_REGISTER;
-        s1 += sse_util::CHARS_PER_128_BIT_REGISTER;
-        s2 += sse_util::CHARS_PER_128_BIT_REGISTER;
-    }
-#endif
+
     unsigned char u1, u2;
     while (len-- > 0) {
         u1 = (unsigned char)*s1++;
@@ -199,8 +91,8 @@ struct StringRef {
 
     std::string to_string() const { return std::string(data, size); }
     std::string debug_string() const { return to_string(); }
-    std::string_view to_string_view() const { return std::string_view(data, size); }
-    Slice to_slice() const { return doris::Slice(data, size); }
+    std::string_view to_string_view() const { return {data, size}; }
+    Slice to_slice() const { return {data, size}; }
 
     // this is just for show, e.g. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
@@ -209,7 +101,7 @@ struct StringRef {
     operator std::string_view() const { return std::string_view {data, size}; }
 
     StringRef substring(int start_pos, int new_len) const {
-        return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);
+        return {data + start_pos, (new_len < 0) ? (size - start_pos) : new_len};
     }
 
     StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
@@ -271,9 +163,7 @@ struct StringRef {
         if (this->size != other.size) {
             return false;
         }
-#if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(this->data, other.data, this->size);
-#endif
+
         return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
     }
 
@@ -363,8 +253,8 @@ inline size_t hash_less_than8(const char* data, size_t size) {
 
 inline size_t hash_less_than16(const char* data, size_t size) {
     if (size > 8) {
-        doris::vectorized::UInt64 a = unaligned_load<doris::vectorized::UInt64>(data);
-        doris::vectorized::UInt64 b = unaligned_load<doris::vectorized::UInt64>(data + size - 8);
+        auto a = unaligned_load<doris::vectorized::UInt64>(data);
+        auto b = unaligned_load<doris::vectorized::UInt64>(data + size - 8);
         return hash_len16(a, rotate_by_at_least1(b + size, size)) ^ b;
     }
 
@@ -388,13 +278,13 @@ struct CRC32Hash {
         size_t res = -1ULL;
 
         do {
-            doris::vectorized::UInt64 word = unaligned_load<doris::vectorized::UInt64>(pos);
+            auto word = unaligned_load<doris::vectorized::UInt64>(pos);
             res = _mm_crc32_u64(res, word);
 
             pos += 8;
         } while (pos + 8 < end);
 
-        doris::vectorized::UInt64 word = unaligned_load<doris::vectorized::UInt64>(
+        auto word = unaligned_load<doris::vectorized::UInt64>(
                 end - 8); /// I'm not sure if this is normal.
         res = _mm_crc32_u64(res, word);
 
