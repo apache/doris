@@ -1342,7 +1342,8 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
+        if (preparedStmtReanalyzed
+                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
             prepareStmt.asignValues(execStmt.getArgs());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update planner and analyzer after prepared statement reanalyzed");
