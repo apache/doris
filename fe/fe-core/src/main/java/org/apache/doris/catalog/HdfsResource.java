@@ -26,9 +26,6 @@ import org.apache.doris.thrift.THdfsParams;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -124,10 +121,6 @@ public class HdfsResource extends Resource {
                 hdfsConf.setValue(property.getValue());
                 tHdfsParams.hdfs_conf.add(hdfsConf);
             }
-        }
-        if (StringUtils.isEmpty(tHdfsParams.getFsName())) {
-            Configuration conf = new HdfsConfiguration();
-            tHdfsParams.setFsName(conf.get(HADOOP_FS_NAME, null));
         }
         return tHdfsParams;
     }
