@@ -274,6 +274,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c102 c102
             sql """ set force_jni_scanner=true; """
             qt_c103 c103
+            sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon
             sql """ switch internal """
