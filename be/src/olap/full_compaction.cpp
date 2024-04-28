@@ -134,7 +134,7 @@ Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& ro
                 "Full compaction rowsets' versions not equal to all exist rowsets' versions. "
                 "full compaction rowsets max version={}-{}"
                 ", current rowsets max version={}-{}"
-                "full compaction rowsets min version={}-{}, current rowsets min version=0-1",
+                ", full compaction rowsets min version={}-{}, current rowsets min version=0-1",
                 last_rowset->start_version(), last_rowset->end_version(), max_version.first,
                 max_version.second, first_rowset->start_version(), first_rowset->end_version());
     }

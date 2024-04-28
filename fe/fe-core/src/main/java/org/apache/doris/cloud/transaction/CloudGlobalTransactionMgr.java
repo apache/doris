@@ -895,7 +895,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         throw new UserException("Disallow to call finishTransaction()");
     }
 

@@ -294,16 +294,16 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = Long.MAX_VALUE;
-            for (Replica replica : allQueryableReplica) {
-                if (replica.getVersionCount() != -1 && replica.getVersionCount() < minVersionCount) {
-                    minVersionCount = replica.getVersionCount();
-                }
+            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
+                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+            long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
+            if (minVersionCount != Long.MAX_VALUE) {
+                maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
-            final long finalMinVersionCount = minVersionCount;
-            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1
-                            || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow
-                            || replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
+
+            final long finalMaxVersionCount = maxVersionCount;
+            return allQueryableReplica.stream()
+                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
@@ -533,7 +533,7 @@ public class Tablet extends MetaObject implements Writable {
 
                 if (versionCompleted) {
                     stable++;
-                    versions.add(replica.getVersionCount());
+                    versions.add(replica.getVisibleVersionCount());
 
                     allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
                     stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
@@ -624,7 +624,7 @@ public class Tablet extends MetaObject implements Writable {
             // get the max version diff
             long delta = versions.get(versions.size() - 1) - versions.get(0);
             double ratio = (double) delta / versions.get(versions.size() - 1);
-            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow
+            if (versions.get(versions.size() - 1) >= Config.min_version_count_indicate_replica_compaction_too_slow
                     && ratio > Config.valid_version_count_delta_ratio_between_replicas) {
                 return Pair.of(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, Priority.HIGH);
             }

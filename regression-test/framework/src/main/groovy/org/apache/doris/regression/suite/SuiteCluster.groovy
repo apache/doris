@@ -34,13 +34,16 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
+
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
     ]
 
     List<String> beConfigs = [
+        'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
