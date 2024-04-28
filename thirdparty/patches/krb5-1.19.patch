@@ -1,8 +1,8 @@
 diff --git a/src/lib/krb5/os/dnsglue.c b/src/lib/krb5/os/dnsglue.c
-index 0cd213f..2514fcd 100644
+index 0cd213f..db35532 100644
 --- a/src/lib/krb5/os/dnsglue.c
 +++ b/src/lib/krb5/os/dnsglue.c
-@@ -87,6 +87,8 @@ static int initparse(struct krb5int_dns_state *);
+@@ -87,6 +87,10 @@ static int initparse(struct krb5int_dns_state *);
  
  #elif HAVE_RES_NINIT && HAVE_RES_NSEARCH
  
