@@ -36,9 +36,12 @@ import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable {
 
@@ -128,6 +131,13 @@ public class PaimonExternalTable extends ExternalTable {
                 MapType mapType = (MapType) dataType;
                 return new org.apache.doris.catalog.MapType(
                         paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                List<DataField> fields = rowType.getFields();
+                return new org.apache.doris.catalog.StructType(fields.stream()
+                        .map(field -> new org.apache.doris.catalog.StructField(field.name(),
+                                paimonTypeToDorisType(field.type())))
+                        .collect(Collectors.toCollection(ArrayList::new)));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
