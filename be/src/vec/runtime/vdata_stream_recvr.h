@@ -104,6 +104,9 @@ public:
 
     void close();
 
+    // When the source reaches eos = true
+    void set_sink_dep_always_ready() const;
+
     // Careful: stream sender will call this function for a local receiver,
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
@@ -191,6 +194,10 @@ public:
     void set_local_channel_dependency(
             std::shared_ptr<pipeline::Dependency> local_channel_dependency) {
         _local_channel_dependency = local_channel_dependency;
+    }
+
+    std::shared_ptr<pipeline::Dependency> local_channel_dependency() {
+        return _local_channel_dependency;
     }
 
     bool should_wait();
