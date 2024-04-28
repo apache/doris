@@ -25,7 +25,6 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
@@ -1210,7 +1209,7 @@ public class HMSTransaction implements Transaction {
                 }
             } else {
                 if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
-                    s3cleanWhenSuccess.add(LocationPath.convertToS3(targetPath));
+                    s3cleanWhenSuccess.add(targetPath);
                     s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             tableAndMore.hivePartitionUpdate, targetPath);
                 }
@@ -1366,7 +1365,7 @@ public class HMSTransaction implements Transaction {
                 }
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
-                    s3cleanWhenSuccess.add(LocationPath.convertToS3(targetPath));
+                    s3cleanWhenSuccess.add(targetPath);
                     s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             partitionAndMore.hivePartitionUpdate, targetPath);
                 }

@@ -220,7 +220,7 @@ public class LocationPath {
      * @param location origin location
      * @return metadata location path. just convert when storage is compatible with s3 client.
      */
-    public static String convertToS3(String location) {
+    private static String convertToS3(String location) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("try convert location to s3 prefix: " + location);
         }
