@@ -166,8 +166,9 @@ public class StorageVaultMgr {
                         hdfsStorageVault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            LOG.info("Succeed to create hdfs vault {}, id {}",
-                    hdfsStorageVault.getName(), response.getStorageVaultId());
+            LOG.info("Succeed to create hdfs vault {}, id {}, origin default vault replaced {}",
+                    hdfsStorageVault.getName(), response.getStorageVaultId(),
+                            response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
@@ -208,8 +209,8 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            LOG.info("Succeed to create s3 vault {}, id {}",
-                    s3StorageVault.getName(), response.getStorageVaultId());
+            LOG.info("Succeed to create s3 vault {}, id {}, origin default vault replaced {}",
+                    s3StorageVault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());

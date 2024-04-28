@@ -773,6 +773,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             txn->put(vault_key, vault.SerializeAsString());
             if (request->has_set_as_default_storage_vault() &&
                 request->set_as_default_storage_vault()) {
+                response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
                 set_default_vault_log_helper(instance, vault.name(), vault.id());
                 instance.set_default_storage_vault_id(vault.id());
                 instance.set_default_storage_vault_name(vault.name());
@@ -789,6 +790,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         if (request->has_set_as_default_storage_vault() &&
             request->set_as_default_storage_vault()) {
+            response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
             set_default_vault_log_helper(instance, *instance.storage_vault_names().rbegin(),
                                          *instance.resource_ids().rbegin());
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
@@ -832,6 +834,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         auto pos = name_itr - instance.storage_vault_names().begin();
         auto id_itr = instance.resource_ids().begin() + pos;
+        response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
         set_default_vault_log_helper(instance, name, *id_itr);
         instance.set_default_storage_vault_id(*id_itr);
         instance.set_default_storage_vault_name(name);
