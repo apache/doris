@@ -467,7 +467,9 @@ Status S3FileWriter::finalize() {
     // submit pending buf if it's not nullptr
     // it's the last buf, we can submit it right now
     if (_pending_buf != nullptr) {
-        RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
+        if (_upload_id.empty()) {
+            RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
+        }
         _countdown_event.add_count();
         RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
