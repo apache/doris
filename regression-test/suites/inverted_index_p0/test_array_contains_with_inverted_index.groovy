@@ -17,22 +17,18 @@
 
 suite("test_array_contains_with_inverted_index"){
     // prepare test table
-
-    def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-
     def indexTblName = "tai"
 
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
     sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    sql """ set enable_pipeline_x_engine = true;"""
+    sql """ set enable_profile = true;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table
     sql """
-	CREATE TABLE `${indexTblName}` (
+	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
       `id` varchar(60) NOT NULL COMMENT '',
       `inventors` array<text> NULL COMMENT '',
@@ -69,7 +65,7 @@ suite("test_array_contains_with_inverted_index"){
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', '[\"y\"]'); """
 
     qt_sql """ select count() from ${indexTblName}"""
-    order_qt_sql """ select * from tai where array_contains(inventors, 's'); """
+    order_qt_sql """ select * from tai where array_contains(inventors, 's') order by id; """
 
     order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
     order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """

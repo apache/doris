@@ -74,14 +74,15 @@ public:
                     bitmap->addRange(0, num_rows);
                     return st;
                 }
-                *res |= *child_roaring;
-                if (res->cardinality() == num_rows) {
+                if (child_roaring->cardinality() == 0) {
                     // means inverted index filter do not reduce any rows
                     // the left expr no need to be extracted by inverted index,
                     // and cur roaring is all rows which means this inverted index is not useful,
                     // do not need to calculate with res bitmap
+                    bitmap->addRange(0, num_rows);
                     return Status::OK();
                 }
+                *res |= *child_roaring;
             }
             *bitmap = *res;
         } else if (_op == TExprOpcode::COMPOUND_AND) {
