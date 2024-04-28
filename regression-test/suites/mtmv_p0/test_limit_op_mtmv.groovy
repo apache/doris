@@ -92,7 +92,7 @@ suite("test_limit_op_mtmv") {
     // not allow rename
     try {
         sql """
-            alter table ${mvName} rename "${mvName}_renamed"
+            alter table ${mvName} rename ${mvName}1
             """
         Assert.fail();
     } catch (Exception e) {
