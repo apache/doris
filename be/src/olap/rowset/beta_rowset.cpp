@@ -131,12 +131,10 @@ void BetaRowset::clear_inverted_index_cache() {
         for (auto& column : tablet_schema()->columns()) {
             const TabletIndex* index_meta = tablet_schema()->get_inverted_index(*column);
             if (index_meta) {
-                std::string inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(
-                                seg_path, index_meta->index_id(),
-                                index_meta->get_index_suffix());
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id(), index_meta->get_index_suffix());
                 (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
-                                inverted_index_file);
+                        inverted_index_file);
             }
         }
     }
