@@ -225,6 +225,7 @@ DORIS_INTERNAL_TABLE_ID: 'DORIS_INTERNAL_TABLE_ID';
 DOUBLE: 'DOUBLE';
 DROP: 'DROP';
 DROPP: 'DROPP';
+DUAL: 'DUAL';
 DUPLICATE: 'DUPLICATE';
 DYNAMIC: 'DYNAMIC';
 ELSE: 'ELSE';
@@ -672,6 +673,9 @@ SIMPLE_COMMENT
 BRACKETED_COMMENT
     : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
     ;
+
+FROM_DUAL
+    : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);
 
 WS
     : [ \r\n\t]+ -> channel(HIDDEN)
