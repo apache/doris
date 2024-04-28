@@ -533,14 +533,6 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
-    private static void updateControlPublishVersion(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-        if (!runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
-            return;
-        }
-        Env.getCurrentSystemInfo().getBackend(backendId)
-                .setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
-    }
-
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
@@ -558,7 +550,16 @@ public class ReportHandler extends Daemon {
                 }
             }
         }
-        updateControlPublishVersion(backendId, runningTasks);
+
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (be != null) {
+            if (runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
+                be.setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
+            } else {
+                be.setPublishTaskLastTimeAccumulated(0L);
+            }
+        }
+
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -593,9 +594,9 @@ public class ReportHandler extends Daemon {
                 ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         LOG.info("finished to handle task report from backend {}-{}, "
                 + "diff task num: {}, publishTaskSize: {}, runningTasks: {}, cost: {} ms.",
-                backendId, Env.getCurrentSystemInfo().getBackend(backendId).getHost(),
+                backendId, be != null ? be.getHost() : "",
                 batchTask.getTaskNum(), publishTaskSize, runningTasks.entrySet().stream()
-                .filter(entry -> entry.getValue().size() > 0)
+                .filter(entry -> !entry.getValue().isEmpty())
                 .map(entry -> entry.getKey() + "=" + entry.getValue().size()).collect(Collectors.toList()),
                 (System.currentTimeMillis() - start));
     }

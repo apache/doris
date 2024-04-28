@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -193,11 +194,18 @@ public class PublishVersionDaemon extends MasterDaemon {
             });
 
             transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
-            LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
+            }
             boolean isPublishSlow = false;
             long totalNum = transactionState.getPublishVersionTasks().keySet().size();
-            boolean allUnFinishTaskIsSlow = notFinishTaskBe.stream().allMatch(beId -> infoService.getBackend(beId)
-                    .getPublishTaskLastTimeAccumulated() > Config.publish_version_queued_limit_number);
+            boolean allUnFinishTaskIsSlow = notFinishTaskBe.stream().allMatch(beId -> {
+                Backend be = infoService.getBackend(beId);
+                if (be == null) {
+                    return false;
+                }
+                return be.getPublishTaskLastTimeAccumulated() > Config.publish_version_queued_limit_number;
+            });
             if (totalNum - notFinishTaskBe.size() > totalNum / 2 && allUnFinishTaskIsSlow) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(" finishNum {}, txn publish tasks {}, notFinishTaskBe {}",

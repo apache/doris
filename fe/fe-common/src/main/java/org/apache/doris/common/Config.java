@@ -981,9 +981,9 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
-     * clone a tablet,
-     * failed more than the specified number of times within a certain period of time
-     * failed times, default 100
+     * publish version queue's size in be, report it to fe,
+     * if publish task in be exceed direct_publish_limit_number,
+     * fe will direct publish task
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_version_queued_limit_number = 1000;

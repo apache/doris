@@ -938,7 +938,6 @@ public class Backend implements Writable {
     }
 
     public void setPublishTaskLastTimeAccumulated(Long accumulatedNum) {
-        LOG.debug("setPublishTaskLastTimeAccumulated {}", accumulatedNum);
         this.lastPublishTaskAccumulatedNum = accumulatedNum;
     }
 
