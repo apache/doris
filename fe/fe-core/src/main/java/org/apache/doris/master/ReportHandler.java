@@ -592,12 +592,12 @@ public class ReportHandler extends Daemon {
         int publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
                 ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         LOG.info("finished to handle task report from backend {}-{}, "
-                + "diff task num: {}, runningTasks: {}, publishSize: {}, cost: {} ms.",
+                + "diff task num: {}, publishTaskSize: {}, runningTasks: {}, cost: {} ms.",
                 backendId, Env.getCurrentSystemInfo().getBackend(backendId).getHost(),
-                batchTask.getTaskNum(), runningTasks.entrySet().stream()
+                batchTask.getTaskNum(), publishTaskSize, runningTasks.entrySet().stream()
                 .filter(entry -> entry.getValue().size() > 0)
                 .map(entry -> entry.getKey() + "=" + entry.getValue().size()).collect(Collectors.toList()),
-                publishTaskSize, (System.currentTimeMillis() - start));
+                (System.currentTimeMillis() - start));
     }
 
     private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {

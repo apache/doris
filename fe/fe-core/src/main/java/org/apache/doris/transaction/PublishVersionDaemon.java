@@ -90,6 +90,12 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
+        traverseReadyTxnAndDispatchPublishVersionTask(readyTransactionStates, allBackends);
+        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr);
+    }
+
+    private void traverseReadyTxnAndDispatchPublishVersionTask(List<TransactionState> readyTransactionStates,
+                                                               List<Long> allBackends) {
         long createPublishVersionTaskTime = System.currentTimeMillis();
         // every backend-transaction identified a single task
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -103,7 +109,6 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
             for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
                 partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
-
                 try {
                     beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
                 } catch (MetaNotFoundException e) {
@@ -123,36 +128,47 @@ public class PublishVersionDaemon extends MasterDaemon {
                 }
             }
 
-            Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
-            // public version tasks are not persisted in catalog, so publishBackends may be empty.
-            // so we have to try publish to all backends;
-            if (publishBackends.isEmpty()) {
-                // could not just add to it, should new a new object, or the back map will destroyed
-                publishBackends = Sets.newHashSet();
-                publishBackends.addAll(allBackends);
-            }
-
-            for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId,
-                        transactionState.getTransactionId(),
-                        transactionState.getDbId(),
-                        partitionVersionInfos,
-                        createPublishVersionTaskTime);
-                task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
-                // add to AgentTaskQueue for handling finish report.
-                // not check return value, because the add will success
-                AgentTaskQueue.addTask(task);
-                batchTask.addTask(task);
-                transactionState.addPublishVersionTask(backendId, task);
-            }
-            transactionState.setSendedTask();
-            LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
-                    transactionState.getDbId());
+            genPublishTask(allBackends, transactionState, partitionVersionInfos,
+                    createPublishVersionTaskTime, beIdToBaseTabletIds, batchTask);
         }
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
         }
+    }
 
+    private static void genPublishTask(List<Long> allBackends, TransactionState transactionState,
+                                       List<TPartitionVersionInfo> partitionVersionInfos,
+                                       long createPublishVersionTaskTime,
+                                       Map<Long, Set<Long>> beIdToBaseTabletIds, AgentBatchTask batchTask) {
+        Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+        // public version tasks are not persisted in catalog, so publishBackends may be empty.
+        // so we have to try publish to all backends;
+        if (publishBackends.isEmpty()) {
+            // could not just add to it, should new a new object, or the back map will destroyed
+            publishBackends = Sets.newHashSet();
+            publishBackends.addAll(allBackends);
+        }
+
+        for (long backendId : publishBackends) {
+            PublishVersionTask task = new PublishVersionTask(backendId,
+                    transactionState.getTransactionId(),
+                    transactionState.getDbId(),
+                    partitionVersionInfos,
+                    createPublishVersionTaskTime);
+            task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
+            // add to AgentTaskQueue for handling finish report.
+            // not check return value, because the add will success
+            AgentTaskQueue.addTask(task);
+            batchTask.addTask(task);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
+        transactionState.setSendedTask();
+        LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
+                transactionState.getDbId());
+    }
+
+    private static void tryFinishTxn(List<TransactionState> readyTransactionStates,
+                                     SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr) {
         Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
