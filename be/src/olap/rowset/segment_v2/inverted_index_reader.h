@@ -298,46 +298,32 @@ public:
             const PrimitiveType& primitiveType, const void* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
         switch (primitiveType) {
-        case PrimitiveType::TYPE_BOOLEAN:
-            return create_query_value<TYPE_BOOLEAN>(value, result_param);
-        case PrimitiveType::TYPE_TINYINT:
-            return create_query_value<TYPE_TINYINT>(value, result_param);
-        case PrimitiveType::TYPE_SMALLINT:
-            return create_query_value<TYPE_SMALLINT>(value, result_param);
-        case PrimitiveType::TYPE_INT:
-            return create_query_value<TYPE_INT>(value, result_param);
-        case PrimitiveType::TYPE_BIGINT:
-            return create_query_value<TYPE_BIGINT>(value, result_param);
-        case PrimitiveType::TYPE_LARGEINT:
-            return create_query_value<TYPE_LARGEINT>(value, result_param);
-        case PrimitiveType::TYPE_FLOAT:
-            return create_query_value<TYPE_FLOAT>(value, result_param);
-        case PrimitiveType::TYPE_DOUBLE:
-            return create_query_value<TYPE_DOUBLE>(value, result_param);
-        case PrimitiveType::TYPE_DECIMALV2:
-            return create_query_value<TYPE_DECIMALV2>(value, result_param);
-        case PrimitiveType::TYPE_DECIMAL32:
-            return create_query_value<TYPE_DECIMAL32>(value, result_param);
-        case PrimitiveType::TYPE_DECIMAL64:
-            return create_query_value<TYPE_DECIMAL64>(value, result_param);
-        case PrimitiveType::TYPE_DECIMAL128I:
-            return create_query_value<TYPE_DECIMAL128I>(value, result_param);
-        case PrimitiveType::TYPE_DECIMAL256:
-            return create_query_value<TYPE_DECIMAL256>(value, result_param);
-        case PrimitiveType::TYPE_DATE:
-            return create_query_value<TYPE_DATE>(value, result_param);
-        case PrimitiveType::TYPE_DATETIME:
-            return create_query_value<TYPE_DATETIME>(value, result_param);
-        case PrimitiveType::TYPE_CHAR:
-            return create_query_value<TYPE_CHAR>(value, result_param);
-        case PrimitiveType::TYPE_VARCHAR:
-            return create_query_value<TYPE_VARCHAR>(value, result_param);
-        case PrimitiveType::TYPE_STRING:
-            return create_query_value<TYPE_STRING>(value, result_param);
+#define M(TYPE)                                               \
+    case TYPE: {                                              \
+        return create_query_value<TYPE>(value, result_param); \
+    }
+            M(PrimitiveType::TYPE_BOOLEAN)
+            M(PrimitiveType::TYPE_TINYINT)
+            M(PrimitiveType::TYPE_SMALLINT)
+            M(PrimitiveType::TYPE_INT)
+            M(PrimitiveType::TYPE_BIGINT)
+            M(PrimitiveType::TYPE_LARGEINT)
+            M(PrimitiveType::TYPE_FLOAT)
+            M(PrimitiveType::TYPE_DOUBLE)
+            M(PrimitiveType::TYPE_DECIMALV2)
+            M(PrimitiveType::TYPE_DECIMAL32)
+            M(PrimitiveType::TYPE_DECIMAL64)
+            M(PrimitiveType::TYPE_DECIMAL128I)
+            M(PrimitiveType::TYPE_DECIMAL256)
+            M(PrimitiveType::TYPE_DATE)
+            M(PrimitiveType::TYPE_DATETIME)
+            M(PrimitiveType::TYPE_CHAR)
+            M(PrimitiveType::TYPE_VARCHAR)
+            M(PrimitiveType::TYPE_STRING)
+#undef M
         default:
-            LOG(FATAL) << "Unsupported primitive type for inverted index reader : "
-                       << primitiveType;
-            return Status::NotSupported("Unsupported primitive type for inverted index reader");
+            return Status::NotSupported("Unsupported primitive type {} for inverted index reader",
+                                        primitiveType);
         }
     };
 

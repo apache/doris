@@ -309,8 +309,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
     _common_expr_ctxs_push_down = opts.common_expr_ctxs_push_down;
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
-    _enable_common_expr_pushdown =
-            _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index();
     _column_predicate_info.reset(new ColumnPredicateInfo());
 
     for (auto& expr : _remaining_conjunct_roots) {
@@ -743,7 +741,7 @@ Status SegmentIterator::_extract_common_expr_columns_for_index(const vectorized:
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
-        _common_expr_columns_for_index.insert(_schema->column_id(slot_expr->column_id()));
+        _common_expr_columns_for_index.insert(slot_expr->column_id());
     }
     return Status::OK();
 }
@@ -1249,11 +1247,11 @@ Status SegmentIterator::_apply_inverted_index() {
         // support expr to evaluate inverted index
         std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
                 iter_map;
-
         for (auto col_id : _common_expr_columns_for_index) {
-            if (_check_apply_by_inverted_index(col_id)) {
-                iter_map[col_id] = std::make_pair(_storage_name_and_type[col_id],
-                                                  _inverted_index_iterators[col_id].get());
+            auto tablet_col_id = _schema->column_id(col_id);
+            if (_check_apply_by_inverted_index(tablet_col_id)) {
+                iter_map[col_id] = std::make_pair(_storage_name_and_type[tablet_col_id],
+                                                  _inverted_index_iterators[tablet_col_id].get());
             }
         }
         for (auto expr_ctx : _common_expr_ctxs_push_down) {
@@ -1271,7 +1269,7 @@ Status SegmentIterator::_apply_inverted_index() {
                     continue;
                 } else {
                     // other code is not to be handled, we should just break
-                    LOG(WARNING) << "failed to evaluate inverted index for expr_ctx"
+                    LOG(WARNING) << "failed to evaluate inverted index for expr_ctx: "
                                  << expr_ctx->root()->debug_string()
                                  << ", error msg: " << st.to_string();
                     break;

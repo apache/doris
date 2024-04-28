@@ -86,52 +86,33 @@ Status InvertedIndexQueryParamFactory::create_query_value(
     return Status::OK();
 };
 
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_BOOLEAN>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_TINYINT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_SMALLINT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_INT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_BIGINT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_LARGEINT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_FLOAT>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DOUBLE>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_VARCHAR>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATE>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATEV2>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATETIME>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DATETIMEV2>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_CHAR>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMALV2>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL32>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL64>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL128I>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_DECIMAL256>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_HLL>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_STRING>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_IPV4>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-template Status InvertedIndexQueryParamFactory::create_query_value<PrimitiveType::TYPE_IPV6>(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+#define CREATE_QUERY_VALUE_TEMPLATE(PT)                                     \
+    template Status InvertedIndexQueryParamFactory::create_query_value<PT>( \
+            const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BOOLEAN)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_TINYINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_SMALLINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_INT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BIGINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_LARGEINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_FLOAT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DOUBLE)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_VARCHAR)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATE)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATEV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIME)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIMEV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_CHAR)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMALV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL32)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL64)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL128I)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL256)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_HLL)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_STRING)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV4)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV6)
 
 std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer(
         InvertedIndexCtx* inverted_index_ctx) {
