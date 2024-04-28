@@ -1136,7 +1136,7 @@ class Suite implements GroovyInterceptable {
             respCode, body ->
                 assertEquals("${respCode}".toString(), "200")
                 def json = parseJson(body)
-                if (json.instance.enableStorageVault == "true") {
+                if (json.result.containsKey("enableStorageVault") && json.result.enableStorageVault == "true") {
                     enableStorageVault = true;
                 }
                 
