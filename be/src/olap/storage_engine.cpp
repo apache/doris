@@ -1426,10 +1426,11 @@ Status StorageEngine::_persist_broken_paths() {
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {
-    auto lru_handle = cache()->lookup(key);
+    auto cache = get();
+    auto lru_handle = cache->lookup(key);
     if (lru_handle) {
-        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-        auto value = (CacheValue*)cache()->value(lru_handle);
+        Defer release([cache, lru_handle] { cache->release(lru_handle); });
+        auto value = (CacheValue*)cache->value(lru_handle);
         value->last_visit_time = UnixMillis();
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
@@ -1446,8 +1447,8 @@ void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
         CacheValue* cache_value = (CacheValue*)value;
         delete cache_value;
     };
-    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-    cache()->release(lru_handle);
+    auto lru_handle = get()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
+    get()->release(lru_handle);
 }
 
 } // namespace doris
