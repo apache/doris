@@ -71,6 +71,10 @@ bool to_int(std::string_view str, int& res) {
 const std::string USE_PATH_STYLE = "use_path_style";
 
 } // namespace
+S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
+    CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
+    return _rate_limiters[static_cast<size_t>(type)].get();
+}
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:

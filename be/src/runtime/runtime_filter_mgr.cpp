@@ -598,7 +598,7 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* sta
             state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = state->enable_pipeline_exec();
+    params->enable_pipeline_exec = state->enable_pipeline_x_exec();
     params->execution_timeout = state->execution_timeout();
     params->runtime_filter_mgr = state->local_runtime_filter_mgr();
     params->exec_env = state->exec_env();
@@ -614,7 +614,7 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     RuntimeFilterParamsContext* params = query_ctx->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = query_ctx->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = query_ctx->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = query_ctx->enable_pipeline_exec();
+    params->enable_pipeline_exec = query_ctx->enable_pipeline_x_exec();
     params->execution_timeout = query_ctx->execution_timeout();
     params->runtime_filter_mgr = query_ctx->runtime_filter_mgr();
     params->exec_env = query_ctx->exec_env();

@@ -19,20 +19,20 @@
 
 #include <gen_cpp/parquet_types.h>
 
-#include "gutil/endian.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized::parquet {
 
 struct ConvertParams {
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false, we should set local time zone
+    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
     cctz::time_zone* ctz = nullptr;
     size_t offset_days = 0;
     int64_t second_mask = 1;
@@ -72,8 +72,13 @@ struct ConvertParams {
         const auto& schema = field_schema->parquet_schema;
         if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
             const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-            if (timestamp_info.isAdjustedToUTC) {
+            if (!timestamp_info.isAdjustedToUTC) {
                 // should set timezone to utc+0
+                // Reference: https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#instant-semantics-timestamps-normalized-to-utc
+                // If isAdjustedToUTC = false, the reader should display the same value no mater what local time zone is. For example:
+                // When a timestamp is stored as `1970-01-03 12:00:00`,
+                // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
+                // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
                 ctz = const_cast<cctz::time_zone*>(&utc0);
             }
             const auto& time_unit = timestamp_info.unit;
@@ -155,7 +160,6 @@ class PhysicalToLogicalConverter {
 protected:
     ColumnPtr _cached_src_physical_column = nullptr;
     DataTypePtr _cached_src_physical_type = nullptr;
-    ColumnPtr _src_logical_column = nullptr;
     std::unique_ptr<converter::ColumnTypeConverter> _logical_converter = nullptr;
 
     std::string _error_msg;
@@ -174,18 +178,37 @@ public:
     PhysicalToLogicalConverter() = default;
     virtual ~PhysicalToLogicalConverter() = default;
 
-    virtual Status physical_convert(ColumnPtr& src_physical_col) { return Status::OK(); }
-
-    Status convert(ColumnPtr& src_physical_col, MutableColumnPtr& dst_logical_col) {
-        // convert physical values and save in _src_logical_column
-        RETURN_IF_ERROR(physical_convert(src_physical_col));
-        RETURN_IF_ERROR(_logical_converter->convert(_src_logical_column, dst_logical_col));
-        if (_logical_converter->is_consistent()) {
-            // If logical converter is consistent, _src_logical_column is the final destination column,
-            // other components will check the use count
-            _src_logical_column.reset();
-        }
+    virtual Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) {
         return Status::OK();
+    }
+
+    Status convert(ColumnPtr& src_physical_col, TypeDescriptor src_logical_type,
+                   const DataTypePtr& dst_logical_type, ColumnPtr& dst_logical_col,
+                   bool is_dict_filter) {
+        if (is_dict_filter) {
+            src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+        }
+        if (is_consistent() && _logical_converter->is_consistent()) {
+            return Status::OK();
+        }
+        ColumnPtr src_logical_column;
+        if (is_consistent()) {
+            if (dst_logical_type->is_nullable()) {
+                auto doris_nullable_column = const_cast<ColumnNullable*>(
+                        static_cast<const ColumnNullable*>(dst_logical_col.get()));
+                src_logical_column =
+                        ColumnNullable::create(_cached_src_physical_column,
+                                               doris_nullable_column->get_null_map_column_ptr());
+            } else {
+                src_logical_column = _cached_src_physical_column;
+            }
+        } else {
+            src_logical_column = _logical_converter->get_column(src_logical_type, dst_logical_col,
+                                                                dst_logical_type);
+        }
+        RETURN_IF_ERROR(physical_convert(src_physical_col, src_logical_column));
+        auto converted_column = dst_logical_col->assume_mutable();
+        return _logical_converter->convert(src_logical_column, converted_column);
     }
 
     virtual ColumnPtr get_physical_column(tparquet::Type::type src_physical_type,
@@ -222,7 +245,7 @@ public:
 
     bool support() override { return false; }
 
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         return Status::InternalError("Unsupported physical to logical type: {}", _error_msg);
     }
 };
@@ -230,11 +253,11 @@ public:
 // for tinyint, smallint
 template <PrimitiveType IntPrimitiveType>
 class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using DstCppType = typename PrimitiveTypeTraits<IntPrimitiveType>::CppType;
         using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = from_col->size();
         // always comes from tparquet::Type::INT32
@@ -257,9 +280,9 @@ private:
 public:
     FixedSizeBinaryConverter(int type_length) : _type_length(type_length) {}
 
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr from_col = remove_nullable(src_physical_col);
-        MutableColumnPtr to_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
 
         auto* src_data = static_cast<const ColumnUInt8*>(from_col.get());
         size_t length = src_data->size();
@@ -289,9 +312,9 @@ class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
 #define M(FixedTypeLength, ValueCopyType) \
     case FixedTypeLength:                 \
@@ -367,10 +390,10 @@ private:
 
 template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
 class StringToDecimal : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
@@ -408,10 +431,10 @@ class StringToDecimal : public PhysicalToLogicalConverter {
 
 template <typename NumberType, typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
         auto* src_data =
@@ -436,9 +459,9 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
 };
 
 class Int32ToDate : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
         size_t start_idx = dst_col->size();
@@ -458,9 +481,9 @@ class Int32ToDate : public PhysicalToLogicalConverter {
 };
 
 struct Int64ToTimestamp : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
         size_t start_idx = dst_col->size();
@@ -482,9 +505,9 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
 };
 
 struct Int96toTimestamp : public PhysicalToLogicalConverter {
-    Status physical_convert(ColumnPtr& src_physical_col) override {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
-        MutableColumnPtr dst_col = remove_nullable(_src_logical_column)->assume_mutable();
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
         auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();

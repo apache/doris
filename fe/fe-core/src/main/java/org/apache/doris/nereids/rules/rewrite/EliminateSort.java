@@ -37,7 +37,7 @@ import java.util.List;
 public class EliminateSort extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Boolean eliminateSort = false;
+        Boolean eliminateSort = true;
         return plan.accept(this, eliminateSort);
     }
 
@@ -76,7 +76,7 @@ public class EliminateSort extends DefaultPlanRewriter<Boolean> implements Custo
             // eliminate sort
             return visit(logicalSink, true);
         }
-        return skipEliminateSort(logicalSink, eliminateSort);
+        return skipEliminateSort(logicalSink, false);
     }
 
     private Plan skipEliminateSort(Plan plan, Boolean eliminateSort) {

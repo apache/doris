@@ -174,4 +174,84 @@ suite("merge_aggregate") {
         group by a order by 1,2;
     """
 
+    sql "drop table if exists mal_test_merge_agg"
+    sql """
+         create table mal_test_merge_agg(
+            k1 int null,
+            k2 int not null,
+            k3 string null,
+            k4 varchar(100) null
+        )
+        duplicate key (k1,k2)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql "insert into mal_test_merge_agg select 1,1,'1','a';"
+    sql "insert into mal_test_merge_agg select 2,2,'2','b';"
+    sql "insert into mal_test_merge_agg select 3,-3,null,'c';"
+    sql "sync"
+
+    qt_test_has_project_distinct_cant_transform """
+        select max(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t ;
+    """
+    qt_test_has_project_distinct_cant_transform_shape """
+        explain shape plan
+        select max(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t ;
+    """
+
+    qt_test_distinct_expr_transform """
+        select max(count_col)
+        from (
+            select k4,
+            max(-abs(k1)) as count_col
+            from mal_test_merge_agg group by k4
+        ) t ;
+    """
+    qt_test_distinct_expr_transform_shape """
+        explain shape plan
+        select max(count_col)
+        from (
+            select k4,
+            max(-abs(k1)) as count_col
+            from mal_test_merge_agg group by k4
+        ) t ;
+    """
+
+    qt_test_has_project_distinct_expr_transform """
+        select sum(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t  group by k4;
+    """
+
+    qt_test_has_project_distinct_expr_transform """
+        explain shape plan
+        select sum(count_col)
+        from (
+            select k4,
+            count(distinct case when k3 is null then 1 else 0 end) as count_col
+            from mal_test_merge_agg group by k4
+        ) t  group by k4;
+    """
+
+    qt_test_sum_empty_table """
+        select sum(col1),min(col2),max(col3) from (select sum(a) col1, min(b) col2, max(pk) col3 from mal_test2 group by a) t;
+    """
+
+    qt_test_sum_empty_table_shape """
+        explain shape plan
+        select sum(col1),min(col2),max(col3) from (select sum(a) col1, min(b) col2, max(pk) col3 from mal_test2 group by a) t;
+    """
 }

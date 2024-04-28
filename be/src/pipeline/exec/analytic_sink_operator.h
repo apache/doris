@@ -23,10 +23,8 @@
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace pipeline {
 class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {

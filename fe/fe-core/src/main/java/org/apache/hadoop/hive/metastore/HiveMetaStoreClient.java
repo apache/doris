@@ -1089,7 +1089,10 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     List<SQLCheckConstraint> checkConstraints)
         throws AlreadyExistsException, InvalidObjectException,
         MetaException, NoSuchObjectException, TException {
-
+    if (hiveVersion != HiveVersion.V3_0) {
+      throw new UnsupportedOperationException("Table with default values is not supported "
+          + "if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties.");
+    }
     if (!tbl.isSetCatName()) {
       String defaultCat = getDefaultCatalog(conf);
       tbl.setCatName(defaultCat);

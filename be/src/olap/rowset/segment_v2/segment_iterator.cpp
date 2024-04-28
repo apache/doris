@@ -2028,14 +2028,16 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-    if (_is_need_vec_eval) {
-        _is_need_vec_eval = false;
-        for (const auto& pred : _pre_eval_block_predicate) {
-            _is_need_vec_eval |= (!pred->always_true());
+    bool all_pred_always_true = true;
+    for (const auto& pred : _pre_eval_block_predicate) {
+        if (!pred->always_true()) {
+            all_pred_always_true = false;
+            break;
         }
     }
-    if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
+    //If all predicates are always_true, then return directly.
+    if (all_pred_always_true || !_is_need_vec_eval) {
+        for (uint16_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
         }
         return selected_size;
@@ -2319,6 +2321,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        if (_non_predicate_columns.empty()) {
+            return Status::InternalError("_non_predicate_columns is empty");
+        }
         RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
@@ -2685,7 +2690,16 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
-        _column_predicate_info->column_name = expr->expr_name();
+        if (_column_predicate_info->column_name.empty()) {
+            _column_predicate_info->column_name = expr->expr_name();
+        } else {
+            // If column name already exists, create a new ColumnPredicateInfo
+            // if expr is columnA > columnB, then column name will exist, in this situation, we need to add it to _column_pred_in_remaining_vconjunct
+            auto new_column_pred_info = std::make_shared<ColumnPredicateInfo>();
+            new_column_pred_info->column_name = expr->expr_name();
+            _column_pred_in_remaining_vconjunct[new_column_pred_info->column_name].push_back(
+                    *new_column_pred_info);
+        }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_value = v_literal_expr->value();

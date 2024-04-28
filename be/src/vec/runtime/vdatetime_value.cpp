@@ -3407,6 +3407,7 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+        __builtin_unreachable();
     }
 }
 
@@ -3416,6 +3417,7 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+        __builtin_unreachable();
     }
 }
 

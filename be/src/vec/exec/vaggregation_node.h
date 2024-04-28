@@ -451,7 +451,6 @@ private:
     friend class pipeline::StreamingAggSourceOperator;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
-    bool _can_short_circuit = false;
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
@@ -578,10 +577,6 @@ private:
 
             if (_should_limit_output) {
                 _reach_limit = _get_hash_table_size() >= _limit;
-                if (_reach_limit && _can_short_circuit) {
-                    _can_read = true;
-                    return Status::Error<ErrorCode::END_OF_FILE>("");
-                }
             }
         }
 

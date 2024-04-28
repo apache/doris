@@ -104,7 +104,7 @@ public class StreamLoadHandler {
             return;
         }
 
-        LOG.info("streamload put request: {}", request);
+        LOG.info("stream load put request: {}", request);
         // create connect context
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
@@ -118,38 +118,33 @@ public class StreamLoadHandler {
             return;
         }
 
-        if (request.isSetAuthCode()) {
+        ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
+        String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+        if (!Strings.isNullOrEmpty(userName)) {
+            List<UserIdentity> currentUser = Lists.newArrayList();
+            try {
+                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                        request.getUserIp(), request.getPasswd(), currentUser);
+            } catch (AuthenticationException e) {
+                throw new UserException(e.formatErrMsg());
+            }
+            Preconditions.checkState(currentUser.size() == 1);
+            ctx.setCurrentUserIdentity(currentUser.get(0));
+        }
+        if (request.isSetAuthCode() && request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
             ctx.setCloudCluster(backend.getCloudClusterName());
-            ctx.setRemoteIP(clientAddr);
-            LOG.info("streamLoadPutImpl set context: cluster {}", ctx.getCloudCluster());
-        } else {
-            ctx.setRemoteIP(request.getUserIp());
-            String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-            if (!Strings.isNullOrEmpty(userName)) {
-                List<UserIdentity> currentUser = Lists.newArrayList();
-                try {
-                    Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                            request.getUserIp(), request.getPasswd(), currentUser);
-                } catch (AuthenticationException e) {
-                    throw new UserException(e.formatErrMsg());
-                }
-                Preconditions.checkState(currentUser.size() == 1);
-                ctx.setCurrentUserIdentity(currentUser.get(0));
-            }
-            LOG.info("request user: {}, remote ip: {}, user ip: {}, passwd: {}, cluster: {}",
-                     request.getUser(), clientAddr, request.getUserIp(), request.getPasswd(),
-                     request.getCloudCluster());
-            if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
-                if (Strings.isNullOrEmpty(request.getUser())) {
-                    // mysql load
-                    ctx.setCloudCluster(request.getCloudCluster());
-                } else {
-                    // stream load
-                    ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
-                }
+            return;
+        }
+        if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
+            if (Strings.isNullOrEmpty(request.getUser())) {
+                // mysql load
+                ctx.setCloudCluster(request.getCloudCluster());
+            } else {
+                // stream load
+                ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
             }
         }
     }

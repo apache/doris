@@ -23,12 +23,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------filter(( not ss_customer_sk IS NULL))
---------------------PhysicalOlapScan[store_sales]
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter(( not ss_customer_sk IS NULL))
+----------------------PhysicalOlapScan[store_sales]
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
@@ -68,11 +69,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = frequent_ss_items.item_sk)) otherCondition=()
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -87,9 +86,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

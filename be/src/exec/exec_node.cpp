@@ -90,10 +90,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
                 descs, std::vector {tnode.output_tuple_id}, std::vector {true});
     }
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
-        DCHECK(tnode.__isset.output_tuple_id) << " no final output tuple id";
         // common subexpression elimination
-        DCHECK_EQ(tnode.intermediate_output_tuple_id_list.size(),
-                  tnode.intermediate_projections_list.size());
         _intermediate_output_row_descriptor.reserve(tnode.intermediate_output_tuple_id_list.size());
         for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
             _intermediate_output_row_descriptor.push_back(
@@ -108,6 +105,19 @@ ExecNode::~ExecNode() = default;
 
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
+    if (!tnode.intermediate_output_tuple_id_list.empty()) {
+        if (!tnode.__isset.output_tuple_id) {
+            return Status::InternalError("no final output tuple id");
+        }
+        if (tnode.intermediate_output_tuple_id_list.size() !=
+            tnode.intermediate_projections_list.size()) {
+            return Status::InternalError(
+                    "intermediate_output_tuple_id_list size:{} not match "
+                    "intermediate_projections_list size:{}",
+                    tnode.intermediate_output_tuple_id_list.size(),
+                    tnode.intermediate_projections_list.size());
+        }
+    }
 
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
@@ -378,11 +388,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
-            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
-        } else {
-            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
-        }
+        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:

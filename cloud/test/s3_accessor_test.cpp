@@ -58,6 +58,8 @@ public:
             const Aws::S3::Model::ListObjectsV2Request& req) = 0;
     virtual Aws::S3::Model::DeleteObjectsOutcome DeleteObjects(
             const Aws::S3::Model::DeleteObjectsRequest& req) = 0;
+    virtual Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+            const Aws::S3::Model::DeleteObjectRequest& req) = 0;
     virtual Aws::S3::Model::PutObjectOutcome PutObject(
             const Aws::S3::Model::PutObjectRequest& req) = 0;
     virtual Aws::S3::Model::HeadObjectOutcome HeadObject(
@@ -120,6 +122,13 @@ public:
             _mock_fs->delete_object(obj.GetKey());
         }
         return Aws::S3::Model::DeleteObjectsOutcome(std::move(result));
+    }
+
+    Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+            const Aws::S3::Model::DeleteObjectRequest& req) override {
+        Aws::S3::Model::DeleteObjectResult result;
+        _mock_fs->delete_object(req.GetKey());
+        return Aws::S3::Model::DeleteObjectOutcome(std::move(result));
     }
 
     Aws::S3::Model::PutObjectOutcome PutObject(
@@ -207,6 +216,18 @@ public:
         return Aws::S3::Model::DeleteObjectsOutcome(std::move(err));
     }
 
+    Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+            const Aws::S3::Model::DeleteObjectRequest& req) override {
+        if (!return_error_for_error_s3_client) {
+            return _correct_impl->DeleteObject(req);
+        }
+        auto err = Aws::Client::AWSError<Aws::S3::S3Errors>(Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
+                                                            false);
+        err.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
+        // return -1
+        return Aws::S3::Model::DeleteObjectOutcome(std::move(err));
+    }
+
     Aws::S3::Model::PutObjectOutcome PutObject(
             const Aws::S3::Model::PutObjectRequest& req) override {
         if (!return_error_for_error_s3_client) {
@@ -267,6 +288,10 @@ public:
         return _impl->DeleteObjects(req);
     }
 
+    auto DeleteObject(const Aws::S3::Model::DeleteObjectRequest& req) {
+        return _impl->DeleteObject(req);
+    }
+
     auto PutObject(const Aws::S3::Model::PutObjectRequest& req) { return _impl->PutObject(req); }
 
     auto HeadObject(const Aws::S3::Model::HeadObjectRequest& req) { return _impl->HeadObject(req); }
@@ -303,6 +328,12 @@ static auto callbacks = std::array {
                           auto pair = *(std::pair<Aws::S3::Model::DeleteObjectsOutcome*,
                                                   Aws::S3::Model::DeleteObjectsRequest*>*)p;
                           *pair.first = (*_mock_client).DeleteObjects(*pair.second);
+                      }},
+        MockCallable {"s3_client::delete_object",
+                      [](void* p) {
+                          auto pair = *(std::pair<Aws::S3::Model::DeleteObjectOutcome*,
+                                                  Aws::S3::Model::DeleteObjectRequest*>*)p;
+                          *pair.first = (*_mock_client).DeleteObject(*pair.second);
                       }},
         MockCallable {"s3_client::put_object",
                       [](void* p) {
@@ -614,8 +645,7 @@ TEST(S3AccessorTest, exist_error) {
     ASSERT_EQ(-1, accessor->exist(prefix));
 }
 
-// function is not implemented
-TEST(S3AccessorTest, DISABLED_delete_object) {
+TEST(S3AccessorTest, delete_object) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
@@ -639,6 +669,75 @@ TEST(S3AccessorTest, DISABLED_delete_object) {
         ASSERT_EQ(0, accessor->delete_object(path));
         ASSERT_EQ(1, accessor->exist(path));
     }
+}
+
+TEST(S3AccessorTest, gcs_delete_objects) {
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
+    _mock_client = std::make_unique<MockS3Client>();
+    auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
+    auto sp = SyncPoint::get_instance();
+    std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
+        sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
+                          [](void* p) { *((bool*)p) = true; });
+        sp->set_call_back(mock_callback.point_name, mock_callback.func);
+    });
+    sp->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        sp->disable_processing();
+        std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
+            sp->clear_call_back(mock_callback.point_name);
+        });
+    });
+    std::string prefix = "test_delete_object";
+    std::vector<std::string> paths;
+    size_t num = 300;
+    for (size_t i = 0; i < num; i++) {
+        auto path = fmt::format("{}{}", prefix, i);
+        _mock_fs->put_object(path, "");
+        paths.emplace_back(std::move(path));
+    }
+    ASSERT_EQ(0, accessor->delete_objects(paths));
+    for (size_t i = 0; i < num; i++) {
+        auto path = fmt::format("{}{}", prefix, i);
+        ASSERT_EQ(1, accessor->exist(path));
+    }
+}
+
+TEST(S3AccessorTest, gcs_delete_objects_error) {
+    _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
+    _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
+    auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
+    auto sp = SyncPoint::get_instance();
+    std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
+        sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
+                          [](void* p) { *((bool*)p) = true; });
+        sp->set_call_back(mock_callback.point_name, mock_callback.func);
+    });
+    sp->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        sp->disable_processing();
+        std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
+            sp->clear_call_back(mock_callback.point_name);
+        });
+        return_error_for_error_s3_client = false;
+    });
+    std::string prefix = "test_delete_objects";
+    std::vector<std::string> paths_first_half;
+    std::vector<std::string> paths_second_half;
+    size_t num = 300;
+    for (size_t i = 0; i < num; i++) {
+        auto path = fmt::format("{}{}", prefix, i);
+        _mock_fs->put_object(path, "");
+        if (i < 150) {
+            paths_first_half.emplace_back(std::move(path));
+        } else {
+            paths_second_half.emplace_back(std::move(path));
+        }
+    }
+    std::vector<std::string> empty;
+    ASSERT_EQ(0, accessor->delete_objects(empty));
+    return_error_for_error_s3_client = true;
+    ASSERT_EQ(-1, accessor->delete_objects(paths_first_half));
 }
 
 TEST(S3AccessorTest, delete_objects) {

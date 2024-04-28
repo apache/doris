@@ -89,9 +89,11 @@ public class ListPartitionPrunerV2Test {
         };
 
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                20, 20, "mgr", 120, false);
+                10, 10, "mgr", 120, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                10, 10, "mgr", 120, false);
         HiveMetaStoreCache cache = new HiveMetaStoreCache(
-                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor);
+                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
         ArrayList<Type> types = new ArrayList<>();
         types.add(ScalarType.DOUBLE);
 

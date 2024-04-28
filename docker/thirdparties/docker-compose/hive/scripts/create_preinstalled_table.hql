@@ -601,6 +601,8 @@ CREATE TABLE `unsupported_type_table`(
   k6 int
 );
 
+set hive.stats.column.autogather=false;
+
 CREATE TABLE `schema_evo_test_text`(
   id int,
   name string
@@ -627,6 +629,8 @@ stored as orc;
 insert into `schema_evo_test_orc` select 1, "kaka";
 alter table `schema_evo_test_orc` ADD COLUMNS (`ts` timestamp);
 insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+set hive.stats.column.autogather=true;
 
 -- Currently docker is hive 2.x version. Hive 2.x versioned full-acid tables need to run major compaction.
 SET hive.support.concurrency=true;
@@ -2402,10 +2406,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy_src`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 LOCATION
@@ -2419,10 +2421,8 @@ CREATE TABLE `all_partition_types2_parquet_snappy`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
@@ -2433,10 +2433,9 @@ CREATE TABLE `all_partition_types2_orc_zlib`(
 PARTITIONED BY (
   `decimal_col` decimal(18,6),
   `string_col` string,
-  `binary_col` binary,
   `date_col` date,
-  `timestamp_col` timestamp,
-  `char_col` char(50),
+  `char_col` char(11),
   `varchar_col` varchar(50))
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
+

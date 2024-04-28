@@ -25,7 +25,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.authenticate.MysqlAuthType;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
@@ -103,7 +103,7 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd) {
         String userName = ClusterNamespace.getNameFromFullName(fullName);
-        if (MysqlAuthType.getAuthTypeConfig() != MysqlAuthType.LDAP || Strings.isNullOrEmpty(userName)
+        if (AuthenticateType.getAuthTypeConfig() != AuthenticateType.LDAP || Strings.isNullOrEmpty(userName)
                 || Objects.isNull(passwd)) {
             return false;
         }
@@ -137,7 +137,7 @@ public class LdapManager {
     }
 
     private boolean checkParam(String fullName) {
-        return MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP
+        return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP
                 && !Strings.isNullOrEmpty(fullName)
                 && !fullName.equalsIgnoreCase(Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
     }

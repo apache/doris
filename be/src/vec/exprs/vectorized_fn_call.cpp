@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_agg_state.h"
+#include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
@@ -67,12 +68,16 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
                              get_child_names(), _data_type->get_name());
-
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
-            _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            if (_fn.is_udtf_function) {
+                // fake function. it's no use and can't execute.
+                _function = FunctionFake<UDTFImpl>::create();
+            } else {
+                _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+            }
         } else {
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "

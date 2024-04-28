@@ -19,11 +19,8 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vjoin_node_base.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -31,6 +28,7 @@ class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
     using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
@@ -126,5 +124,4 @@ protected:
     const bool _use_specific_projections;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

@@ -18,18 +18,18 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.statistics.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
@@ -38,16 +38,16 @@ public class ExternalRowCountCache {
     private static final Logger LOG = LogManager.getLogger(ExternalRowCountCache.class);
     private final AsyncLoadingCache<RowCountKey, Optional<Long>> rowCountCache;
 
-    public ExternalRowCountCache(ExecutorService executor, long refreshAfterWriteSeconds,
-            BasicAsyncCacheLoader<RowCountKey, Optional<Long>> loader) {
+    public ExternalRowCountCache(ExecutorService executor) {
         // 1. set expireAfterWrite to 1 day, avoid too many entries
         // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
-        rowCountCache = Caffeine.newBuilder()
-                .maximumSize(Config.max_external_table_row_count_cache_num)
-                .expireAfterAccess(Duration.ofDays(1))
-                .refreshAfterWrite(Duration.ofSeconds(refreshAfterWriteSeconds))
-                .executor(executor)
-                .buildAsync(loader == null ? new RowCountCacheLoader() : loader);
+        CacheFactory rowCountCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_external_table_row_count_cache_num,
+                false,
+                null);
+        rowCountCache = rowCountCacheFactory.buildAsyncCache(new RowCountCacheLoader(), executor);
     }
 
     @Getter
@@ -110,6 +110,30 @@ public class ExternalRowCountCache {
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Get cached row count for the given table if present. Return 0 if cached not loaded.
+     * This method will not trigger async loading if cache is missing.
+     *
+     * @param catalogId
+     * @param dbId
+     * @param tableId
+     * @return
+     */
+    public long getCachedRowCountIfPresent(long catalogId, long dbId, long tableId) {
+        RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
+        try {
+            CompletableFuture<Optional<Long>> f = rowCountCache.getIfPresent(key);
+            if (f == null) {
+                return 0;
+            } else if (f.isDone()) {
+                return f.get().orElse(0L);
+            }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning row count if present", e);
         }
         return 0;
     }

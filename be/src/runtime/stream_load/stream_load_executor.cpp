@@ -69,7 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
-              << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
+              << ", query_id=" << ctx->id;
     Status st;
     auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
@@ -111,7 +111,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 }
             }
             LOG(WARNING) << "fragment execute failed"
-                         << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
@@ -150,8 +149,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
 
         LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                  << ", txn_id=" << ctx->txn_id
-                  << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
+                  << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
                   << ", receive_data_cost_ms="
                   << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
                   << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000

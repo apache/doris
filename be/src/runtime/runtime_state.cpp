@@ -141,7 +141,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
             query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
-RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                            const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
@@ -531,15 +531,12 @@ Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilte
                                                       bool need_local_merge,
                                                       doris::IRuntimeFilter** producer_filter,
                                                       bool build_bf_exactly) {
-    // If runtime filter need to be local merged, `build_bf_exactly` will lead to bloom filters with
-    // different size need to be merged which is not allowed.
-    // So if `need_local_merge` is true, we will disable `build_bf_exactly`.
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_local_merge_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly && !need_local_merge);
+                desc, query_options(), producer_filter, build_bf_exactly);
     } else {
         return local_runtime_filter_mgr()->register_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly && !need_local_merge);
+                desc, query_options(), producer_filter, build_bf_exactly);
     }
 }
 

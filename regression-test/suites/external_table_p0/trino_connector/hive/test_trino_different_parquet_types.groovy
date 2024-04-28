@@ -63,8 +63,8 @@ suite("test_trino_different_parquet_types", "p0,external,hive,external_docker,ex
 
 
 
-    String hms_port = context.config.otherConfigs.get("hms_port")
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     // problem 01 ：in hive execute "select * from delta_byte_array limit 10" ,there will be some valid data return，but doris query return nothing
     def q01 = {

@@ -25,7 +25,9 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.FileSystemUtil;
 import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TUpdateMode;
@@ -71,6 +73,7 @@ public class HMSTransaction implements Transaction {
     private String dbName;
     private String tbName;
     private Optional<SummaryProfile> summaryProfile = Optional.empty();
+    private String queryId;
 
     private final Map<DatabaseTableName, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<DatabaseTableName, Map<List<String>, Action<PartitionAndMore>>>
@@ -78,6 +81,7 @@ public class HMSTransaction implements Transaction {
 
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
+    private String declaredIntentionsToWrite;
 
     public HMSTransaction(HiveMetadataOps hiveOps) {
         this.hiveOps = hiveOps;
@@ -121,6 +125,11 @@ public class HMSTransaction implements Transaction {
         if (hmsCommitter != null) {
             hmsCommitter.rollback();
         }
+    }
+
+    public void beginInsertTable(HiveInsertCommandContext ctx) {
+        declaredIntentionsToWrite = ctx.getWritePath();
+        queryId = ctx.getQueryId();
     }
 
     public void finishInsertTable(String dbName, String tbName) {
@@ -238,7 +247,12 @@ public class HMSTransaction implements Transaction {
             hmsCommitter.doCommit();
         } catch (Throwable t) {
             LOG.warn("Failed to commit for {}.{}, abort it.", dbName, tbName);
-            hmsCommitter.rollback();
+            try {
+                hmsCommitter.abort();
+                hmsCommitter.rollback();
+            } catch (RuntimeException e) {
+                t.addSuppressed(new Exception("Failed to roll back after commit failure", e));
+            }
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
@@ -558,13 +572,13 @@ public class HMSTransaction implements Transaction {
             return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
         }
 
-        return doRecursiveDeleteFiles(directory, deleteEmptyDir);
+        return doRecursiveDeleteFiles(directory, deleteEmptyDir, queryId);
     }
 
-    private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir) {
+    private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir, String queryId) {
         List<RemoteFile> allFiles = new ArrayList<>();
         Set<String> allDirs = new HashSet<>();
-        Status statusFile = fs.listFiles(directory.toString(), allFiles);
+        Status statusFile = fs.listFiles(directory.toString(), true, allFiles);
         Status statusDir = fs.listDirectories(directory.toString(), allDirs);
         if (!statusFile.ok() || !statusDir.ok()) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
@@ -575,15 +589,18 @@ public class HMSTransaction implements Transaction {
         boolean allDescendentsDeleted = true;
         ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
         for (RemoteFile file : allFiles) {
-            String fileName = file.getName();
-            if (!deleteIfExists(new Path(fileName))) {
+            if (file.getName().startsWith(queryId)) {
+                if (!deleteIfExists(file.getPath())) {
+                    allDescendentsDeleted = false;
+                    notDeletedEligibleItems.add(file.getPath().toString());
+                }
+            } else {
                 allDescendentsDeleted = false;
-                notDeletedEligibleItems.add(fileName);
             }
         }
 
         for (String dir : allDirs) {
-            DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(new Path(dir), deleteEmptyDir);
+            DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(new Path(dir), deleteEmptyDir, queryId);
             if (!subResult.dirNotExists()) {
                 allDescendentsDeleted = false;
             }
@@ -1036,6 +1053,9 @@ public class HMSTransaction implements Transaction {
         }
 
         private void undoAddPartitionsTask() {
+            if (addPartitionsTask.isEmpty()) {
+                return;
+            }
 
             HivePartition firstPartition = addPartitionsTask.getPartitions().get(0).getPartition();
             String dbName = firstPartition.getDbName();
@@ -1317,6 +1337,10 @@ public class HMSTransaction implements Transaction {
             summaryProfile.ifPresent(SummaryProfile::setHmsUpdatePartitionTime);
         }
 
+        public void pruneAndDeleteStagingDirectories() {
+            recursiveDeleteItems(new Path(declaredIntentionsToWrite), true);
+        }
+
         public void doNothing() {
             // do nothing
             // only for regression test and unit test to throw exception
@@ -1329,13 +1353,18 @@ public class HMSTransaction implements Transaction {
             doNothing();
         }
 
-        public void rollback() {
+        public void abort() {
             cancelUnStartedAsyncFileSystemTask();
             undoUpdateStatisticsTasks();
             undoAddPartitionsTask();
             waitForAsyncFileSystemTaskSuppressThrowable();
             runDirectoryClearUpTasksForAbort();
             runRenameDirTasksForAbort();
+        }
+
+        public void rollback() {
+            //delete write path
+            pruneAndDeleteStagingDirectories();
         }
     }
 
@@ -1371,7 +1400,8 @@ public class HMSTransaction implements Transaction {
                                                      String origFilePath,
                                                      String destFilePath,
                                                      List<String> fileNames) {
-        fs.asyncRename(executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
+        FileSystemUtil.asyncRenameFiles(
+                fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
         summaryProfile.ifPresent(profile -> profile.addRenameFileCnt(fileNames.size()));
     }
 
@@ -1381,7 +1411,8 @@ public class HMSTransaction implements Transaction {
                                                         String origFilePath,
                                                         String destFilePath,
                                                         Runnable runWhenPathNotExist) {
-        fs.asyncRenameDir(executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
+        FileSystemUtil.asyncRenameDir(
+                fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
         summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
 }

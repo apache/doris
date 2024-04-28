@@ -205,16 +205,17 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
     RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state, execution_context, submit_timer] {
+            ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+                    [this, state, query_id, execution_context, submit_timer] {
                         auto execution_context_lock = execution_context.lock();
                         if (!execution_context_lock) {
-                            LOG(INFO) << "query " << print_id(state->query_id())
+                            LOG(INFO) << "query " << print_id(query_id)
                                       << " execution_context released, maybe query was cancelled.";
                             // FIXME: return status is meaningless?
                             return Status::Cancelled("Cancelled");
@@ -225,14 +226,14 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                         Defer defer {[&]() {
                             if (!_status.ok() || state->is_cancelled()) {
                                 if (!_status.ok()) {
-                                    LOG(WARNING) << "query " << print_id(state->query_id())
-                                                 << " agg node " << _parent->node_id()
+                                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                                                 << _parent->node_id()
                                                  << " merge spilled agg data error: " << _status;
                                 }
                                 _shared_state->close();
                             } else if (_shared_state->spill_partitions.empty()) {
-                                VLOG_DEBUG << "query " << print_id(state->query_id())
-                                           << " agg node " << _parent->node_id()
+                                VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                                           << _parent->node_id()
                                            << " merge spilled agg data finish";
                             }
                             Base::_shared_state->in_mem_shared_state->aggregate_data_container
