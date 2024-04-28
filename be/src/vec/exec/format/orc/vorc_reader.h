@@ -558,7 +558,7 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
-    bool _is_dict_cols_converted;
+    bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 };
