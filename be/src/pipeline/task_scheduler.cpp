@@ -172,8 +172,7 @@ void TaskScheduler::_do_work(size_t index) {
 
                 uint64_t end_time = MonotonicMicros();
                 auto state = task->get_state();
-                std::string state_name =
-                        state == PipelineTaskState::RUNNABLE ? get_state_name(state) : "";
+                std::string state_name = get_state_name(state);
                 ExecEnv::GetInstance()->pipeline_tracer_context()->record(
                         {query_id, task_name, core_id, thread_id, start_time, end_time,
                          state_name});
