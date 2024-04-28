@@ -27,7 +27,7 @@ suite("test_key_mtmv") {
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `num` SMALLINT SUM NOT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`)
         COMMENT 'OLAP'
