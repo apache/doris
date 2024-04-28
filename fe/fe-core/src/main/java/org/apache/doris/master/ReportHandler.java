@@ -552,12 +552,10 @@ public class ReportHandler extends Daemon {
         }
 
         Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        int publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
+                ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         if (be != null) {
-            if (runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
-                be.setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
-            } else {
-                be.setPublishTaskLastTimeAccumulated(0L);
-            }
+            be.setPublishTaskLastTimeAccumulated((long) publishTaskSize);
         }
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
@@ -590,8 +588,6 @@ public class ReportHandler extends Daemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        int publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
-                ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         LOG.info("finished to handle task report from backend {}-{}, "
                 + "diff task num: {}, publishTaskSize: {}, runningTasks: {}, cost: {} ms.",
                 backendId, be != null ? be.getHost() : "",

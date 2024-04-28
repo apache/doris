@@ -92,7 +92,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             return;
         }
         traverseReadyTxnAndDispatchPublishVersionTask(readyTransactionStates, allBackends);
-        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr);
+        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr,
+                partitionVisibleVersions, backendPartitions);
     }
 
     private void traverseReadyTxnAndDispatchPublishVersionTask(List<TransactionState> readyTransactionStates,
@@ -169,7 +170,8 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private static void tryFinishTxn(List<TransactionState> readyTransactionStates,
-                                     SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr) {
+                                     SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr,
+                                     Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
         Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
