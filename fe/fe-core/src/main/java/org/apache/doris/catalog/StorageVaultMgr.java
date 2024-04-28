@@ -158,12 +158,16 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && hdfsStorageVault.ifNotExists()) {
+                LOG.info("Hdfs vault {} already existed", hdfsStorageVault.getName());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("failed to alter storage vault response: {} ", response);
+                LOG.warn("failed to create hdfs storage vault, vault name {}, response: {} ",
+                        hdfsStorageVault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            LOG.info("Succeed to create hdfs vault {}, id {}",
+                    hdfsStorageVault.getName(), response.getStorageVaultId());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
@@ -197,12 +201,15 @@ public class StorageVaultMgr {
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && s3StorageVault.ifNotExists()) {
+                LOG.info("S3 vault {} already existed", s3StorageVault.getName());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            LOG.info("Succeed to create s3 vault {}, id {}",
+                    s3StorageVault.getName(), response.getStorageVaultId());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
