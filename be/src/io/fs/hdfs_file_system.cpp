@@ -396,8 +396,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
         RETURN_IF_ERROR(local_writer->write_at(write_offset, {read_buf.get(), read_len}));
         write_offset += read_len;
     }
-
-    return Status::OK();
+    return local_writer->close();
 }
 
 Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
