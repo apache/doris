@@ -60,7 +60,7 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
      */
     public ShowProcedureStatusCommand(final Set<Expression> whereExpr) {
         super(PlanType.SHOW_PROCEDURE_COMMAND);
-        this.whereExpr = whereExpr;
+        this.whereExpr = Objects.requireNonNull(whereExpr, "whereExpr should not be null");
     }
 
     public ShowResultSetMetaData getMetaData() {
