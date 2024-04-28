@@ -1056,6 +1056,7 @@ nonReserved
     | DISTINCTPCSA
     | DO
     | DORIS_INTERNAL_TABLE_ID
+    | DUAL
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY
