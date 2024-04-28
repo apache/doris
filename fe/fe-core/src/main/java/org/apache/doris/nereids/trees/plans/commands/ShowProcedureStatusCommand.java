@@ -39,7 +39,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -84,8 +86,8 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         }
 
         equalTo.addAll(likeSet);
-
-        Map<String, String> filterMap = equalTo.stream()
+        Map<String, String> filterMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        filterMap = equalTo.stream()
                 .collect(Collectors.toMap(exp -> ((Slot) exp.child(0)).getName(),
                         exp -> ((Literal) exp.child(1)).getStringValue()));
 
