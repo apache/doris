@@ -348,17 +348,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
-    auto& pipeline_id_to_profile = _runtime_state->pipeline_id_to_profile();
-    DCHECK(pipeline_id_to_profile.empty());
-    pipeline_id_to_profile.resize(_pipelines.size());
-    {
-        size_t pip_idx = 0;
-        for (auto& pipeline_profile : pipeline_id_to_profile) {
-            pipeline_profile =
-                    std::make_unique<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
-            pip_idx++;
-        }
-    }
+    auto& pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
     for (size_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];

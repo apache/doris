@@ -30,6 +30,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -572,18 +573,9 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() {
-        for (auto& pipeline_profile : _pipeline_id_to_profile) {
-            // pipeline 0
-            //  pipeline task 0
-            //  pipeline task 1
-            //  pipleine task 2
-            //  .......
-            // sort by pipeline task total time
-            pipeline_profile->sort_children_by_total_time();
-        }
-        return _pipeline_id_to_profile;
-    }
+    std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
+
+    std::vector<std::shared_ptr<RuntimeProfile>>& build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
@@ -760,7 +752,9 @@ private:
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
 
-    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+    // only to lock _pipeline_id_to_profile
+    std::shared_mutex _pipeline_profile_lock;
+    std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
