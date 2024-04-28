@@ -48,10 +48,12 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
+        this.type = literal.getType();
     }
 
     protected PlaceHolderExpr(PlaceHolderExpr other) {
         this.lExpr = other.lExpr;
+        this.type = other.type;
     }
 
     public void setLiteral(LiteralExpr literal) {
@@ -168,6 +170,13 @@ public class PlaceHolderExpr extends LiteralExpr {
             return "?";
         }
         return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
+    }
+
+    // @Override
+    public Expr reset() {
+        this.lExpr = null;
+        this.type = Type.UNSUPPORTED;
+        return this;
     }
 
     @Override

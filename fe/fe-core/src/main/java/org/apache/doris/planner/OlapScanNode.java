@@ -1159,7 +1159,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null;
+        return this.pointQueryEqualPredicats != null || preparedStatment.isPointQueryShortCircuit();
     }
 
     private void computeTabletInfo() throws UserException {

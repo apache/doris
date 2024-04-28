@@ -48,6 +48,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PrepareStmt;
+import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
@@ -283,6 +284,9 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+
+    private ExecuteStmt execStmt;
+    PrepareStmtContext preparedStmtCtx = null;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -1174,9 +1178,8 @@ public class StmtExecutor {
         parseByLegacy();
 
         boolean preparedStmtReanalyzed = false;
-        PrepareStmtContext preparedStmtCtx = null;
         if (parsedStmt instanceof ExecuteStmt) {
-            ExecuteStmt execStmt = (ExecuteStmt) parsedStmt;
+            execStmt = (ExecuteStmt) parsedStmt;
             preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
             if (preparedStmtCtx == null) {
                 throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
@@ -1198,7 +1201,7 @@ public class StmtExecutor {
             // continue analyze
             preparedStmtReanalyzed = true;
             preparedStmtCtx.stmt.reset();
-            preparedStmtCtx.stmt.analyze(analyzer);
+            // preparedStmtCtx.stmt.analyze(analyzer);
         }
 
         // yiguolei: insert stmt's grammar analysis will write editlog,
@@ -1252,7 +1255,6 @@ public class StmtExecutor {
                         "enable_unified_load=true, should be insert stmt");
             }
         }
-
         if (parsedStmt instanceof QueryStmt
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt
@@ -1340,8 +1342,8 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed
-                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
+        if (preparedStmtReanalyzed && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
+            prepareStmt.asignValues(execStmt.getArgs());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update planner and analyzer after prepared statement reanalyzed");
             }
@@ -1405,6 +1407,12 @@ public class StmtExecutor {
                 queryStmt.removeOrderByElements();
             }
         }
+        if (prepareStmt != null) {
+            analyzer.setPrepareStmt(prepareStmt);
+            if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
+                prepareStmt.asignValues(execStmt.getArgs());
+            }
+        }
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).isGroupCommit()) {
@@ -1463,19 +1471,14 @@ public class StmtExecutor {
                         Lists.newArrayList(parsedStmt.getColLabels());
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
-                if (prepareStmt != null) {
-                    // Re-analyze prepareStmt with a new analyzer
-                    prepareStmt.reset();
-                    prepareStmt.analyze(analyzer);
-                }
-
-                if (prepareStmt != null) {
-                    // Re-analyze prepareStmt with a new analyzer
-                    prepareStmt.reset();
-                    prepareStmt.analyze(analyzer);
-                }
                 // query re-analyze
                 parsedStmt.reset();
+                if (prepareStmt != null) {
+                    analyzer.setPrepareStmt(prepareStmt);
+                    if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
+                        prepareStmt.asignValues(execStmt.getArgs());
+                    }
+                }
                 analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
