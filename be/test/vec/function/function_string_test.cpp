@@ -394,31 +394,31 @@ TEST(function_string_test, function_string_strright_test) {
     {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
-        DataSet data_set = {{{std::string("asd"), 1}, std::string("d")},
-                            {{std::string("hello word"), -2}, std::string("ello word")},
-                            {{std::string("hello word"), 20}, std::string("hello word")},
-                            {{std::string("HELLO,!^%"), 2}, std::string("^%")},
-                            {{std::string(""), 3}, std::string("")},
-                            {{Null(), 3}, Null()},
-                            {{std::string("12345"), 10}, std::string("12345")},
-                            {{std::string("12345"), -10}, std::string("")},
-                            {{std::string(""), Null()}, Null()},
-                            {{Null(), -100}, Null()},
-                            {{std::string("12345"), 12345}, std::string("12345")},
-                            {{std::string(""), 1}, std::string()},
-                            {{std::string("a b c d _ %"), -3}, std::string("b c d _ %")},
-                            {{std::string(""), Null()}, Null()},
-                            {{std::string("hah hah"), -1}, std::string("hah hah")},
-                            {{std::string("🤣"), -1}, std::string("🤣")},
-                            {{std::string("🤣😃😄"), -2}, std::string("😃😄")},
-                            {{std::string("12345"), 6}, std::string("12345")},
-                            {{std::string("12345"), 12345}, std::string("12345")},
-                            {{std::string("-12345"), -1}, std::string("-12345")},
-                            {{std::string("-12345"), -12345}, std::string()},
-                            {{Null(), -12345}, Null()},
-                            {{std::string("😡"), Null()}, Null()},
-                            {{std::string("🤣"), 0}, std::string()}
-
+        DataSet data_set = {
+                {{std::string("asd"), 1}, std::string("d")},
+                {{std::string("hello word"), -2}, std::string("ello word")},
+                {{std::string("hello word"), 20}, std::string("hello word")},
+                {{std::string("HELLO,!^%"), 2}, std::string("^%")},
+                {{std::string(""), 3}, std::string("")},
+                {{Null(), 3}, Null()},
+                {{std::string("12345"), 10}, std::string("12345")},
+                {{std::string("12345"), -10}, std::string("")},
+                {{std::string(""), Null()}, Null()},
+                {{Null(), -100}, Null()},
+                {{std::string("12345"), 12345}, std::string("12345")},
+                {{std::string(""), 1}, std::string()},
+                {{std::string("a b c d _ %"), -3}, std::string("b c d _ %")},
+                {{std::string(""), Null()}, Null()},
+                {{std::string("hah hah"), -1}, std::string("hah hah")},
+                {{std::string("🤣"), -1}, std::string("🤣")},
+                {{std::string("🤣😃😄"), -2}, std::string("😃😄")},
+                {{std::string("12345"), 6}, std::string("12345")},
+                {{std::string("12345"), 12345}, std::string("12345")},
+                {{std::string("-12345"), -1}, std::string("-12345")},
+                {{std::string("-12345"), -12345}, std::string()},
+                {{Null(), -12345}, Null()},
+                {{std::string("😡"), Null()}, Null()},
+                {{std::string("🤣"), 0}, std::string()},
         };
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -457,6 +457,35 @@ TEST(function_string_test, function_string_strleft_test) {
                 {{std::string("NULL"), 3}, std::string("NUL")},
                 {{std::string("NuLl"), 4}, std::string("NuLl")},
                 {{Null(), 123}, Null()},
+            {{std::string("Includes numbers 123456."), 10}, std::string("Includes n")},
+            {{std::string("CapsAndLowercase"), 6}, std::string("CapsAn")},
+            {{std::string("1234567890"), 3}, std::string("123")},
+            {{std::string("Punctuation, too!"), 13}, std::string("Punctuation, ")},
+            {{std::string("Short"), 10}, std::string("Short")},
+            {{std::string("No more than needed"), 18}, std::string("No more than neede")},
+            {{std::string("1234567890"), -5}, std::string("")},
+            {{std::string("Contains space at end "), 21}, std::string("Contains space at end")},
+            {{std::string("Chinese字符"), 7}, std::string("Chinese")},
+            {{std::string("日本語"), 2}, std::string("日本")},
+            {{std::string("Emoji 😊😂🤣"), 5}, std::string("Emoji")},
+            {{std::string("SpecialCharacters#@!"), 11}, std::string("SpecialChar")},
+            {{std::string("Numbers123456"), 7}, std::string("Numbers")},
+            {{std::string("1234567890"), 0}, std::string("")},
+            {{std::string("Empty"), Null()}, Null()},
+            {{Null(), 5}, Null()},
+            {{std::string("Leading and trailing "), 7}, std::string("Leading")},
+            {{Null(), -10}, Null()},
+            {{std::string("One Unicode 🔥"), 12}, std::string("One Unicode ")},
+            {{std::string("🌟💫✨"), 2}, std::string("🌟💫")},
+            {{std::string("New"), 1}, std::string("N")},
+            {{std::string("New"), Null()}, Null()},
+            {{Null(), 1}, Null()},
+            {{std::string("Two words"), 9}, std::string("Two words")},
+            {{std::string("Boundary case"), 13}, std::string("Boundary case")},
+            {{std::string("Boundary case"), 14}, std::string("Boundary case")},
+            {{std::string("Multi\nLine\nString"), 5}, std::string("Multi")},
+            {{std::string(" SingleQuote'"), 12}, std::string(" SingleQuote")},
+            {{std::string("\"DoubleQuote"), 12}, std::string("\"DoubleQuote")}
         };
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -895,6 +924,27 @@ TEST(function_string_test, function_ends_with_test) {
                         {{std::string(""), std::string("")}, uint8_t(1)},
                         {{std::string("你好"), Null()}, Null()},
                         {{Null(), std::string("")}, Null()},
+                        {{Null(), Null()}, Null()},
+                        {{std::string(1000, 'a'), std::string("a")}, uint8_t(1)},
+                        // 特殊的UTF-8字符
+                        {{std::string("This is a pencil ✏"), std::string("✏")}, uint8_t(1)},
+                        // 重复字符
+                        {{std::string("aaaaab"), std::string("b")}, uint8_t(1)},
+                        // 特殊格式的字符串
+                        {{std::string("user@example.com"), std::string("example.com")}, uint8_t(1)},
+                        {{std::string("https://example.com"), std::string(".com")}, uint8_t(1)},
+                        // 非常长的后缀
+                        {{std::string("hello"), std::string(10, 'o')}, uint8_t(0)},
+                        // 大小写不匹配
+                        {{std::string("CaseSensitive"), std::string("sensitive")}, uint8_t(0)},
+                        {{std::string("UpperCase"), std::string("CASE")}, uint8_t(0)},
+                        // 字符边界
+                        {{std::string("BoundaryTest"), std::string("Test")}, uint8_t(1)},
+                        // 空字符串
+                        {{std::string(""), std::string("")}, uint8_t(1)},
+                        // Null 情景
+                        {{std::string("Doris"), Null()}, Null()},
+                        {{Null(), std::string("Ends")}, Null()},
                         {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set);
@@ -1424,7 +1474,12 @@ TEST(function_string_test, function_to_base64_test) {
              std::string("NVpXSzVaT0k1Wk9JNVpPSThKK1loQ0RqZ0lMaWdKVGlnSlFo")},
             {{std::string("ò&ø")}, std::string("w7Imw7g=")},
             {{std::string("hehe")}, std::string("aGVoZQ==")},
-
+            // // 特殊字符
+            {{std::string("`~!@#$%^&*()-_=+")}, std::string("YH4hQCMkJV4mKigpLV89Kw==")},
+            // // 末尾空格，这对 base64 编码意义重大
+            {{std::string("test ")}, std::string("dGVzdCA=")},
+            // // 空字符串
+            {{std::string("")}, std::string("")},
     };
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
