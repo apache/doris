@@ -5,7 +5,6 @@ index 0cd213f..2514fcd 100644
 @@ -87,6 +87,8 @@ static int initparse(struct krb5int_dns_state *);
  
  #elif HAVE_RES_NINIT && HAVE_RES_NSEARCH
-
 +#if defined(__x86_64__)
 +__asm__(".symver __res_nsearch,__res_nsearch@GLIBC_2.2.5");
 +#endif
