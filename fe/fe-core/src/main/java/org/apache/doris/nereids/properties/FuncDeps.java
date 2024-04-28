@@ -19,8 +19,10 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableSet;
+
+import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -32,20 +34,33 @@ public class FuncDeps {
         final Set<Slot> dependencies;
 
         public FuncDepsItem(Set<Slot> determinants, Set<Slot> dependencies) {
-            this.determinants = determinants;
-            this.dependencies = dependencies;
+            this.determinants = ImmutableSet.copyOf(determinants);
+            this.dependencies = ImmutableSet.copyOf(dependencies);
         }
 
         @Override
         public String toString() {
             return String.format("%s -> %s", determinants, dependencies);
         }
+
+        @Override
+        public boolean equals(Object other) {
+            if (other instanceof FuncDepsItem) {
+                return other.hashCode() == this.hashCode();
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(determinants, dependencies);
+        }
     }
 
-    private final List<FuncDepsItem> items;
+    private final Set<FuncDepsItem> items;
 
     FuncDeps() {
-        items = new ArrayList<>();
+        items = new HashSet<>();
     }
 
     public void addFuncItems(Set<Slot> determinants, Set<Slot> dependencies) {
@@ -54,6 +69,10 @@ public class FuncDeps {
 
     public int size() {
         return items.size();
+    }
+
+    public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {
+        return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
     @Override

@@ -23,7 +23,9 @@ import org.apache.doris.nereids.util.ImmutableEqualSet;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,7 +58,12 @@ public class FunctionalDependencies {
     }
 
     public boolean isEmpty() {
-        return uniformSet.isEmpty() && uniqueSet.isEmpty();
+        return uniformSet.isEmpty() && uniqueSet.isEmpty() && equalSet.isEmpty() && fdDag.isEmpty();
+    }
+
+    public boolean isDependent(Set<Slot> dominate, Set<Slot> dependency) {
+        return fdDag.findValidFuncDeps(Sets.union(dependency, dominate))
+                .isFuncDeps(dominate, dependency);
     }
 
     public boolean isUnique(Slot slot) {
@@ -99,6 +106,10 @@ public class FunctionalDependencies {
         return equalSet.isEqual(l, r);
     }
 
+    public FuncDeps getAllValidFuncDeps(Set<Slot> validSlots) {
+        return fdDag.findValidFuncDeps(validSlots);
+    }
+
     public boolean isEqualAndNotNotNull(Slot l, Slot r) {
         return equalSet.isEqual(l, r) && !l.nullable() && !r.nullable();
     }
@@ -113,8 +124,8 @@ public class FunctionalDependencies {
 
     @Override
     public String toString() {
-        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s, equalSet:%s]",
-                uniformSet, uniqueSet, fdItems, equalSet);
+        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s, equalSet:%s, funcDeps: %s]",
+                uniformSet, uniqueSet, fdItems, equalSet, fdDag);
     }
 
     /**
@@ -180,6 +191,53 @@ public class FunctionalDependencies {
 
         public void addFuncDepsDAG(FunctionalDependencies fd) {
             fdDagBuilder.addDeps(fd.fdDag);
+        }
+
+        public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
+            fdDagBuilder.addDeps(dominate, dependency);
+        }
+
+        /**
+         * add equal set in func deps
+         */
+        public void addDepsByEqualSet(Set<Slot> equalSet) {
+            if (equalSet.size() < 2) {
+                return;
+            }
+            Iterator<Slot> iterator = equalSet.iterator();
+            Set<Slot> first = ImmutableSet.of(iterator.next());
+
+            while (iterator.hasNext()) {
+                Set<Slot> slotSet = ImmutableSet.of(iterator.next());
+                fdDagBuilder.addDeps(first, slotSet);
+                fdDagBuilder.addDeps(slotSet, first);
+            }
+        }
+
+        public List<Set<Slot>> calEqualSetList() {
+            return equalSetBuilder.calEqualSetList();
+        }
+
+        /**
+         * get all unique slots
+         */
+        public List<Set<Slot>> getAllUnique() {
+            List<Set<Slot>> res = new ArrayList<>(uniqueSet.slotSets);
+            for (Slot s : uniqueSet.slots) {
+                res.add(ImmutableSet.of(s));
+            }
+            return res;
+        }
+
+        /**
+         * get all uniform slots
+         */
+        public List<Set<Slot>> getAllUniform() {
+            List<Set<Slot>> res = new ArrayList<>(uniformSet.slotSets);
+            for (Slot s : uniformSet.slots) {
+                res.add(ImmutableSet.of(s));
+            }
+            return res;
         }
 
         public void addEqualPair(Slot l, Slot r) {

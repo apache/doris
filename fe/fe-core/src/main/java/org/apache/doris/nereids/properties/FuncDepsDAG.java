@@ -66,6 +66,10 @@ public class FuncDepsDAG {
         this.dagItems = ImmutableList.copyOf(dagItems);
     }
 
+    public boolean isEmpty() {
+        return dagItems.isEmpty();
+    }
+
     /**
      * find all func deps
      */
@@ -150,5 +154,21 @@ public class FuncDepsDAG {
                 to.parents.add(from.index);
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{ ");
+        for (DAGItem item : dagItems) {
+            for (int childIdx : item.children) {
+                sb.append(item.slots);
+                sb.append(" -> ");
+                sb.append(dagItems.get(childIdx).slots);
+                sb.append(", ");
+            }
+        }
+        sb.append("} ");
+        return sb.toString();
     }
 }
