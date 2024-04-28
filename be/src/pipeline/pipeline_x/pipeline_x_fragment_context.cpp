@@ -1369,8 +1369,9 @@ void PipelineXFragmentContext::_close_fragment_instance() {
         // After add the operation, the print out like that:
         // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
         // We can easily know the exec node execute time without child time consumed.
-        _runtime_state->runtime_profile()->compute_time_in_profile();
-        _runtime_state->runtime_profile()->pretty_print(&ss);
+        for (auto& profile : _runtime_state->pipeline_id_to_profile()) {
+            profile->pretty_print(&ss);
+        }
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }

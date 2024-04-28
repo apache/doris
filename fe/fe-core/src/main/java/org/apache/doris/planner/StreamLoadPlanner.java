@@ -324,6 +324,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
         boolean isEnableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;
@@ -556,6 +557,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
         boolean isEnableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;
