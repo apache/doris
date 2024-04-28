@@ -42,7 +42,7 @@ using PipelineId = uint32_t;
 class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineTask;
     friend class PipelineXTask;
-    friend class PipelineXFragmentContext;
+    friend class PipelineFragmentContext;
 
 public:
     Pipeline() = delete;

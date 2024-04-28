@@ -61,6 +61,30 @@ suite("create_vault") {
         );
     """
 
+    try_sql """
+        drop table create_table_use_vault
+    """
+    
+    sql """
+        CREATE TABLE IF NOT EXISTS create_table_use_vault (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "create_hdfs_vault"
+                )
+    """
+
+    def create_stmt = """
+        show create table create_table_use_vault
+    """
+
+    logger.info("the create table stmt is ${create_stmt}")
+    assertTrue(create_stmt.contains("\"storage_vault_name\" = \"create_hdfs_vault\""))
+
     expectExceptionLike({
         sql """
             CREATE STORAGE VAULT create_hdfs_vault

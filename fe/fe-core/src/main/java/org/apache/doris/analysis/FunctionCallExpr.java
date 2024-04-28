@@ -1658,6 +1658,22 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("date_add")
+                || fnName.getFunction().equalsIgnoreCase("days_add")
+                || fnName.getFunction().equalsIgnoreCase("adddate")
+                || fnName.getFunction().equalsIgnoreCase("date_sub")
+                || fnName.getFunction().equalsIgnoreCase("days_sub")
+                || fnName.getFunction().equalsIgnoreCase("subdate")) {
+            Type[] childTypes = collectChildReturnTypes();
+            argTypes[0] = childTypes[0];
+            argTypes[1] = childTypes[1];
+            if (childTypes[1] == Type.TINYINT || childTypes[1] == Type.SMALLINT) {
+                // be only support second param as int type
+                uncheckedCastChild(Type.INT, 1);
+                argTypes[1] = Type.INT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {

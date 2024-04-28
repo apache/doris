@@ -26,8 +26,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
-
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());

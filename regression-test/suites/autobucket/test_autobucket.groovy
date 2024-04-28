@@ -17,7 +17,7 @@
 
 suite("test_autobucket") {
     sql "drop table if exists autobucket_test"
-    result = sql """
+    def result = sql """
         CREATE TABLE `autobucket_test` (
           `user_id` largeint(40) NOT NULL
         ) ENGINE=OLAP
@@ -30,6 +30,7 @@ suite("test_autobucket") {
         """
 
     result = sql "show create table autobucket_test"
+    log.info("show result : ${result}")
     assertTrue(result.toString().containsIgnoreCase("BUCKETS AUTO"))
 
     result = sql "show partitions from autobucket_test"

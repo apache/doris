@@ -159,9 +159,6 @@ void HdfsFileWriter::_write_into_local_file_cache() {
         size_t block_size = block->range().size();
         size_t append_size = std::min(data_remain_size, block_size);
         if (block->state() == FileBlock::State::EMPTY) {
-            if (_index_offset != 0 && block->range().right >= _index_offset) {
-                static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
-            }
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 Slice s(_batch_buffer.data() + pos, append_size);
@@ -281,6 +278,21 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
+#ifdef USE_LIBHDFS3
+    std::string hdfs_dir = path.parent_path().string();
+    int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
+    if (exists != 0) {
+        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
+        if (ret != 0) {
+            std::stringstream ss;
+            ss << "create dir failed. "
+               << " fs_name: " << fs_name << " path: " << hdfs_dir << ", err: " << hdfs_error();
+            LOG(WARNING) << ss.str();
+            return ResultError(Status::InternalError(ss.str()));
+        }
+    }
+#endif
     // open file
     hdfsFile hdfs_file = nullptr;
     {

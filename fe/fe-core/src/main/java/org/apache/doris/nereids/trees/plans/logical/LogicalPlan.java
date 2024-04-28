@@ -63,6 +63,7 @@ public interface LogicalPlan extends Plan {
         FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
@@ -73,4 +74,6 @@ public interface LogicalPlan extends Plan {
     void computeUnique(FunctionalDependencies.Builder fdBuilder);
 
     void computeUniform(FunctionalDependencies.Builder fdBuilder);
+
+    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
 }

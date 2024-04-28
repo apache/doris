@@ -81,6 +81,7 @@ import javax.annotation.Nullable;
  */
 public class StructInfo {
     public static final PlanPatternChecker PLAN_PATTERN_CHECKER = new PlanPatternChecker();
+    public static final ScanPlanPatternChecker SCAN_PLAN_PATTERN_CHECKER = new ScanPlanPatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -443,10 +444,18 @@ public class StructInfo {
         }
     }
 
+    /** Judge if source contains all target */
     public static boolean containsAll(BitSet source, BitSet target) {
-        BitSet intersection = (BitSet) source.clone();
-        intersection.and(target);
-        return intersection.equals(target);
+        if (source.size() < target.size()) {
+            return false;
+        }
+        for (int i = target.nextSetBit(0); i >= 0; i = target.nextSetBit(i + 1)) {
+            boolean contains = source.get(i);
+            if (!contains) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -581,6 +590,39 @@ public class StructInfo {
                     || plan instanceof Join
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
+                    || plan instanceof GroupPlan) {
+                return doVisit(plan, checkContext);
+            }
+            return false;
+        }
+
+        private Boolean doVisit(Plan plan, PlanCheckContext checkContext) {
+            for (Plan child : plan.children()) {
+                boolean valid = child.accept(this, checkContext);
+                if (!valid) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    /**
+     * ScanPlanPatternChecker, this is used to check the plan pattern is valid or not
+     */
+    public static class ScanPlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
+
+        @Override
+        public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
+            return groupPlan.getGroup().getLogicalExpressions().stream()
+                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, checkContext));
+        }
+
+        @Override
+        public Boolean visit(Plan plan, PlanCheckContext checkContext) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
                     || plan instanceof GroupPlan) {
                 return doVisit(plan, checkContext);
             }

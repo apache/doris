@@ -167,7 +167,7 @@ public:
         DCHECK(bloomfilter_func != nullptr);
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            return Status::InvalidArgument(
+            return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
                     "allocated bytes {}",
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);

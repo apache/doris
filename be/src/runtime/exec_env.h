@@ -45,7 +45,6 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-class BlockedTaskScheduler;
 struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
@@ -305,10 +304,6 @@ public:
     }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
-    std::shared_ptr<pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
-        return _global_block_scheduler;
-    }
-
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
     }
@@ -452,11 +447,6 @@ private:
     io::FileCacheBlockDownloader* _file_cache_block_downloader;
     TabletHotspot* _tablet_hotspot;
     CloudWarmUpManager* _cloud_warm_up_manager;
-
-    // used for query with group cpu hard limit
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
-    // used for query without workload group
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 

@@ -201,6 +201,11 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
+
+    if (config::s3_client_http_scheme == "http") {
+        aws_config.scheme = Aws::Http::Scheme::HTTP;
+    }
+
     aws_config.retryStrategy =
             std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
     std::shared_ptr<Aws::S3::S3Client> new_client;

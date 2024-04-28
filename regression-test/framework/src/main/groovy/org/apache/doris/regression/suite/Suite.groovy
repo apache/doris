@@ -286,7 +286,16 @@ class Suite implements GroovyInterceptable {
                 }
                 Thread.sleep(1000)
             }
+
             assertNotNull(fe)
+            if (!dockerIsCloud) {
+                for (def be : cluster.getAllBackends()) {
+                    be_report_disk(be.host, be.httpPort)
+                }
+            }
+
+            // wait be report
+            Thread.sleep(5000)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
@@ -299,7 +308,9 @@ class Suite implements GroovyInterceptable {
             logger.info("connect to docker cluster: suite={}, url={}", name, url)
             connect(user, password, url, actionSupplier)
         } finally {
-            cluster.destroy(context.config.dockerEndDeleteFiles)
+            if (!context.config.dockerEndNoKill) {
+                cluster.destroy(context.config.dockerEndDeleteFiles)
+            }
         }
     }
 
@@ -611,6 +622,24 @@ class Suite implements GroovyInterceptable {
         } catch (Exception e) {
             if (e.getMessage()!= errorMessage) {
                 throw e
+            }
+        }
+    }
+
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+        List<Object> tbData1 = new ArrayList<Object>();
+        for (List<Object> items:tb1Result){
+            tbData1.add(items.get(0))
+        }
+        List<Object> tbData2 = new ArrayList<Object>();
+        for (List<Object> items:tb2Result){
+            tbData2.add(items.get(0))
+        }
+        for (int i =0; i<tbData1.size(); i++) {
+            if (ObjectUtils.notEqual(tbData1.get(i),tbData2.get(i)) ){
+                throw new RuntimeException("tbData should be same")
             }
         }
     }

@@ -254,8 +254,6 @@ public:
 
     void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
 
-    virtual bool is_pipelineX() const { return false; }
-
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
 

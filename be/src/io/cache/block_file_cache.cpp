@@ -623,7 +623,9 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
 
     auto& offsets = _files[hash];
     DCHECK((context.expiration_time == 0 && context.cache_type != FileCacheType::TTL) ||
-           (context.cache_type == FileCacheType::TTL && context.expiration_time != 0));
+           (context.cache_type == FileCacheType::TTL && context.expiration_time != 0))
+            << fmt::format("expiration time {}, cache type {}", context.expiration_time,
+                           context.cache_type);
 
     FileCacheKey key;
     key.hash = hash;
@@ -639,6 +641,7 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
             _key_to_time[hash] = context.expiration_time;
             _time_to_key.insert(std::make_pair(context.expiration_time, hash));
         }
+        _cur_ttl_size += cell.size();
     }
     auto [it, _] = offsets.insert(std::make_pair(offset, std::move(cell)));
     _cur_cache_size += size;
@@ -695,6 +698,10 @@ const BlockFileCache::LRUQueue& BlockFileCache::get_queue(FileCacheType type) co
 bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
+    auto limit = config::max_ttl_cache_ratio * _capacity;
+    if ((_cur_ttl_size + size) * 100 > limit) {
+        return false;
+    }
     auto is_overflow = [&] {
         return _disk_resource_limit_mode ? removed_size < size
                                          : cur_cache_size + size - removed_size > _capacity;
@@ -1129,6 +1136,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         }
     }
     _cur_cache_size -= file_block->range().size();
+    if (FileCacheType::TTL == type) {
+        _cur_ttl_size -= file_block->range().size();
+    }
     auto& offsets = _files[hash];
     offsets.erase(file_block->offset());
     if (offsets.empty()) {
@@ -1544,6 +1554,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     int64_t disposible_queue_size = _disposable_queue.get_elements_num(cache_lock);
     _files.clear();
     _cur_cache_size = 0;
+    _cur_ttl_size = 0;
     _time_to_key.clear();
     _key_to_time.clear();
     _index_queue.clear(cache_lock);
@@ -1558,6 +1569,22 @@ std::string BlockFileCache::clear_file_cache_directly() {
     auto msg = ss.str();
     LOG(INFO) << msg;
     return msg;
+}
+
+std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {
+    std::map<size_t, FileBlockSPtr> offset_to_block;
+    std::lock_guard cache_lock(_mutex);
+    if (_files.contains(hash)) {
+        for (auto& [offset, cell] : _files[hash]) {
+            if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
+                offset_to_block.emplace(offset, cell.file_block);
+                use_cell(cell, nullptr,
+                         need_to_move(cell.file_block->cache_type(), FileCacheType::DISPOSABLE),
+                         cache_lock);
+            }
+        }
+    }
+    return offset_to_block;
 }
 
 template void BlockFileCache::remove(FileBlockSPtr file_block,

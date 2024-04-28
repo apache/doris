@@ -21,9 +21,7 @@
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/volap_table_sink_v2.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 
 class OlapTableSinkV2OperatorBuilder final
         : public DataSinkOperatorBuilder<vectorized::VOlapTableSinkV2> {
@@ -104,5 +102,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

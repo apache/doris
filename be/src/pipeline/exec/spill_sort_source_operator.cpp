@@ -152,7 +152,6 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 _status = tmp_stream->prepare_spill();
                 RETURN_IF_ERROR(_status);
 
-                Defer defer {[&]() { tmp_stream->end_spill(_status); }};
                 _shared_state->sorted_streams.emplace_back(tmp_stream);
 
                 bool eos = false;
@@ -177,7 +176,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         }
         return Status::OK();
     };
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             spill_func);
 }
 

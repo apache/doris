@@ -89,9 +89,7 @@ public:
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
     // 2. The memory in tablet cache
-    void recycle_cached_data();
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+    void clear_cache() override;
 
     // Return number of deleted stale rowsets
     int delete_expired_stale_rowsets();
@@ -205,6 +203,8 @@ public:
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
+
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

@@ -49,7 +49,7 @@ class IRuntimeFilter;
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
-class PipelineXFragmentContext;
+class PipelineFragmentContext;
 class PipelineXTask;
 } // namespace pipeline
 
@@ -76,7 +76,7 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // for only use in pipelineX
-    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                  const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -572,7 +572,18 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+    auto& pipeline_id_to_profile() {
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            // pipeline 0
+            //  pipeline task 0
+            //  pipeline task 1
+            //  pipleine task 2
+            //  .......
+            // sort by pipeline task total time
+            pipeline_profile->sort_children_by_total_time();
+        }
+        return _pipeline_id_to_profile;
+    }
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
@@ -651,7 +662,7 @@ private:
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
-    // owned by PipelineXFragmentContext
+    // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure

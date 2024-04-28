@@ -28,8 +28,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(HashJoinBuildSink, StreamingOperator)
-
 template <typename... Callables>
 struct Overload : Callables... {
     using Callables::operator()...;
@@ -137,7 +135,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     uint64_t hash_table_size = block ? block->rows() : 0;
     {
         SCOPED_TIMER(_runtime_filter_init_timer);
-        RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+        if (_should_build_hash_table) {
+            RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+        }
         RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
     }
     if (_should_build_hash_table && hash_table_size > 1) {
@@ -156,21 +156,22 @@ bool HashJoinBuildSinkLocalState::build_unique() const {
 
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    bool empty_block =
+            !_shared_state->build_block ||
+            !(_shared_state->build_block->rows() > 1); // build size always mock a row into block
     _shared_state->short_circuit_for_probe =
-            (_shared_state->_has_null_in_build_side &&
-             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !p._is_mark_join) ||
-            (!_shared_state->build_block && p._join_op == TJoinOp::INNER_JOIN &&
-             !p._is_mark_join) ||
-            (!_shared_state->build_block && p._join_op == TJoinOp::LEFT_SEMI_JOIN &&
-             !p._is_mark_join) ||
-            (!_shared_state->build_block && p._join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
-            (!_shared_state->build_block && p._join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
-            (!_shared_state->build_block && p._join_op == TJoinOp::RIGHT_ANTI_JOIN);
+            ((_shared_state->_has_null_in_build_side &&
+              p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+             (empty_block &&
+              (p._join_op == TJoinOp::INNER_JOIN || p._join_op == TJoinOp::LEFT_SEMI_JOIN ||
+               p._join_op == TJoinOp::RIGHT_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN ||
+               p._join_op == TJoinOp::RIGHT_ANTI_JOIN))) &&
+            !p._is_mark_join;
 
     //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
     //we could get the result is probe table + null-column(if need output)
     _shared_state->empty_right_table_need_probe_dispose =
-            (!_shared_state->build_block && !p._have_other_join_conjunct && !p._is_mark_join) &&
+            (empty_block && !p._have_other_join_conjunct && !p._is_mark_join) &&
             (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
              p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }

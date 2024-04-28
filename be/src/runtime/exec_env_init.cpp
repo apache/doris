@@ -142,6 +142,17 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
+// Used to calculate the num of min thread and max thread based on the passed config
+static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+    auto num_cores = doris::CpuInfo::num_cores();
+    min_num = (min_num == 0) ? num_cores : min_num;
+    max_num = (max_num == 0) ? num_cores : max_num;
+    auto factor = max_num / min_num;
+    min_num = std::min(num_cores * factor, min_num);
+    max_num = std::min(min_num * factor, max_num);
+    return {min_num, max_num};
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
@@ -184,9 +195,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
+    auto [buffered_reader_min_threads, buffered_reader_max_threads] =
+            get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
+                            config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(buffered_reader_min_threads)
+                              .set_max_threads(buffered_reader_max_threads)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
@@ -199,9 +213,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(16)
                               .build(&_s3_downloader_download_poller_thread_pool));
 
+    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+            get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
+                            config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
+                              .set_min_threads(s3_file_upload_min_threads)
+                              .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
@@ -347,15 +364,10 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler =
-            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
-    _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
+    _without_group_task_scheduler =
+            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
-    RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -610,10 +622,8 @@ void ExecEnv::destroy() {
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
-    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
-    SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);

@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -131,7 +132,9 @@ public class StatisticsCache {
     }
 
     public void preHeat() {
-        threadPool.submit(this::doPreHeat);
+        if (!FeConstants.disablePreHeat) {
+            threadPool.submit(this::doPreHeat);
+        }
     }
 
     private void doPreHeat() {

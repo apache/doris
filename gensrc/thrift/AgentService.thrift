@@ -73,6 +73,7 @@ struct TS3StorageParam {
     8: optional string root_path
     9: optional string bucket
     10: optional bool use_path_style = false
+    11: optional string token
 }
 
 struct TStoragePolicy {
@@ -403,6 +404,10 @@ struct TPublishVersionRequest {
     4: optional set<Types.TTabletId> base_tablet_ids
 }
 
+struct TVisibleVersionReq {
+    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+}
+
 struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
@@ -515,6 +520,7 @@ struct TAgentTaskRequest {
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
     34: optional TCleanTrashReq clean_trash_req
+    35: optional TVisibleVersionReq visible_version_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

@@ -46,4 +46,9 @@ public interface BlockFuncDepsPropagation extends LogicalPlan {
     default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
         // don't generate
     }
+
+    @Override
+    default void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
+    }
 }

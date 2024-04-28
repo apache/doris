@@ -301,6 +301,8 @@ public:
         std::sort(_children.begin(), _children.end(), cmp);
     }
 
+    void sort_children_by_total_time();
+
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it
     // weren't for locking.

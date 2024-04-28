@@ -734,7 +734,7 @@ public class Backend implements Writable {
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", tags: " + tagMap + "]";
+                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]";
     }
 
     public String getHealthyStatus() {
