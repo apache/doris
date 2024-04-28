@@ -797,5 +797,188 @@ suite("test_unique_model_schema_key_change","p0") {
           }, insertSql, true,"${tbName}")
      },errorMessage)
 
+     /**
+      *  Test the unique model by modify a key type from INT to other type
+      */
+     sql """ DROP TABLE IF EXISTS ${tbName} """
+     initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+             "          (\n" +
+             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+             "              `sn_number` INT COMMENT \"sn卡\",\n" +
+             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
+             "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+             "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+             "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+             "              `address` VARCHAR(500) COMMENT \"用户地址\",\n" +
+             "              `register_time` DATETIME COMMENT \"用户注册时间\"\n" +
+             "          )\n" +
+             "          UNIQUE KEY(`user_id`, `username`,`sn_number`)\n" +
+             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+             "          PROPERTIES (\n" +
+             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          );"
+
+     initTableData = "insert into ${tbName} values(123456789, 'Alice', 2147483641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (234567890, 'Bob', 214748364, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00')," +
+             "               (345678901, 'Carol', 2147483441, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00')," +
+             "               (456789012, 'Dave', 2147483141, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
+             "               (567890123, 'Eve', 2127483141, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
+             "               (678901234, 'Frank', 2124483141, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
+             "               (789012345, 'Grace', 2123483141, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
+
+     //TODO Test the unique model by modify a key type from INT  to BOOLEAN
+     errorMessage = "errCode = 2, detailMessage = Can not change INT to BOOLEAN"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number BOOLEAN  key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     // TODO Test the unique model by modify a key type from INT  to TINYINT
+     errorMessage = "errCode = 2, detailMessage = Can not change INT to TINYINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number TINYINT key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a key type from INT  to SMALLINT
+     errorMessage = "errCode = 2, detailMessage = Can not change INT to SMALLINT"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number SMALLINT key  """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a key type from INT  to BIGINT
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} MODIFY  column sn_number BIGINT key """
+     insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     waitForSchemaChangeDone({
+          sql getTableStatusSql
+          time 60
+     }, insertSql, true, "${tbName}")
+
+     //Test the unique model by modify a key type from INT  to LARGEINT
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} MODIFY  column sn_number LARGEINT key """
+     insertSql = "insert into ${tbName} values(123456689, 'Alice', 5, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     waitForSchemaChangeDone({
+          sql getTableStatusSql
+          time 60
+     }, insertSql, true, "${tbName}")
+
+     //Test the unique model by modify a key type from INT  to FLOAT
+     errorMessage = "errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead."
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number FLOAT key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a key type from INT  to DOUBLE
+     errorMessage = "errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead."
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number DOUBLE key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //TODO Test the unique model by modify a key type from INT  to DECIMAL
+     errorMessage = "errCode = 2, detailMessage = Can not change INT to DECIMAL128"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number DECIMAL(38,0) key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+
+     }, errorMessage)
+
+     //TODO Test the unique model by modify a  key type from INT  to CHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change INT to CHAR"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number CHAR(15) key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+
+     //Test the unique model by modify a key type from INT  to VARCHAR
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} MODIFY  column sn_number VARCHAR(100) key """
+     insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     waitForSchemaChangeDone({
+          sql getTableStatusSql
+          time 60
+     }, insertSql, true, "${tbName}")
+
+     //Test the unique model by modify a key type from INT  to VARCHAR
+     errorMessage = "errCode = 2, detailMessage = Can not change from wider type INT to narrower type VARCHAR(2)"
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number VARCHAR(2) key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
+
+     //Test the unique model by modify a key type from INT  to STRING
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     expectException({
+          sql initTable
+          sql initTableData
+          sql """ alter  table ${tbName} MODIFY  column sn_number STRING key """
+          insertSql = "insert into ${tbName} values(123456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          waitForSchemaChangeDone({
+               sql getTableStatusSql
+               time 60
+          }, insertSql, true, "${tbName}")
+     }, errorMessage)
 
 }
