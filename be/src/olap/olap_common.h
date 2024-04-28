@@ -34,6 +34,7 @@
 
 #include "io/io_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
@@ -470,11 +471,16 @@ class DeleteBitmap;
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
-               std::shared_ptr<DeleteBitmap> db)
-            : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
+               const std::vector<RowsetSharedPtr>& rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
+            : max_version(version),
+              txn_id(txnid),
+              rowset_ids(ids),
+              rowset_ptrs(rowset_ptrs),
+              delete_bitmap(db) {}
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
+    std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };
 
