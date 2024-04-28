@@ -72,23 +72,23 @@ public class Profile {
     // for others, it is queryID
     private String id = "";
     private boolean isPipelineX = true;
-    // summaryProfile will be serialized to disk as JSON, and we can recover it from disk
+    // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
-    // executionProfiles will be stored to disk as string, when geting profile content, we will read
-    // from disk directly.
+    // executionProfiles will be stored to storage as string, when geting profile content, we will read
+    // from storage directly.
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
-    // 1. profile is stored to disk
-    // 2. or profile is loaded from disk
+    // 1. profile is stored to storage
+    // 2. or profile is loaded from storage
     private String profileStoragePath = "";
     // isFinished means the coordinator or stmtexecutor is finished.
     // does not mean the profile report has finished, since the report is async.
     private boolean isFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
-    // if not, we will store the profile to disk, and release the memory,
+    // if not, we will store the profile to storage, and release the memory,
     // futher report will be ignored.
     // why MIN_VALUE? So that we can use PriorityQueue to sort profile by finish time.
     private long queryFinishTimestamp = Long.MIN_VALUE;
@@ -97,7 +97,7 @@ public class Profile {
     private int profileLevel = 3;
     private long autoProfileDurationMs = 500;
 
-    // Need default constructor for read from disk
+    // Need default constructor for read from storage
     public Profile() {}
 
     public Profile(boolean isEnable, int profileLevel, boolean isPipelineX, long autoProfileDurationMs) {
@@ -167,20 +167,20 @@ public class Profile {
         StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        // read execution profile from disk or generate it from memory (during query execution)
+        // read execution profile from storage or generate it from memory (during query execution)
         getExecutionProfileContent(builder);
 
         return builder.toString();
     }
 
-    // Read file if profile has been stored to disk.
+    // Read file if profile has been stored to storage.
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
             builder = new StringBuilder();
         }
 
-        if (profileHasBeenStoredToDisk()) {
-            LOG.info("Profile {} has been stored to disk, reading it from disk", id);
+        if (profileHasBeenStored()) {
+            LOG.info("Profile {} has been stored to storage, reading it from storage", id);
 
             FileInputStream fileInputStream = null;
 
@@ -197,7 +197,7 @@ public class Profile {
                 builder.append(Text.readString(dataInput));
                 return;
             } catch (Exception e) {
-                LOG.error("An error occurred while reading execution profile from disk, profile storage path: {}",
+                LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
                         profileStoragePath, e);
                 builder.append("Failed to read execution profile from " + profileStoragePath);
             } finally {
@@ -286,8 +286,8 @@ public class Profile {
         this.executionProfiles.clear();
     }
 
-    public boolean shouldStoreToDisk() {
-        if (profileHasBeenStoredToDisk()) {
+    public boolean shouldStoreToStorage() {
+        if (profileHasBeenStored()) {
             return false;
         }
 
@@ -327,7 +327,7 @@ public class Profile {
 
         if (this.queryFinishTimestamp != Long.MIN_VALUE
                     && System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
-            LOG.info("Profile {} should be stored to disk without waiting for incoming profile,"
+            LOG.info("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
                     id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
             return true;
@@ -341,15 +341,15 @@ public class Profile {
         return this.profileStoragePath;
     }
 
-    public boolean profileHasBeenStoredToDisk() {
+    public boolean profileHasBeenStored() {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
     // Profile IO threads races with Coordinator threads.
     public void markisFinished(long queryFinishTime) {
         try {
-            if (this.profileHasBeenStoredToDisk()) {
-                LOG.error("Logical error, profile {} has already been stored to disk", this.id);
+            if (this.profileHasBeenStored()) {
+                LOG.error("Logical error, profile {} has already been stored to storage", this.id);
                 return;
             }
 
@@ -398,7 +398,7 @@ public class Profile {
             res.setId(res.summaryProfile.getProfileId());
             res.profileStoragePath = path;
             res.isFinished = true;
-            LOG.debug("Read profile from disk: {}", res.summaryProfile.getProfileId());
+            LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
             return res;
         } catch (Exception exception) {
             LOG.error("read profile failed", exception);
@@ -414,14 +414,14 @@ public class Profile {
         }
     }
 
-    public void store(String systemProfileStorageDir) {
+    public void writeToStorage(String systemProfileStorageDir) {
         if (Strings.isNullOrEmpty(id)) {
             LOG.warn("store profile failed, name is empty");
             return;
         }
 
         if (!Strings.isNullOrEmpty(profileStoragePath)) {
-            LOG.error("Logical error, profile {} has already been stored to disk", id);
+            LOG.error("Logical error, profile {} has already been stored to storage", id);
             return;
         }
 
@@ -473,12 +473,19 @@ public class Profile {
         LOG.debug("Store profile: {}, path {}", id, this.profileStoragePath);
     }
 
-    public void remove() {
-        if (!profileHasBeenStoredToDisk()) {
+    // remove profile from storage
+    public void deleteFromStorage() {
+        if (!profileHasBeenStored()) {
             return;
         }
 
-        File profileFile = new File(getProfileStoragePath());
+        String storagePath = getProfileStoragePath();
+        if (Strings.isNullOrEmpty(storagePath)) {
+            LOG.warn("remove profile failed, storage path is empty");
+            return;
+        }
+
+        File profileFile = new File(storagePath);
         if (!profileFile.exists()) {
             LOG.warn("Profile {} does not exist", profileFile.getAbsolutePath());
             return;

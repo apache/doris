@@ -254,7 +254,7 @@ public class ProfilePersistentTest {
         }
 
         try {
-            profile.store(profileStoragePath);
+            profile.writeToStorage(profileStoragePath);
 
             String profileStoragePathTmp = profile.getProfileStoragePath();
             Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
@@ -267,7 +267,7 @@ public class ProfilePersistentTest {
             Assert.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
 
             // make sure file is removed
-            profile.remove();
+            profile.deleteFromStorage();
             File tmpFile = new File(profileStoragePathTmp);
             Assert.assertFalse(tmpFile.exists());
             FileUtils.deleteQuietly(profileDir);

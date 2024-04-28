@@ -113,17 +113,17 @@ public class ProfileManager extends MasterDaemon {
         }
 
         // Store profile to path
-        public void store(String profileStoragePath) {
-            profile.store(profileStoragePath);
+        public void writeToStorage(String profileStoragePath) {
+            profile.writeToStorage(profileStoragePath);
         }
 
-        // Remove profile from disk
-        public void remove() {
-            profile.remove();
+        // Remove profile from storage
+        public void deleteFromStorage() {
+            profile.deleteFromStorage();
         }
     }
 
-    // this variable is assgiened to true the first time the profile is loaded from disk
+    // this variable is assgiened to true the first time the profile is loaded from storage
     // no futher write operaiton, so no data race
     boolean isProfileLoaded = false;
 
@@ -540,15 +540,15 @@ public class ProfileManager extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        loadProfilesFromDiskIfFirstTime();
-        storeProfilesToDisk();
-        removeBrokenProfiles();
-        removeOutdatedProfilesFromDisk();
+        loadProfilesFromStorageIfFirstTime();
+        writeProfileToStorage();
+        deleteBrokenProfiles();
+        deleteOutdatedProfilesFromStorage();
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
     // string will contain profile id and its storage timestamp
-    private List<String> getOnDiskProfileInfos() {
+    private List<String> getOnStorageProfileInfos() {
         List<String> res = Lists.newArrayList();
         try {
             File profileDir = new File(PROFILE_STORAGE_PATH);
@@ -562,23 +562,23 @@ public class ProfileManager extends MasterDaemon {
                 res.add(file.getAbsolutePath());
             }
         } catch (Exception e) {
-            LOG.error("Failed to get profile meta from disk", e);
+            LOG.error("Failed to get profile meta from storage", e);
         }
 
         return res;
     }
 
-    // read profile file on disk
+    // read profile file on storage
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
-    private void loadProfilesFromDiskIfFirstTime() {
+    private void loadProfilesFromStorageIfFirstTime() {
         if (this.isProfileLoaded) {
             return;
         }
 
         try {
             LOG.info("Reading profile from {}", PROFILE_STORAGE_PATH);
-            List<String> profileDirAbsPaths = getOnDiskProfileInfos();
+            List<String> profileDirAbsPaths = getOnStorageProfileInfos();
             // Thread safe list
             List<Profile> profiles = Lists.newCopyOnWriteArrayList();
 
@@ -610,7 +610,7 @@ public class ProfileManager extends MasterDaemon {
 
             this.isProfileLoaded = true;
         } catch (Exception e) {
-            LOG.error("Failed to load query profile from disk", e);
+            LOG.error("Failed to load query profile from storage", e);
         }
     }
 
@@ -632,7 +632,7 @@ public class ProfileManager extends MasterDaemon {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
-            if (profileElement.profile.shouldStoreToDisk()) {
+            if (profileElement.profile.shouldStoreToStorage()) {
                 profilesToBeStored.add(profileElement);
             }
         });
@@ -640,10 +640,10 @@ public class ProfileManager extends MasterDaemon {
         return profilesToBeStored;
     }
 
-    // Collect profiles that need to be stored to disk
-    // Store them to disk
+    // Collect profiles that need to be stored to storage
+    // Store them to storage
     // Release the memory
-    private void storeProfilesToDisk() {
+    private void writeProfileToStorage() {
         try {
             if (Strings.isNullOrEmpty(PROFILE_STORAGE_PATH)) {
                 LOG.error("Logical error, PROFILE_STORAGE_PATH is empty");
@@ -660,12 +660,12 @@ public class ProfileManager extends MasterDaemon {
                 readLock.unlock();
             }
 
-            // Store profile to disk in parallel
+            // Store profile to storage in parallel
             List<Thread> iothreads = Lists.newArrayList();
 
             for (ProfileElement profileElement : profilesToBeStored) {
                 Thread thread = new Thread(() -> {
-                    profileElement.store(PROFILE_STORAGE_PATH);
+                    profileElement.writeToStorage(PROFILE_STORAGE_PATH);
                 });
                 iothreads.add(thread);
                 thread.start();
@@ -675,7 +675,7 @@ public class ProfileManager extends MasterDaemon {
                 thread.join();
             }
 
-            // After profile is stored to disk, the executoin profile must be ejected from memory
+            // After profile is stored to storage, the executoin profile must be ejected from memory
             // or the memory will be exhausted
 
             writeLock.lock();
@@ -695,30 +695,30 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private List<ProfileElement> getProfilesToBeRemoved() {
-        final int maxProfilesOnDisk = 5;
+        final int maxProfilesOnStorage = Config.max_profile_on_storage;
         // By order of profile storage timestamp
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
                 (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
 
-        // Collect all profiles that has been stored to disk
+        // Collect all profiles that has been stored to storage
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
-            if (profileElement.profile.profileHasBeenStoredToDisk()) {
+            if (profileElement.profile.shouldStoreToStorage()) {
                 profileDeque.add(profileElement);
             }
         });
 
         List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
 
-        while (profileDeque.size() > maxProfilesOnDisk) {
+        while (profileDeque.size() > maxProfilesOnStorage) {
             queryIdToBeRemoved.add(profileDeque.poll());
         }
 
         return queryIdToBeRemoved;
     }
 
-    // We can not store all profiles on disk, because the disk space is limited
+    // We can not store all profiles on storage, because the storage space is limited
     // So we need to remove the outdated profiles
-    private void removeOutdatedProfilesFromDisk() {
+    private void deleteOutdatedProfilesFromStorage() {
         try {
             List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
             readLock.lock();
@@ -732,7 +732,7 @@ public class ProfileManager extends MasterDaemon {
 
             for (ProfileElement profileElement : queryIdToBeRemoved) {
                 Thread thread = new Thread(() -> {
-                    profileElement.remove();
+                    profileElement.deleteFromStorage();
                 });
                 thread.start();
                 iothreads.add(thread);
@@ -771,10 +771,10 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private List<String> getBrokenProfiles() {
-        List<String> profilesOnDisk = getOnDiskProfileInfos();
+        List<String> profilesOnStorage = getOnStorageProfileInfos();
         List<String> brokenProfiles = Lists.newArrayList();
 
-        for (String profileDirAbsPath : profilesOnDisk) {
+        for (String profileDirAbsPath : profilesOnStorage) {
             int separatorIdx = profileDirAbsPath.lastIndexOf(File.separator);
             if (separatorIdx == -1) {
                 LOG.warn("Invalid profile path {}", profileDirAbsPath);
@@ -814,7 +814,7 @@ public class ProfileManager extends MasterDaemon {
         return brokenProfiles;
     }
 
-    private void removeBrokenProfiles() {
+    private void deleteBrokenProfiles() {
         List<String> brokenProfiles = getBrokenProfiles();
         List<Thread> iothreads = Lists.newArrayList();
 
