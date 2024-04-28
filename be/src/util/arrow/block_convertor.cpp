@@ -277,18 +277,18 @@ public:
     // process array type
     arrow::Status Visit(const arrow::ListType& type) override {
         auto& builder = assert_cast<arrow::ListBuilder&>(*_cur_builder);
-        auto orignal_col = _cur_col;
+        auto original_col = _cur_col;
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
 
         const vectorized::ColumnArray* array_column = nullptr;
-        if (orignal_col->is_nullable()) {
+        if (original_col->is_nullable()) {
             auto nullable_column =
-                    assert_cast<const vectorized::ColumnNullable*>(orignal_col.get());
+                    assert_cast<const vectorized::ColumnNullable*>(original_col.get());
             array_column = assert_cast<const vectorized::ColumnArray*>(
                     &nullable_column->get_nested_column());
         } else {
-            array_column = assert_cast<const vectorized::ColumnArray*>(orignal_col.get());
+            array_column = assert_cast<const vectorized::ColumnArray*>(original_col.get());
         }
         const auto& offsets = array_column->get_offsets();
         vectorized::ColumnPtr nested_column = array_column->get_data_ptr();
@@ -308,7 +308,7 @@ public:
 
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = start; i < start + num_rows; ++i) {
-            bool is_null = orignal_col->is_null_at(i);
+            bool is_null = original_col->is_null_at(i);
             if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
                 continue;

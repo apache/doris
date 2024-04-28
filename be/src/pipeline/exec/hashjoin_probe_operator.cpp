@@ -580,7 +580,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
-    // _rgiht_output_slots_flags : column of right table need to output set flag = true
+    // _right_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
     auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {

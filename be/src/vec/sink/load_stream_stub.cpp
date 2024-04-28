@@ -298,7 +298,7 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     if (_is_closed.load()) {
         return _check_cancel();
     }
-    DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
+    DCHECK(timeout_ms > 0) << "timeout_ms should be greater than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
     auto timeout_sec = timeout_ms / 1000;
     while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {

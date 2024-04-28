@@ -54,7 +54,7 @@
 namespace doris {
 
 Reusable::~Reusable() {}
-constexpr static int s_preallocted_blocks_num = 32;
+constexpr static int s_preallocated_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
@@ -105,8 +105,8 @@ void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
-    if (_block_pool.size() > s_preallocted_blocks_num) {
-        _block_pool.resize(s_preallocted_blocks_num);
+    if (_block_pool.size() > s_preallocated_blocks_num) {
+        _block_pool.resize(s_preallocated_blocks_num);
     }
 }
 
@@ -204,9 +204,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     &t_query_options));
         }
         if (uuid != 0) {
-            // could be reused by requests after, pre allocte more blocks
+            // could be reused by requests after, pre allocate more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               s_preallocted_blocks_num));
+                                               s_preallocated_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(
@@ -320,7 +320,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         _row_read_ctxs[i]._row_location = location;
         // acquire and wrap this rowset
         (*rowset_ptr)->acquire();
-        VLOG_DEBUG << "aquire rowset " << (*rowset_ptr)->rowset_id();
+        VLOG_DEBUG << "acquire rowset " << (*rowset_ptr)->rowset_id();
         _row_read_ctxs[i]._rowset_ptr = std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)>(
                 rowset_ptr.release(), &release_rowset);
     }
@@ -348,7 +348,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
                 _profile_metrics.read_stats, value,
                 !config::disable_storage_row_cache /*whether write row cache*/));
-        // serilize value to block, currently only jsonb row formt
+        // serialize value to block, currently only jsonb row format
         vectorized::JsonbSerializeUtil::jsonb_to_block(
                 _reusable->get_data_type_serdes(), value.data(), value.size(),
                 _reusable->get_col_uid_to_idx(), *_result_block,

@@ -84,7 +84,7 @@ public:
             children[key_ref] = std::move(next_node);
         }
 
-        std::vector<StringRef> get_sorted_chilren_keys() const {
+        std::vector<StringRef> get_sorted_children_keys() const {
             std::vector<StringRef> sorted_keys;
             for (auto it = children.begin(); it != children.end(); ++it) {
                 sorted_keys.push_back(it->first);

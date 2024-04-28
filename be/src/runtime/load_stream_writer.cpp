@@ -140,7 +140,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     }
     DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.null_file_writer", { file_writer = nullptr; });
     if (file_writer == nullptr) {
-        return Status::Corruption("close_segment failed, file writer {} is destoryed", segid);
+        return Status::Corruption("close_segment failed, file writer {} is destroyed", segid);
     }
     auto st = file_writer->close();
     if (!st.ok()) {
@@ -174,7 +174,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     }
     DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.null_file_writer", { file_writer = nullptr; });
     if (file_writer == nullptr) {
-        return Status::Corruption("add_segment failed, file writer {} is destoryed", segid);
+        return Status::Corruption("add_segment failed, file writer {} is destroyed", segid);
     }
     if (!file_writer->closed()) {
         return Status::Corruption("add_segment failed, segment {} is not closed",

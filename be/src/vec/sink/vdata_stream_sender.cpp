@@ -576,7 +576,7 @@ Status VDataStreamSender::open(RuntimeState* state) {
         RETURN_IF_ERROR(_row_distribution.open(_tablet_sink_row_desc));
     }
 
-    _compression_type = state->fragement_transmission_compression_type();
+    _compression_type = state->fragment_transmission_compression_type();
     return Status::OK();
 }
 

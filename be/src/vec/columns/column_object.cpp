@@ -1014,7 +1014,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
     root.SetObject();
     // sort to make output stable
-    std::vector<StringRef> sorted_keys = node_root->get_sorted_chilren_keys();
+    std::vector<StringRef> sorted_keys = node_root->get_sorted_children_keys();
     for (const StringRef& key : sorted_keys) {
         rapidjson::Value value(rapidjson::kObjectType);
         get_json_by_column_tree(value, allocator, node_root->get_child_node(key).get());
@@ -1222,9 +1222,9 @@ void ColumnObject::finalize(bool ignore_sparse) {
             continue;
         }
 
-        // Check and spilit sparse subcolumns
+        // Check and spilt sparse subcolumns
         if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
-            // TODO seperate ambiguous path
+            // TODO separate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;
         }
@@ -1242,7 +1242,7 @@ void ColumnObject::finalize() {
 void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) {
     auto& root = subcolumns.get_mutable_root()->data;
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
-        // make sure the root type is alawys as expected
+        // make sure the root type is always as expected
         ColumnPtr casted_column;
         static_cast<void>(
                 schema_util::cast_column(ColumnWithTypeAndName {root.get_finalized_column_ptr(),
@@ -1318,7 +1318,7 @@ size_t ColumnObject::filter(const Filter& filter) {
                     const auto result_size = part->filter(filter);
                     if (result_size != count) {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
                                         result_size, count);
                     }
@@ -1447,7 +1447,7 @@ void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
         // finalize has no side effect and can be safely used in const functions
         const_cast<ColumnObject*>(this)->finalize();
     }
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+    for_each_immutable_subcolumn([&](const auto& subcolumn) {
         if (n >= subcolumn.size()) {
             LOG(FATAL) << n << " greater than column size " << subcolumn.size()
                        << " sub_column_info:" << subcolumn.dump_structure()
@@ -1457,7 +1457,7 @@ void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
     });
 }
 
-void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+void ColumnObject::for_each_immutable_subcolumn(ImmutableColumnCallback callback) const {
     for (const auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             callback(*part);

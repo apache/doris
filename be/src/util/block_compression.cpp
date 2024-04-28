@@ -444,7 +444,7 @@ private:
             auto res = LZ4F_createDecompressionContext(&localCtx->ctx, LZ4F_VERSION);
             if (LZ4F_isError(res) != 0) {
                 return Status::InvalidArgument(strings::Substitute(
-                        "LZ4F_createDeompressionContext error, res=$0", LZ4F_getErrorName(res)));
+                        "LZ4F_createDecompressionContext error, res=$0", LZ4F_getErrorName(res)));
             }
             out = std::move(localCtx);
             return Status::OK();

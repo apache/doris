@@ -428,7 +428,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                     std::filesystem::file_size(local_segment_index_path, ec);
             if (ec) {
                 LOG(WARNING) << "download index file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
+                return Status::IOError("can't retrieve file_size of {}, due to {}",
                                        local_segment_index_path, ec.message());
             }
             if (local_index_file_size != segment_index_file_size) {
@@ -691,7 +691,7 @@ int64_t BackendService::get_trash_used_capacity() {
     std::vector<DataDirInfo> data_dir_infos;
     static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
-    // uses excute sql `show trash`, then update backend trash capacity too.
+    // uses execute sql `show trash`, then update backend trash capacity too.
     _engine.notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
@@ -705,7 +705,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
     std::vector<DataDirInfo> data_dir_infos;
     static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
-    // uses excute sql `show trash on <be>`, then update backend trash capacity too.
+    // uses execute sql `show trash on <be>`, then update backend trash capacity too.
     _engine.notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {

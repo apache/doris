@@ -679,7 +679,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         }
 
         std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
-        // must write somthing because s3 file writer can not writer empty file
+        // must write something because s3 file writer can not writer empty file
         st = _file_writer_impl->append({"success"});
         if (!st.ok()) {
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;

@@ -432,7 +432,7 @@ public:
         return StringRef();
     }
 
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+    void for_each_immutable_subcolumn(ImmutableColumnCallback callback) const;
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "should not call the method in column object";

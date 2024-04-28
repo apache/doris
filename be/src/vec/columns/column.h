@@ -227,7 +227,7 @@ public:
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends range of elements from other column with the same type.
-    /// Do not need throw execption in ColumnString overflow uint32, only
+    /// Do not need throw exception in ColumnString overflow uint32, only
     /// use in join
     virtual void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                                    size_t length) {
@@ -417,7 +417,7 @@ public:
      *  Q: Why use IColumn* as args type instead of MutablePtr or ImmutablePtr ?
      *  A: If use MutablePtr/ImmutablePtr as col_ptr's type, which means there could be many 
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
-     *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
+     *  happens in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
      *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
      */
@@ -429,7 +429,7 @@ public:
         __builtin_unreachable();
     }
 
-    /// Permutes elements using specified permutation. Is used in sortings.
+    /// Permutes elements using specified permutation. Is used in sorting.
     /// limit - if it isn't 0, puts only first limit elements in the result.
     using Permutation = PaddedPODArray<size_t>;
     virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
@@ -543,7 +543,7 @@ public:
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
     using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
+    using ImmutableColumnCallback = std::function<void(const IColumn&)>;
     virtual void for_each_subcolumn(ColumnCallback) {}
 
     /// Columns have equal structure.
@@ -707,7 +707,7 @@ public:
         }
     }
 
-    // todo(wb): a temporary implemention, need re-abstract here
+    // todo(wb): a temporary implementation, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
 

@@ -235,7 +235,7 @@ Status IndexChannel::check_tablet_received_rows_consistency() {
             if (tablet.second[i].second != tablet.second[0].second) {
                 return Status::InternalError(
                         "rows num written by multi replicas doest't match, load_id={}, txn_id={}, "
-                        "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
+                        "tablet_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
                         print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
                         tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
                         tablet.second[0].second);
@@ -259,7 +259,7 @@ Status IndexChannel::check_tablet_filtered_rows_consistency() {
             if (tablet.second[i].second != tablet.second[0].second) {
                 return Status::InternalError(
                         "rows num filtered by multi replicas doest't match, load_id={}, txn_id={}, "
-                        "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
+                        "tablet_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
                         print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
                         tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
                         tablet.second[0].second);
@@ -668,7 +668,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         Status st = block.serialize(state->be_exec_version(), request->mutable_block(),
                                     &uncompressed_bytes, &compressed_bytes,
-                                    state->fragement_transmission_compression_type(),
+                                    state->fragment_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
@@ -724,7 +724,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             }
         }
 
-        // eos request must be the last request-> it's a signal makeing callback function to set _add_batch_finished true.
+        // eos request must be the last request-> it's a signal making callback function to set _add_batch_finished true.
         _send_block_callback->end_mark();
         _send_finished = true;
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
@@ -1514,8 +1514,8 @@ Status VTabletWriter::close(Status exec_status) {
                     });
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
-            // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
-            // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
+            // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the corresponding
+            // BE node. So we check the number of rows filtered on each successful BE to ensure the consistency of the current load
             if (status.ok() && !_write_single_replica && _schema->is_strict_mode() &&
                 _schema->is_partial_update()) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {

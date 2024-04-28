@@ -1505,8 +1505,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
-    // Print profile content in info log is a tempoeray solution for stream load.
-    // Since stream load does not have someting like coordinator on FE, so
+    // Print profile content in info log is a temporay solution for stream load.
+    // Since stream load does not have something like coordinator on FE, so
     // backend can not report profile to FE, ant its profile can not be shown
     // in the same way with other query. So we print the profile content to info log.
     // Print profile content in log is harmful for log readability, info log will be
@@ -1619,7 +1619,7 @@ PipelineFragmentContext::collect_realtime_profile_x() const {
                            print_id(this->_query_id));
 
     // we do not have mutex to protect pipeline_id_to_profile
-    // so we need to make sure this funciton is invoked after fragment context
+    // so we need to make sure this function is invoked after fragment context
     // has already been prepared.
     if (!this->_prepared) {
         std::string msg =
@@ -1642,7 +1642,7 @@ PipelineFragmentContext::collect_realtime_profile_x() const {
 std::shared_ptr<TRuntimeProfileTree>
 PipelineFragmentContext::collect_realtime_load_channel_profile_x() const {
     // we do not have mutex to protect pipeline_id_to_profile
-    // so we need to make sure this funciton is invoked after fragment context
+    // so we need to make sure this function is invoked after fragment context
     // has already been prepared.
     if (!this->_prepared) {
         std::string msg =

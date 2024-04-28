@@ -404,7 +404,7 @@ public:
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
-    segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
+    segment_v2::CompressionTypePB fragment_transmission_compression_type() const {
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;

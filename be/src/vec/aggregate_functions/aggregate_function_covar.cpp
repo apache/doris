@@ -55,7 +55,7 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
-    LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
+    LOG(WARNING) << fmt::format("create_function_single_value with unknown type {}",
                                 argument_types[0]->get_name());
     return nullptr;
 }

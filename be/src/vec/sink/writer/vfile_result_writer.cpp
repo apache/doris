@@ -123,7 +123,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
-                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                _file_opts->parquet_compression_type, _file_opts->parquet_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:

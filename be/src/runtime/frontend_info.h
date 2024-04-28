@@ -25,7 +25,7 @@ namespace doris {
 struct FrontendInfo {
     TFrontendInfo info;
     std::time_t first_receiving_time_ms;
-    std::time_t last_reveiving_time_ms;
+    std::time_t last_receiving_time_ms;
 };
 
 } // namespace doris

@@ -329,7 +329,7 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
 
 Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     DCHECK(state != nullptr);
-    _compression_type = state->fragement_transmission_compression_type();
+    _compression_type = state->fragment_transmission_compression_type();
     return Status::OK();
 }
 

@@ -544,8 +544,8 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    // Wait infinitly until the thread is stopped and the future is set.
-    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinitly here, the reporting
+    // Wait infinity until the thread is stopped and the future is set.
+    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinity here, the reporting
     // thread may crashed because the PlanFragmentExecutor is destroyed.
     _report_thread_future.wait();
 }

@@ -1217,7 +1217,7 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
         const auto& agg_function = _aggregate_evaluators[i]->function();
-        // aggreate states are aligned based on maximum requirement
+        // aggregate states are aligned based on maximum requirement
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
 

@@ -537,7 +537,7 @@ std::string MemInfo::debug_string() {
     std::stringstream stream;
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
-    stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
+    stream << "Memory Limit: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }

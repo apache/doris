@@ -384,10 +384,10 @@ public:
     }
 
     // during merge-finalized phase, for deserialize and merge firstly,
-    // will call create --- deserialize --- merge --- destory for each rows ,
+    // will call create --- deserialize --- merge --- destroy for each rows ,
     // so need doing new (place), to create Data and read to buf, then call merge ,
-    // and during destory about deserialize, because haven't done init_udaf,
-    // so it's can't call ~Data, only to change _destory_deserialize flag.
+    // and during destroy about deserialize, because haven't done init_udaf,
+    // so it's can't call ~Data, only to change _destroy_deserialize flag.
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         this->data(place).read(buf);
