@@ -1272,7 +1272,7 @@ Status SegmentIterator::_apply_inverted_index() {
                     LOG(WARNING) << "failed to evaluate inverted index for expr_ctx: "
                                  << expr_ctx->root()->debug_string()
                                  << ", error msg: " << st.to_string();
-                    break;
+                    return st;
                 }
             } else {
                 // every single result of expr_ctx must be `and` collection relationship

@@ -156,8 +156,8 @@ Status VectorizedFnCall::eval_inverted_index(
             return _function->eval_inverted_index(context->fn_context(_fn_context_index),
                                                   pair.first, pair.second, num_rows, bitmap);
         } else {
-            return Status::InternalError("column id {} not found in colid_to_inverted_index_iter",
-                                         column_slot_ref->column_id());
+            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
+                                        column_slot_ref->column_id());
         }
     } else {
         return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
