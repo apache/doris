@@ -185,11 +185,11 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
             written_bytes =
                     hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size());
             {
-                [[maybe_unused]] Status error_ret = Status::InternalError(
-                        "write hdfs failed. fs_name: {}, path: {}, error: size exceeds", _fs_name,
-                        _path.native());
-                TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::append_hdfs_file_error",
-                                                       error_ret);
+                TEST_INJECTION_POINT_RETURN_WITH_VALUE(
+                        "HdfsFileWriter::append_hdfs_file_error",
+                        Status::InternalError(
+                                "write hdfs failed. fs_name: {}, path: {}, error: inject error",
+                                _fs_name, _path.native()));
             }
         }
         if (written_bytes < 0) {
