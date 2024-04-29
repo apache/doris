@@ -362,6 +362,12 @@ Status SegmentIterator::_lazy_init() {
         _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+    // extract for index apply col id which is slot_ref
+    if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
+        for (auto expr : _remaining_conjunct_roots) {
+            RETURN_IF_ERROR(_extract_common_expr_columns_for_index(expr));
+        }
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
@@ -726,6 +732,20 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
+Status SegmentIterator::_extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr) {
+    auto& children = expr->children();
+    for (int i = 0; i < children.size(); ++i) {
+        RETURN_IF_ERROR(_extract_common_expr_columns_for_index(children[i]));
+    }
+
+    auto node_type = expr->node_type();
+    if (node_type == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
+        _common_expr_columns_for_index.insert(slot_expr->column_id());
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         const vectorized::VExprSPtr& expr) {
     if (expr == nullptr) {
@@ -811,6 +831,17 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
         if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
+    }
+    return true;
+}
+
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return false;
+    }
+    if (_inverted_index_iterators[col_id] == nullptr) {
+        //this column without inverted index
+        return false;
     }
     return true;
 }
@@ -1206,6 +1237,46 @@ Status SegmentIterator::_apply_inverted_index() {
                            << (*it)->root()->debug_string();
             } else {
                 ++it;
+            }
+        }
+    }
+
+    // add a switch for inverted index filter
+    if (_opts.runtime_state &&
+        _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
+        // support expr to evaluate inverted index
+        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+                iter_map;
+        for (auto col_id : _common_expr_columns_for_index) {
+            auto tablet_col_id = _schema->column_id(col_id);
+            if (_check_apply_by_inverted_index(tablet_col_id)) {
+                iter_map[col_id] = std::make_pair(_storage_name_and_type[tablet_col_id],
+                                                  _inverted_index_iterators[tablet_col_id].get());
+            }
+        }
+        for (auto expr_ctx : _common_expr_ctxs_push_down) {
+            // _inverted_index_iterators has all column ids which has inverted index
+            // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
+            // if current bitmap is already empty just return
+            if (_row_bitmap.isEmpty()) {
+                break;
+            }
+            std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
+            if (Status st =
+                        expr_ctx->eval_inverted_index(iter_map, num_rows(), result_bitmap.get());
+                !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    // other code is not to be handled, we should just break
+                    LOG(WARNING) << "failed to evaluate inverted index for expr_ctx: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
+            } else {
+                // every single result of expr_ctx must be `and` collection relationship
+                _row_bitmap &= *result_bitmap;
             }
         }
     }

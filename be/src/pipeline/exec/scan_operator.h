@@ -24,38 +24,16 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
-namespace doris {
-class ExecNode;
-} // namespace doris
 namespace doris::vectorized {
 class ScannerDelegate;
 }
 
 namespace doris::pipeline {
 class PipScannerContext;
-
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
-public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class ScanOperator : public SourceOperator<vectorized::VScanNode> {
-public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
-
-    bool can_read() override; // for source
-
-    bool runtime_filters_are_ready_or_timeout() override;
-
-    std::string debug_string() const override;
-};
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:

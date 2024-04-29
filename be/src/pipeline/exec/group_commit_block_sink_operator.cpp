@@ -23,10 +23,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr GroupCommitBlockSinkOperatorBuilder::build_operator() {
-    return std::make_shared<GroupCommitBlockSinkOperator>(this, _sink);
-}
-
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();

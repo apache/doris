@@ -867,7 +867,7 @@ public class AnalysisManager implements Writable {
                 executor.submit(() -> {
                     try {
                         if (cancelled) {
-                            errorMessages.add("Query timeout or user cancelled."
+                            errorMessages.add("Query Timeout or user Cancelled."
                                     + "Could set analyze_timeout to a bigger value.");
                             return;
                         }
@@ -890,7 +890,7 @@ public class AnalysisManager implements Writable {
             }
             if (!colNames.isEmpty()) {
                 if (cancelled) {
-                    throw new RuntimeException("Cancelled");
+                    throw new RuntimeException("User Cancelled or Timeout.");
                 }
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));

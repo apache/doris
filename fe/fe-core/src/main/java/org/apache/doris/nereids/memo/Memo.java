@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -72,7 +73,6 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final Set<Long> needRefreshTableIdSet = new HashSet<>();
     private final AtomicLong refreshVersion = new AtomicLong(1);
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
@@ -416,7 +416,11 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         // TODO Support sync materialized view in the future
-        if (plan instanceof CatalogRelation && ((CatalogRelation) plan).getTable() instanceof MTMV) {
+        if (connectContext != null
+                && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
+                && plan instanceof LogicalCatalogRelation
+                && ((CatalogRelation) plan).getTable() instanceof MTMV
+                && !plan.getGroupExpression().isPresent()) {
             refreshVersion.incrementAndGet();
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();

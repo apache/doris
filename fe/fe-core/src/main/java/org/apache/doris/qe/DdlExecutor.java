@@ -131,12 +131,13 @@ import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.load.CloudLoadManager;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.CopyJob;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.sync.SyncJobManager;
@@ -445,7 +446,7 @@ public class DdlExecutor {
     }
 
     private static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
-        CopyJob job = (CopyJob) env.getLoadManager().createLoadJobFromStmt(copyStmt);
+        CopyJob job = (CopyJob) (((CloudLoadManager) env.getLoadManager()).createLoadJobFromStmt(copyStmt));
         if (!copyStmt.isAsync()) {
             // wait for execute finished
             waitJobCompleted(job);

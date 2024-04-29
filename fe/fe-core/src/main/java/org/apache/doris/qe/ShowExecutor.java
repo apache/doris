@@ -152,6 +152,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -1331,11 +1332,17 @@ public class ShowExecutor {
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
-        loadInfos.addAll(env.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+        if (!Config.isCloudMode()) {
+            loadInfos.addAll(env.getLoadManager()
+                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
+        } else {
+            loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
+                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
                         showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
                         showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
                         showStmt.isTableNameAccurateMatch(),
                         showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
+        }
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
@@ -1526,9 +1533,17 @@ public class ShowExecutor {
             throws AnalysisException {
         LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
         if (showWarningsStmt.isFindByLabel()) {
-            List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
-                    showWarningsStmt.getLabel(),
-                    true, null, null, null, false, null, false, null, false);
+            List<List<Comparable>> loadJobInfosByDb;
+            if (!Config.isCloudMode()) {
+                loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
+                        showWarningsStmt.getLabel(),
+                        true, null);
+            } else {
+                loadJobInfosByDb = ((CloudLoadManager) loadManager)
+                        .getLoadJobInfosByDb(db.getId(),
+                        showWarningsStmt.getLabel(),
+                        true, null, null, null, false, null, false, null, false);
+            }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
                 return null;
             }

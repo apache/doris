@@ -27,68 +27,15 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
 class DataSink;
 } // namespace doris
 
 namespace doris::pipeline {
-
-ExchangeSinkOperatorBuilder::ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink,
-                                                         int mult_cast_id)
-        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink), _mult_cast_id(mult_cast_id) {}
-
-OperatorPtr ExchangeSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ExchangeSinkOperator>(this, _sink, _mult_cast_id);
-}
-
-ExchangeSinkOperator::ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                                           int mult_cast_id)
-        : DataSinkOperator(operator_builder, sink), _mult_cast_id(mult_cast_id) {}
-
-Status ExchangeSinkOperator::init(const TDataSink& tsink) {
-    // -1 means not the mult cast stream sender
-    if (_mult_cast_id == -1) {
-        _dest_node_id = tsink.stream_sink.dest_node_id;
-    } else {
-        _dest_node_id = tsink.multi_cast_stream_sink.sinks[_mult_cast_id].dest_node_id;
-    }
-    return Status::OK();
-}
-
-Status ExchangeSinkOperator::prepare(RuntimeState* state) {
-    _state = state;
-    PUniqueId id;
-    id.set_hi(_state->query_id().hi);
-    id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer<vectorized::VDataStreamSender>>(
-            id, _dest_node_id, _sink->_sender_id, _state->be_number(), state);
-
-    RETURN_IF_ERROR(DataSinkOperator::prepare(state));
-    _sink->register_pipeline_channels(_sink_buffer.get());
-    return Status::OK();
-}
-
-bool ExchangeSinkOperator::can_write() {
-    return _sink_buffer->can_write() && _sink->channel_all_can_write();
-}
-
-bool ExchangeSinkOperator::is_pending_finish() const {
-    return _sink_buffer->is_pending_finish();
-}
-
-Status ExchangeSinkOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperator::close(state));
-    if (_sink_buffer) {
-        _sink_buffer->update_profile(_sink->profile());
-        _sink_buffer->close();
-    }
-    return Status::OK();
-}
 
 Status ExchangeSinkLocalState::serialize_block(vectorized::Block* src, PBlock* dest,
                                                int num_receivers) {

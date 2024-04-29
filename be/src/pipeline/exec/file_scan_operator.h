@@ -25,12 +25,9 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/format/format_common.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
-class ExecNode;
 namespace vectorized {
 class VFileScanner;
 } // namespace vectorized

@@ -149,10 +149,11 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         }};
 
         auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock) {
-            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+        if (!execution_context_lock || state->is_cancelled()) {
+            LOG(INFO) << "execution_context released, maybe query was canceled.";
             return;
         }
+
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         SCOPED_TIMER(_partition_shuffle_timer);
         auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
@@ -196,6 +197,10 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
             DCHECK(spilling_stream != nullptr);
 
+            if (UNLIKELY(state->is_cancelled())) {
+                break;
+            }
+
             const auto rows = build_block->rows();
             for (size_t idx = 1; idx != rows; ++idx) {
                 if (channel_ids[idx] == i) {
@@ -207,6 +212,12 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 const auto count = partition_indices.size();
                 if (UNLIKELY(count >= reserved_size)) {
                     if (!flush_rows(partitioned_blocks[i], spilling_stream)) {
+                        break;
+                    }
+
+                    if (UNLIKELY(state->is_cancelled())) {
+                        LOG(INFO) << "query was canceled.";
+                        partition_indices.clear();
                         break;
                     }
                 }
@@ -228,6 +239,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
               << ", eos: " << _child_eos;
     DCHECK_EQ(_spilling_streams_count, 0);
 
+    _shared_state_holder = _shared_state->shared_from_this();
     if (!_shared_state->need_to_spill) {
         _shared_state->need_to_spill = true;
         return _revoke_unpartitioned_block(state);
@@ -250,7 +262,6 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                 ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
         DCHECK(spill_io_pool != nullptr);
         auto execution_context = state->get_task_execution_context();
-        _shared_state_holder = _shared_state->shared_from_this();
 
         MonotonicStopWatch submit_timer;
         submit_timer.start();

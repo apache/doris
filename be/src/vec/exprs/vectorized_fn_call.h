@@ -27,6 +27,7 @@
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -50,6 +51,12 @@ public:
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   std::vector<size_t>& args) override;
+    Status eval_inverted_index(
+            VExprContext* context,
+            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                         segment_v2::InvertedIndexIterator*>>&
+                    colid_to_inverted_index_iter,
+            uint32_t num_rows, roaring::Roaring* bitmap) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

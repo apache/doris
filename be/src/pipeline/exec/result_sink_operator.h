@@ -20,28 +20,11 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
-class DataSink;
 class PipBufferControlBlock;
 
 namespace pipeline {
-
-class ResultSinkOperatorBuilder final : public DataSinkOperatorBuilder<vectorized::VResultSink> {
-public:
-    ResultSinkOperatorBuilder(int32_t id, DataSink* sink);
-
-    OperatorPtr build_operator() override;
-};
-
-class ResultSinkOperator final : public DataSinkOperator<vectorized::VResultSink> {
-public:
-    ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
-
-    bool can_write() override;
-};
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);

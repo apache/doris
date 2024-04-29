@@ -19,15 +19,11 @@
 
 #include <string>
 
-#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(AggSinkOperator, StreamingOperator)
 
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
