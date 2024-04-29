@@ -543,7 +543,8 @@ public:
             break;
         }
         case RuntimeFilterType::BITMAP_FILTER: {
-            // do nothing because we assume bitmap filter join always have full data
+            // use input bitmap directly because we assume bitmap filter join always have full data
+            _context->bitmap_filter_func = wrapper->_context->bitmap_filter_func;
             break;
         }
         default:
