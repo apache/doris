@@ -72,4 +72,11 @@ public class MTMVRefreshSnapshot {
             }
         }
     }
+
+    @Override
+    public String toString() {
+        return "MTMVRefreshSnapshot{"
+                + "partitionSnapshots=" + partitionSnapshots
+                + '}';
+    }
 }

@@ -405,23 +405,29 @@ public class MTMV extends OlapTable {
         }
     }
 
-    @Override
-    public String toString() {
-        return "MTMV{"
-                + ", refreshInfo=" + refreshInfo
-                + ", querySql='" + querySql + '\''
-                + ", status=" + status
-                + ", envInfo=" + envInfo
-                + ", jobInfo=" + jobInfo
-                + ", mvProperties=" + mvProperties
-                + ", relation=" + relation
-                + ", mvPartitionInfo=" + mvPartitionInfo
-                + ", refreshSnapshot=" + refreshSnapshot
-                + ", cache=" + cache
-                + ", id=" + id
-                + ", name='" + name + '\''
-                + ", qualifiedDbName='" + qualifiedDbName + '\''
-                + ", comment='" + comment + '\''
-                + '}';
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
+        final StringBuilder sb = new StringBuilder("MTMV{");
+        sb.append("refreshInfo=").append(refreshInfo);
+        sb.append(", querySql='").append(querySql).append('\'');
+        sb.append(", status=").append(status);
+        sb.append(", envInfo=").append(envInfo);
+        if (jobInfo != null) {
+            sb.append(", jobInfo=").append(jobInfo.toInfoString());
+        }
+        sb.append(", mvProperties=").append(mvProperties);
+        if (relation != null) {
+            sb.append(", relation=").append(relation.toInfoString());
+        }
+        if (mvPartitionInfo != null) {
+            sb.append(", mvPartitionInfo=").append(mvPartitionInfo.toInfoString());
+        }
+        sb.append(", refreshSnapshot=").append(refreshSnapshot);
+        sb.append(", id=").append(id);
+        sb.append(", name='").append(name).append('\'');
+        sb.append(", qualifiedDbName='").append(qualifiedDbName).append('\'');
+        sb.append(", comment='").append(comment).append('\'');
+        sb.append('}');
+        return sb.toString();
     }
 }
