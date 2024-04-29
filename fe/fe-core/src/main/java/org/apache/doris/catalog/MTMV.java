@@ -364,6 +364,51 @@ public class MTMV extends OlapTable {
         return res;
     }
 
+    // for test
+    public void setRefreshInfo(MTMVRefreshInfo refreshInfo) {
+        this.refreshInfo = refreshInfo;
+    }
+
+    // for test
+    public void setQuerySql(String querySql) {
+        this.querySql = querySql;
+    }
+
+    // for test
+    public void setStatus(MTMVStatus status) {
+        this.status = status;
+    }
+
+    // for test
+    public void setEnvInfo(EnvInfo envInfo) {
+        this.envInfo = envInfo;
+    }
+
+    // for test
+    public void setJobInfo(MTMVJobInfo jobInfo) {
+        this.jobInfo = jobInfo;
+    }
+
+    // for test
+    public void setMvProperties(Map<String, String> mvProperties) {
+        this.mvProperties = mvProperties;
+    }
+
+    // for test
+    public void setRelation(MTMVRelation relation) {
+        this.relation = relation;
+    }
+
+    // for test
+    public void setMvPartitionInfo(MTMVPartitionInfo mvPartitionInfo) {
+        this.mvPartitionInfo = mvPartitionInfo;
+    }
+
+    // for test
+    public void setRefreshSnapshot(MTMVRefreshSnapshot refreshSnapshot) {
+        this.refreshSnapshot = refreshSnapshot;
+    }
+
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
