@@ -28,6 +28,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
 namespace io {
@@ -73,7 +74,8 @@ public:
                                      const std::vector<TNetworkAddress>& broker_addresses,
                                      const std::map<std::string, std::string>& properties,
                                      const std::string& path, int64_t start_offset,
-                                     std::unique_ptr<io::FileWriter>& file_writer);
+                                     std::unique_ptr<io::FileWriter>& file_writer,
+                                     const io::FileWriterOptions* opts = nullptr);
 
     /// Create FileReader
     static Status create_file_reader(const io::FileSystemProperties& system_properties,
