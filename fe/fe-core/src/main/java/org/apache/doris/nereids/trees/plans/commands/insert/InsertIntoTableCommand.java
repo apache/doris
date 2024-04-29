@@ -132,7 +132,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
 
-        AbstractInsertExecutor insertExecutor;
+        AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
@@ -183,8 +183,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
-        } finally {
             targetTableIf.readUnlock();
+        } catch (Throwable e) {
+            targetTableIf.readUnlock();
+            // the abortTxn in onFail need to acquire table write lock
+            if (insertExecutor != null) {
+                insertExecutor.onFail(e);
+            }
+            throw e;
         }
 
         executor.setProfileType(ProfileType.LOAD);
