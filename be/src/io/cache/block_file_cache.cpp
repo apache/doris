@@ -1571,6 +1571,22 @@ std::string BlockFileCache::clear_file_cache_directly() {
     return msg;
 }
 
+std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {
+    std::map<size_t, FileBlockSPtr> offset_to_block;
+    std::lock_guard cache_lock(_mutex);
+    if (_files.contains(hash)) {
+        for (auto& [offset, cell] : _files[hash]) {
+            if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
+                offset_to_block.emplace(offset, cell.file_block);
+                use_cell(cell, nullptr,
+                         need_to_move(cell.file_block->cache_type(), FileCacheType::DISPOSABLE),
+                         cache_lock);
+            }
+        }
+    }
+    return offset_to_block;
+}
+
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock);

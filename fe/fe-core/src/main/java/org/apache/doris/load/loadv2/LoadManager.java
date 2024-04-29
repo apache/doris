@@ -21,13 +21,11 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -78,7 +76,6 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -87,7 +84,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -101,10 +97,9 @@ import java.util.stream.Collectors;
 public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
-    private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
-    private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
-    private LoadJobScheduler loadJobScheduler;
-    private CleanCopyJobScheduler cleanCopyJobScheduler;
+    protected Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
+    protected Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
+    protected LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private MysqlLoadManager mysqlLoadManager;
@@ -114,11 +109,6 @@ public class LoadManager implements Writable {
         this.loadJobScheduler = loadJobScheduler;
         this.tokenManager = new TokenManager();
         this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
-    }
-
-    public LoadManager(LoadJobScheduler loadJobScheduler, CleanCopyJobScheduler cleanCopyJobScheduler) {
-        this(loadJobScheduler);
-        this.cleanCopyJobScheduler = cleanCopyJobScheduler;
     }
 
     public void start() {
@@ -172,60 +162,9 @@ public class LoadManager implements Writable {
         return loadJob.getId();
     }
 
-    public LoadJob createLoadJobFromStmt(CopyStmt stmt) throws DdlException {
-        Database database = checkDb(stmt.getDbName());
-        long dbId = database.getId();
-        BrokerLoadJob loadJob = null;
-        if (Config.isCloudMode()) {
-            ConnectContext context = ConnectContext.get();
-            if (context != null) {
-                String cloudCluster = context.getCloudCluster();
-                if (!Strings.isNullOrEmpty(cloudCluster)) {
-                    ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cloudCluster);
-                }
-            }
-        }
-        writeLock();
-        try {
-            long unfinishedCopyJobNum = unprotectedGetUnfinishedCopyJobNum();
-            if (unfinishedCopyJobNum >= Config.cluster_max_waiting_copy_jobs) {
-                throw new DdlException(
-                        "There are more than " + unfinishedCopyJobNum + " unfinished copy jobs, please retry later.");
-            }
-            loadJob = new CopyJob(dbId, stmt.getLabel().getLabelName(), ConnectContext.get().queryId(),
-                    stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo(), stmt.getStageId(),
-                    stmt.getStageType(), stmt.getStagePrefix(), stmt.getSizeLimit(), stmt.getPattern(),
-                    stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
-            loadJob.setJobProperties(stmt.getProperties());
-            loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
-            loadJob.setTimeout(ConnectContext.get().getExecTimeout());
-            createLoadJob(loadJob);
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        } finally {
-            writeUnlock();
-        }
-        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
-
-        // The job must be submitted after edit log.
-        // It guarantees that load job has not been changed before edit log.
-        loadJobScheduler.submitJob(loadJob);
-        return loadJob;
-    }
-
-    public void createCleanCopyJobTask(CleanCopyJobTask task) throws DdlException {
-        cleanCopyJobScheduler.submitJob(task);
-    }
-
     private long unprotectedGetUnfinishedJobNum() {
         return idToLoadJob.values().stream()
                 .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
-    }
-
-    private long unprotectedGetUnfinishedCopyJobNum() {
-        return idToLoadJob.values().stream()
-                .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED))
-                .filter(j -> j instanceof CopyJob).count();
     }
 
     /**
@@ -257,7 +196,7 @@ public class LoadManager implements Writable {
     }
 
     // add load job and also add to callback factory
-    private void createLoadJob(LoadJob loadJob) {
+    protected void createLoadJob(LoadJob loadJob) {
         if (loadJob.isExpired(System.currentTimeMillis())) {
             // This can happen in replay logic.
             return;
@@ -631,26 +570,15 @@ public class LoadManager implements Writable {
      * @param labelValue    used to filter jobs which's label is or like labelValue.
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue   used to filter jobs which's state within the statesValue set.
-     * @param jobTypes      used to filter jobs which's type within the jobTypes set.
-     * @param copyIdValue        used to filter jobs which's copyId is or like copyIdValue.
-     * @param copyIdAccurateMatch  true: filter jobs which's copyId is copyIdValue.
-     *                             false: filter jobs which's copyId like itself.
      * @return The result is the list of jobInfo.
      *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
      *         The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
-            Set<String> statesValue, Set<EtlJobType> jobTypes, String copyIdValue, boolean copyIdAccurateMatch,
-            String tableNameValue, boolean tableNameAccurateMatch, String fileValue, boolean fileAccurateMatch)
-            throws AnalysisException {
+                                                      Set<String> statesValue) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
-        }
-
-        if (jobTypes == null || jobTypes.isEmpty()) {
-            jobTypes = new HashSet<>();
-            jobTypes.addAll(EnumSet.allOf(EtlJobType.class));
         }
 
         Set<JobState> states = Sets.newHashSet();
@@ -693,21 +621,8 @@ public class LoadManager implements Writable {
                 }
             }
 
-            List<LoadJob> loadJobList2 = new ArrayList<>();
             // check state
             for (LoadJob loadJob : loadJobList) {
-                if (!states.contains(loadJob.getState())) {
-                    continue;
-                }
-                if (!jobTypes.contains(loadJob.jobType)) {
-                    continue;
-                }
-                loadJobList2.add(loadJob);
-            }
-            loadJobList2 = filterCopyJob(loadJobList2, copyIdValue, copyIdAccurateMatch, c -> c.getCopyId());
-            loadJobList2 = filterCopyJob(loadJobList2, tableNameValue, tableNameAccurateMatch, c -> c.getTableName());
-            loadJobList2 = filterCopyJob(loadJobList2, fileValue, fileAccurateMatch, c -> c.getFiles());
-            for (LoadJob loadJob : loadJobList2) {
                 try {
                     if (!states.contains(loadJob.getState())) {
                         continue;
@@ -730,32 +645,6 @@ public class LoadManager implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    private List<LoadJob> filterCopyJob(List<LoadJob> loadJobList, String value, boolean accurateMatch,
-            Function<CopyJob, String> func) throws AnalysisException {
-        if (Strings.isNullOrEmpty(value)) {
-            return loadJobList;
-        }
-        List<LoadJob> loadJobList2 = Lists.newArrayList();
-        for (LoadJob loadJob : loadJobList) {
-            if (loadJob.getJobType() != EtlJobType.COPY) {
-                continue;
-            }
-            CopyJob copyJob = (CopyJob) loadJob;
-            if (accurateMatch) {
-                if (func.apply(copyJob).equalsIgnoreCase(value)) {
-                    loadJobList2.add(copyJob);
-                }
-            } else {
-                // non-accurate match
-                PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(value, false);
-                if (matcher.match(func.apply(copyJob))) {
-                    loadJobList2.add(copyJob);
-                }
-            }
-        }
-        return loadJobList2;
     }
 
     public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
@@ -875,7 +764,7 @@ public class LoadManager implements Writable {
         }
     }
 
-    private Database checkDb(String dbName) throws DdlException {
+    protected Database checkDb(String dbName) throws DdlException {
         return Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
     }
 
@@ -993,19 +882,19 @@ public class LoadManager implements Writable {
                 counter, dbId, label, isReplay);
     }
 
-    private void readLock() {
+    protected void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    protected void readUnlock() {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
+    protected void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    protected void writeUnlock() {
         lock.writeLock().unlock();
     }
 

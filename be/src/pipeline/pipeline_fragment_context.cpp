@@ -91,8 +91,8 @@
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -421,7 +421,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
-        std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
+        std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                            std::shared_ptr<Dependency>>> {
@@ -457,7 +457,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_unique<PipelineXTask>(
+                auto task = std::make_unique<PipelineTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
                         i);
@@ -486,7 +486,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         // First, set up the parent profile,task runtime state
 
-        auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
+        auto prepare_and_set_parent_profile = [&](PipelineTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
             RETURN_IF_ERROR(
                     task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
@@ -1505,6 +1505,13 @@ void PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
+    // Print profile content in info log is a tempoeray solution for stream load.
+    // Since stream load does not have someting like coordinator on FE, so
+    // backend can not report profile to FE, ant its profile can not be shown
+    // in the same way with other query. So we print the profile content to info log.
+    // Print profile content in log is harmful for log readability, info log will be
+    // full of profile content, and not just profile of stream load.
+    // We know it, but currently we do not have a cheap and good solution for this.
     if (_runtime_state->enable_profile()) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
@@ -1513,8 +1520,10 @@ void PipelineFragmentContext::_close_fragment_instance() {
         // After add the operation, the print out like that:
         // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
         // We can easily know the exec node execute time without child time consumed.
-        _runtime_state->runtime_profile()->compute_time_in_profile();
-        _runtime_state->runtime_profile()->pretty_print(&ss);
+        for (const auto& runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+            runtime_profile_ptr->pretty_print(&ss);
+        }
+
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }

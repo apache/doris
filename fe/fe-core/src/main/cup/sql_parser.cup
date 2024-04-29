@@ -363,6 +363,7 @@ terminal String
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
+    KW_DUAL,
     KW_DUPLICATE,
     KW_DYNAMIC,
     KW_ELSE,
@@ -6097,6 +6098,8 @@ type_function_name ::=
 from_clause ::=
     KW_FROM table_ref_list:l
     {: RESULT = new FromClause(l); :}
+    | KW_FROM KW_DUAL
+    {: RESULT = null; :}
     ;
 
 table_ref_list ::=

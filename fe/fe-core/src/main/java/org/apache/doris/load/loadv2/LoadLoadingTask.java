@@ -20,10 +20,8 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Status;
@@ -34,7 +32,6 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -44,7 +41,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -84,7 +80,6 @@ public class LoadLoadingTask extends LoadTask {
 
     private Profile jobProfile;
     private long beginTime;
-    private String clusterId;
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
@@ -127,43 +122,6 @@ public class LoadLoadingTask extends LoadTask {
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
-    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
-            int fileNum, UserIdentity userInfo, String clusterId) throws UserException {
-        this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
-                strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
-        boolean needCleanCtx = false;
-        try {
-            if (Config.isCloudMode()) {
-                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                        .getClusterNameByClusterId(clusterId);
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    String errMsg = "cluster name is empty, cluster id is " + clusterId;
-                    LOG.warn(errMsg);
-                    throw new UserException(errMsg);
-                }
-
-                if (ConnectContext.get() == null) {
-                    ConnectContext ctx = new ConnectContext();
-                    ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(clusterName);
-                    needCleanCtx = true;
-                } else {
-                    ConnectContext.get().setCloudCluster(clusterName);
-                }
-            }
-            planner.plan(loadId, fileStatusList, fileNum);
-            this.clusterId = clusterId;
-        } catch (Exception e) {
-            throw e;
-        } finally {
-            if (Config.isCloudMode() && needCleanCtx) {
-                ConnectContext.remove();
-            }
-        }
-    }
-
     public TUniqueId getLoadId() {
         return loadId;
     }
@@ -172,23 +130,6 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
-        boolean needCleanCtx = false;
-        if (Config.isCloudMode()) {
-            String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                    .getClusterNameByClusterId(this.clusterId);
-            if (Strings.isNullOrEmpty(clusterName)) {
-                throw new Exception("cluster is empty");
-            }
-
-            if (ConnectContext.get() == null) {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setThreadLocalInfo();
-                ctx.setCloudCluster(clusterName);
-                needCleanCtx = true;
-            } else {
-                ConnectContext.get().setCloudCluster(clusterName);
-            }
-        }
 
         retryTime--;
         beginTime = System.currentTimeMillis();
@@ -197,10 +138,6 @@ public class LoadLoadingTask extends LoadTask {
             return;
         }
         executeOnce();
-
-        if (Config.isCloudMode() && needCleanCtx) {
-            ConnectContext.remove();
-        }
     }
 
     protected void executeOnce() throws Exception {

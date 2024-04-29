@@ -34,7 +34,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         }
         is_set_workload_group_info = true;
 
-        // 1 parse topicinfo to group info
+        // 1 parse topic info to group info
         WorkloadGroupInfo workload_group_info;
         Status ret = WorkloadGroupInfo::parse_topic_info(topic_info.workload_group_info,
                                                          &workload_group_info);

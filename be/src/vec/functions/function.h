@@ -31,6 +31,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -177,6 +178,14 @@ public:
                            size_t result, size_t input_rows_count, bool dry_run = false) const {
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
+    }
+
+    virtual Status eval_inverted_index(FunctionContext* context,
+                                       const vectorized::NameAndTypePair& data_type_with_name,
+                                       segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                                       roaring::Roaring* bitmap) const {
+        return Status::NotSupported("eval_inverted_index is not supported in function: ",
+                                    get_name());
     }
 
     /// Do cleaning work when function is finished, i.e., release state variables in the
@@ -395,6 +404,15 @@ public:
         return Status::OK();
     }
 
+    // here are lots of function not extends eval_inverted_index.
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::NameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const override {
+        return Status::NotSupported("eval_inverted_index is not supported in function: ",
+                                    get_name());
+    }
+
     [[noreturn]] const DataTypes& get_argument_types() const final {
         LOG(FATAL) << "get_argument_types is not implemented for IFunction";
         __builtin_unreachable();
@@ -428,6 +446,14 @@ protected:
                         size_t result, size_t input_rows_count) const final {
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
+
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::NameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const {
+        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
+    }
+
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const final {
@@ -489,6 +515,13 @@ public:
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
                function_name == "gt" || function_name == "le" || function_name == "ge";
+    }
+
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::NameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const override {
+        return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,

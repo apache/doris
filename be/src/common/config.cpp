@@ -429,6 +429,13 @@ DEFINE_Validator(compaction_task_num_per_fast_disk,
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
+// Not compact the invisible versions, but with some limitations:
+// if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
+// if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
+DEFINE_mInt32(compaction_keep_invisible_version_timeout_sec, "1800");
+DEFINE_mInt32(compaction_keep_invisible_version_min_count, "50");
+DEFINE_mInt32(compaction_keep_invisible_version_max_count, "500");
+
 // Threshold to logging compaction trace, in seconds.
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
@@ -662,6 +669,9 @@ DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 DEFINE_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
+// number of threads = min(flush_thread_num_per_store * num_store,
+//                         max_flush_thread_num_per_cpu * num_cpu)
+DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -978,6 +988,7 @@ DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_read_cache_file_directly, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1210,6 +1221,12 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_Bool(enable_index_compaction, "false");
+
+// http scheme in S3Client to use. E.g. http or https
+DEFINE_String(s3_client_http_scheme, "http");
+DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
 
 // enable injection point in regression-test
 DEFINE_mBool(enable_injection_point, "false");

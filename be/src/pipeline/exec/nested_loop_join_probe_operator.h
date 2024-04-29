@@ -22,7 +22,6 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "util/simd/bits.h"
 
 namespace doris {

@@ -55,7 +55,7 @@ Status CloudFullCompaction::prepare_compact() {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
-    // always sync lastest rowset for full compaction
+    // always sync latest rowset for full compaction
     RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
 
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -124,7 +124,7 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
     }
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
-                "insuffient compation input rowset, #rowsets={}", _input_rowsets.size());
+                "insufficent compaction input rowset, #rowsets={}", _input_rowsets.size());
     }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
