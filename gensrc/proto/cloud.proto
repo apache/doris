@@ -781,11 +781,13 @@ message AlterObjStoreInfoRequest {
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
     optional StorageVaultPB vault = 4;
+    optional bool set_as_default_storage_vault = 5;
 }
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional bool default_storage_vault_replaced = 3;
 }
 
 message UpdateAkSkRequest {
