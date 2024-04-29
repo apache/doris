@@ -285,8 +285,18 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 if (equalTo.left().getInputSlots().size() == 1) {
-                    join.pushDownRuntimeFilter(context, generator, join, equalTo.right(),
-                            equalTo.left(), type, buildSideNdv, i);
+                    if (DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
+                        // skip
+                    } else {
+                        RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                                new RuntimeFilterPushDownVisitor.PushDownContext(
+                                        equalTo.right(), equalTo.left(), ctx, generator, type, join,
+                                        context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i,
+                                        false);
+                        Preconditions.checkArgument(pushDownContext.isValid(),
+                                "can not push down RF for target: " + equalTo.left());
+                        join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                    }
                 }
             }
         }
@@ -301,7 +311,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalCTEProducer visitPhysicalCTEProducer(PhysicalCTEProducer producer, CascadesContext context) {
+    public PhysicalCTEProducer<? extends Plan> visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> producer,
+            CascadesContext context) {
         CTEId cteId = producer.getCteId();
         context.getRuntimeFilterContext().getCteProduceMap().put(cteId, producer);
         Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
@@ -342,18 +353,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (!checkProbeSlot(ctx, targetSlot)) {
                     continue;
                 }
-                Slot scanSlot = ctx.getAliasTransferPair(targetSlot).second;
-                PhysicalRelation scan = ctx.getAliasTransferPair(targetSlot).first;
-                RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                        bitmapContains.child(0), ImmutableList.of(scanSlot),
-                        ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L,
-                        false, scan);
-                scan.addAppliedRuntimeFilter(filter);
-                ctx.addJoinToTargetMap(join, scanSlot.getExprId());
-                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(targetSlot).first,
-                        scanSlot);
-                join.addBitmapRuntimeFilterCondition(bitmapRuntimeFilterCondition);
+                RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                        new RuntimeFilterPushDownVisitor.PushDownContext(
+                                bitmapContains.child(0), bitmapContains.child(1), ctx, generator, type, join,
+                                true, -1, i, isNot);
+                Preconditions.checkArgument(pushDownContext.isValid(),
+                        "cannot push down RF target: " + bitmapContains.child(1));
+                join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
             }
         }
     }
