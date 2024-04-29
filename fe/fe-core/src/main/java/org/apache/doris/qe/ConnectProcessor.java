@@ -562,7 +562,6 @@ public class ConnectProcessor {
         LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
-
         switch (command) {
             case COM_INIT_DB:
                 handleInitDb();

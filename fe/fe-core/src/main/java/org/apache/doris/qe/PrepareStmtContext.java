@@ -23,11 +23,8 @@ import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class PrepareStmtContext {
-    private static final Logger LOG = LogManager.getLogger(PrepareStmtContext.class);
     public PrepareStmt stmt;
     public ConnectContext ctx;
     public Planner planner;
