@@ -39,10 +39,15 @@ suite("test_different_column_orders", "p0,external,hive,external_docker,external
         """
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "test_different_column_orders"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_different_column_orders_${hivePrefix}"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""

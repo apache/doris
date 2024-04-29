@@ -23,6 +23,7 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -104,7 +105,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE, fmt::format("IngestBinlog#TxnId={}", txn_id));
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
     SCOPED_ATTACH_TASK(mem_tracker);
 
     auto& request = arg->request;
@@ -845,11 +846,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
-void BackendService::clean_trash() {
-    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
-    static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
-}
-
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     _engine.tablet_manager()->get_all_tablets_storage_format(&result);
 }
@@ -1107,10 +1103,6 @@ void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo
     LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
 }
 
-void BaseBackendService::clean_trash() {
-    LOG(ERROR) << "clean_trash is not implemented";
-}
-
 void BaseBackendService::make_snapshot(TAgentResult& return_value,
                                        const TSnapshotRequest& snapshot_request) {
     LOG(ERROR) << "make_snapshot is not implemented";
@@ -1141,16 +1133,18 @@ void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     result.__set_err_msg("query_ingest_binlog is not implemented");
 }
 
-void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                         const TPreCacheAsyncRequest& request) {
-    LOG(ERROR) << "pre_cache_async is not implemented";
-    response.__set_status(Status::NotSupported("pre_cache_async is not implemented").to_thrift());
+void BaseBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                                             const TWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("warm_up_cache_async is not implemented").to_thrift());
 }
 
-void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                         const TCheckPreCacheRequest& request) {
-    LOG(ERROR) << "check_pre_cache is not implemented";
-    response.__set_status(Status::NotSupported("check_pre_cache is not implemented").to_thrift());
+void BaseBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                                   const TCheckWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "check_warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("check_warm_up_cache_async is not implemented").to_thrift());
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -1167,6 +1161,31 @@ void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
     LOG(ERROR) << "warm_up_tablets is not implemented";
     response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
+}
+
+void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                                  const TGetRealtimeExecStatusRequest& request) {
+    if (!request.__isset.id) {
+        LOG_WARNING("Invalidate argument, id is empty");
+        response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+    }
+
+    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
+    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+            request.id, report_exec_status_params.get());
+
+    if (!st.ok()) {
+        response.__set_status(st.to_thrift());
+        return;
+    }
+
+    report_exec_status_params->__set_query_id(TUniqueId());
+
+    response.__set_status(Status::OK().to_thrift());
+    response.__set_report_exec_status_params(*report_exec_status_params);
+    return;
 }
 
 } // namespace doris

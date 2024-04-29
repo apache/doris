@@ -71,11 +71,7 @@ public:
     Status open(RuntimeState* state) override {
         // Prepare the exprs to run.
         RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
-        if (state->enable_pipeline_exec()) {
-            RETURN_IF_ERROR(_writer->start_writer(state, _profile));
-        } else {
-            RETURN_IF_ERROR(_writer->open(state, _profile));
-        }
+        RETURN_IF_ERROR(_writer->open(state, _profile));
         return Status::OK();
     }
 
@@ -103,22 +99,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override {
         // if the init failed, the _writer may be nullptr. so here need check
         if (_writer) {
-            // For pipeline engine, the writer is always closed in async thread process_block
-            if (state->enable_pipeline_exec()) {
-                Status st = _writer->get_writer_status();
-                if (exec_status.ok()) {
-                    _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
-                                                               : Status::Cancelled("force close"));
-                } else {
-                    _writer->force_close(exec_status);
-                }
-                // If there is an error in process_block thread, then we should get the writer
-                // status before call force_close. For example, the thread may failed in commit
-                // transaction.
-                RETURN_IF_ERROR(st);
-            } else {
-                RETURN_IF_ERROR(_writer->close(exec_status));
-            }
+            RETURN_IF_ERROR(_writer->close(exec_status));
         }
         return DataSink::close(state, exec_status);
     }

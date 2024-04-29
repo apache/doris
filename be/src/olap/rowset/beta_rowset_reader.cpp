@@ -306,6 +306,9 @@ Status BetaRowsetReader::_init_iterator() {
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
 
+    if (_read_context->merged_rows == nullptr) {
+        _read_context->merged_rows = &_merged_rows;
+    }
     // merge or union segment iterator
     if (_is_merge_iterator()) {
         auto sequence_loc = -1;

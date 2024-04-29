@@ -18,12 +18,8 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vjoin_node_base.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
 
@@ -82,5 +78,4 @@ protected:
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

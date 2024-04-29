@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -130,6 +131,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -155,8 +157,6 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
-    public static double DEFAULT_AGGREGATE_EXPAND_RATIO = 1.05;
-
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
@@ -762,8 +762,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
+        // rows newly updated after last analyze
+        long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();
         boolean hasUnknownCol = false;
         long idxId = -1;
@@ -772,6 +776,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
                 idxId = olapScan.getSelectedIndexId();
             }
+        }
+        if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
+            LOG.debug("{} is partially analyzed, clear min/max values in column stats",
+                    catalogRelation.getTable().getName());
         }
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
@@ -789,40 +797,44 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             } else {
                 cache = getColumnStatistic(table, colName, idxId);
             }
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
             if (cache.avgSizeByte <= 0) {
-                cache = new ColumnStatisticBuilder(cache)
-                        .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
-                        .build();
+                colStatsBuilder.setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize());
             }
             if (!cache.isUnKnown) {
-                rowCount = Math.max(rowCount, cache.count);
+                rowCount = Math.max(rowCount, cache.count + deltaRowCount);
             } else {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
-                columnStatisticMap.put(slotReference, cache);
+                if (deltaRowCount > 0) {
+                    // clear min-max to avoid error estimation
+                    // for example, after yesterday data loaded, user send query about yesterday immediately.
+                    // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
+                    // estimates the filter result is zero
+                    colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
+                            .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                }
+                columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
-                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+                columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
                 hasUnknownCol = true;
             }
         }
         if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
-        Statistics stats = new Statistics(rowCount, columnStatisticMap);
-        stats = normalizeCatalogRelationColumnStatsRowCount(stats);
-        return stats;
+        return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);
     }
 
-    private Statistics normalizeCatalogRelationColumnStatsRowCount(Statistics stats) {
-        for (Expression slot : stats.columnStatistics().keySet()) {
-            ColumnStatistic colStats = stats.findColumnStatistics(slot);
-            Preconditions.checkArgument(colStats != null,
-                    "can not find col stats for %s  in table", slot.toSql());
-            stats.addColumnStats(slot,
-                    new ColumnStatisticBuilder(colStats).setCount(stats.getRowCount()).build());
+    private Statistics normalizeCatalogRelationColumnStatsRowCount(double rowCount,
+            Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap) {
+        Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (Expression slot : columnStatisticBuilderMap.keySet()) {
+            columnStatisticMap.put(slot,
+                    columnStatisticBuilderMap.get(slot).setCount(rowCount).build());
         }
-        return stats;
+        return new Statistics(rowCount, columnStatisticMap);
     }
 
     private Statistics computeTopN(TopN topN) {

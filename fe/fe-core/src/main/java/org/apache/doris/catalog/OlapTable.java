@@ -64,7 +64,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -81,6 +80,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -88,7 +88,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -638,7 +637,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToMeta.put(newIdxId, origIdxIdToMeta.get(entry.getKey()));
+            MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
+            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -800,9 +801,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
+    public Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> columns = Sets.newHashSet();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            columns.addAll(getSchemaByIndexId(indexId, full));
+        }
+        return columns;
+    }
+
+    public List<Column> getMvColumns(boolean full) {
         List<Column> columns = Lists.newArrayList();
         for (Long indexId : indexIdToMeta.keySet()) {
+            if (indexId == baseIndexId) {
+                continue;
+            }
             columns.addAll(getSchemaByIndexId(indexId, full));
         }
         return columns;
@@ -1321,29 +1333,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
     }
 
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        if (tblStats == null) {
-            return true;
-        }
-        if (!tblStats.analyzeColumns().containsAll(getColumnIndexPairs(getSchemaAllIndexes(false)
-                .stream()
-                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                .map(Column::getName)
-                .collect(Collectors.toSet())))) {
-            return true;
-        }
-        long rowCount = getRowCount();
-        if (rowCount > 0 && tblStats.rowCount == 0) {
-            return true;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
-    }
-
     @Override
-    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-        List<Pair<String, String>> ret = Lists.newArrayList();
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
         // Check the schema of all indexes for each given column name,
         // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
         for (String column : columns) {
@@ -1400,12 +1392,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return dataSize;
     }
 
-    // Get the md5 of signature string of this table with specified partitions.
+    // Get the signature string of this table with specified partitions.
     // This method is used to determine whether the tables have the same schema.
     // Contains:
-    // table name, table type, index name, index schema, short key column count, storage type
-    // bloom filter, partition type and columns, distribution type and columns.
-    // buckets number.
+    // table name, table type, index name, index schema, short key column count, storage type,
+    // bloom filter, partition type and columns, distribution type and columns, buckets number,
+    // indexes and columns.
     public String getSignature(int signatureVersion, List<String> partNames) {
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(name);
@@ -1451,11 +1443,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
 
-        String md5 = DigestUtils.md5Hex(sb.toString());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        // indexes
+        if (this.indexes != null) {
+            Map<String, Index> indexes = Maps.newTreeMap();
+            for (Index idx : this.indexes.getIndexes()) {
+                indexes.put(idx.getIndexName(), idx);
+            }
+            for (Map.Entry<String, Index> entry : indexes.entrySet()) {
+                Index idx = entry.getValue();
+                sb.append(entry.getKey());
+                sb.append(idx.getIndexType());
+                sb.append(Joiner.on(",").join(idx.getColumns()));
+            }
         }
-        return md5;
+
+        String signature = sb.toString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of table {}. signature string: {}", name, sb.toString());
+        }
+        return signature;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
@@ -1584,6 +1590,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             this.indexNameToId.put(indexName, indexId);
             MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
             indexIdToMeta.put(indexId, indexMeta);
+
+            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
+            // saved in OlapTable, because the table restore from snapshot is not reset
+            // the MaterializedIndexMeta correctly.
+            if (indexMeta.getIndexId() != indexId) {
+                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                        + " to the index saved in table {} ({}), reset it to {}",
+                        indexMeta.getIndexId(), indexName, name, id, indexId);
+                indexMeta.resetIndexIdForRestore(indexId);
+            }
         }
 
         // partition and distribution info
@@ -2041,6 +2057,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return tableProperty.getEstimatePartitionSize();
         }
         return "";
+    }
+
+    public boolean containsPartition(String partitionName) {
+        return nameToPartition.containsKey(partitionName);
     }
 
     public long getTTLSeconds() {

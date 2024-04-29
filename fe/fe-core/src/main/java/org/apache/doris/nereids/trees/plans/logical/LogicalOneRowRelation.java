@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,7 +38,9 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -156,5 +159,18 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
         builder.add(fdItem);
 
         return builder.build();
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        for (NamedExpression namedExpr : getOutputs()) {
+            if (namedExpr instanceof Alias) {
+                if (aliasMap.containsKey(namedExpr.child(0))) {
+                    fdBuilder.addEqualPair(namedExpr.toSlot(), aliasMap.get(namedExpr.child(0)).toSlot());
+                }
+                aliasMap.put(namedExpr.child(0), namedExpr);
+            }
+        }
     }
 }

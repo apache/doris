@@ -440,6 +440,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
         LOG(INFO) << ss.str();
 
         LOG(FATAL) << "not find the instance id";
+        __builtin_unreachable();
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
         if (!_rpc_channel_is_idle[id]) {

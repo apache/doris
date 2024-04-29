@@ -56,7 +56,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
-import org.apache.doris.mysql.authenticate.MysqlAuthType;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -446,7 +446,7 @@ public class Auth implements Writable {
 
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
-        return MysqlAuthType.getAuthTypeConfig() == MysqlAuthType.LDAP;
+        return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP;
     }
 
     // create user

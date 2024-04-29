@@ -815,14 +815,17 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         do {
             RowsetSharedPtr max_rowset;
             // get history data to be converted and it will check if there is hold in base tablet
-            if (!_get_versions_to_be_changed(&versions_to_be_changed, &max_rowset)) {
+            res = _get_versions_to_be_changed(&versions_to_be_changed, &max_rowset);
+            if (!res) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
 
             DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.alter_fail", {
-                LOG(WARNING) << "inject alter tablet failed. base_tablet=" << request.base_tablet_id
-                             << ", new_tablet=" << request.new_tablet_id;
+                res = Status::InternalError(
+                        "inject alter tablet failed. base_tablet={}, new_tablet={}",
+                        request.base_tablet_id, request.new_tablet_id);
+                LOG(WARNING) << "inject error. res=" << res;
                 break;
             });
 

@@ -27,10 +27,13 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.io.FileUtils;
@@ -272,5 +275,21 @@ public class VariableMgrTest {
         VariableMgr.fillValue(var, desc);
         Assert.assertTrue(desc.getLiteralExpr() instanceof BoolLiteral);
         Assert.assertEquals(Type.BOOLEAN, desc.getType());
+    }
+
+    // @@auto_commit's type should be BIGINT
+    @Test
+    public void testAutoCommitType() throws AnalysisException {
+        // Old planner
+        SessionVariable sv = new SessionVariable();
+        VariableExpr desc = new VariableExpr(SessionVariable.AUTO_COMMIT);
+        VariableMgr.fillValue(sv, desc);
+        Assert.assertEquals(Type.BIGINT, desc.getType());
+        // Nereids
+        sv = new SessionVariable();
+        String name = SessionVariable.AUTO_COMMIT;
+        SetType setType = SetType.SESSION;
+        Literal l = VariableMgr.getLiteral(sv, name, setType);
+        Assert.assertEquals(BigIntType.INSTANCE, l.getDataType());
     }
 }

@@ -123,7 +123,7 @@ suite("test_trino_hive_orc", "all_types,external,hive,external_docker,external_d
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
             String catalog_name = "test_trino_hive_orc"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

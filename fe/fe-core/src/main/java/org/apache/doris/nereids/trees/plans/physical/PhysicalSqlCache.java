@@ -32,6 +32,8 @@ import org.apache.doris.nereids.trees.plans.algebra.SqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PCacheValue;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -46,6 +48,7 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
     private final TUniqueId queryId;
     private final List<String> columnLabels;
     private final List<Expr> resultExprs;
+    private final Optional<ResultSet> resultSet;
     private final List<InternalService.PCacheValue> cacheValues;
     private final String backendAddress;
     private final String planBody;
@@ -53,12 +56,14 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
     /** PhysicalSqlCache */
     public PhysicalSqlCache(TUniqueId queryId,
             List<String> columnLabels, List<Expr> resultExprs,
-            List<InternalService.PCacheValue> cacheValues, String backendAddress, String planBody) {
+            Optional<ResultSet> resultSet, List<InternalService.PCacheValue> cacheValues,
+            String backendAddress, String planBody) {
         super(PlanType.PHYSICAL_SQL_CACHE, Optional.empty(),
                 new LogicalProperties(() -> ImmutableList.of(), () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "colNames can not be null");
         this.resultExprs = Objects.requireNonNull(resultExprs, "resultExprs can not be null");
+        this.resultSet = Objects.requireNonNull(resultSet, "resultSet can not be null");
         this.cacheValues = Objects.requireNonNull(cacheValues, "cacheValues can not be null");
         this.backendAddress = Objects.requireNonNull(backendAddress, "backendAddress can not be null");
         this.planBody = Objects.requireNonNull(planBody, "planBody can not be null");
@@ -66,6 +71,10 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     public TUniqueId getQueryId() {
         return queryId;
+    }
+
+    public Optional<ResultSet> getResultSet() {
+        return resultSet;
     }
 
     public List<InternalService.PCacheValue> getCacheValues() {
@@ -90,9 +99,18 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     @Override
     public String toString() {
+        long rowCount = 0;
+        if (resultSet.isPresent()) {
+            rowCount = resultSet.get().getResultRows().size();
+        } else {
+            for (PCacheValue cacheValue : cacheValues) {
+                rowCount += cacheValue.getRowsCount();
+            }
+        }
         return Utils.toSqlString("PhysicalSqlCache[" + id.asInt() + "]",
                 "queryId", DebugUtil.printId(queryId),
-                "backend", backendAddress
+                "backend", backendAddress,
+                "rowCount", rowCount
         );
     }
 

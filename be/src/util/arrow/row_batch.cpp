@@ -196,8 +196,8 @@ Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& outpu
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
-        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_name().empty()
-                                  ? root_expr->expr_name()
+        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
+                                  ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
         fields.push_back(
                 std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));

@@ -76,35 +76,40 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     int64_t begin_time = MonotonicMillis();
     // 1 get delete group without running queries
     std::vector<WorkloadGroupPtr> deleted_task_groups;
+    int old_wg_size = 0;
+    int new_wg_size = 0;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+        old_wg_size = _workload_groups.size();
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
-            uint64_t tg_id = iter->first;
+            uint64_t wg_id = iter->first;
             auto workload_group_ptr = iter->second;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
+            if (used_wg_id.find(wg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
-                // only when no query running in workload group, its resource can be released in BE
-                if (workload_group_ptr->query_num() == 0) {
-                    LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
-                    deleted_task_groups.push_back(workload_group_ptr);
-                }
+                LOG(INFO) << "[topic_publish_wg] shutdown wg:" << wg_id;
+            }
+            // wg is shutdown and running rum = 0, its resource can be released in BE
+            if (workload_group_ptr->can_be_dropped()) {
+                LOG(INFO) << "[topic_publish_wg]There is no query in wg" << wg_id << ", delete it.";
+                deleted_task_groups.push_back(workload_group_ptr);
             }
         }
     }
 
     // 2 stop active thread
-    for (auto& tg : deleted_task_groups) {
+    for (auto& wg : deleted_task_groups) {
         // There is not lock here, but the tg may be released by another
-        // thread, so that we should use shared ptr here, not use tg_id
-        tg->try_stop_schedulers();
+        // thread, so that we should use shared ptr here, not use wg_id
+        wg->try_stop_schedulers();
     }
 
     // 3 release resource in memory
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-        for (auto& tg : deleted_task_groups) {
-            _workload_groups.erase(tg->id());
+        for (auto& wg : deleted_task_groups) {
+            _workload_groups.erase(wg->id());
         }
+        new_wg_size = _workload_groups.size();
     }
 
     // 4 clear cgroup dir
@@ -113,28 +118,32 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     // So the first time to rmdir a cgroup path may failed.
     // Using cgdelete has no such issue.
     {
-        std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
-        if (!_cg_cpu_ctl) {
-            _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
-        }
-        if (!_is_init_succ) {
-            Status ret = _cg_cpu_ctl->init();
-            if (ret.ok()) {
-                _is_init_succ = true;
-            } else {
-                LOG(INFO) << "init workload group mgr cpu ctl failed, " << ret.to_string();
+        if (config::doris_cgroup_cpu_path != "") {
+            std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
+            if (!_cg_cpu_ctl) {
+                _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
             }
-        }
-        if (_is_init_succ) {
-            Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
-            if (!ret.ok()) {
-                LOG(WARNING) << ret.to_string();
+            if (!_is_init_succ) {
+                Status ret = _cg_cpu_ctl->init();
+                if (ret.ok()) {
+                    _is_init_succ = true;
+                } else {
+                    LOG(INFO) << "[topic_publish_wg]init workload group mgr cpu ctl failed, "
+                              << ret.to_string();
+                }
+            }
+            if (_is_init_succ) {
+                Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
+                if (!ret.ok()) {
+                    LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
+                }
             }
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
-    LOG(INFO) << "finish clear unused workload group, time cost: " << time_cost_ms
-              << "ms, deleted group size:" << deleted_task_groups.size();
+    LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
+              << "ms, deleted group size:" << deleted_task_groups.size()
+              << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
 struct WorkloadGroupMemInfo {
@@ -183,7 +192,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
     // in process_mem_used.
     // we count these cache memories equally on workload groups.
     double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
-    if (ratio >= 1.25) {
+    if (ratio <= 1.25) {
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
         std::string debug_msg = fmt::format(
                 "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "

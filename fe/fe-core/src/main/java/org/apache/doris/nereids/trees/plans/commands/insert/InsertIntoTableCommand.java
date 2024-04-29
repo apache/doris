@@ -132,7 +132,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
 
-        AbstractInsertExecutor insertExecutor;
+        AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
@@ -173,7 +173,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
                 // set hive query options
             } else {
                 // TODO: support other table types
@@ -182,8 +183,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
-        } finally {
             targetTableIf.readUnlock();
+        } catch (Throwable e) {
+            targetTableIf.readUnlock();
+            // the abortTxn in onFail need to acquire table write lock
+            if (insertExecutor != null) {
+                insertExecutor.onFail(e);
+            }
+            throw e;
         }
 
         executor.setProfileType(ProfileType.LOAD);

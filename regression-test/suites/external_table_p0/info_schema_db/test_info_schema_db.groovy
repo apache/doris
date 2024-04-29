@@ -37,7 +37,7 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
         return;
     }
 
-    String hms_port = context.config.otherConfigs.get("hms_port")
+    String hms_port = context.config.otherConfigs.get("hive2HmsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     sql """drop catalog if exists ${catalog_name}"""

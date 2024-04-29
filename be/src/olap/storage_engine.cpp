@@ -648,7 +648,6 @@ void StorageEngine::stop() {
     }
 
     THREADS_JOIN(_path_gc_threads);
-    THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
 
     if (_base_compaction_thread_pool) {
@@ -1396,6 +1395,30 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
     }
     root.AddMember(base_key, path_obj2, root.GetAllocator());
+
+    // full
+    const std::string& full = "FullCompaction";
+    rapidjson::Value full_key;
+    full_key.SetString(full.c_str(), full.length(), root.GetAllocator());
+    rapidjson::Document path_obj3;
+    path_obj3.SetObject();
+    for (auto& it : _tablet_submitted_full_compaction) {
+        const std::string& dir = it.first->path();
+        rapidjson::Value path_key;
+        path_key.SetString(dir.c_str(), dir.length(), path_obj3.GetAllocator());
+
+        rapidjson::Document arr;
+        arr.SetArray();
+
+        for (auto& tablet_id : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(tablet_id);
+            key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
+            arr.PushBack(key, root.GetAllocator());
+        }
+        path_obj3.AddMember(path_key, arr, path_obj3.GetAllocator());
+    }
+    root.AddMember(full_key, path_obj3, root.GetAllocator());
 
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);

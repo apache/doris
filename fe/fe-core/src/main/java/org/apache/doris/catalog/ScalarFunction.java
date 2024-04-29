@@ -168,6 +168,21 @@ public class ScalarFunction extends Function {
         return fn;
     }
 
+    public ScalarFunction(ScalarFunction other) {
+        super(other);
+        if (other == null) {
+            return;
+        }
+        symbolName = other.symbolName;
+        prepareFnSymbol = other.prepareFnSymbol;
+        closeFnSymbol = other.closeFnSymbol;
+    }
+
+    @Override
+    public Function clone() {
+        return new ScalarFunction(this);
+    }
+
     public void setSymbolName(String s) {
         symbolName = s;
     }

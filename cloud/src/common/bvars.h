@@ -171,6 +171,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;

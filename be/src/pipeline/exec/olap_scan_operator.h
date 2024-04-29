@@ -24,11 +24,8 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace vectorized {
 class NewOlapScanner;
@@ -58,7 +55,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
@@ -82,6 +79,8 @@ private:
     bool _should_push_down_common_expr() override;
 
     bool _storage_no_merge() override;
+
+    bool _push_down_topn() override { return true; }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 

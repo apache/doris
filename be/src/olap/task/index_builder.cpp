@@ -347,6 +347,9 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 auto column = output_rowset_schema->column(column_idx);
+                if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+                    continue;
+                }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);

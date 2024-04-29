@@ -408,8 +408,6 @@ private:
     scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
-    // threads to scan disk paths
-    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
@@ -443,6 +441,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;

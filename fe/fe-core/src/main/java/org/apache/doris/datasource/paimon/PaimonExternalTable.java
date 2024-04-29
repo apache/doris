@@ -32,16 +32,19 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable {
 
@@ -76,7 +79,7 @@ public class PaimonExternalTable extends ExternalTable {
         //init schema need update lastUpdateTime and get latest schema
         objectCreated = false;
         Table table = getOriginTable();
-        TableSchema schema = ((AbstractFileStoreTable) table).schema();
+        TableSchema schema = ((FileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
@@ -131,6 +134,13 @@ public class PaimonExternalTable extends ExternalTable {
                 MapType mapType = (MapType) dataType;
                 return new org.apache.doris.catalog.MapType(
                         paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                List<DataField> fields = rowType.getFields();
+                return new org.apache.doris.catalog.StructType(fields.stream()
+                        .map(field -> new org.apache.doris.catalog.StructField(field.name(),
+                                paimonTypeToDorisType(field.type())))
+                        .collect(Collectors.toCollection(ArrayList::new)));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:

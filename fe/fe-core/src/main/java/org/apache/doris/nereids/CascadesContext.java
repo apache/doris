@@ -50,7 +50,6 @@ import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -102,7 +101,7 @@ public class CascadesContext implements ScheduleContext {
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
-    private StatementContext statementContext;
+    private final StatementContext statementContext;
 
     private final CTEContext cteContext;
     private final RuleSet ruleSet;
@@ -616,16 +615,6 @@ public class CascadesContext implements ScheduleContext {
         consumers.add(cteConsumer);
     }
 
-    public void putCTEIdToProject(CTEId cteId, NamedExpression p) {
-        Set<NamedExpression> projects = this.statementContext.getCteIdToProjects()
-                .computeIfAbsent(cteId, k -> new HashSet<>());
-        projects.add(p);
-    }
-
-    public Set<NamedExpression> getProjectForProducer(CTEId cteId) {
-        return this.statementContext.getCteIdToProjects().get(cteId);
-    }
-
     public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
         return this.statementContext.getCteIdToConsumers();
     }
@@ -637,17 +626,6 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
-    }
-
-    public void markConsumerUnderProject(LogicalCTEConsumer cteConsumer) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects()
-                .computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
-        consumerIds.add(cteConsumer.getRelationId());
-    }
-
-    public boolean couldPruneColumnOnProducer(CTEId cteId) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects().get(cteId);
-        return consumerIds.size() == this.statementContext.getCteIdToConsumers().get(cteId).size();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
@@ -746,7 +724,7 @@ public class CascadesContext implements ScheduleContext {
 
     public static void printPlanProcess(List<PlanProcess> planProcesses) {
         for (PlanProcess row : planProcesses) {
-            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
+            LOG.info("RULE: {}\nBEFORE:\n{}\nafter:\n{}", row.ruleName, row.beforeShape, row.afterShape);
         }
     }
 

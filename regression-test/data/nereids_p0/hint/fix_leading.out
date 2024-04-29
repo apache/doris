@@ -237,10 +237,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------PhysicalProject
---------NestedLoopJoin[RIGHT_OUTER_JOIN](t3.c3 > 500)
+--------NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------PhysicalProject
---------------NestedLoopJoin[LEFT_OUTER_JOIN](t1.c1 < 200)(t1.c1 > 500)
+--------------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecReplicated]

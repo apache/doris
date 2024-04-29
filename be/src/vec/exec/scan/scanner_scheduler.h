@@ -65,6 +65,10 @@ public:
 
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
+    static int get_remote_scan_thread_num();
+
+    static int get_remote_scan_thread_queue_size();
+
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
@@ -136,16 +140,18 @@ public:
         }
     }
 
-    void reset_thread_num(int thread_num) {
-        int max_thread_num = _scan_thread_pool->max_threads();
-        if (max_thread_num != thread_num) {
-            if (thread_num > max_thread_num) {
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-            } else {
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
-            }
+    void reset_thread_num(int new_max_thread_num, int new_min_thread_num) {
+        int cur_max_thread_num = _scan_thread_pool->max_threads();
+        int cur_min_thread_num = _scan_thread_pool->min_threads();
+        if (cur_max_thread_num == new_max_thread_num && cur_min_thread_num == new_min_thread_num) {
+            return;
+        }
+        if (new_max_thread_num >= cur_max_thread_num) {
+            static_cast<void>(_scan_thread_pool->set_max_threads(new_max_thread_num));
+            static_cast<void>(_scan_thread_pool->set_min_threads(new_min_thread_num));
+        } else {
+            static_cast<void>(_scan_thread_pool->set_min_threads(new_min_thread_num));
+            static_cast<void>(_scan_thread_pool->set_max_threads(new_max_thread_num));
         }
     }
 

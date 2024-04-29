@@ -24,13 +24,16 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/options.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 class CollectionValue;
@@ -69,6 +72,25 @@ public:
     virtual int64_t file_size() const = 0;
 
     virtual void close_on_error() = 0;
+
+    // check if the column is valid for inverted index, some columns
+    // are generated from variant, but not all of them are supported
+    static bool check_column_valid(const TabletColumn& column) {
+        // bellow types are not supported in inverted index for extracted columns
+        static std::set<FieldType> invalid_types = {
+                FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                FieldType::OLAP_FIELD_TYPE_JSONB,
+                FieldType::OLAP_FIELD_TYPE_ARRAY,
+                FieldType::OLAP_FIELD_TYPE_FLOAT,
+        };
+        if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
+            return false;
+        }
+        if (column.is_variant_type()) {
+            return false;
+        }
+        return true;
+    }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);

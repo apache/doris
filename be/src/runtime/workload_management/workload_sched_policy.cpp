@@ -20,7 +20,7 @@
 namespace doris {
 
 void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool enabled,
-                               int priority,
+                               int priority, std::set<int64_t> wg_id_set,
                                std::vector<std::unique_ptr<WorkloadCondition>> condition_list,
                                std::vector<std::unique_ptr<WorkloadAction>> action_list) {
     _id = id;
@@ -30,6 +30,7 @@ void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool e
     _priority = priority;
     _condition_list = std::move(condition_list);
     _action_list = std::move(action_list);
+    _wg_id_set = wg_id_set;
 
     _first_action_type = _action_list[0]->get_action_type();
     if (_first_action_type != WorkloadActionType::MOVE_QUERY_TO_GROUP &&
@@ -50,6 +51,14 @@ bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
     if (!_enabled) {
         return false;
     }
+
+    // 1 when policy has no group(_wg_id_set.size() < 0), it should match all query
+    // 2 when policy has group, it can only match the query which has the same group
+    if (_wg_id_set.size() > 0 && (query_info_ptr->wg_id <= 0 ||
+                                  _wg_id_set.find(query_info_ptr->wg_id) == _wg_id_set.end())) {
+        return false;
+    }
+
     auto& metric_val_map = query_info_ptr->metric_map;
     for (auto& cond : _condition_list) {
         if (metric_val_map.find(cond->get_workload_metric_type()) == metric_val_map.end()) {

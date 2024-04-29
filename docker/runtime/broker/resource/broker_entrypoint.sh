@@ -87,12 +87,6 @@ show_brokers(){
         brokers=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BROKER;' 2>&1`
     fi
     echo "$brokers"
-
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BROKER;'
-    #else
-    #    timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e 'SHOW BROKER;'
-    #fi
 }
 
 
@@ -107,12 +101,6 @@ function show_frontends()
 	frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
     fi
     echo "$frontends"
-
-    #if [[ "x$DB_ADMIN_PASSWD" != "x" ]]; then
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'show frontends;'
-    #else
-    #    timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER --skip-column-names --batch -e 'show frontends;'
-    #fi
 }
 
 collect_env_info()

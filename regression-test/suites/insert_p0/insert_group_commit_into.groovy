@@ -41,7 +41,7 @@ suite("insert_group_commit_into") {
         sql "use ${dbName};"
         while (true) {
             sleep(2000)
-            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc "
+            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc limit 1"
             logger.info("alter table state: ${state}")
             if (state.size() > 0 && state[0][9] == "FINISHED") {
                 return true
@@ -67,6 +67,24 @@ suite("insert_group_commit_into") {
         assertTrue(serverInfo.contains("'status':'PREPARE'"))
         assertTrue(serverInfo.contains("'label':'group_commit_"))
         return serverInfo
+    }
+
+    def group_commit_insert_with_retry = { sql, expected_row_count ->
+        def retry = 0
+        while (true){
+            try {
+                return group_commit_insert(sql, expected_row_count)
+            } catch (Exception e) {
+                logger.warn("group_commit_insert failed, retry: " + retry + ", error: " + e.getMessage())
+                retry++
+                if (e.getMessage().contains("is blocked on schema change") && retry < 20) {
+                    sleep(1500)
+                    continue
+                } else {
+                    throw e
+                }
+            }
+        }
     }
 
     def none_group_commit_insert = { sql, expected_row_count ->
@@ -120,7 +138,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(6)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select1 """ select * from ${table} order by id, name, score asc; """
 
                 // 2. insert into and delete
                 sql """ delete from ${table} where id = 4; """
@@ -134,19 +152,19 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(11)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select2 """ select * from ${table} order by id, name, score asc; """
 
                 // 3. insert into and light schema change: add column
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """, 2
                 sql """ alter table ${table} ADD column age int after name; """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 assertTrue(getAlterTableState(), "add column should success")
                 getRowCount(17)
-                qt_sql """ select * from ${table} order by id, name,score asc; """
+                order_qt_select3 """ select * from ${table} order by id, name,score asc; """
 
                 // 4. insert into and truncate table
                 /*sql """ insert into ${table}(name, id) values('c', 3);  """
@@ -157,43 +175,43 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(2)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select4 """ select * from ${table} order by id, name, score asc; """
 
                 // 5. insert into and schema change: modify column order
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
-                group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
-                // sql """ alter table ${table} order by (id, name, score, age); """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+                sql """ alter table ${table} order by (id, name, score, age); """
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
-                // assertTrue(getAlterTableState(), "modify column order should success")
+                assertTrue(getAlterTableState(), "modify column order should success")
                 getRowCount(8)
-                qt_sql """ select id, name, score, age from ${table} order by id, name, score asc; """
+                order_qt_select5 """ select id, name, score, age from ${table} order by id, name, score asc; """
 
                 // 6. insert into and light schema change: drop column
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
-                group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+                group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
                 sql """ alter table ${table} DROP column age; """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 assertTrue(getAlterTableState(), "drop column should success")
                 getRowCount(14)
-                qt_sql """ select * from ${table} order by id, name, score asc; """
+                order_qt_select6 """ select * from ${table} order by id, name, score asc; """
 
                 // 7. insert into and add rollup
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """, 2
-                // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
-                group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                sql """ alter table ${table} ADD ROLLUP r1(name, score); """
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
 
                 getRowCount(20)
-                qt_sql """ select name, score from ${table} order by name asc; """
-
+                order_qt_select7 """ select name, score from ${table} order by name asc; """
+                assertTrue(getAlterTableState(), "add rollup should success")
 
                 /*if (item == "nereids") {
                     group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
@@ -208,7 +226,7 @@ suite("insert_group_commit_into") {
 
                 def rowCount = sql "select count(*) from ${table}"
                 logger.info("row count: " + rowCount)
-                assertEquals(rowCount[0][0], 23)
+                assertEquals(23, rowCount[0][0])
             }
         } finally {
             // try_sql("DROP TABLE ${table}")
@@ -476,7 +494,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
                 group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1
                 getRowCount(2)
-                qt_sql """ select * from ${table}; """
+                order_qt_select8 """ select * from ${table}; """
             }
         } finally {
         }

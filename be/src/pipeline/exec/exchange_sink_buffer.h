@@ -177,6 +177,7 @@ public:
             LOG(FATAL) << "brpc callback error: " << exp.what();
         } catch (...) {
             LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;

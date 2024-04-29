@@ -17,15 +17,31 @@
 
 #include "runtime/query_context.h"
 
+#include <fmt/core.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
 #include <exception>
 #include <memory>
+#include <mutex>
+#include <sstream>
+#include <utility>
 
+#include "common/logging.h"
+#include "olap/olap_common.h"
+#include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/pipeline_x/dependency.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
+#include "util/uid_util.h"
+#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -117,7 +133,11 @@ QueryContext::~QueryContext() {
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
-    LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+
+    if (enable_profile()) {
+        _report_query_profile();
+    }
+
     // Not release the the thread token in query context's dector method, because the query
     // conext may be dectored in the thread token it self. It is very dangerous and may core.
     // And also thread token need shutdown, it may take some time, may cause the thread that
@@ -146,6 +166,10 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
+
+    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
+
+    LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
@@ -301,6 +325,159 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
     return Status::OK();
+}
+
+void QueryContext::add_fragment_profile_x(
+        int fragment_id, const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profiles,
+        std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
+    if (pipeline_profiles.empty()) {
+        std::string msg = fmt::format("Add pipeline profile failed, query {}, fragment {}",
+                                      print_id(this->_query_id), fragment_id);
+        LOG_ERROR(msg);
+        DCHECK(false) << msg;
+        return;
+    }
+
+#ifndef NDEBUG
+    for (const auto& p : pipeline_profiles) {
+        DCHECK(p != nullptr) << fmt::format("Add pipeline profile failed, query {}, fragment {}",
+                                            print_id(this->_query_id), fragment_id);
+    }
+#endif
+
+    std::lock_guard<std::mutex> l(_profile_mutex);
+    LOG_INFO("Query X add fragment profile, query {}, fragment {}, pipeline profile count {} ",
+             print_id(this->_query_id), fragment_id, pipeline_profiles.size());
+
+    _profile_map_x.insert(std::make_pair(fragment_id, pipeline_profiles));
+
+    if (load_channel_profile != nullptr) {
+        _load_channel_profile_map_x.insert(std::make_pair(fragment_id, load_channel_profile));
+    }
+}
+
+void QueryContext::add_instance_profile(const TUniqueId& instance_id,
+                                        std::shared_ptr<TRuntimeProfileTree> profile,
+                                        std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
+    DCHECK(profile != nullptr) << print_id(instance_id);
+
+    std::lock_guard<std::mutex> lg(_profile_mutex);
+    _profile_map.insert(std::make_pair(instance_id, profile));
+    if (load_channel_profile != nullptr) {
+        _load_channel_profile_map.insert(std::make_pair(instance_id, load_channel_profile));
+    }
+}
+
+void QueryContext::_report_query_profile() {
+    _report_query_profile_x();
+    _report_query_profile_non_pipeline();
+}
+
+void QueryContext::_report_query_profile_non_pipeline() {
+    if (enable_pipeline_x_exec()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lg(_profile_mutex);
+    LOG_INFO("Query {}, register query profile, instance profile count {}", print_id(_query_id),
+             _profile_map.size());
+
+    for (auto& [instance_id, instance_profile] : _profile_map) {
+        std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
+        if (_load_channel_profile_map.contains(instance_id)) {
+            load_channel_profile = _load_channel_profile_map[instance_id];
+        }
+
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->register_instance_profile(
+                _query_id, this->coord_addr, instance_id, instance_profile, load_channel_profile);
+    }
+
+    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
+}
+
+void QueryContext::_report_query_profile_x() {
+    if (!enable_pipeline_x_exec()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lg(_profile_mutex);
+    LOG_INFO(
+            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
+            print_id(_query_id), _profile_map_x.size());
+
+    for (auto& [fragment_id, fragment_profile] : _profile_map_x) {
+        std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
+
+        if (_load_channel_profile_map_x.contains(fragment_id)) {
+            load_channel_profile = _load_channel_profile_map_x[fragment_id];
+        }
+
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->register_fragment_profile_x(
+                _query_id, this->coord_addr, fragment_id, fragment_profile, load_channel_profile);
+    }
+
+    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
+}
+
+std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+QueryContext::_collect_realtime_query_profile_x() const {
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> res;
+
+    if (!enable_pipeline_x_exec()) {
+        return res;
+    }
+
+    for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
+        if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
+            if (fragment_ctx == nullptr) {
+                std::string msg =
+                        fmt::format("PipelineFragmentContext is nullptr, query {} fragment_id: {}",
+                                    print_id(_query_id), fragment_id);
+                LOG_ERROR(msg);
+                DCHECK(false) << msg;
+                continue;
+            }
+
+            auto profile = fragment_ctx->collect_realtime_profile_x();
+
+            if (profile.empty()) {
+                std::string err_msg = fmt::format(
+                        "Get nothing when collecting profile, query {}, fragment_id: {}",
+                        print_id(_query_id), fragment_id);
+                LOG_ERROR(err_msg);
+                DCHECK(false) << err_msg;
+                continue;
+            }
+
+            res.insert(std::make_pair(fragment_id, profile));
+        }
+    }
+
+    return res;
+}
+
+TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
+    TReportExecStatusParams exec_status;
+
+    if (enable_pipeline_x_exec()) {
+        auto realtime_query_profile = _collect_realtime_query_profile_x();
+        std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
+
+        for (auto load_channel_profile : _load_channel_profile_map_x) {
+            if (load_channel_profile.second != nullptr) {
+                load_channel_profiles.push_back(load_channel_profile.second);
+            }
+        }
+
+        exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
+                this->_query_id, realtime_query_profile, load_channel_profiles);
+    } else {
+        auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
+        LOG_ERROR(msg);
+        DCHECK(false) << msg;
+    }
+
+    return exec_status;
 }
 
 } // namespace doris

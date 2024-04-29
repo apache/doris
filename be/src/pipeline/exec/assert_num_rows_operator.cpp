@@ -22,10 +22,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
-    return std::make_shared<AssertNumRowsOperator>(this, _node);
-}
-
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),

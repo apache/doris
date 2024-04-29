@@ -1070,7 +1070,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 

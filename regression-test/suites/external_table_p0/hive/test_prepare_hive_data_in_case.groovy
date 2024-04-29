@@ -18,10 +18,16 @@
 suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,external_docker_hive") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        setHivePrefix(hivePrefix)
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hms_port = context.config.otherConfigs.get("hms_port")
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
             hive_docker """show databases;"""
             hive_docker """drop table if exists default.test_prepare_hive_data_in_case;  """

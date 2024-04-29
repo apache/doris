@@ -278,6 +278,7 @@ public:
 
     SubcolumnsTree() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
+        SCOPED_SKIP_MEMORY_CHECK();
         strings_pool = std::make_shared<Arena>();
     }
 

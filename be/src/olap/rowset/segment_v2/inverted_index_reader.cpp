@@ -73,6 +73,47 @@
 
 namespace doris::segment_v2 {
 
+template <PrimitiveType PT>
+Status InvertedIndexQueryParamFactory::create_query_value(
+        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+    using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
+    std::unique_ptr<InvertedIndexQueryParam<PT>> param =
+            InvertedIndexQueryParam<PT>::create_unique();
+    auto&& storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(
+            *reinterpret_cast<const CPP_TYPE*>(value));
+    param->set_value(&storage_val);
+    result_param = std::move(param);
+    return Status::OK();
+};
+
+#define CREATE_QUERY_VALUE_TEMPLATE(PT)                                     \
+    template Status InvertedIndexQueryParamFactory::create_query_value<PT>( \
+            const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BOOLEAN)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_TINYINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_SMALLINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_INT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BIGINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_LARGEINT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_FLOAT)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DOUBLE)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_VARCHAR)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATE)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATEV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIME)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIMEV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_CHAR)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMALV2)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL32)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL64)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL128I)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL256)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_HLL)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_STRING)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV4)
+CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV6)
+
 std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer(
         InvertedIndexCtx* inverted_index_ctx) {
     std::unique_ptr<lucene::analysis::Analyzer> analyzer;
@@ -159,7 +200,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
-        std::unique_ptr<InvertedIndexFileReader> multi_compound_reader;
+
+        RETURN_IF_ERROR(check_file_exist(index_file_key));
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
@@ -209,13 +251,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        bool exists = false;
-        RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-        if (!exists) {
-            LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index input file {} not found", index_file_key);
-        }
+        RETURN_IF_ERROR(check_file_exist(index_file_key));
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -246,6 +282,17 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     }
     return Status::OK();
 };
+
+Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
+    bool exists = false;
+    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
+    if (!exists) {
+        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "inverted index input file {} not found", index_file_key);
+    }
+    return Status::OK();
+}
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {

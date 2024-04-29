@@ -274,6 +274,8 @@ private:
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
+    // same with _extract_common_expr_columns, but only extract columns that can be used for index
+    [[nodiscard]] Status _extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -284,6 +286,7 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
+    bool _check_apply_by_inverted_index(ColumnId col_id);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
@@ -409,6 +412,7 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
+    std::set<ColumnId> _common_expr_columns_for_index;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;

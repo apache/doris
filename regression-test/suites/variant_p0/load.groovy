@@ -259,6 +259,18 @@ suite("regression_test_variant", "nonConcurrent"){
             exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
         }
 
+        test {
+            sql """
+            create table var(
+                `content` variant
+            )distributed by hash(`content`) buckets 8
+            properties(
+              "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+        }
+
         // 13. sparse columns
         table_name = "sparse_columns"
         create_table table_name

@@ -20,31 +20,85 @@
 #include "operator.h"
 #include "vec/sink/group_commit_block_sink.h"
 
-namespace doris {
+namespace doris::pipeline {
 
-namespace pipeline {
+class GroupCommitBlockSinkOperatorX;
+class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
+    ENABLE_FACTORY_CREATOR(GroupCommitBlockSinkLocalState);
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
 
-class GroupCommitBlockSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::GroupCommitBlockSink> {
 public:
-    GroupCommitBlockSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "GroupCommitBlockSinkOperator", sink) {}
+    GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : Base(parent, state), _filter_bitmap(1024) {}
 
-    OperatorPtr build_operator() override;
+    ~GroupCommitBlockSinkLocalState() override;
+
+    Status open(RuntimeState* state) override;
+
+    Status close(RuntimeState* state, Status exec_status) override;
+
+private:
+    friend class GroupCommitBlockSinkOperatorX;
+    Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
+    Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
+    size_t _calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data);
+    void _remove_estimated_wal_bytes();
+
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor;
+
+    std::shared_ptr<LoadBlockQueue> _load_block_queue;
+    // used to calculate if meet the max filter ratio
+    std::vector<std::shared_ptr<vectorized::Block>> _blocks;
+    bool _is_block_appended = false;
+    // used for find_partition
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
+    // reuse for find_tablet.
+    std::vector<VOlapTablePartition*> _partitions;
+    bool _has_filtered_rows = false;
+    size_t _estimated_wal_bytes = 0;
+    TGroupCommitMode::type _group_commit_mode;
+    Bitmap _filter_bitmap;
 };
 
-class GroupCommitBlockSinkOperator final
-        : public DataSinkOperator<vectorized::GroupCommitBlockSink> {
-public:
-    GroupCommitBlockSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
+class GroupCommitBlockSinkOperatorX final
+        : public DataSinkOperatorX<GroupCommitBlockSinkLocalState> {
+    using Base = DataSinkOperatorX<GroupCommitBlockSinkLocalState>;
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+public:
+    GroupCommitBlockSinkOperatorX(int operator_id, const RowDescriptor& row_desc)
+            : Base(operator_id, 0), _row_desc(row_desc) {}
+
+    ~GroupCommitBlockSinkOperatorX() override = default;
+
+    Status init(const TDataSink& sink) override;
+
+    Status prepare(RuntimeState* state) override;
+
+    Status open(RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override;
+
+private:
+    friend class GroupCommitBlockSinkLocalState;
+
+    const RowDescriptor& _row_desc;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+
+    int _tuple_desc_id = -1;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
+
+    TupleDescriptor* _output_tuple_desc = nullptr;
+
+    int64_t _db_id;
+    int64_t _table_id;
+    int64_t _base_schema_version = 0;
+    UniqueId _load_id;
+    double _max_filter_ratio = 0.0;
+
+    TOlapTablePartitionParam _partition;
+    TGroupCommitMode::type _group_commit_mode;
 };
 
-OperatorPtr GroupCommitBlockSinkOperatorBuilder::build_operator() {
-    return std::make_shared<GroupCommitBlockSinkOperator>(this, _sink);
-}
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

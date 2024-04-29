@@ -56,6 +56,8 @@ public class ConfigBase {
 
         Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
 
+        String callbackClassString() default "";
+
         // description for this config item.
         // There should be 2 elements in the array.
         // The first element is the description in Chinese.
@@ -327,6 +329,16 @@ public class ConfigBase {
             anno.callback().newInstance().handle(field, value);
         } catch (Exception e) {
             throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());
+        }
+
+        String callbackClassString = anno.callbackClassString();
+        if (!Strings.isNullOrEmpty(callbackClassString)) {
+            try {
+                ConfHandler confHandler = (ConfHandler) Class.forName(anno.callbackClassString()).newInstance();
+                confHandler.handle(field, value);
+            } catch (Exception e) {
+                throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());
+            }
         }
 
         LOG.info("set config {} to {}", key, value);

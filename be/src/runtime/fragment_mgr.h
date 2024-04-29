@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "runtime/plan_fragment_executor.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -49,7 +51,6 @@ extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 namespace pipeline {
 class PipelineFragmentContext;
-class PipelineXFragmentContext;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
@@ -102,7 +103,7 @@ public:
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
     // Cancel fragment (only pipelineX).
-    // {query id fragment} -> PipelineXFragmentContext
+    // {query id fragment} -> PipelineFragmentContext
     void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
                          const PPlanFragmentCancelReason& reason, const std::string& msg = "");
 
@@ -150,6 +151,9 @@ public:
     std::string dump_pipeline_tasks(int64_t duration = 0);
 
     void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
+
+    Status get_realtime_exec_status(const TUniqueId& query_id,
+                                    TReportExecStatusParams* exec_status);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,

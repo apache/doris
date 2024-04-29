@@ -20,32 +20,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
-public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resource()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class AggSourceOperatorX;
 

@@ -646,6 +646,7 @@ struct ConvertImplNumberToJsonb {
                 writer.writeDouble(data[i]);
             } else {
                 LOG(FATAL) << "unsupported type ";
+                __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
                                        writer.getOutput()->getSize());
@@ -893,6 +894,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else {
                     LOG(FATAL) << "unsupported type ";
+                    __builtin_unreachable();
                 }
             }
 

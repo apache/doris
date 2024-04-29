@@ -62,6 +62,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
+import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -355,12 +356,12 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments);
-
     }
 
     // Used for broker load task/export task/update coordinator
+    // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance) {
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -368,6 +369,7 @@ public class Coordinator implements CoordInterface {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
+        this.queryOptions.setEnableProfile(enableProfile);
         this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
@@ -405,6 +407,7 @@ public class Coordinator implements CoordInterface {
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
+        this.queryOptions.setEnablePipelineXEngine(SessionVariable.enablePipelineEngine());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -446,6 +449,7 @@ public class Coordinator implements CoordInterface {
 
     public void setExecPipEngine(boolean vec) {
         this.queryOptions.setEnablePipelineEngine(vec);
+        this.queryOptions.setEnablePipelineXEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -489,7 +493,7 @@ public class Coordinator implements CoordInterface {
         try {
             this.backendExecStates.clear();
             this.pipelineExecContexts.clear();
-            this.queryStatus.setStatus(new Status());
+            this.queryStatus.updateStatus(TStatusCode.OK, "");
             if (this.exportFiles == null) {
                 this.exportFiles = Lists.newArrayList();
             }
@@ -999,7 +1003,9 @@ public class Coordinator implements CoordInterface {
             // 4. send and wait fragments rpc
             // 4.1 serialize fragment
             // unsetFields() must be called serially.
-            beToPipelineExecCtxs.values().stream().forEach(ctxs -> ctxs.unsetFields());
+            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
+                ctxs.unsetFields();
+            }
             // serializeFragments() can be called in parallel.
             final AtomicLong compressedSize = new AtomicLong(0);
             beToPipelineExecCtxs.values().parallelStream().forEach(ctxs -> {
@@ -1101,7 +1107,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1182,7 +1188,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1306,7 +1312,7 @@ public class Coordinator implements CoordInterface {
                 return;
             }
 
-            queryStatus.setStatus(status);
+            queryStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
             if (status.getErrorCode() == TStatusCode.TIMEOUT) {
                 cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
             } else {
@@ -1470,7 +1476,7 @@ public class Coordinator implements CoordInterface {
                         + "so that send cancel to BE again",
                         DebugUtil.printId(queryId), queryStatus.toString(), new Exception());
             } else {
-                queryStatus.setStatus(Status.CANCELLED);
+                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());
@@ -2077,7 +2083,7 @@ public class Coordinator implements CoordInterface {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2090,7 +2096,7 @@ public class Coordinator implements CoordInterface {
                             }
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().shouldUseOneInstance()) {
+                            if (node.get().shouldUseOneInstance(context)) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2748,6 +2754,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+
+    public boolean isTimeout() {
+        return System.currentTimeMillis() > this.timeoutDeadline;
+    }
+
     public void setMemTableOnSinkNode(boolean enableMemTableOnSinkNode) {
         this.queryOptions.setEnableMemtableOnSinkNode(enableMemTableOnSinkNode);
     }
@@ -3137,8 +3148,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3323,8 +3333,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3388,8 +3397,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3809,10 +3817,15 @@ public class Coordinator implements CoordInterface {
                 int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceExecParams.size());
                 memLimit = queryOptions.getMemLimit() / rate;
             }
-            Set<Integer> topnFilterSources = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
-                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
-                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
+            Set<Integer> topnFilterSources = Sets.newLinkedHashSet();
+            for (ScanNode scanNode : scanNodes) {
+                if (scanNode instanceof OlapScanNode) {
+                    for (SortNode sortNode : ((OlapScanNode) scanNode).getTopnFilterSortNodes()) {
+                        topnFilterSources.add(sortNode.getId().asInt());
+                    }
+                }
+            }
+
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
@@ -3839,6 +3852,7 @@ public class Coordinator implements CoordInterface {
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
                     params.query_options.setEnablePipelineEngine(true);
+                    params.query_options.setEnablePipelineXEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

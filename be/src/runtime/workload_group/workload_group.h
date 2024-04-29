@@ -46,7 +46,6 @@ class SimplifiedScanScheduler;
 }
 
 namespace pipeline {
-class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 
@@ -119,7 +118,7 @@ public:
             // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
-                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    "Failed add query to wg {}, the workload group is shutdown. host: {}", _id,
                     BackendOptions::get_localhost());
         }
         _query_ctxs.insert({query_id, query_ctx});
@@ -134,6 +133,11 @@ public:
     void shutdown() {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         _is_shutdown = true;
+    }
+
+    bool can_be_dropped() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _is_shutdown && _query_ctxs.size() == 0;
     }
 
     int query_num() {
