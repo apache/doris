@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
@@ -170,5 +171,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
         return visitCommand(unsupportedCommand, context);
+    }
+
+    default R visitCreateTableLikeCommand(CreateTableLikeCommand createTableLikeCommand, C context) {
+        return visitCommand(createTableLikeCommand, context);
     }
 }

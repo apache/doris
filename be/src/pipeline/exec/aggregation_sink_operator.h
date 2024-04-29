@@ -19,8 +19,7 @@
 
 #include <stdint.h>
 
-#include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 

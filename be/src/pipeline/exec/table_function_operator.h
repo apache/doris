@@ -21,7 +21,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vtable_function_node.h"
 
 namespace doris {

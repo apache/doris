@@ -31,8 +31,8 @@
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
+#include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"

@@ -20,11 +20,9 @@
 
 
 suite("test_create_table_auto_partition") {
-    def testTable = "test_create_table_auto_partition_table"
-
-    sql "DROP TABLE IF EXISTS ${testTable}"
+    sql "DROP TABLE IF EXISTS test_create_table_auto_partition_table"
     sql """
-    CREATE TABLE `${testTable}` (
+    CREATE TABLE `test_create_table_auto_partition_table` (
         `TIME_STAMP` datev2 NOT NULL COMMENT 'Date of collection'
     ) ENGINE=OLAP
     DUPLICATE KEY(`TIME_STAMP`)
@@ -38,7 +36,7 @@ suite("test_create_table_auto_partition") {
     """
 
     // The AUTO PARTITION func call must wrapped with ().
-    def text = sql_return_maparray "show create table ${testTable}"
+    def text = sql_return_maparray "show create table test_create_table_auto_partition_table"
     def createTable = text[0]['Create Table']
     assertTrue(createTable.contains("AUTO PARTITION BY RANGE (date_trunc(`TIME_STAMP`, 'month')"))
 }

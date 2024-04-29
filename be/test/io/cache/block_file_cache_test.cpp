@@ -2529,6 +2529,7 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
         settings.max_file_block_size = 30;
         settings.max_query_cache_size = 15;
         io::CacheContext context;
+        context.cache_type = FileCacheType::NORMAL;
         context.query_id = query_id;
         auto key = io::BlockFileCache::hash("key1");
 
@@ -3680,6 +3681,7 @@ TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
