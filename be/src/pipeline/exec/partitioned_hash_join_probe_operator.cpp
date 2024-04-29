@@ -335,10 +335,11 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     auto read_func = [this, state, &spilled_stream, &mutable_block, execution_context,
                       submit_timer] {
         auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock) {
-            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+        if (!execution_context_lock || state->is_cancelled()) {
+            LOG(INFO) << "execution_context released, maybe query was canceled.";
             return;
         }
+
         SCOPED_ATTACH_TASK(state);
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_recovery_build_timer);
@@ -361,6 +362,11 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
 
             if (block.empty()) {
                 continue;
+            }
+
+            if (UNLIKELY(state->is_cancelled())) {
+                LOG(INFO) << "recovery build block when canceled.";
+                break;
             }
 
             DCHECK_EQ(mutable_block->columns(), block.columns());
