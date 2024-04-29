@@ -783,7 +783,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         for (SlotReference slotReference : slotSet) {
             boolean usedAsKey = false;
-            if (ConnectContext.get() != null && slotReference.getColumn().isPresent()) {
+            if (ConnectContext.get() != null && slotReference.getColumn().isPresent()
+                    && ConnectContext.get().getStatementContext() != null) {
                 usedAsKey = ConnectContext.get().getStatementContext().isKeyColumn(slotReference.getColumn().get());
             }
             String colName = slotReference.getColumn().isPresent()

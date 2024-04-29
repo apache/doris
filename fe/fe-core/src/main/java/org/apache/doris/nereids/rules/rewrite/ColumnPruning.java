@@ -133,9 +133,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         keys = keyColumnCollector.keys;
         if (ConnectContext.get() != null) {
             StatementContext stmtContext = ConnectContext.get().getStatementContext();
-            for (Slot key : keys) {
-                if (key instanceof SlotReference) {
-                    ((SlotReference) key).getColumn().ifPresent(stmtContext::addKeyColumn);
+            // in ut, stmtContext is null
+            if (stmtContext != null) {
+                for (Slot key : keys) {
+                    if (key instanceof SlotReference) {
+                        ((SlotReference) key).getColumn().ifPresent(stmtContext::addKeyColumn);
+                    }
                 }
             }
         }
