@@ -162,7 +162,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             commonParams.put("partId", "\'" + partId + "\'");
         }
         commonParams.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        commonParams.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        commonParams.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         commonParams.put("id", id);
         commonParams.put("catalogId", String.valueOf(catalog.getId()));
         commonParams.put("dbId", String.valueOf(db.getId()));
