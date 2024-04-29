@@ -68,7 +68,8 @@ suite("test_default_uuid") {
         )
         UNIQUE KEY(K)
         DISTRIBUTED BY HASH(k)
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1",
+                   "enable_unique_key_merge_on_write" = "true");
     """
 
     sql "set enable_unique_key_partial_update=true;" 

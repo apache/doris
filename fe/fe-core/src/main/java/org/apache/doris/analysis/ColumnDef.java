@@ -101,6 +101,9 @@ public class ColumnDef {
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
+        public static DefaultValue CURRENT_DATE_DEFAULT_VALUE
+                = new DefaultValue(true, CURRENT_DATE, CURRENT_DATE.toLowerCase());
+        public static DefaultValue UUID_DEFAULT_VALUE = new DefaultValue(true, UUID, "uuid");
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
