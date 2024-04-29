@@ -658,10 +658,9 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.alibaba/druid -->
         <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>druid</artifactId>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
         </dependency>
 
         <!-- for aliyun dlf -->
