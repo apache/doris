@@ -67,7 +67,8 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                                        const std::vector<TNetworkAddress>& broker_addresses,
                                        const std::map<std::string, std::string>& properties,
                                        const std::string& path, int64_t start_offset,
-                                       std::unique_ptr<io::FileWriter>& file_writer) {
+                                       std::unique_ptr<io::FileWriter>& file_writer,
+                                       const io::FileWriterOptions* opts) {
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
@@ -76,7 +77,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_BROKER: {
         std::shared_ptr<io::BrokerFileSystem> fs;
         RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addresses[0], properties, &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
+        RETURN_IF_ERROR(fs->create_file(path, &file_writer, opts));
         break;
     }
     case TFileType::FILE_S3: {
@@ -87,7 +88,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
         std::shared_ptr<io::S3FileSystem> fs;
         RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
+        RETURN_IF_ERROR(fs->create_file(path, &file_writer, opts));
         break;
     }
     case TFileType::FILE_HDFS: {
@@ -95,7 +96,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
         std::shared_ptr<io::HdfsFileSystem> fs;
         RETURN_IF_ERROR(
                 io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
+        RETURN_IF_ERROR(fs->create_file(path, &file_writer, opts));
         break;
     }
     default:

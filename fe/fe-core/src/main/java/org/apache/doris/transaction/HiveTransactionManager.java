@@ -21,23 +21,32 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
+import org.apache.doris.fs.FileSystemProvider;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 public class HiveTransactionManager implements TransactionManager {
 
     private final Map<Long, HMSTransaction> transactions = new ConcurrentHashMap<>();
     private final HiveMetadataOps ops;
 
-    public HiveTransactionManager(HiveMetadataOps ops) {
+    private final FileSystemProvider fileSystemProvider;
+
+    private final Executor fileSystemExecutor;
+
+    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider,
+            Executor fileSystemExecutor) {
         this.ops = ops;
+        this.fileSystemProvider = fileSystemProvider;
+        this.fileSystemExecutor = fileSystemExecutor;
     }
 
     @Override
     public long begin() {
         long id = Env.getCurrentEnv().getNextId();
-        HMSTransaction hiveTransaction = new HMSTransaction(ops);
+        HMSTransaction hiveTransaction = new HMSTransaction(ops, fileSystemProvider, fileSystemExecutor);
         transactions.put(id, hiveTransaction);
         return id;
     }

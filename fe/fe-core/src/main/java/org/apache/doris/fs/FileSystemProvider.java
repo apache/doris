@@ -15,17 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.fs;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.fs.FileSystemProvider;
+import org.apache.doris.datasource.SessionContext;
 
-import java.util.concurrent.Executor;
-
-public class TransactionManagerFactory {
-
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
-    }
+public interface FileSystemProvider {
+    FileSystem get(SessionContext ctx);
 }
