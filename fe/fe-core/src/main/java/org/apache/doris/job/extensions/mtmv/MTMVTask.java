@@ -441,9 +441,6 @@ public class MTMVTask extends AbstractTask {
                 + ", needRefreshPartitions=" + needRefreshPartitions
                 + ", completedPartitions=" + completedPartitions
                 + ", refreshMode=" + refreshMode
-                + ", mtmv=" + mtmv
-                + ", relation=" + relation
-                + ", executor=" + executor
                 + "} " + super.toString();
     }
 }
