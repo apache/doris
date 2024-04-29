@@ -108,11 +108,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // check mv plan is valid or not
-            boolean valid = checkPattern(context.getStructInfo()) && context.getStructInfo().isValid();
-            if (!valid) {
-                context.recordFailReason(context.getStructInfo(),
-                        "View struct info is invalid", () -> String.format(", view plan is %s",
-                                context.getStructInfo().getOriginalPlan().treeString()));
+            if (!isMaterializationValid(cascadesContext, context)) {
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
@@ -666,6 +662,40 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
         return plan.getGroupExpression().isPresent()
                 && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+    }
+
+    // check mv plan is valid or not, this can use cache for performance
+    private boolean isMaterializationValid(CascadesContext cascadesContext, MaterializationContext context) {
+        long materializationId = context.getMaterializationQualifier().hashCode();
+        Boolean cachedCheckResult = cascadesContext.getMemo().materializationHasChecked(this.getClass(),
+                materializationId);
+        if (cachedCheckResult == null) {
+            // need check in real time
+            boolean checkResult = checkPattern(context.getStructInfo());
+            if (!checkResult) {
+                context.recordFailReason(context.getStructInfo(),
+                        "View struct info is invalid", () -> String.format("view plan is %s",
+                                context.getStructInfo().getOriginalPlan().treeString()));
+                cascadesContext.getMemo().recordMaterializationCheckResult(this.getClass(), materializationId,
+                        false);
+                return false;
+            } else {
+                cascadesContext.getMemo().recordMaterializationCheckResult(this.getClass(),
+                        materializationId, true);
+            }
+        } else if (!cachedCheckResult) {
+            context.recordFailReason(context.getStructInfo(),
+                    "View struct info is invalid", () -> String.format("view plan is %s",
+                            context.getStructInfo().getOriginalPlan().treeString()));
+            return false;
+        }
+        if (!context.getStructInfo().isValid()) {
+            context.recordFailReason(context.getStructInfo(),
+                    "View struct info is invalid", () -> String.format("view plan is %s",
+                            context.getStructInfo().getOriginalPlan().treeString()));
+            return false;
+        }
+        return true;
     }
 
     /**
