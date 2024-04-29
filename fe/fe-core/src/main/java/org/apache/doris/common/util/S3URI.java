@@ -68,10 +68,10 @@ public class S3URI {
     public static final String SCHEME_DELIM = "://";
     public static final String PATH_DELIM = "/";
     private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n",
-            "bos", "oss", "cos", "obs");
+            "bos", "oss", "cos", "cosn", "obs");
 
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
-            "bos", "oss", "cos", "obs");
+            "bos", "oss", "cos", "cosn", "obs");
 
     private URI uri;
 
