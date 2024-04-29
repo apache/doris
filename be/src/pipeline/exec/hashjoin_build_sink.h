@@ -21,23 +21,8 @@
 
 #include "join_build_sink_operator.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
-
-class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSinkBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); }
-};
 
 class HashJoinBuildSinkOperatorX;
 

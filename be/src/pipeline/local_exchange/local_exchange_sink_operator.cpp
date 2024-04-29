@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
 
-#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 
 namespace doris::pipeline {
 

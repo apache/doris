@@ -21,10 +21,10 @@
 #include <utility>
 
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/union_sink_operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "vec/core/block.h"

@@ -30,11 +30,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
-#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
@@ -254,7 +253,7 @@ private:
 
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
+    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
     bool _need_local_merge = false;
 

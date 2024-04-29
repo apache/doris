@@ -17,7 +17,7 @@
 
 #include "partitioned_hash_join_probe_operator.h"
 
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 #include "util/mem_info.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -790,7 +790,7 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state, bo
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     const auto revocable_size = revocable_mem_size(state);
-    if (PipelineXTask::should_revoke_memory(state, revocable_size)) {
+    if (PipelineTask::should_revoke_memory(state, revocable_size)) {
         return true;
     }
     if (local_state._shared_state->need_to_spill) {

@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/block.h"
 
 namespace doris {

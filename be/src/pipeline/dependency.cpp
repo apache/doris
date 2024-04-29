@@ -21,9 +21,9 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -46,7 +46,7 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, s
     return sink_deps.back().get();
 }
 
-void Dependency::_add_block_task(PipelineXTask* task) {
+void Dependency::_add_block_task(PipelineTask* task) {
     DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
@@ -57,7 +57,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineXTask*> local_block_task {};
+    std::vector<PipelineTask*> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -71,7 +71,7 @@ void Dependency::set_ready() {
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
+Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
     if (!ready && task) {
@@ -80,7 +80,7 @@ Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
     return ready ? nullptr : this;
 }
 
-Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
+Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
@@ -115,7 +115,7 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
+Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
     if (!ready && task) {

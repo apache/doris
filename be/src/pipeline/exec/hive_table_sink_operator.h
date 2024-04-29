@@ -18,7 +18,6 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vhive_table_sink.h"
 
 namespace doris::pipeline {

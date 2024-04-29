@@ -21,7 +21,6 @@
 
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
 
