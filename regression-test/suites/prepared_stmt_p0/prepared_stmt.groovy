@@ -156,5 +156,12 @@ suite("test_prepared_stmt") {
      stmt_read.setInt(2, 1234)
      stmt_read.setInt(3, 1)
      qe_select3 stmt_read
+
+     stmt_read = prepareStatement "SELECT 10"
+     assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+     qe_select4 stmt_read
+     stmt_read = prepareStatement "SELECT 1"
+     assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+     qe_select5 stmt_read
     }
 }
