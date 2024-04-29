@@ -109,8 +109,10 @@ public class StreamLoadHandler {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-        ctx.setQualifiedUser(request.getUser());
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(),
+                request.getUserIp());
+        ctx.setCurrentUserIdentity(userIdentity);
+        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setBackendId(request.getBackendId());
         ctx.setThreadLocalInfo();
 
