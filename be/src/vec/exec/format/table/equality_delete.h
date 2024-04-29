@@ -17,7 +17,6 @@
 
 #include "exprs/create_predicate_function.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -88,7 +87,7 @@ protected:
     // hash code => row index
     // if hash values are equal, then compare the real values
     // the row index records the row number of the delete row in delete block
-    flat_hash_map<uint64_t, size_t> _delete_hash_map;
+    std::multimap<uint64_t, size_t> _delete_hash_map;
     // the delete column indexes in data block
     std::vector<size_t> _data_column_index;
     std::unique_ptr<IColumn::Filter> _filter;

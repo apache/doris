@@ -95,7 +95,7 @@ Status MultiEqualityDelete::_build_set() {
         column->update_hashes_with_value(_delete_hashes.data(), nullptr);
     }
     for (size_t i = 0; i < rows; ++i) {
-        _delete_hash_map[_delete_hashes[i]] = i;
+        _delete_hash_map.insert({_delete_hashes[i], i});
     }
     _data_column_index.resize(_delete_block->columns());
     return Status::OK();
@@ -130,9 +130,13 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     }
     auto* filter_data = _filter->data();
     for (size_t i = 0; i < rows; ++i) {
-        auto iter = _delete_hash_map.find(_data_hashes[i]);
-        if (iter != _delete_hash_map.end()) {
-            filter_data[i] = _equal(data_block, i, iter->second) ? 0 : 1;
+        for (auto beg = _delete_hash_map.lower_bound(_data_hashes[i]),
+                  end = _delete_hash_map.upper_bound(_data_hashes[i]);
+             beg != end; ++beg) {
+            if (_equal(data_block, i, beg->second)) {
+                filter_data[i] = 0;
+                break;
+            }
         }
     }
 
