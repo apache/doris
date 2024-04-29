@@ -740,6 +740,7 @@ private:
 };
 } // namespace vectorized
 
-constexpr auto init_agg_hash_method = init_hash_method<vectorized::AggregatedDataVariants, vectorized::AggregateDataPtr>;
+constexpr auto init_agg_hash_method =
+        init_hash_method<vectorized::AggregatedDataVariants, vectorized::AggregateDataPtr>;
 
 } // namespace doris
