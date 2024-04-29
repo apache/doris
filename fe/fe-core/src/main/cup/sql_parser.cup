@@ -318,7 +318,6 @@ terminal String
     KW_CUBE,
     KW_CURRENT,
     KW_CURRENT_CATALOG,
-    KW_CURRENT_DATE,
     KW_CURRENT_TIMESTAMP,
     KW_CURRENT_USER,
     KW_DATA,
@@ -3560,10 +3559,6 @@ opt_default_value ::=
     | KW_DEFAULT KW_NULL
     {:
         RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
-    :}
-    | KW_DEFAULT KW_CURRENT_DATE
-    {:
-        RESULT = ColumnDef.DefaultValue.CURRENT_DATE_DEFAULT_VALUE;
     :}
     | KW_DEFAULT KW_UUID
     {:
@@ -7815,8 +7810,6 @@ keyword ::=
     | KW_VARCHAR:id
     {: RESULT = id; :}
     | KW_POLICY:id
-    {: RESULT = id; :}
-    | KW_CURRENT_DATE:id
     {: RESULT = id; :}
     | KW_CURRENT_TIMESTAMP:id
     {: RESULT = id; :}

@@ -96,13 +96,10 @@ public class ColumnDef {
         }
 
         public static String UUID = "UUID";
-        public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
-        public static DefaultValue CURRENT_DATE_DEFAULT_VALUE
-                = new DefaultValue(true, CURRENT_DATE, CURRENT_DATE.toLowerCase());
         public static DefaultValue UUID_DEFAULT_VALUE = new DefaultValue(true, UUID, "uuid");
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -556,16 +553,6 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
                             + "cannot use current_timestamp as the default value");
-            }
-        } else if (null != defaultValueExprDef
-                && defaultValueExprDef.getExprName().equals(DefaultValue.CURRENT_DATE.toLowerCase())) {
-            switch (primitiveType) {
-                case DATE:
-                case DATEV2:
-                    break;
-                default:
-                    throw new AnalysisException("Types other than DATE and DATEV2 "
-                            + "cannot use current_date as the default value");
             }
         } else if (null != defaultValueExprDef
                 && defaultValueExprDef.getExprName().equals(DefaultValue.UUID.toLowerCase())) {

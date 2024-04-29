@@ -660,16 +660,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
                                       _opts.rowset_ctx->partial_update_info->timezone);
                     default_value = dtv.debug_string();
-                } else if (UNLIKELY(
-                                   _tablet_schema->column(cids_missing[i]).type() ==
-                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                   to_lower(_tablet_schema->column(cids_missing[i]).default_value())
-                                                   .find(to_lower("CURRENT_DATE")) !=
-                                           std::string::npos)) {
-                    vectorized::DateV2Value<vectorized::DateV2ValueType> dv;
-                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                     _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dv.debug_string();
                 } else if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
                                             FieldType::OLAP_FIELD_TYPE_CHAR ||
                                     _tablet_schema->column(cids_missing[i]).type() ==
