@@ -47,6 +47,55 @@ import java.util.UUID;
 
 public class ProfilePersistentTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
+    public static SummaryProfile constructRandomSummaryProfile() {
+        TUniqueId qUniqueId = new TUniqueId();
+        UUID uuid = UUID.randomUUID();
+        qUniqueId.setHi(uuid.getMostSignificantBits());
+        qUniqueId.setLo(uuid.getLeastSignificantBits());
+        // Construct a summary profile
+        SummaryBuilder builder = new SummaryBuilder();
+        builder.profileId(DebugUtil.printId(qUniqueId));
+        long currentTimestampSeconds = System.currentTimeMillis() / 1000;
+        builder.taskType(currentTimestampSeconds % 2 == 0 ? "QUERY" : "LOAD");
+        
+        builder.startTime(TimeUtils.longToTimeString(currentTimestampSeconds));
+        builder.endTime(TimeUtils.longToTimeString(currentTimestampSeconds + 10));
+        builder.totalTime(DebugUtil.getPrettyStringMs(10));
+        builder.taskState(QueryState.RUNNING.toString());
+        builder.user(DebugUtil.printId(qUniqueId) + "-user");
+        builder.defaultDb(DebugUtil.printId(qUniqueId) + "-db");
+
+        SummaryProfile summaryProfile = new SummaryProfile();
+        summaryProfile.fuzzyInit();
+        summaryProfile.update(builder.build());
+
+        return summaryProfile;
+    }
+
+    public static Profile constructRandomProfile(int executionProfileNum) {
+        Profile profile = new Profile();
+        SummaryProfile summaryProfile = constructRandomSummaryProfile();
+        String stringUniqueId = summaryProfile.getProfileId();
+        TUniqueId thriftUniqueId = Util.parseTUniqueIdFromString(stringUniqueId);
+        profile.setId(stringUniqueId);
+        profile.setSummaryProfile(summaryProfile);
+
+        for (int i = 0; i < executionProfileNum; i++) {
+            RuntimeProfile runtimeProfile = new RuntimeProfile("profile-" + i);
+            runtimeProfile.addCounter(String.valueOf(0), TUnit.BYTES, RuntimeProfile.ROOT_COUNTER);
+            runtimeProfile.addCounter(String.valueOf(1), TUnit.BYTES, String.valueOf(0));
+            runtimeProfile.addCounter(String.valueOf(2), TUnit.BYTES, String.valueOf(1));
+            runtimeProfile.addCounter(String.valueOf(3), TUnit.BYTES, String.valueOf(2));
+            List<Integer> fragmentIds = new ArrayList<>();
+            fragmentIds.add(i);
+
+            ExecutionProfile executionProfile = new ExecutionProfile(thriftUniqueId, fragmentIds);
+            executionProfile.addInstanceProfile(new PlanFragmentId(i), thriftUniqueId, runtimeProfile);
+            profile.addExecutionProfile(executionProfile);
+        }
+
+        return profile;
+    }
 
     @Test
     public void counterBasicTest() {
@@ -190,54 +239,9 @@ public class ProfilePersistentTest {
 
     @Test
     public void profileBasicTest() {
-        TUniqueId qUniqueId = new TUniqueId();
-        UUID uuid = UUID.randomUUID();
-        qUniqueId.setHi(uuid.getMostSignificantBits());
-        qUniqueId.setLo(uuid.getLeastSignificantBits());
-        long currentTimestampSeconds = System.currentTimeMillis() / 1000;
-
-        LOG.info("query_id: {}", DebugUtil.printId(qUniqueId));
-
-        // Construct a summary profile
-        SummaryBuilder builder = new SummaryBuilder();
-        builder.profileId(DebugUtil.printId(qUniqueId));
-        builder.taskType("QUERY");
-        builder.startTime(TimeUtils.longToTimeString(currentTimestampSeconds));
-        builder.endTime(TimeUtils.longToTimeString(currentTimestampSeconds + 10));
-        builder.totalTime(DebugUtil.getPrettyStringMs(10));
-        builder.taskState(QueryState.RUNNING.toString());
-        builder.user("feut");
-        builder.defaultDb("feut-database");
-
-        SummaryProfile summaryProfile = new SummaryProfile();
-        summaryProfile.fuzzyInit();
-        summaryProfile.update(builder.build());
-
-        Profile profile = new Profile();
-        profile.setId(summaryProfile.getProfileId());
-        profile.setSummaryProfile(summaryProfile);
-
-        List<ExecutionProfile> executionProfiles = new ArrayList<>();
-
-        for (int i = 0; i < 2; i++) {
-            RuntimeProfile runtimeProfile = new RuntimeProfile("profile-" + i);
-            runtimeProfile.addCounter(String.valueOf(0), TUnit.BYTES, RuntimeProfile.ROOT_COUNTER);
-            runtimeProfile.addCounter(String.valueOf(1), TUnit.BYTES, String.valueOf(0));
-            runtimeProfile.addCounter(String.valueOf(2), TUnit.BYTES, String.valueOf(1));
-            runtimeProfile.addCounter(String.valueOf(3), TUnit.BYTES, String.valueOf(2));
-
-            List<Integer> fragmentIds = new ArrayList<>();
-            fragmentIds.add(i);
-
-            ExecutionProfile executionProfile = new ExecutionProfile(qUniqueId, fragmentIds);
-            executionProfile.addInstanceProfile(new PlanFragmentId(i), qUniqueId, runtimeProfile);
-            executionProfiles.add(executionProfile);
-        }
-
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            profile.addExecutionProfile(executionProfile);
-        }
-
+        final int executionProfileNum = 5;
+        Profile profile = constructRandomProfile(executionProfileNum);
+    
         // after profile is stored to disk, futher read will be from disk
         // so we store the original answer to a string
         String profileContentString = profile.getProfileByLevel();

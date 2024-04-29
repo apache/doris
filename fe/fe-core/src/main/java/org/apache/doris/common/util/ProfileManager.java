@@ -151,7 +151,8 @@ public class ProfileManager extends MasterDaemon {
         return INSTANCE;
     }
 
-    private ProfileManager() {
+    // The visiablity of ProfileManager() is package level, so that we can write ut for it.
+    ProfileManager() {
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
@@ -264,6 +265,11 @@ public class ProfileManager extends MasterDaemon {
     public void removeProfile(String profileId) {
         writeLock.lock();
         try {
+            if (Strings.isNullOrEmpty(profileId)) {
+                LOG.warn("Profile id is null or empty, can not remove it");
+                return;
+            }
+
             ProfileElement profileElementRemoved = queryIdToProfileMap.remove(profileId);
             // If the Profile object is removed from manager, then related execution profile is also useless.
             if (profileElementRemoved != null) {
