@@ -386,11 +386,6 @@ void check_function_all_arg_comb(const std::string& func_name, const BaseInputTy
         TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
         // exists parameter are const
         if (i != 0) {
-            int cur_case = 0;
-            for (const auto& line : data_set) {
-                TestCaseInfo::cur_cast_line = cur_case++;
-        // exists parameter are const
-        if (i != 0) {
             for (const auto& line : data_set) {
                 DataSet tmp_set {line};
                 static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
