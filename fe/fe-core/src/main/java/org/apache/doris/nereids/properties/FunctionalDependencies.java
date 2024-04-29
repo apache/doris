@@ -78,7 +78,7 @@ public class FunctionalDependencies {
         return uniformSet.contains(slot);
     }
 
-    public boolean isUniform(ImmutableSet<Slot> slotSet) {
+    public boolean isUniform(Set<Slot> slotSet) {
         return !slotSet.isEmpty()
                 && (uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains));
     }
@@ -288,11 +288,11 @@ public class FunctionalDependencies {
             return slots.contains(slot);
         }
 
-        public boolean contains(ImmutableSet<Slot> slotSet) {
+        public boolean contains(Set<Slot> slotSet) {
             if (slotSet.size() == 1) {
                 return slots.contains(slotSet.iterator().next());
             }
-            return slotSets.contains(slotSet);
+            return slotSets.contains(ImmutableSet.copyOf(slotSet));
         }
 
         public boolean containsAnySub(Set<Slot> slotSet) {
