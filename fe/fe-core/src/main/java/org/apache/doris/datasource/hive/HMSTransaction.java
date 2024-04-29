@@ -1243,8 +1243,8 @@ public class HMSTransaction implements Transaction {
 
             if (!targetPath.equals(writePath)) {
                 Path path = new Path(targetPath);
-                String oldPartitionPath = new Path(path.getParent(),
-                        "_temp_" + queryId + "_" + path.getName()).toString();
+                String oldPartitionPath = new Path(
+                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
                 Status status = wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldPartitionPath,
