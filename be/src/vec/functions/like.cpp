@@ -296,9 +296,10 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 
     if (res != HS_SUCCESS) {
         *database = nullptr;
+        auto error_msg = fmt::format("hs_compile regex pattern={}, error msg={}", expression,
+                                     compile_err->message);
         hs_free_compile_error(compile_err);
-        return Status::RuntimeError("hs_compile regex pattern error:" +
-                                    std::string(compile_err->message));
+        return Status::RuntimeError(error_msg);
     }
     hs_free_compile_error(compile_err);
 
