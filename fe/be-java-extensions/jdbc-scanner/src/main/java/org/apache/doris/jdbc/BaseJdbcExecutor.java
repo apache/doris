@@ -28,8 +28,8 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
 
-import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.base.Preconditions;
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -55,8 +55,8 @@ import java.util.function.Function;
 public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(BaseJdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
-    private DruidDataSource druidDataSource = null;
-    private final byte[] druidDataSourceLock = new byte[0];
+    private HikariDataSource hikariDataSource = null;
+    private final byte[] hikariDataSourceLock = new byte[0];
     private TOdbcTableType tableType;
     private JdbcDataSourceConfig config;
     private Connection conn = null;
@@ -119,10 +119,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 closeResources(resultSet, stmt, conn);
             }
         } finally {
-            if (config.getConnectionPoolMinSize() == 0 && druidDataSource != null) {
-                druidDataSource.close();
+            if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
+                hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                druidDataSource = null;
+                hikariDataSource = null;
             }
         }
     }
@@ -151,10 +151,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     }
 
     public void cleanDataSource() {
-        if (druidDataSource != null) {
-            druidDataSource.close();
+        if (hikariDataSource != null) {
+            hikariDataSource.close();
             JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-            druidDataSource = null;
+            hikariDataSource = null;
         }
     }
 
@@ -303,40 +303,34 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     }
 
     private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
-        String druidDataSourceKey = config.createCacheKey();
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+        String hikariDataSourceKey = config.createCacheKey();
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
-            druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
-            if (druidDataSource == null) {
-                synchronized (druidDataSourceLock) {
-                    druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
-                    if (druidDataSource == null) {
+            hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+            if (hikariDataSource == null) {
+                synchronized (hikariDataSourceLock) {
+                    hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+                    if (hikariDataSource == null) {
                         long start = System.currentTimeMillis();
-                        DruidDataSource ds = new DruidDataSource();
-                        ds.setDriverClassLoader(classLoader);
+                        Thread.currentThread().setContextClassLoader(classLoader);
+                        HikariDataSource ds = new HikariDataSource();
                         ds.setDriverClassName(config.getJdbcDriverClass());
-                        ds.setUrl(config.getJdbcUrl());
+                        ds.setJdbcUrl(config.getJdbcUrl());
                         ds.setUsername(config.getJdbcUser());
                         ds.setPassword(config.getJdbcPassword());
-                        ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1
-                        ds.setInitialSize(config.getConnectionPoolMinSize()); // default 1
-                        ds.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
-                        ds.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
-                        ds.setTestWhileIdle(true);
-                        ds.setTestOnBorrow(false);
+                        ds.setMinimumIdle(config.getConnectionPoolMinSize()); // default 1
+                        ds.setMaximumPoolSize(config.getConnectionPoolMaxSize()); // default 10
+                        ds.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
+                        ds.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
+                        ds.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
                         setValidationQuery(ds);
-                        // default 3 min
-                        ds.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L);
-                        // default 15 min
-                        ds.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L);
-                        // default 30 min
-                        ds.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime());
-                        ds.setKeepAlive(config.isConnectionPoolKeepAlive());
-                        // default 6 min
-                        ds.setKeepAliveBetweenTimeMillis(config.getConnectionPoolMaxLifeTime() / 5L);
-                        druidDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
+                        if (config.isConnectionPoolKeepAlive()) {
+                            ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
+                        }
+                        hikariDataSource = ds;
+                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, ds);
                         LOG.info("JdbcClient set"
                                 + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                 + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -350,7 +344,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
 
             long start = System.currentTimeMillis();
-            conn = druidDataSource.getConnection();
+            conn = hikariDataSource.getConnection();
             LOG.info("get connection [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
                     System.currentTimeMillis() - start)
                     + " ms");
@@ -365,11 +359,13 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             throw new UdfRuntimeException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    protected void setValidationQuery(DruidDataSource ds) {
-        ds.setValidationQuery("SELECT 1");
+    protected void setValidationQuery(HikariDataSource ds) {
+        ds.setConnectionTestQuery("SELECT 1");
     }
 
     protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
