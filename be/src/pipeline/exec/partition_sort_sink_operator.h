@@ -22,7 +22,6 @@
 #include <cstdint>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/common/sort/partition_sorter.h"
 
 namespace doris::pipeline {

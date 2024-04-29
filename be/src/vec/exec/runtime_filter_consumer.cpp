@@ -17,7 +17,7 @@
 
 #include "vec/exec/runtime_filter_consumer.h"
 
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 
 namespace doris::vectorized {
 

@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/field.h"
 
 namespace doris::pipeline {

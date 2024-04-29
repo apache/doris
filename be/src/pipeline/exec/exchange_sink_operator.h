@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/vdata_stream_sender.h"
 

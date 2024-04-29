@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 
 namespace doris {
 class RuntimeState;

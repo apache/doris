@@ -20,8 +20,7 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 
 namespace doris {
