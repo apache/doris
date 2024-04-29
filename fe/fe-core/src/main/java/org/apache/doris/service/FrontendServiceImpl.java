@@ -1137,7 +1137,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             TLoadTxnBeginResult tmpRes = loadTxnBeginImpl(request, clientAddr);
-            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId())
+                    .setCurrentUserIdent(tmpRes.getCurrentUserIdent());
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
             LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
@@ -1165,6 +1166,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
+        TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -1172,6 +1174,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+            result.setHost(userIdentity.getHost());
         } else {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token: " + request.getToken());
@@ -1205,7 +1208,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
-        TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
     }
