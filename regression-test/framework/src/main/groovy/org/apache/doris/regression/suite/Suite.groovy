@@ -689,8 +689,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
             } else {
@@ -698,8 +699,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
             }
@@ -727,8 +729,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
             } else {
@@ -736,8 +739,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
-                }
-                else{
+                } else if (tag.contains("target_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
             }
