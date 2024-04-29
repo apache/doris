@@ -133,7 +133,7 @@ hive2PgPort=5432
 
 // port of hive3 docker
 hive3HmsPort=9383
-hive3HdfsPort=8320
+hive3HdfsPort=9820
 hive3ServerPort=13000
 hive3PgPort=5732
 
