@@ -808,7 +808,7 @@ public class RestoreJob extends AbstractJob {
 
             // generate create replica task for all restored tables
             for (Table restoreTbl : restoredTbls) {
-                if (restoreTbl.getType() == TableType.OLAP) {
+                if (restoreTbl.isManagedTable()) {
                     OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
                         createReplicas(db, batchTask, restoreOlapTable, restorePart);
@@ -1941,7 +1941,7 @@ public class RestoreJob extends AbstractJob {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
-                        if (restoreTbl.getType() == TableType.OLAP) {
+                        if (restoreTbl.isManagedTable()) {
                             OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                             restoreOlapTable.writeLock();
                             try {

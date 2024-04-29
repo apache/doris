@@ -961,7 +961,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
-        } else if (table.getType() == TableType.OLAP) {
+        } else if (table.isManagedTable()) {
             // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
             // which make things easier.
             ((OlapTable) table).dropAllTempPartitions();
@@ -1208,7 +1208,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             List<String> createTableStmt = Lists.newArrayList();
             table.readLock();
             try {
-                if (table.getType() == TableType.OLAP) {
+                if (table.isManagedTable()) {
                     if (!CollectionUtils.isEmpty(stmt.getRollupNames())) {
                         OlapTable olapTable = (OlapTable) table;
                         for (String rollupIndexName : stmt.getRollupNames()) {

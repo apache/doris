@@ -352,7 +352,7 @@ public class ShowAction extends RestBaseController {
         Map<String, Long> oneEntry = Maps.newHashMap();
         if (table.getType() == TableType.VIEW || table.getType() == TableType.ODBC) {
             oneEntry.put(table.getName(), 0L);
-        } else if (table.getType() == TableType.OLAP) {
+        } else if (table.isManagedTable()) {
             table.readLock();
             try {
                 long tableSize = ((OlapTable) table).getDataSize(singleReplica);
