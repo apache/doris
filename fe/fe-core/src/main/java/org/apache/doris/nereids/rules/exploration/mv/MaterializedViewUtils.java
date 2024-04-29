@@ -204,9 +204,8 @@ public class MaterializedViewUtils {
             CascadesContext cascadesContext,
             Function<CascadesContext, Plan> planRewriter,
             Plan rewrittenPlan, Plan originPlan) {
-        List<Slot> originOutputs = originPlan.getOutput();
-        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
-            return null;
+        if (originPlan.getOutputSet().size() != rewrittenPlan.getOutputSet().size()) {
+            return rewrittenPlan;
         }
         // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
         // origin plan slot order
