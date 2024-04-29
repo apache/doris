@@ -1123,10 +1123,15 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
+        if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
+                context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
+                    context.config.instanceId == null || context.config.instanceId.isEmpty()) {
+                        return false;
+        }
         def getInstanceInfo = { check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/get_instance?token=${token}&instance_id=${context.config.instanceId}"
+                uri "/MetaService/http/get_instance?token=${context.config.metaServiceToken}&instance_id=${context.config.instanceId}"
                 op "get"
                 check check_func
             }
@@ -1134,7 +1139,10 @@ class Suite implements GroovyInterceptable {
         boolean enableStorageVault = false;
         getInstanceInfo.call() {
             respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
+                String respCodeValue = "${respCode}".toString();
+                if (!respCodeValue.equals("200")) {
+                    return;
+                }
                 def json = parseJson(body)
                 if (json.result.containsKey("enableStorageVault") && json.result.enableStorageVault == "true") {
                     enableStorageVault = true;
