@@ -87,7 +87,8 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _bucket(std::move(bucket)),
           _key(std::move(key)),
-          _client(std::move(client)) {
+          _client(std::move(client)),
+          _used_by_s3_committer(opts ? opts->used_by_s3_committer : false) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);
@@ -195,10 +196,7 @@ Status S3FileWriter::close() {
     Defer defer {[this] { _closed = true; }};
 
     if (_upload_id.empty() && _pending_buf) {
-        // It might be one file less than 5MB, and call close without finalize
-        auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-        DCHECK(buf != nullptr);
-        buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
+        RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
     if (_bytes_appended == 0) {
@@ -225,6 +223,13 @@ Status S3FileWriter::close() {
         RETURN_IF_ERROR(builder.build(&_pending_buf));
         auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
         DCHECK(buf != nullptr);
+        if (_used_by_s3_committer) {
+            buf->set_upload_to_remote([part_num = _cur_part_num, this](UploadFileBuffer& buf) {
+                _upload_one_part(part_num, buf);
+            });
+            DCHECK(_cur_part_num == 1);
+            RETURN_IF_ERROR(_create_multi_upload_request());
+        }
     }
 
     if (_pending_buf != nullptr) {
@@ -392,56 +397,61 @@ Status S3FileWriter::_complete() {
         _wait_until_finish("PutObject");
         return _st;
     }
-    CompleteMultipartUploadRequest complete_request;
-    complete_request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
-
+    // Wait multipart load and finish.
     _wait_until_finish("Complete");
     DBUG_EXECUTE_IF("s3_file_writer::_complete:1", { _cur_part_num++; });
-    if (_failed || _completed_parts.size() != _cur_part_num) {
-        _st = Status::InternalError(
-                "error status {}, complete parts {}, cur part num {}, whole parts {}", _st,
-                _completed_parts.size(), _cur_part_num, _dump_completed_part());
-        LOG(WARNING) << _st;
-        return _st;
-    }
-    // make sure _completed_parts are ascending order
-    std::sort(_completed_parts.begin(), _completed_parts.end(),
-              [](auto& p1, auto& p2) { return p1->GetPartNumber() < p2->GetPartNumber(); });
-    DBUG_EXECUTE_IF("s3_file_writer::_complete:2",
-                    { _completed_parts.back()->SetPartNumber(10 * _completed_parts.size()); });
-    CompletedMultipartUpload completed_upload;
-    for (size_t i = 0; i < _completed_parts.size(); i++) {
-        if (_completed_parts[i]->GetPartNumber() != i + 1) [[unlikely]] {
-            auto st = Status::InternalError(
-                    "error status {}, part num not continous, expected num {}, actual num {}, "
-                    "whole parts {}",
-                    _st, i + 1, _completed_parts[i]->GetPartNumber(), _dump_completed_part());
-            LOG(WARNING) << st;
-            _st = st;
-            return st;
+    if (!_used_by_s3_committer) { // S3 committer will complete multipart upload file on FE side.
+        CompleteMultipartUploadRequest complete_request;
+        complete_request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
+
+        if (_failed || _completed_parts.size() != _cur_part_num) {
+            _st = Status::InternalError(
+                    "error status {}, complete parts {}, cur part num {}, whole parts {}", _st,
+                    _completed_parts.size(), _cur_part_num, _dump_completed_part());
+            LOG(WARNING) << _st;
+            return _st;
         }
-        completed_upload.AddParts(*_completed_parts[i]);
-    }
+        // make sure _completed_parts are ascending order
+        std::sort(_completed_parts.begin(), _completed_parts.end(),
+                  [](auto& p1, auto& p2) { return p1->GetPartNumber() < p2->GetPartNumber(); });
+        DBUG_EXECUTE_IF("s3_file_writer::_complete:2",
+                        { _completed_parts.back()->SetPartNumber(10 * _completed_parts.size()); });
+        CompletedMultipartUpload completed_upload;
+        for (size_t i = 0; i < _completed_parts.size(); i++) {
+            if (_completed_parts[i]->GetPartNumber() != i + 1) [[unlikely]] {
+                auto st = Status::InternalError(
+                        "error status {}, part num not continous, expected num {}, actual num {}, "
+                        "whole parts {}",
+                        _st, i + 1, _completed_parts[i]->GetPartNumber(), _dump_completed_part());
+                LOG(WARNING) << st;
+                _st = st;
+                return st;
+            }
+            completed_upload.AddParts(*_completed_parts[i]);
+        }
 
-    complete_request.WithMultipartUpload(completed_upload);
+        complete_request.WithMultipartUpload(completed_upload);
 
-    DBUG_EXECUTE_IF("s3_file_writer::_complete:3", {
-        auto s = Status::IOError(
-                "failed to create complete multi part upload (bucket={}, key={}): injected error",
-                _bucket, _path.native());
-        LOG_WARNING(s.to_string());
-        return s;
-    });
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
+        DBUG_EXECUTE_IF("s3_file_writer::_complete:3", {
+            auto s = Status::IOError(
+                    "failed to create complete multi part upload (bucket={}, key={}): injected "
+                    "error",
+                    _bucket, _path.native());
+            LOG_WARNING(s.to_string());
+            return s;
+        });
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+        auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
 
-    if (!complete_outcome.IsSuccess()) {
-        _st = s3fs_error(
-                complete_outcome.GetError(),
-                fmt::format("failed to complete multi part upload {}, upload_id={}, whole parts={}",
+        if (!complete_outcome.IsSuccess()) {
+            _st = s3fs_error(
+                    complete_outcome.GetError(),
+                    fmt::format(
+                            "failed to complete multi part upload {}, upload_id={}, whole parts={}",
                             _path.native(), _upload_id, _dump_completed_part()));
-        LOG(WARNING) << _st;
-        return _st;
+            LOG(WARNING) << _st;
+            return _st;
+        }
     }
     s3_file_created_total << 1;
     return Status::OK();
@@ -457,12 +467,8 @@ Status S3FileWriter::finalize() {
     // submit pending buf if it's not nullptr
     // it's the last buf, we can submit it right now
     if (_pending_buf != nullptr) {
-        // if we only need to upload one file less than 5MB, we can just
-        // call PutObject to reduce the network IO
         if (_upload_id.empty()) {
-            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-            DCHECK(buf != nullptr);
-            buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
+            RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
         }
         _countdown_event.add_count();
         RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
@@ -470,6 +476,24 @@ Status S3FileWriter::finalize() {
     }
     _wait_until_finish("finalize");
     return _st;
+}
+
+Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
+    auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+    DCHECK(buf != nullptr);
+    if (_used_by_s3_committer) {
+        // If used_by_s3_committer, we always use multi-parts uploading.
+        buf->set_upload_to_remote([part_num = _cur_part_num, this](UploadFileBuffer& buf) {
+            _upload_one_part(part_num, buf);
+        });
+        DCHECK(_cur_part_num == 1);
+        RETURN_IF_ERROR(_create_multi_upload_request());
+    } else {
+        // if we only need to upload one file less than 5MB, we can just
+        // call PutObject to reduce the network IO
+        buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
+    }
+    return Status::OK();
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
