@@ -44,7 +44,9 @@ using namespace ErrorCode;
 FullCompaction::FullCompaction(const TabletSharedPtr& tablet)
         : Compaction(tablet, "FullCompaction:" + std::to_string(tablet->tablet_id())) {}
 
-FullCompaction::~FullCompaction() {}
+FullCompaction::~FullCompaction() {
+    _tablet->set_is_full_compaction_running(false);
+}
 
 Status FullCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
@@ -53,6 +55,7 @@ Status FullCompaction::prepare_compact() {
 
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
+    _tablet->set_is_full_compaction_running(true);
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -115,6 +118,7 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
         std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
         std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.sleep", { sleep(5); })
         _tablet->save_meta();
     }
     return Status::OK();
