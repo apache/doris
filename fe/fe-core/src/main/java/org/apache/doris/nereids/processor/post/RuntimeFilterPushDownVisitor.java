@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import cfjd.com.google.common.base.Preconditions;
@@ -77,14 +78,18 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final Pair<PhysicalRelation, Slot> finalTarget;
         //bitmap rf used only
         final boolean isNot;
+        // only used for Min_Max runtime filter
+        final TMinMaxRuntimeFilterType singleSideMinMax;
 
         /**
          * push down context
          */
-        public PushDownContext(Expression srcExpr, Expression probeExpr, RuntimeFilterContext rfContext,
+        // for hash join runtime filter
+        private PushDownContext(Expression srcExpr, Expression probeExpr, RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
                 AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean isNot) {
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean isNot,
+                TMinMaxRuntimeFilterType singleSideMinMax) {
             this.probeExpr = probeExpr;
             this.rfContext = rfContext;
             this.srcExpr = srcExpr;
@@ -103,15 +108,49 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 finalTarget = null;
                 probeSlot = null;
             }
+            this.singleSideMinMax = singleSideMinMax;
+        }
+
+        // for BitMap runtime filter
+        public static PushDownContext createPushDownContextForBitMapFilter(Expression srcExpr, Expression probeExpr,
+                RuntimeFilterContext rfContext,
+                IdGenerator<RuntimeFilterId> rfIdGen,
+                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                long buildSideNdv, int exprOrder, boolean isNot) {
+            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.BITMAP, builderNode,
+                    false, buildSideNdv,
+                    exprOrder, isNot, TMinMaxRuntimeFilterType.MIN_MAX);
+        }
+
+        // for NLJ min-max runtime filter
+        public static PushDownContext createPushDownContextForNljMinMaxFilter(Expression srcExpr, Expression probeExpr,
+                RuntimeFilterContext rfContext,
+                IdGenerator<RuntimeFilterId> rfIdGen,
+                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                int exprOrder,
+                TMinMaxRuntimeFilterType singleSideMinMax) {
+            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.MIN_MAX, builderNode,
+                    false, -1,
+                    exprOrder, false, singleSideMinMax);
+        }
+
+        public static PushDownContext createPushDownContextForHashJoin(Expression srcExpr, Expression probeExpr,
+                RuntimeFilterContext rfContext,
+                IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
+                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, type, builderNode,
+                    hasUnknownColStats, buildSideNdv,
+                    exprOrder, false, TMinMaxRuntimeFilterType.MIN_MAX);
         }
 
         public boolean isValid() {
             return finalTarget != null && probeSlot != null;
         }
 
-        public PushDownContext withNewProbeExprssion(Expression newProbe) {
+        public PushDownContext withNewProbeExpression(Expression newProbe) {
             return new PushDownContext(srcExpr, newProbe, this.rfContext, rfIdGen, type, builderNode,
-                    hasUnknownColStats, buildSideNdv, exprOrder, isNot);
+                    hasUnknownColStats, buildSideNdv, exprOrder, isNot, singleSideMinMax);
         }
 
         private Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
@@ -242,8 +281,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         for (Expression prob : probExprList) {
-            pushed |= leftNode.accept(this, ctx.withNewProbeExprssion(prob));
-            pushed |= rightNode.accept(this, ctx.withNewProbeExprssion(prob));
+            pushed |= leftNode.accept(this, ctx.withNewProbeExpression(prob));
+            pushed |= rightNode.accept(this, ctx.withNewProbeExpression(prob));
         }
         return pushed;
     }
@@ -291,7 +330,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             for (NamedExpression namedExpression : project.getProjects()) {
                 if (namedExpression instanceof Alias
                         && namedExpression.getExprId() == ((SlotReference) ctx.probeExpr).getExprId()) {
-                    ctxProjectProbeExpr = ctx.withNewProbeExprssion(((Alias) namedExpression).child());
+                    ctxProjectProbeExpr = ctx.withNewProbeExpression(((Alias) namedExpression).child());
                     break;
                 }
             }
@@ -304,7 +343,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                     map.put(ctx.probeExpr.getInputSlots().iterator().next(),
                             ((Alias) namedExpression).child());
                     Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-                    ctxProjectProbeExpr = ctx.withNewProbeExprssion(newProbeExpr);
+                    ctxProjectProbeExpr = ctx.withNewProbeExpression(newProbeExpr);
                     break;
                 }
             }
@@ -341,7 +380,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             map.put(ctx.probeExpr.getInputSlots().iterator().next(),
                     setOperation.getRegularChildrenOutputs().get(i).get(projIndex));
             Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-            pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExprssion(newProbeExpr));
+            pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
         }
         return pushedDown;
     }

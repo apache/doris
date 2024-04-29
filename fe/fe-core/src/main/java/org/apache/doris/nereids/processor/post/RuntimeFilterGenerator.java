@@ -63,7 +63,6 @@ import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -289,13 +288,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         // skip
                     } else {
                         RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
-                                new RuntimeFilterPushDownVisitor.PushDownContext(
+                                RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
                                         equalTo.right(), equalTo.left(), ctx, generator, type, join,
-                                        context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i,
-                                        false);
-                        Preconditions.checkArgument(pushDownContext.isValid(),
-                                "can not push down RF for target: " + equalTo.left());
-                        join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                                        context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
+                        // pushDownContext is not valid, if the target is an agg result.
+                        // Currently, we only apply RF on PhysicalScan. So skip this rf.
+                        // example: (select sum(x) as s from A) T join B on T.s=B.s
+                        if (pushDownContext.isValid()) {
+                            join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                        }
                     }
                 }
             }
@@ -347,19 +348,18 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             } else {
                 bitmapContains = (BitmapContains) bitmapRuntimeFilterCondition;
             }
-            TRuntimeFilterType type = TRuntimeFilterType.BITMAP;
             Set<Slot> targetSlots = bitmapContains.child(1).getInputSlots();
             for (Slot targetSlot : targetSlots) {
                 if (!checkProbeSlot(ctx, targetSlot)) {
                     continue;
                 }
                 RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
-                        new RuntimeFilterPushDownVisitor.PushDownContext(
-                                bitmapContains.child(0), bitmapContains.child(1), ctx, generator, type, join,
-                                true, -1, i, isNot);
-                Preconditions.checkArgument(pushDownContext.isValid(),
-                        "cannot push down RF target: " + bitmapContains.child(1));
-                join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                        RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForBitMapFilter(
+                                bitmapContains.child(0), bitmapContains.child(1), ctx, generator, join,
+                                -1, i, isNot);
+                if (pushDownContext.isValid()) {
+                    join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                }
             }
         }
     }
@@ -429,15 +429,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 Slot olapScanSlot = pair.second;
                 PhysicalRelation scan = pair.first;
                 Preconditions.checkState(olapScanSlot != null && scan != null);
-                long buildSideNdv = getBuildSideNdv(join, compare);
-                RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                        compare.child(1), ImmutableList.of(olapScanSlot), ImmutableList.of(olapScanSlot),
-                        TRuntimeFilterType.MIN_MAX, exprOrder, join, true, buildSideNdv, false,
-                        getMinMaxType(compare), scan);
-                scan.addAppliedRuntimeFilter(filter);
-                ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-                ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(scan, olapScanSlot);
+                RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                        RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForNljMinMaxFilter(
+                                compare.child(1), compare.child(0), ctx, generator, join,
+                                exprOrder, getMinMaxType(compare));
+                if (pushDownContext.isValid()) {
+                    join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                }
             }
         }
     }
