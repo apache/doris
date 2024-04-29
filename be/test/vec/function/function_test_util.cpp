@@ -364,7 +364,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         }
 
         do {
-            fn->get_value(column);
+            fn->get_same_many_values(column, 1);
             fn->forward();
         } while (!fn->eos());
     }

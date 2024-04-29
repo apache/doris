@@ -197,16 +197,14 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
             if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
                 continue;
             }
-            if (_fn_num == 1) {
-                _current_row_insert_times += _fns[0]->get_value(
-                        columns[_child_slots.size()],
-                        state->batch_size() - columns[_child_slots.size()]->size());
-            } else {
-                for (int i = 0; i < _fn_num; i++) {
-                    _fns[i]->get_value(columns[i + _child_slots.size()]);
-                }
-                _current_row_insert_times++;
-                _fns[_fn_num - 1]->forward();
+
+            DCHECK_LE(1, _fn_num);
+            auto repeat_times = _fns[_fn_num - 1]->get_value(
+                    columns[_child_slots.size()],
+                    state->batch_size() - columns[_child_slots.size()]->size());
+            _current_row_insert_times += repeat_times;
+            for (int i = 0; i < _fn_num - 1; i++) {
+                _fns[i]->get_same_many_values(columns[i + _child_slots.size()], repeat_times);
             }
         }
     }
