@@ -33,8 +33,6 @@ public:
 
     ~CloudBackendService() override;
 
-    // TODO(plat1ko): cloud backend functions
-
     // If another cluster load, FE need to notify the cluster to sync the load data
     void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
                                const TSyncLoadForTabletsRequest& request) override;
