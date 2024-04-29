@@ -201,6 +201,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
+                handleQuery(command);
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();
