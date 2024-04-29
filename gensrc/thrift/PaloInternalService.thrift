@@ -289,6 +289,9 @@ struct TQueryOptions {
   // max rows of each sub-queue in DataQueue.
   106: optional i64 data_queue_max_blocks = 0;
   
+  // expr pushdown for index filter rows
+  107: optional bool enable_common_expr_pushdown_for_inverted_index = false; 
+  
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
