@@ -894,23 +894,25 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
+            auto tablets = _tablet_manager->find_best_tablet_to_compaction(
                     compaction_type, data_dir,
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policies);
-            if (tablet != nullptr) {
-                if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                    if (need_pick_tablet) {
-                        tablets_compaction.emplace_back(tablet);
+            for (const auto& tablet : tablets) {
+                if (tablet != nullptr) {
+                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                        if (need_pick_tablet) {
+                            tablets_compaction.emplace_back(tablet);
+                        }
+                        max_compaction_score = std::max(max_compaction_score, disk_max_score);
+                    } else {
+                        LOG_EVERY_N(INFO, 500)
+                                << "Tablet " << tablet->tablet_id()
+                                << " will be ignored by automatic compaction tasks since it's "
+                                << "set to disabled automatic compaction.";
                     }
-                    max_compaction_score = std::max(max_compaction_score, disk_max_score);
-                } else {
-                    LOG_EVERY_N(INFO, 500)
-                            << "Tablet " << tablet->tablet_id()
-                            << " will be ignored by automatic compaction tasks since it's "
-                            << "set to disabled automatic compaction.";
                 }
             }
         }

@@ -73,7 +73,10 @@ public:
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    TabletSharedPtr find_best_tablet_to_compaction(
+    // Find two tablets.
+    // One with the highest score to execute single compaction,
+    // the other with the highest score to execute cumu or base compaction.
+    std::vector<TabletSharedPtr> find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
