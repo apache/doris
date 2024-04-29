@@ -1067,9 +1067,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return tableNames;
     }
 
-    private void checkSingleTablePasswordAndPrivs(String user, String passwd, String db, String tbl,
+    private UserIdentity checkSingleTablePasswordAndPrivs(String user, String passwd, String db, String tbl,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
-        checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
+        return checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
     private void checkDbPasswordAndPrivs(String user, String passwd, String db, String clientIp,
@@ -1077,7 +1077,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         checkPasswordAndPrivs(user, passwd, db, null, clientIp, predicate);
     }
 
-    private void checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
+    private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getNameFromFullName(user);
@@ -1093,7 +1093,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
             }
-            return;
+            return currentUser.get(0);
         }
 
         for (String tbl : tables) {
@@ -1105,6 +1105,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 + ") privilege(s) for this operation");
             }
         }
+        return currentUser.get(0);
     }
 
     private void checkPassword(String user, String passwd, String clientIp)
@@ -1167,7 +1168,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+            UserIdentity userIdentity = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(),
+                    request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         } else {

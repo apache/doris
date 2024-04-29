@@ -608,6 +608,7 @@ struct TLoadTxnBeginResult {
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    5: optional Types.TUserIdentity current_user_ident
 }
 
 struct TBeginTxnRequest {
