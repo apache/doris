@@ -207,7 +207,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         ctx->db_id = result.db_id;
     }
     ctx->need_rollback = true;
-    ctx->auth.user_ip = result.host;
+    if(result.host != "") {
+        ctx->auth.user_ip = result.host;
+    }
 
     return Status::OK();
 }
