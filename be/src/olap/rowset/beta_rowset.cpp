@@ -630,5 +630,4 @@ Status BetaRowset::add_to_binlog() {
     return Status::OK();
 }
 
-
 } // namespace doris
