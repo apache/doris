@@ -57,6 +57,9 @@ public class IntersectReorder extends OneExplorationRuleFactory {
                             Lists.newArrayList(logicalIntersect.getRegularChildrenOutputs());
                     children.set(0, logicalIntersect.child(minChildIdx));
                     children.set(minChildIdx, logicalIntersect.child(0));
+                    if (regularOutput.isEmpty()) {
+                        return logicalIntersect.withChildren(children);
+                    }
                     regularOutput.set(0, logicalIntersect.getRegularChildOutput(minChildIdx));
                     regularOutput.set(minChildIdx, logicalIntersect.getRegularChildOutput(0));
                     return logicalIntersect.withChildrenAndTheirOutputs(children, regularOutput);
