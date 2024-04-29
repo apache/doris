@@ -283,6 +283,47 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             sql "set enable_insert_strict = false;"
             sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
+
+            // test native paitial update insert after delete
+            // in nereids
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set enable_insert_strict = false;"
+            sql "set enable_fallback_to_original_planner=false;"
+            sql "set experimental_enable_nereids_planner=true;"
+            sql "sync;"
+            def tableName10 = "nereids_partial_update_native_insert_stmt10"
+            sql """ DROP TABLE IF EXISTS ${tableName10} """
+            sql """create table ${tableName10} (
+                k int null,
+                v int null
+            ) unique key (k) distributed by hash(k) buckets 1
+            properties("replication_num" = "1",
+            "enable_unique_key_merge_on_write"="true",
+            "disable_auto_compaction"="true",
+            "store_row_column" = "${use_row_store}"); """
+
+            sql "insert into ${tableName10}(k,v) values(1,100);"
+            sql "delete from ${tableName10} where k like '%%';"
+            sql "insert into ${tableName10}(k,v) values(1,100);"
+            qt_11 "select * from ${tableName10} order by k;"
+            sql "delete from ${tableName10} where k=1;"
+
+            // in origin planner
+            sql "set experimental_enable_nereids_planner = false;"
+            sql "sync;"
+            sql "insert into ${tableName10}(k,v) values(2,200);"
+            sql "delete from ${tableName10} where k like '%%';"
+            sql "insert into ${tableName10}(k,v) values(2,200);"
+            qt_12 "select * from ${tableName10} order by k;"
+
+            sql "set enable_unique_key_partial_update=false;"
+            sql "set enable_insert_strict = true;"
+            sql "set enable_nereids_dml=true;"
+            sql "set experimental_enable_nereids_planner=true;"
+            sql "set enable_fallback_to_original_planner=false;"
+            sql "sync;"
+            sql """ DROP TABLE IF EXISTS ${tableName10}; """
+
         }
     }
 }

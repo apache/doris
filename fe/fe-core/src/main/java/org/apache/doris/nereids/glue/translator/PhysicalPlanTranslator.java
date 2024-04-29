@@ -407,6 +407,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
             }
+            if (olapTableSink.getTargetTable() instanceof OlapTable
+                    && olapTableSink.getTargetTable().hasDeleteSign()
+                    && olapTableSink.getTargetTable().getDeleteSignColumn() != null) {
+                partialUpdateCols.add(Column.DELETE_SIGN);
+            }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();
         List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();

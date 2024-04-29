@@ -1326,6 +1326,9 @@ public class NativeInsertStmt extends InsertStmt {
                 && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
             partialUpdateCols.add(Column.SEQUENCE_COL);
         }
+
+        partialUpdateCols.add(Column.DELETE_SIGN);
+
         // we should re-generate olapTuple
         DescriptorTable descTable = analyzer.getDescTbl();
         olapTuple = descTable.createTupleDescriptor();

@@ -321,6 +321,13 @@ public class BindSink implements AnalysisRuleFactory {
                                 new ExpressionRewriteContext(ctx.cascadesContext));
                         columnToOutput.put(column.getName(),
                                 new Alias(defualtValueExpression, column.getName()));
+                    } else if (table instanceof OlapTable && ((OlapTable) table).hasDeleteSign()
+                            && column.getName().equals(Column.DELETE_SIGN)
+                            && column.getDefaultValue() != null) {
+                        columnToOutput.put(column.getName(),
+                                new Alias(Literal.of(column.getDefaultValue())
+                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                                            column.getName()));
                     } else {
                         continue;
                     }
