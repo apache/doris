@@ -45,7 +45,7 @@ public class MTMVRefreshPartitionSnapshot {
     public String toString() {
         return "MTMVRefreshPartitionSnapshot{"
                 + "partitions=" + partitions
-                + ", tables=" + tables +
-                '}';
+                + ", tables=" + tables
+                + '}';
     }
 }
