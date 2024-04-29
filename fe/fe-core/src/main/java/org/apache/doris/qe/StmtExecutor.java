@@ -1416,7 +1416,7 @@ public class StmtExecutor {
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         if (context.getCommand() != MysqlCommand.COM_STMT_EXECUTE) {
-             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
+            Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
                 return;

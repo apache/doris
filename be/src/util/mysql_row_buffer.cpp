@@ -569,16 +569,6 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
         return 0;
     }
 
-    if constexpr (is_binary_format) {
-        uint offset = (_field_pos + 2) / 8 + 1;
-        uint bit = (1 << ((_field_pos + 2) & 7));
-        /* Room for this as it's allocated start_binary_row*/
-        char* to = (char*)_buf + offset;
-        *to = (char)((uchar)*to | (uchar)bit);
-        _field_pos++;
-        return 0;
-    }
-
     int ret = reserve(1);
 
     if (0 != ret) {
