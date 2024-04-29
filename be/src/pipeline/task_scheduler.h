@@ -46,8 +46,8 @@ namespace doris::pipeline {
 
 class TaskScheduler {
 public:
-    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name, std::string abbrev_name,
-                  CgroupCpuCtl* cgroup_cpu_ctl)
+    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
+                  std::string abbrev_name, CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _shutdown(false),
               _name(std::move(name)),
