@@ -193,33 +193,26 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         // auto bucket
         // get all history partitions
-        List<Partition> partitions = Lists.newArrayList();
+        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
             Partition partition = table.getPartition(idToItem.getKey());
-            if (partition != null) {
-                partitions.add(partition);
-            }
-        }
-
-        // no exist history partition
-        if (partitions.size() == 0) {
-            return property.getBuckets();
-        }
-
-        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
-        for (Partition partition : partitions) {
-            if (partition.getVisibleVersion() >= 2) {
+            if (partition != null && partition.getVisibleVersion() >= 2) {
                 partitionSizeArray.add(partition.getAllDataSize(true));
             }
         }
 
         // no exist history partition data
-        if (partitionSizeArray.size() == 0) {
+        if (partitionSizeArray.size() <= 2) {
             return property.getBuckets();
         }
+
+        // the first and last partitions's data is not full day or full hour, need exclude them.
+        int lastIndex = partitionSizeArray.size() - 1;
+        partitionSizeArray.remove(lastIndex);
+        partitionSizeArray.remove(0);
 
         // plus 5 for uncompressed data
         long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
