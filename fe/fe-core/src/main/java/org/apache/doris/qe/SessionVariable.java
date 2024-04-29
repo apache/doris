@@ -129,6 +129,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+
+    public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -1343,6 +1345,10 @@ public class SessionVariable implements Serializable, Writable {
     public long topnOptLimitThreshold = 1024;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
+            "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
+    public boolean enableServeSidePreparedStatement = true;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.

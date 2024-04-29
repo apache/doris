@@ -201,12 +201,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
-            case COM_STMT_PREPARE:
-                // Process COM_QUERY statement,
-                handleQuery(command);
-                break;
-            case COM_STMT_EXECUTE:
-                handleExecute();
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();
@@ -215,13 +209,30 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 // process COM_PING statement, do nothing, just return one OK packet.
                 handlePing();
                 break;
-            case COM_STMT_RESET:
-                handleStmtReset();
-                break;
-            case COM_STMT_CLOSE:
-                handleStmtClose();
-                break;
             default:
+                if (ctx.getSessionVariable().enableServeSidePreparedStatement) {
+                    // handle server prepared command
+                    // reference https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_command_phase_ps.html
+                    switch (command) {
+                        case COM_STMT_EXECUTE:
+                            handleExecute();
+                            break;
+                        case COM_STMT_CLOSE:
+                            handleStmtClose();
+                            break;
+                        case COM_STMT_RESET:
+                            handleStmtReset();
+                            break;
+                        case COM_STMT_PREPARE:
+                            handleQuery(command);
+                            break;
+                        default:
+                            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
+                            LOG.warn("Unsupported command(" + command + ")");
+                            break;
+                    }
+                    break;
+                }
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
                 break;
