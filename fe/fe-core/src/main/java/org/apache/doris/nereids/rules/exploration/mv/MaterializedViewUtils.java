@@ -148,12 +148,10 @@ public class MaterializedViewUtils {
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
-            if (cascadesContext.getMemo().getRefreshVersion() != structInfoMap.getRefreshVersion()
-                    || structInfoMap.getTableMaps().isEmpty()) {
-                structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion(),
-                        materializedViewTableSet);
-                structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
-            }
+            // Refresh struct info in current level plan from top to bottom
+            structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
+            structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
@@ -164,7 +162,7 @@ public class MaterializedViewUtils {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext.getMemo(),
-                            queryTableSet, queryTableSet, ownerGroup, plan);
+                            queryTableSet, ownerGroup, plan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }

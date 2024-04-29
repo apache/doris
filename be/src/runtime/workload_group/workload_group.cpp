@@ -363,7 +363,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         std::string real_name = "Pipe_" + tg_name;
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
                 std::make_unique<pipeline::TaskScheduler>(
-                        exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
+                        exec_env, std::move(task_queue),
                         real_name, real_name.substr(0, TG_THREAD_NAME_MAX_LENGTH), cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {

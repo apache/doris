@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
+import org.apache.doris.thrift.TVisibleVersionReq;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -392,6 +393,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setGcBinlogReq(request);
+                return tAgentTaskRequest;
+            }
+            case UPDATE_VISIBLE_VERSION: {
+                UpdateVisibleVersionTask visibleTask = (UpdateVisibleVersionTask) task;
+                TVisibleVersionReq request = visibleTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setVisibleVersionReq(request);
                 return tAgentTaskRequest;
             }
             case CALCULATE_DELETE_BITMAP: {

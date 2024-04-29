@@ -37,10 +37,14 @@ LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
         : _num_threads(segment_file_writer_thread_num),
           _heavy_work_pool(heavy_work_pool),
           _light_work_pool(light_work_pool) {
+    uint32_t num_cpu = std::thread::hardware_concurrency();
+    uint32_t thread_num = num_cpu == 0 ? segment_file_writer_thread_num
+                                       : std::min(segment_file_writer_thread_num,
+                                                  num_cpu * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
                               .set_abbrev_name("SegFileWrite")
-                              .set_min_threads(segment_file_writer_thread_num)
-                              .set_max_threads(segment_file_writer_thread_num)
+                              .set_min_threads(thread_num)
+                              .set_max_threads(thread_num)
                               .build(&_file_writer_thread_pool));
 }
 

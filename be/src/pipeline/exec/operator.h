@@ -42,17 +42,6 @@ class RuntimeState;
 class TDataSink;
 } // namespace doris
 
-#define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                       \
-    NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)     \
-            : OperatorBuilder(id, #NAME, exec_node) {}                \
-                                                                      \
-    OperatorPtr NAME##Builder::build_operator() {                     \
-        return std::make_shared<NAME>(this, _node);                   \
-    }                                                                 \
-                                                                      \
-    NAME::NAME(OperatorBuilderBase* operator_builder, ExecNode* node) \
-            : SUBCLASS(operator_builder, node) {};
-
 namespace doris::pipeline {
 
 /**

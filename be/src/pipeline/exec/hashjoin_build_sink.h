@@ -22,12 +22,8 @@
 #include "join_build_sink_operator.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vhash_join_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
+namespace doris::pipeline {
 
 class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
 public:
@@ -187,5 +183,4 @@ private:
     const bool _need_local_merge;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

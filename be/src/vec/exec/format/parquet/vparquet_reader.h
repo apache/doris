@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -183,6 +182,8 @@ private:
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* skip_page_header_num = nullptr;
+        RuntimeProfile::Counter* parse_page_header_num = nullptr;
     };
 
     Status _open_file();

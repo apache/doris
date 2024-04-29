@@ -363,16 +363,15 @@ public:
                 LOG(ERROR) << "index writer is null in inverted index writer.";
                 return Status::InternalError("index writer is null in inverted index writer");
             }
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // offsets[i+1] is now row element count
-                // [0, 3, 6]
-                // [10,20,30] [20,30,40], [30,40,50]
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
-                for (auto j = start_off; j < end_off; ++j) {
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -405,19 +404,22 @@ public:
                         _doc->add(*new_field);
                     }
                 }
+                start_off += array_elem_size;
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
                     _CLDELETE(ts);
+                } else {
+                    RETURN_IF_ERROR(add_null_document());
                 }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (size_t j = start_off; j < end_off; ++j) {
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -428,6 +430,7 @@ public:
                     _value_key_coder->full_encode_ascending(p, &new_value);
                     _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                 }
+                start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
                 _rid++;
             }

@@ -35,36 +35,6 @@ class TDataSink;
 
 namespace pipeline {
 
-class ExchangeSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VDataStreamSender> {
-public:
-    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, int mult_cast_id = -1);
-
-    OperatorPtr build_operator() override;
-
-private:
-    int _mult_cast_id = -1;
-};
-
-// Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
-class ExchangeSinkOperator final : public DataSinkOperator<vectorized::VDataStreamSender> {
-public:
-    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink, int mult_cast_id);
-    Status init(const TDataSink& tsink) override;
-
-    Status prepare(RuntimeState* state) override;
-    bool can_write() override;
-    bool is_pending_finish() const override;
-
-    Status close(RuntimeState* state) override;
-
-private:
-    std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer = nullptr;
-    int _dest_node_id = -1;
-    RuntimeState* _state = nullptr;
-    int _mult_cast_id = -1;
-};
-
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;

@@ -19,27 +19,8 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/multi_cast_data_stream_sink.h"
 
 namespace doris::pipeline {
-
-class MultiCastDataStreamSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::MultiCastDataStreamSink> {
-public:
-    MultiCastDataStreamSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "MultiCastDataStreamSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class MultiCastDataStreamSinkOperator final
-        : public DataSinkOperator<vectorized::MultiCastDataStreamSink> {
-public:
-    MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return _sink->can_write(); }
-};
 
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final

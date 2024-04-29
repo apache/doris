@@ -83,7 +83,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
                 .tag("tablet_id", tablet_id);
-        // Becasue of the rowset_ids become empty, all delete bitmap
+        // Because of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
     }

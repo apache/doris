@@ -743,8 +743,12 @@ public class Repository implements Writable {
         stmtBuilder.append("\"");
 
         stmtBuilder.append("\nPROPERTIES\n(");
-        stmtBuilder.append(new PrintableMap<>(this.getRemoteFileSystem().getProperties(), " = ",
-                true, true, true));
+        Map<String, String> properties = new HashMap();
+        properties.putAll(this.getRemoteFileSystem().getProperties());
+        // WE should not return the acturl secret key to user for safety consideration
+        properties.putIfAbsent(S3Properties.SECRET_KEY, "xxxxxx");
+        properties.putIfAbsent(S3Properties.Env.SECRET_KEY, "xxxxxx");
+        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }

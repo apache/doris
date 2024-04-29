@@ -25,27 +25,10 @@
 #include "vec/exec/vtable_function_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-class TableFunctionOperatorBuilder final : public OperatorBuilder<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperatorBuilder(int32_t id, ExecNode* node);
-
-    OperatorPtr build_operator() override;
-};
-
-class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
-public:
-    TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
 
 class TableFunctionOperatorX;
 class TableFunctionLocalState final : public PipelineXLocalState<> {

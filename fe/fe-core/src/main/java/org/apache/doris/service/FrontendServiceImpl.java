@@ -225,6 +225,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TSyncQueryColumns;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
@@ -2072,7 +2073,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
-            int loadStreamPerNode = 20;
+            int loadStreamPerNode = 2;
             if (request.getStreamPerNode() > 0) {
                 loadStreamPerNode = request.getStreamPerNode();
             }
@@ -3775,4 +3776,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setUserinfoList(userInfo);
         return result;
     }
+
+    public TStatus syncQueryColumns(TSyncQueryColumns request) throws TException {
+        Env.getCurrentEnv().getAnalysisManager().mergeFollowerQueryColumns(request.highPriorityColumns,
+                request.midPriorityColumns);
+        return new TStatus(TStatusCode.OK);
+    }
+
 }

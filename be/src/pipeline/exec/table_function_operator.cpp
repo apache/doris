@@ -29,18 +29,6 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)
-
-Status TableFunctionOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_child_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status TableFunctionOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
-
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
 

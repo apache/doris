@@ -927,8 +927,13 @@ bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr table
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()]
+                                    .insert(tablet->tablet_id())
+                                    .second);
+        break;
+    case CompactionType::FULL_COMPACTION:
+        already_existed = !(_tablet_submitted_full_compaction[tablet->data_dir()]
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
@@ -944,8 +949,11 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     case CompactionType::CUMULATIVE_COMPACTION:
         removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+        break;
+    case CompactionType::FULL_COMPACTION:
+        removed = _tablet_submitted_full_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
     }
 

@@ -24,26 +24,9 @@
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class HashJoinProbeOperatorBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinProbeOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-};
-
-class HashJoinProbeOperator final : public StatefulOperator<vectorized::HashJoinNode> {
-public:
-    HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resource()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class HashJoinProbeLocalState;
 

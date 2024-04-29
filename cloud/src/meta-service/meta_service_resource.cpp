@@ -277,6 +277,14 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
             storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
         } while (it->more());
     }
+    for (auto& vault : *response->mutable_storage_vault()) {
+        if (vault.has_obj_info()) {
+            if (auto ret = decrypt_and_update_ak_sk(*vault.mutable_obj_info(), code, msg);
+                ret != 0) {
+                return;
+            }
+        }
+    }
 
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
     if (instance.has_default_storage_vault_id()) {
@@ -529,6 +537,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
         if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
@@ -816,6 +825,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.clear_default_storage_vault_name();
         break;
     }
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
+        [[fallthrough]];
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();

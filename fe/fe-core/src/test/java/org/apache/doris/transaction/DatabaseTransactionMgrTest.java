@@ -42,6 +42,7 @@ import org.junit.rules.ExpectedException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class DatabaseTransactionMgrTest {
 
@@ -115,7 +116,10 @@ public class DatabaseTransactionMgrTest {
         setTransactionFinishPublish(transactionState1,
                 Lists.newArrayList(CatalogTestUtil.testBackendId1,
                         CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1);
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1,
+                partitionVisibleVersions, backendPartitions);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
         TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");

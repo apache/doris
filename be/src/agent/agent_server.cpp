@@ -180,6 +180,9 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::CLEAN_TRASH] = std::make_unique<TaskWorkerPool>(
             "CLEAN_TRASH", 1, [&engine](auto&& task) {return clean_trash_callback(engine, task); });
 
+    _workers[TTaskType::UPDATE_VISIBLE_VERSION] = std::make_unique<TaskWorkerPool>(
+            "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", "RPT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
 
@@ -202,8 +205,8 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             [&engine](auto&& task) { return alter_cloud_tablet_callback(engine, task); });
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
-            "CALC_DELMAP", config::calc_delete_bitmap_worker_count,
-            [&engine](auto&& task) { return calc_delete_bimtap_callback(engine, task); });
+            "CALC_DBM", config::calc_delete_bitmap_worker_count,
+            [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", "RPT_TASK", _master_info, config::report_task_interval_seconds,

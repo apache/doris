@@ -458,7 +458,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bimtap")
+                LOG_WARNING("failed to get delete bitmap")
                         .tag("tablet", tablet->tablet_id())
                         .error(st);
                 return st;

@@ -363,6 +363,7 @@ terminal String
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
+    KW_DUAL,
     KW_DUPLICATE,
     KW_DYNAMIC,
     KW_ELSE,
@@ -4568,6 +4569,10 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
+    | KW_AUTO KW_JOBS opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAutoAnalyzeJobsStmt(tbl, parser.where);
+    :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
         RESULT = new ShowAnalyzeTaskStatus(jobId);
@@ -6093,6 +6098,8 @@ type_function_name ::=
 from_clause ::=
     KW_FROM table_ref_list:l
     {: RESULT = new FromClause(l); :}
+    | KW_FROM KW_DUAL
+    {: RESULT = null; :}
     ;
 
 table_ref_list ::=
