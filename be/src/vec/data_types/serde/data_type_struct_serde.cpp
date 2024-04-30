@@ -399,8 +399,8 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
-    orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
-    const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
+    auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+    const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
@@ -419,7 +419,7 @@ Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& r
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::STRUCT);
     auto tuple_size = struct_col.tuple_size();
-    PValues* child_elements[tuple_size];
+    std::vector<PValues*> child_elements(tuple_size);
     for (int i = 0; i < tuple_size; ++i) {
         child_elements[i] = result.add_child_element();
     }
