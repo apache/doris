@@ -798,7 +798,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             Tablet pickedTablet = beToTablets.get(srcBe).get(randomIndex);
             CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
 
-            if (Config.cloud_preheating_enabled) {
+            if (Config.enable_cloud_warm_up_for_rebalance) {
                 if (isConflict(srcBe, destBe, cloudReplica, balanceType, futurePartitionToTablets,
                         futureBeToTabletsInTable)) {
                     continue;
