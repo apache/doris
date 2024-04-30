@@ -1365,7 +1365,6 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
     fs::create_directories(cache_base_path);
     test_file_cache(io::FileCacheType::NORMAL);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] { sp->clear_all_call_backs(); }};
     sp->enable_processing();
     TUniqueId query_id;
     query_id.hi = 1;
@@ -1381,11 +1380,17 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     std::atomic_bool flag1 {false}, flag2 {false};
-    sp->set_call_back("BlockFileCache::TmpFile1", [&](auto&&) {
-        while (!flag1) {
-        }
-    });
-    sp->set_call_back("BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::TmpFile1",
+            [&](auto&&) {
+                while (!flag1) {
+                }
+            },
+            &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; }, &guard2);
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     auto holder = cache.get_or_set(key, 100, 1, context); /// Add range [9, 9]
@@ -1418,7 +1423,6 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     fs::create_directories(cache_base_path);
     test_file_cache(io::FileCacheType::NORMAL);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] { sp->clear_all_call_backs(); }};
     sp->enable_processing();
     TUniqueId query_id;
     query_id.hi = 1;
@@ -1434,10 +1438,14 @@ TEST_F(BlockFileCacheTest, test_lazy_load) {
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     std::atomic_bool flag1 {false};
-    sp->set_call_back("BlockFileCache::TmpFile2", [&](auto&&) {
-        while (!flag1) {
-        }
-    });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::TmpFile2",
+            [&](auto&&) {
+                while (!flag1) {
+                }
+            },
+            &guard1);
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     std::this_thread::sleep_for(std::chrono::milliseconds(10)); // wait to load disk
@@ -1476,7 +1484,6 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
     fs::create_directories(cache_base_path);
     test_file_cache(io::FileCacheType::NORMAL);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] { sp->clear_all_call_backs(); }};
     sp->enable_processing();
     TUniqueId query_id;
     query_id.hi = 1;
@@ -1492,10 +1499,14 @@ TEST_F(BlockFileCacheTest, test_lazy_load_with_limit) {
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     std::atomic_bool flag1 {false};
-    sp->set_call_back("BlockFileCache::TmpFile2", [&](auto&&) {
-        while (!flag1) {
-        }
-    });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::TmpFile2",
+            [&](auto&&) {
+                while (!flag1) {
+                }
+            },
+            &guard1);
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     std::this_thread::sleep_for(std::chrono::milliseconds(10)); // wait to load disk
@@ -1535,9 +1546,10 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
     fs::create_directories(cache_base_path);
     test_file_cache(io::FileCacheType::NORMAL);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] { sp->clear_call_back("BlockFileCache::set_sleep_time"); }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
     sp->enable_processing();
     TUniqueId query_id;
     query_id.hi = 1;
@@ -1617,9 +1629,10 @@ TEST_F(BlockFileCacheTest, ttl_modify) {
     fs::create_directories(cache_base_path);
     test_file_cache(io::FileCacheType::NORMAL);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] { sp->clear_call_back("BlockFileCache::set_sleep_time"); }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
     sp->enable_processing();
     TUniqueId query_id;
     query_id.hi = 1;
@@ -1903,11 +1916,15 @@ TEST_F(BlockFileCacheTest, io_error) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileSystem::open_file_impl", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileSystem::open_file_impl",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 0, 10, context); /// Add range [0, 9]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -1916,11 +1933,15 @@ TEST_F(BlockFileCacheTest, io_error) {
         EXPECT_FALSE(blocks[0]->read(Slice(buffer.get(), 10), 0).ok());
     }
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileReader::read_at_impl", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileReader::read_at_impl",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 0, 10, context); /// Add range [0, 9]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -1929,11 +1950,15 @@ TEST_F(BlockFileCacheTest, io_error) {
         EXPECT_FALSE(blocks[0]->read(Slice(buffer.get(), 10), 0).ok());
     }
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileSystem::create_file_impl", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileSystem::create_file_impl",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 50, 10, context); /// Add range [50, 59]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -1943,11 +1968,15 @@ TEST_F(BlockFileCacheTest, io_error) {
         EXPECT_FALSE(blocks[0]->append(result).ok());
     }
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileWriter::appendv", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileWriter::appendv",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 50, 10, context); /// Add range [50, 59]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -1958,11 +1987,15 @@ TEST_F(BlockFileCacheTest, io_error) {
         EXPECT_FALSE(blocks[0]->append(result).ok());
     }
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileSystem::rename", [](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileSystem::rename",
+                [](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 50, 10, context); /// Add range [50, 59]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -1974,11 +2007,15 @@ TEST_F(BlockFileCacheTest, io_error) {
         EXPECT_FALSE(blocks[0]->finalize().ok());
     }
     {
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileWriter::close", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileWriter::close",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 50, 10, context); /// Add range [50, 59]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -2084,19 +2121,22 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("BlockFileCache::set_remove_batch");
-        sp->clear_call_back("BlockFileCache::recycle_deleted_blocks");
-        sp->clear_call_back("BlockFileCache::set_sleep_time");
-    }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
-    sp->set_call_back("BlockFileCache::set_remove_batch",
-                      [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; });
-    sp->set_call_back("BlockFileCache::recycle_deleted_blocks", [&](auto&&) {
-        context.cache_type = io::FileCacheType::NORMAL;
-        cache.get_or_set(key, 0, 5, context);
-    });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "BlockFileCache::set_remove_batch",
+            [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
+    SyncPoint::CallbackGuard guard3;
+    sp->set_call_back(
+            "BlockFileCache::recycle_deleted_blocks",
+            [&](auto&&) {
+                context.cache_type = io::FileCacheType::NORMAL;
+                cache.get_or_set(key, 0, 5, context);
+            },
+            &guard3);
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     while (true) {
@@ -2152,19 +2192,22 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     context.cache_type = io::FileCacheType::TTL;
     context.expiration_time = UnixSeconds() + 3600;
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("BlockFileCache::set_remove_batch");
-        sp->clear_call_back("BlockFileCache::recycle_deleted_blocks");
-        sp->clear_call_back("BlockFileCache::set_sleep_time");
-    }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
-    sp->set_call_back("BlockFileCache::set_remove_batch",
-                      [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; });
-    sp->set_call_back("BlockFileCache::recycle_deleted_blocks", [&](auto&&) {
-        context.cache_type = io::FileCacheType::TTL;
-        cache.get_or_set(key, 0, 5, context);
-    });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "BlockFileCache::set_remove_batch",
+            [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
+    SyncPoint::CallbackGuard guard3;
+    sp->set_call_back(
+            "BlockFileCache::recycle_deleted_blocks",
+            [&](auto&&) {
+                context.cache_type = io::FileCacheType::NORMAL;
+                cache.get_or_set(key, 0, 5, context);
+            },
+            &guard3);
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     while (true) {
@@ -2276,14 +2319,14 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
         fs::remove_all(cache_path2);
     }
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("BlockFileCache::set_remove_batch");
-        sp->clear_call_back("BlockFileCache::set_sleep_time");
-    }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
-    sp->set_call_back("BlockFileCache::set_remove_batch",
-                      [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "BlockFileCache::set_remove_batch",
+            [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
     sp->enable_processing();
     io::FileCacheSettings settings;
     settings.query_queue_size = 30;
@@ -2628,11 +2671,15 @@ TEST_F(BlockFileCacheTest, append_many_time) {
         ASSERT_TRUE(blocks[0]->change_cache_type_self(FileCacheType::INDEX).ok());
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
-        Defer defer {[sp] { sp->clear_call_back("LocalFileSystem::rename"); }};
-        sp->set_call_back("LocalFileSystem::rename", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileSystem::rename",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         {
             ASSERT_FALSE(blocks[0]->change_cache_type_self(FileCacheType::NORMAL).ok());
             EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
@@ -2653,11 +2700,15 @@ TEST_F(BlockFileCacheTest, append_many_time) {
     {
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
-        Defer defer {[sp] { sp->clear_all_call_backs(); }};
-        sp->set_call_back("LocalFileWriter::close", [&](auto&& values) {
-            std::pair<Status, bool>* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
-            pairs->second = true;
-        });
+        SyncPoint::CallbackGuard guard1;
+        sp->set_call_back(
+                "LocalFileWriter::close",
+                [&](auto&& values) {
+                    std::pair<Status, bool>* pairs =
+                            try_any_cast<std::pair<Status, bool>*>(values.back());
+                    pairs->second = true;
+                },
+                &guard1);
         auto holder = cache.get_or_set(key, 5, 5, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
