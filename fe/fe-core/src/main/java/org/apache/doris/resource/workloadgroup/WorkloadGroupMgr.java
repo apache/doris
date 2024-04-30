@@ -158,8 +158,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
         WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
                 properties);
-        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+        boolean nameIsNull = true;
+        if (!nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
+            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+            nameIsNull = false;
+        }
+        boolean idIsNull = true;
+        if (!idToWorkloadGroup.containsKey(DEFAULT_GROUP_ID)) {
+            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+            idIsNull = false;
+        }
+        if ((nameIsNull && !idIsNull) || (!nameIsNull && idIsNull)) {
+            LOG.info("idMap({}) diff nameMap({})", nameIsNull, idIsNull);
+        }
     }
 
     private void readLock() {
