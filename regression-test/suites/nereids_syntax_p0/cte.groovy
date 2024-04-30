@@ -327,7 +327,7 @@ suite("cte") {
         GROUP BY Id, UpdateDateTime, Value
         ) rolling ON temptable.Id = rolling.Id AND temptable.UpdateDateTime = rolling.UpdateDateTime
         ) tab
-        WHERE Id IN (1, 2)
+        WHERE Id IN (1, 2) order by 1, 2, 3, 4
     """
 
     // rewrite cte children should work well with cost based rewrite rule. rely on rewrite rule: InferSetOperatorDistinct
