@@ -175,6 +175,7 @@ Status DeltaWriter::init() {
         } else {
             RETURN_IF_ERROR(_tablet->all_rs_id(_cur_max_version, &_rowset_ids));
         }
+        _rowset_ptrs = _tablet->get_rowset_by_ids(&_rowset_ids);
     }
 
     // check tablet version number
@@ -217,7 +218,7 @@ Status DeltaWriter::init() {
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
-                                                       _delete_bitmap);
+                                                       _rowset_ptrs, _delete_bitmap);
     context.partial_update_info = _partial_update_info;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
@@ -363,7 +364,7 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     auto mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
-                                                    _delete_bitmap);
+                                                    _rowset_ptrs, _delete_bitmap);
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   _partial_update_info.get(), mem_table_insert_tracker,

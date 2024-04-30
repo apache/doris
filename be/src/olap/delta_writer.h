@@ -197,6 +197,7 @@ private:
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
+    std::vector<RowsetSharedPtr> _rowset_ptrs;
     // current max version, used to calculate delete bitmap
     int64_t _cur_max_version;
 
