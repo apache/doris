@@ -51,6 +51,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -58,7 +59,11 @@ import java.util.stream.Collectors;
 @Data
 @Log4j2
 public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C>, Writable {
-
+    public static final ImmutableList<Column> COMMON_SCHEMA = ImmutableList.of(
+            new Column("SucceedTaskCount", ScalarType.createStringType()),
+            new Column("FailedTaskCount", ScalarType.createStringType()),
+            new Column("CanceledTaskCount", ScalarType.createStringType())
+            );
     @SerializedName(value = "jid")
     private Long jobId;
 
@@ -91,6 +96,16 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @SerializedName(value = "sql")
     String executeSql;
+
+
+    @SerializedName(value = "stc")
+    private AtomicLong succeedTaskCount = new AtomicLong(0);
+
+    @SerializedName(value = "ftc")
+    private AtomicLong failedTaskCount = new AtomicLong(0);
+
+    @SerializedName(value = "ctc")
+    private AtomicLong canceledTaskCount = new AtomicLong(0);
 
     public AbstractJob() {
     }
@@ -142,6 +157,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             task.cancel();
         }
         runningTasks = new CopyOnWriteArrayList<>();
+        logUpdateOperation();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -290,14 +306,18 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @Override
     public void onTaskFail(T task) throws JobException {
+        failedTaskCount.incrementAndGet();
         updateJobStatusIfEnd(false);
         runningTasks.remove(task);
+        logUpdateOperation();
     }
 
     @Override
     public void onTaskSuccess(T task) throws JobException {
+        succeedTaskCount.incrementAndGet();
         updateJobStatusIfEnd(true);
         runningTasks.remove(task);
+        logUpdateOperation();
 
     }
 
@@ -309,12 +329,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         switch (executeType) {
             case ONE_TIME:
+                updateJobStatus(JobStatus.FINISHED);
+                this.finishTimeMs = System.currentTimeMillis();
+                break;
             case INSTANT:
                 this.finishTimeMs = System.currentTimeMillis();
                 if (taskSuccess) {
-                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                    updateJobStatus(JobStatus.FINISHED);
                 } else {
-                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.STOPPED);
+                    updateJobStatus(JobStatus.STOPPED);
                 }
                 break;
             case RECURRING:
@@ -322,7 +345,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 if (null != timerDefinition.getEndTimeMs()
                         && timerDefinition.getEndTimeMs() < System.currentTimeMillis()
                         + timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval())) {
-                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                    this.finishTimeMs = System.currentTimeMillis();
+                    updateJobStatus(JobStatus.FINISHED);
                 }
                 break;
             default:
@@ -360,6 +384,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         trow.addToColumnValue(new TCell().setStringVal(jobStatus.name()));
         trow.addToColumnValue(new TCell().setStringVal(executeSql));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(createTimeMs)));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(succeedTaskCount.get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(failedTaskCount.get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(canceledTaskCount.get())));
         trow.addToColumnValue(new TCell().setStringVal(comment));
         return trow;
     }

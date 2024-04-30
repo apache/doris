@@ -809,7 +809,7 @@ public class MetadataGenerator {
             }
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
-                TRow tvfInfo = task.getTvfInfo();
+                TRow tvfInfo = task.getTvfInfo(job.getJobName());
                 if (tvfInfo != null) {
                     dataBatch.add(tvfInfo);
                 }
