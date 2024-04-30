@@ -28,7 +28,7 @@ under the License.
 ### 2. generate ssb data. use -h for more infomations.
     ./bin/gen-ssb-data.sh -s 1
 ### 3. create ssb tables. modify `conf/doris-cluster.conf` to specify Doris cluster info, then run script below.
-    ./bin/create-ssb-tables.sh
+    ./bin/create-ssb-tables.sh -s 1
 ### 4. load ssb data. use -h for help.
     ./bin/load-ssb-data.sh
 ### 5. run ssb queries.

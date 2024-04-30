@@ -32,6 +32,7 @@
 #include <ostream>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -289,6 +290,68 @@ private:
             size_t fixed_len = std::min(str_size - fixed_pos, len_value);
             StringOP::push_value_string_reserved_and_allow_overflow(
                     {str_data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
+        }
+    }
+};
+
+class FunctionStrcmp : public IFunction {
+public:
+    static constexpr auto name = "strcmp";
+
+    static FunctionPtr create() { return std::make_shared<FunctionStrcmp>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt8>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& [arg0_column, arg0_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [arg1_column, arg1_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnInt8::create(input_rows_count);
+
+        if (auto arg0 = check_and_get_column<ColumnString>(arg0_column.get())) {
+            if (auto arg1 = check_and_get_column<ColumnString>(arg1_column.get())) {
+                if (arg0_const) {
+                    scalar_vector(arg0->get_data_at(0), *arg1, *result_column);
+                } else if (arg1_const) {
+                    vector_scalar(*arg0, arg1->get_data_at(0), *result_column);
+                } else {
+                    vector_vector(*arg0, *arg1, *result_column);
+                }
+            }
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
+private:
+    static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt8& res) {
+        size_t size = vec1.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = str.compare(vec1.get_data_at(i));
+        }
+    }
+
+    static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt8& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(str);
+        }
+    }
+
+    static void vector_vector(const ColumnString& vec0, const ColumnString& vec1, ColumnInt8& res) {
+        size_t size = vec0.size();
+        for (size_t i = 0; i < size; ++i) {
+            res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
         }
     }
 };
@@ -948,7 +1011,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtilOld::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -1048,7 +1111,7 @@ public:
         }
 
         int argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
@@ -1259,13 +1322,14 @@ public:
         std::vector<const Chars*> chars_list(argument_size);
         std::vector<const ColumnUInt8::Container*> null_list(argument_size);
 
-        ColumnPtr argument_columns[argument_size];
-        ColumnPtr argument_null_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<ColumnPtr> argument_null_columns(argument_size);
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
@@ -1280,7 +1344,7 @@ public:
                 continue;
             }
 
-            auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
         }
@@ -1295,8 +1359,7 @@ public:
 
         if (check_column<ColumnArray>(argument_columns[1].get())) {
             // Determine if the nested type of the array is String
-            const ColumnArray& array_column =
-                    reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
+            const auto& array_column = reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
             if (!array_column.get_data().is_column_string()) {
                 return Status::NotSupported(
                         fmt::format("unsupported nested array of type {} for function {}",
@@ -1439,6 +1502,14 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    std::string error_msg(int default_value, int repeat_value) const {
+        auto error_msg = fmt::format(
+                "The second parameter of repeat function exceeded maximum default value, "
+                "default_value is {}, and now input is {} . you could try change default value "
+                "greater than value eg: set repeat_max_num = {}.",
+                default_value, repeat_value, repeat_value + 10);
+        return error_msg;
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -1456,17 +1527,20 @@ public:
 
         if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
-                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets(), null_map->get_data(),
-                              context->state()->repeat_max_num());
+                RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
+                                              col2->get_data(), res->get_chars(),
+                                              res->get_offsets(), null_map->get_data(),
+                                              context->state()->repeat_max_num()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = 0;
-                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
-
+                int repeat = col2_const->get_int(0);
+                if (repeat > context->state()->repeat_max_num()) {
+                    return Status::InvalidArgument(
+                            error_msg(context->state()->repeat_max_num(), repeat));
+                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1484,10 +1558,10 @@ public:
                                     argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
     }
 
-    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
-                       const int repeat_max_num) const {
+    Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
+                         ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
+                         const int repeat_max_num) const {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1497,8 +1571,10 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            int repeat = 0;
-            repeat = std::min<int>(repeats[i], repeat_max_num);
+            int repeat = repeats[i];
+            if (repeat > repeat_max_num) {
+                return Status::InvalidArgument(error_msg(repeat_max_num, repeat));
+            }
 
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
@@ -1512,6 +1588,7 @@ public:
                                             res_data, res_offsets);
             }
         }
+        return Status::OK();
     }
 
     // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
@@ -1564,11 +1641,12 @@ public:
         auto res = ColumnString::create();
 
         size_t argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
@@ -1583,16 +1661,16 @@ public:
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        auto strcol = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto& strcol_offsets = strcol->get_offsets();
-        auto& strcol_chars = strcol->get_chars();
+        const auto* strcol = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto& strcol_offsets = strcol->get_offsets();
+        const auto& strcol_chars = strcol->get_chars();
 
-        auto col_len = assert_cast<const ColumnInt32*>(argument_columns[1].get());
-        auto& col_len_data = col_len->get_data();
+        const auto* col_len = assert_cast<const ColumnInt32*>(argument_columns[1].get());
+        const auto& col_len_data = col_len->get_data();
 
-        auto padcol = assert_cast<const ColumnString*>(argument_columns[2].get());
-        auto& padcol_offsets = padcol->get_offsets();
-        auto& padcol_chars = padcol->get_chars();
+        const auto* padcol = assert_cast<const ColumnString*>(argument_columns[2].get());
+        const auto& padcol_offsets = padcol->get_offsets();
+        const auto& padcol_chars = padcol->get_chars();
 
         std::vector<size_t> str_index;
         std::vector<size_t> pad_index;
@@ -1711,11 +1789,12 @@ public:
         res_offsets.resize(input_rows_count);
 
         const size_t argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
@@ -1725,12 +1804,12 @@ public:
             }
         }
 
-        auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
 
-        auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
 
-        auto part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
-        auto& part_num_col_data = part_num_col->get_data();
+        const auto* part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
+        const auto& part_num_col_data = part_num_col->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (part_num_col_data[i] == 0) {
@@ -2462,7 +2541,7 @@ public:
         DCHECK_GE(arguments.size(), 1);
 
         int argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
@@ -2470,7 +2549,7 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get())) {
+            if (const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get())) {
                 offsets_list[i] = &col_str->get_offsets();
                 chars_list[i] = &col_str->get_chars();
             } else {
@@ -2489,8 +2568,8 @@ public:
             using ObjectData = typename Impl::ObjectData;
             ObjectData digest;
             for (size_t j = 0; j < offsets_list.size(); ++j) {
-                auto& current_offsets = *offsets_list[j];
-                auto& current_chars = *chars_list[j];
+                const auto& current_offsets = *offsets_list[j];
+                const auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
                 if (size < 1) {
@@ -2678,7 +2757,7 @@ public:
         size_t argument_size = arguments.size();
         bool has_key = argument_size >= 3;
 
-        ColumnPtr argument_columns[argument_size];
+        std::vector<ColumnPtr> argument_columns(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();

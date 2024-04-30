@@ -19,10 +19,9 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -49,13 +48,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
@@ -140,7 +137,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        auto in_state = reinterpret_cast<InState*>(
+        auto* in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("funciton context for function '{}' must have Set;",
@@ -159,12 +156,13 @@ public:
 
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
-                auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                        materialized_column);
-                auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
-                                         null_col_ptr->get_null_map_column())
-                                         .get_data();
-                auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
+                const auto* null_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                                materialized_column);
+                const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
+                                               null_col_ptr->get_null_map_column())
+                                               .get_data();
+                const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =

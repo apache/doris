@@ -22,12 +22,9 @@
 
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "vec//utils/util.hpp"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
@@ -625,7 +622,7 @@ Status AggLocalState::close(RuntimeState* state) {
     }
 
     /// _hash_table_size_counter may be null if prepare failed.
-    if (_hash_table_size_counter) {
+    if (_hash_table_size_counter && _shared_state->ready_to_execute) {
         std::visit(
                 [&](auto&& agg_method) {
                     COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.hash_table->size()));

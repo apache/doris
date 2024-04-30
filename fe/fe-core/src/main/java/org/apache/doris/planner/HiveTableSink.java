@@ -20,17 +20,44 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THiveBucket;
+import org.apache.doris.thrift.THiveColumn;
+import org.apache.doris.thrift.THiveColumnType;
+import org.apache.doris.thrift.THiveLocationParams;
+import org.apache.doris.thrift.THivePartition;
+import org.apache.doris.thrift.THiveTableSink;
+
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class HiveTableSink extends DataSink {
 
+    private HMSExternalTable targetTable;
     protected TDataSink tDataSink;
 
-    public HiveTableSink(HMSExternalTable table) {
+    public HiveTableSink(HMSExternalTable targetTable) {
         super();
+        this.targetTable = targetTable;
     }
 
     @Override
@@ -59,9 +86,157 @@ public class HiveTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
-    public void init() {
+    /**
+     * check sink params and generate thrift data sink to BE
+     * @param insertCtx insert info context
+     * @throws AnalysisException if source file format cannot be read
+     */
+    public void bindDataSink(List<Column> insertCols, Optional<InsertCommandContext> insertCtx)
+            throws AnalysisException {
+        THiveTableSink tSink = new THiveTableSink();
+        tSink.setDbName(targetTable.getDbName());
+        tSink.setTableName(targetTable.getName());
+        Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
+        List<Column> allColumns = targetTable.getColumns();
+        Set<String> colNames = allColumns.stream().map(Column::getName).collect(Collectors.toSet());
+        colNames.removeAll(partNames);
+        List<THiveColumn> targetColumns = new ArrayList<>();
+        for (Column col : allColumns) {
+            if (partNames.contains(col.getName())) {
+                THiveColumn tHiveColumn = new THiveColumn();
+                tHiveColumn.setName(col.getName());
+                tHiveColumn.setColumnType(THiveColumnType.PARTITION_KEY);
+                targetColumns.add(tHiveColumn);
+            } else if (colNames.contains(col.getName())) {
+                THiveColumn tHiveColumn = new THiveColumn();
+                tHiveColumn.setName(col.getName());
+                tHiveColumn.setColumnType(THiveColumnType.REGULAR);
+                targetColumns.add(tHiveColumn);
+            }
+        }
+        tSink.setColumns(targetColumns);
+
+        setPartitionValues(tSink);
+
+        StorageDescriptor sd = targetTable.getRemoteTable().getSd();
+        THiveBucket bucketInfo = new THiveBucket();
+        bucketInfo.setBucketedBy(sd.getBucketCols());
+        bucketInfo.setBucketCount(sd.getNumBuckets());
+        tSink.setBucketInfo(bucketInfo);
+
+        TFileFormatType formatType = getFileFormatType(sd);
+        tSink.setFileFormat(formatType);
+        setCompressType(tSink, formatType);
+
+        THiveLocationParams locationParams = new THiveLocationParams();
+        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());
+        String location = locationPath.toString();
+        String storageLocation = locationPath.toStorageLocation().toString();
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        if (fileType == TFileType.FILE_S3) {
+            locationParams.setWritePath(storageLocation);
+            locationParams.setOriginalWritePath(location);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(storageLocation);
+            }
+        } else {
+            String writeTempPath = createTempPath(location);
+            locationParams.setWritePath(writeTempPath);
+            locationParams.setOriginalWritePath(writeTempPath);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(writeTempPath);
+            }
+        }
+        locationParams.setFileType(fileType);
+        tSink.setLocation(locationParams);
+
+        tSink.setHadoopConfig(targetTable.getHadoopProperties());
+
+        tDataSink = new TDataSink(getDataSinkType());
+        tDataSink.setHiveTableSink(tSink);
     }
 
-    public void complete(Analyzer analyzer) {
+    private String createTempPath(String location) {
+        String user = ConnectContext.get().getUserIdentity().getUser();
+        return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
+    }
+
+    private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {
+        String compressType;
+        switch (formatType) {
+            case FORMAT_ORC:
+                compressType = targetTable.getRemoteTable().getParameters().get("orc.compress");
+                break;
+            case FORMAT_PARQUET:
+                compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
+                break;
+            default:
+                compressType = "uncompressed";
+                break;
+        }
+
+        if ("snappy".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.SNAPPYBLOCK);
+        } else if ("lz4".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.LZ4BLOCK);
+        } else if ("lzo".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.LZO);
+        } else if ("zlib".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.ZLIB);
+        } else if ("zstd".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.ZSTD);
+        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
+            tSink.setCompressionType(TFileCompressType.PLAIN);
+        } else {
+            // try to use plain type to decompress parquet or orc file
+            tSink.setCompressionType(TFileCompressType.PLAIN);
+        }
+    }
+
+    private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
+        List<THivePartition> partitions = new ArrayList<>();
+        List<org.apache.hadoop.hive.metastore.api.Partition> hivePartitions =
+                ((HMSExternalCatalog) targetTable.getCatalog())
+                        .getClient().listPartitions(targetTable.getDbName(), targetTable.getName());
+        for (org.apache.hadoop.hive.metastore.api.Partition partition : hivePartitions) {
+            THivePartition hivePartition = new THivePartition();
+            StorageDescriptor sd = partition.getSd();
+            hivePartition.setFileFormat(getFileFormatType(sd));
+
+            hivePartition.setValues(partition.getValues());
+            THiveLocationParams locationParams = new THiveLocationParams();
+            String location = sd.getLocation();
+            // pass the same of write path and target path to partition
+            locationParams.setWritePath(location);
+            locationParams.setTargetPath(location);
+            locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
+            hivePartition.setLocation(locationParams);
+            partitions.add(hivePartition);
+        }
+        tSink.setPartitions(partitions);
+    }
+
+    private TFileFormatType getFileFormatType(StorageDescriptor sd) throws AnalysisException {
+        TFileFormatType fileFormatType;
+        if (sd.getInputFormat().toLowerCase().contains("orc")) {
+            fileFormatType = TFileFormatType.FORMAT_ORC;
+        } else if (sd.getInputFormat().toLowerCase().contains("parquet")) {
+            fileFormatType = TFileFormatType.FORMAT_PARQUET;
+        } else if (sd.getInputFormat().toLowerCase().contains("text")) {
+            fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        } else {
+            throw new AnalysisException("Unsupported input format type: " + sd.getInputFormat());
+        }
+        return fileFormatType;
+    }
+
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.HIVE_TABLE_SINK;
     }
 }

@@ -98,6 +98,8 @@ public class AuditEvent {
     public long peakMemoryBytes = -1;
     @AuditField(value = "SqlDigest")
     public String sqlDigest = "";
+    @AuditField(value = "cloudClusterName")
+    public String cloudClusterName = "";
     @AuditField(value = "TraceId")
     public String traceId = "";
     @AuditField(value = "WorkloadGroup")
@@ -105,6 +107,10 @@ public class AuditEvent {
     // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
+    @AuditField(value = "scanBytesFromLocalStorage")
+    public long scanBytesFromLocalStorage = -1;
+    @AuditField(value = "scanBytesFromRemoteStorage")
+    public long scanBytesFromRemoteStorage = -1;
 
     public long pushToAuditLogQueueTime;
 
@@ -146,6 +152,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setDb(String db) {
             auditEvent.db = db;
+            return this;
+        }
+
+        public AuditEventBuilder setCloudCluster(String cloudClusterName) {
+            auditEvent.cloudClusterName = cloudClusterName;
             return this;
         }
 
@@ -241,6 +252,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromLocalStorage(long scanBytesFromLocalStorage) {
+            auditEvent.scanBytesFromLocalStorage = scanBytesFromLocalStorage;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromRemoteStorage(long scanBytesFromRemoteStorage) {
+            auditEvent.scanBytesFromRemoteStorage = scanBytesFromRemoteStorage;
             return this;
         }
 

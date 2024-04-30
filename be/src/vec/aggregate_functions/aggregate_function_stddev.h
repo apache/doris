@@ -104,7 +104,7 @@ struct BaseData {
         double sum_count = count + rhs.count;
         mean = rhs.mean + delta * count / sum_count;
         m2 = rhs.m2 + m2 + (delta * delta) * rhs.count * count / sum_count;
-        count = sum_count;
+        count = int64_t(sum_count);
     }
 
     void add(const IColumn* column, size_t row_num) {

@@ -20,7 +20,6 @@ package org.apache.doris.hudi;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 
@@ -59,7 +58,6 @@ public class HudiJniScanner extends JniScanner {
     private final int fetchSize;
     private final String debugString;
     private final HoodieSplit split;
-    private final ScanPredicate[] predicates;
     private final ClassLoader classLoader;
 
     private long getRecordReaderTimeNs = 0;
@@ -123,20 +121,8 @@ public class HudiJniScanner extends JniScanner {
                 .collect(Collectors.joining("\n"));
         try {
             this.classLoader = this.getClass().getClassLoader();
-            String predicatesAddressString = params.remove("push_down_predicates");
             this.fetchSize = fetchSize;
             this.split = new HoodieSplit(params);
-            if (predicatesAddressString == null) {
-                predicates = new ScanPredicate[0];
-            } else {
-                long predicatesAddress = Long.parseLong(predicatesAddressString);
-                if (predicatesAddress != 0) {
-                    predicates = ScanPredicate.parseScanPredicates(predicatesAddress, split.requiredTypes());
-                    LOG.info("HudiJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-                } else {
-                    predicates = new ScanPredicate[0];
-                }
-            }
         } catch (Exception e) {
             LOG.error("Failed to initialize hudi scanner, split params:\n" + debugString, e);
             throw e;
@@ -147,7 +133,7 @@ public class HudiJniScanner extends JniScanner {
     public void open() throws IOException {
         Future<?> avroFuture = avroReadPool.submit(() -> {
             Thread.currentThread().setContextClassLoader(classLoader);
-            initTableInfo(split.requiredTypes(), split.requiredFields(), predicates, fetchSize);
+            initTableInfo(split.requiredTypes(), split.requiredFields(), fetchSize);
             long startTime = System.nanoTime();
             // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
             // so use another process to kill this stuck process.

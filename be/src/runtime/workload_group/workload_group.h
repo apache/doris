@@ -39,23 +39,19 @@ class RuntimeProfile;
 class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
+class QueryContext;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
 }
 
 namespace pipeline {
-class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 
 class WorkloadGroup;
 struct WorkloadGroupInfo;
-struct WgTrackerLimiterGroup {
-    std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
-    std::mutex group_lock;
-};
-
+struct TrackerLimiterGroup;
 class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
@@ -82,6 +78,25 @@ public:
 
     int64_t memory_used();
 
+    int spill_threshold_low_water_mark() const {
+        return _spill_low_watermark.load(std::memory_order_relaxed);
+    }
+    int spill_threashold_high_water_mark() const {
+        return _spill_high_watermark.load(std::memory_order_relaxed);
+    }
+
+    void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
+
+    void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
+        auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
+        *is_low_wartermark =
+                (weighted_mem_used > ((double)_memory_limit *
+                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+        *is_high_wartermark =
+                (weighted_mem_used > ((double)_memory_limit *
+                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+    }
+
     std::string debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
@@ -97,22 +112,22 @@ public:
         return _memory_limit > 0;
     }
 
-    Status add_query(TUniqueId query_id) {
+    Status add_query(TUniqueId query_id, std::shared_ptr<QueryContext> query_ctx) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         if (_is_shutdown) {
             // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
-                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    "Failed add query to wg {}, the workload group is shutdown. host: {}", _id,
                     BackendOptions::get_localhost());
         }
-        _query_id_set.insert(query_id);
+        _query_ctxs.insert({query_id, query_ctx});
         return Status::OK();
     }
 
     void remove_query(TUniqueId query_id) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_id_set.erase(query_id);
+        _query_ctxs.erase(query_id);
     }
 
     void shutdown() {
@@ -120,9 +135,14 @@ public:
         _is_shutdown = true;
     }
 
+    bool can_be_dropped() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _is_shutdown && _query_ctxs.size() == 0;
+    }
+
     int query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_id_set.size();
+        return _query_ctxs.size();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
@@ -136,25 +156,33 @@ public:
 
     void try_stop_schedulers();
 
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> queries() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _query_ctxs;
+    }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit; // bytes
+    int64_t _memory_limit;                      // bytes
+    std::atomic_int64_t _weighted_mem_used = 0; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
-    std::vector<WgTrackerLimiterGroup> _mem_tracker_limiter_pool;
+    std::vector<TrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
+    std::atomic<int> _spill_low_watermark;
+    std::atomic<int> _spill_high_watermark;
 
     // means workload group is mark dropped
     // new query can not submit
     // waiting running query to be cancelled or finish
     bool _is_shutdown = false;
-    std::unordered_set<TUniqueId> _query_id_set;
+    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
     std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
@@ -178,6 +206,8 @@ struct WorkloadGroupInfo {
     int scan_thread_num;
     int max_remote_scan_thread_num;
     int min_remote_scan_thread_num;
+    int spill_low_watermark;
+    int spill_high_watermark;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

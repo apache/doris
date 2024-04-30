@@ -145,15 +145,16 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
         return true;
     }
 #ifndef BE_TEST
-    auto replay_interval = 0;
+    int64_t replay_interval = 0;
     if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
-        replay_interval = pow(2, config::group_commit_replay_wal_retry_num) *
-                                  config::group_commit_replay_wal_retry_interval_seconds * 1000 +
-                          (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
-                                  config::group_commit_replay_wal_retry_interval_max_seconds * 1000;
+        replay_interval =
+                int64_t(pow(2, config::group_commit_replay_wal_retry_num) *
+                                config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                        (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
+                                config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
     } else {
-        replay_interval = pow(2, wal_info->get_retry_num()) *
-                          config::group_commit_replay_wal_retry_interval_seconds * 1000;
+        replay_interval = int64_t(pow(2, wal_info->get_retry_num()) *
+                                  config::group_commit_replay_wal_retry_interval_seconds * 1000);
     }
     return UnixMillis() - wal_info->get_start_time_ms() >= replay_interval;
 #else
@@ -321,7 +322,10 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
 Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
     std::shared_ptr<doris::WalReader> wal_reader = std::make_shared<WalReader>(wal_path);
     RETURN_IF_ERROR(wal_reader->init());
-    RETURN_IF_ERROR(wal_reader->read_header(columns));
+    uint32_t version = 0;
+    RETURN_IF_ERROR(wal_reader->read_header(version, columns));
+    VLOG_DEBUG << "wal=" << wal_path << ",version=" << std::to_string(version)
+               << ",columns=" << columns;
     RETURN_IF_ERROR(wal_reader->finalize());
     return Status::OK();
 }

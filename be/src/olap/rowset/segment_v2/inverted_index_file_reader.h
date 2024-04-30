@@ -50,10 +50,10 @@ public:
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
-    InvertedIndexFileReader(const io::FileSystemSPtr& fs, io::Path segment_file_dir,
+    InvertedIndexFileReader(io::FileSystemSPtr fs, io::Path segment_file_dir,
                             std::string segment_file_name,
                             InvertedIndexStorageFormatPB storage_format)
-            : _fs(fs),
+            : _fs(std::move(fs)),
               _index_file_dir(std::move(segment_file_dir)),
               _segment_file_name(std::move(segment_file_name)),
               _storage_format(storage_format) {
@@ -66,6 +66,7 @@ public:
                 bool open_idx_file_cache = false);
     Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta) const;
     void debug_file_entries();
+    std::string get_index_file_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;
     Status index_file_exist(const TabletIndex* index_meta, bool* res) const;
     Status has_null(const TabletIndex* index_meta, bool* res) const;

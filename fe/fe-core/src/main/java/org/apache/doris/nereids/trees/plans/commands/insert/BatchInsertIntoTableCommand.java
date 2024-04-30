@@ -131,7 +131,8 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
+                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                            targetTable.getQualifiedDbName(), targetTable.getName(),
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

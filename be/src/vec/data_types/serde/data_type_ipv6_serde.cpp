@@ -20,6 +20,7 @@
 #include <arrow/builder.h>
 
 #include "vec/columns/column_const.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
@@ -85,6 +86,29 @@ Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
                                        std::string(rb.position(), rb.count()).c_str());
     }
     column_data.insert_value(val);
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                             int end) const {
+    const auto& column_data = assert_cast<const ColumnIPv6&>(column);
+    result.mutable_bytes_value()->Reserve(end - start);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::IPV6);
+    for (int i = start; i < end; ++i) {
+        const auto& val = column_data.get_data_at(i);
+        result.add_bytes_value(val.data, val.size);
+    }
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
+    auto old_column_size = column.size();
+    col_data.resize(old_column_size + arg.bytes_value_size());
+    for (int i = 0; i < arg.bytes_value_size(); ++i) {
+        col_data[old_column_size + i] = *(IPv6*)(arg.bytes_value(i).c_str());
+    }
     return Status::OK();
 }
 

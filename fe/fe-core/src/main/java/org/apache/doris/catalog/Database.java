@@ -243,6 +243,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {
@@ -462,6 +466,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return new ArrayList<>(idToTable.values());
     }
 
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
+    }
+
+    public List<Long> getTableIds() {
+        return new ArrayList<>(idToTable.keySet());
+    }
+
     // tables must get read or write table in fixed order to avoid potential dead lock
     public List<Table> getTablesOnIdOrder() {
         return idToTable.values().stream()
@@ -501,7 +513,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+                throw new MetaNotFoundException("table not found, tableId=" + tableId);
             }
             tableList.add(table);
         }

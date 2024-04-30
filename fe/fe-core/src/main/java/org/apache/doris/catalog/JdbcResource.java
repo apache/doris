@@ -42,9 +42,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
-
 
 /**
  * External JDBC Catalog resource for external table query.
@@ -156,7 +157,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_WAIT_TIME, "5000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_KEEP_ALIVE, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -285,28 +286,35 @@ public class JdbcResource extends Resource {
         }
     }
 
+    private static void checkCloudWhiteList(String driverUrl) throws IllegalArgumentException {
+        // For compatibility with cloud mode, we use both `jdbc_driver_url_white_list`
+        // and jdbc_driver_secure_path to check whitelist
+        List<String> cloudWhiteList = new ArrayList<>(Arrays.asList(Config.jdbc_driver_url_white_list));
+        cloudWhiteList.removeIf(String::isEmpty);
+        if (!cloudWhiteList.isEmpty() && !cloudWhiteList.contains(driverUrl)) {
+            throw new IllegalArgumentException("Driver URL does not match any allowed paths" + driverUrl);
+        }
+    }
+
     public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
+            checkCloudWhiteList(driverUrl);
             if (schema == null && !driverUrl.startsWith("/")) {
                 return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
-            } else {
-                if ("*".equals(Config.jdbc_driver_secure_path)) {
-                    return driverUrl;
-                } else if (Config.jdbc_driver_secure_path.trim().isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "jdbc_driver_secure_path is set to empty, disallowing all driver URLs.");
-                } else {
-                    boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
-                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
-                    if (!isAllowed) {
-                        throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
-                    } else {
-                        return driverUrl;
-                    }
-                }
             }
+
+            if ("*".equals(Config.jdbc_driver_secure_path)) {
+                return driverUrl;
+            }
+
+            boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
+                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
+            if (!isAllowed) {
+                throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
+            }
+            return driverUrl;
         } catch (URISyntaxException e) {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;

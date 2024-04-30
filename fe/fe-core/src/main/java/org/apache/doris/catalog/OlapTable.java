@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -46,6 +48,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -53,13 +56,14 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -76,6 +80,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -83,7 +88,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -242,11 +246,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 String.valueOf(isBeingSynced));
     }
 
-    public void setStorageVault(String storageVaultName) {
-        if (storageVaultName == null && storageVaultName.isEmpty()) {
+    public void setStorageVaultName(String storageVaultName) throws DdlException {
+        if (storageVaultName == null || storageVaultName.isEmpty()) {
             return;
         }
         getOrCreatTableProperty().setStorageVaultName(storageVaultName);
+    }
+
+    public String getStorageVaultName() {
+        return getOrCreatTableProperty().getStorageVaultName();
+    }
+
+    public void setStorageVaultId(String setStorageVaultId) throws DdlException {
+        if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
+            throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+        }
+        getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
+    }
+
+    public String getStorageVaultId() {
+        return getOrCreatTableProperty().getStorageVaultId();
     }
 
     public boolean isBeingSynced() {
@@ -476,6 +495,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public List<Long> getAllTabletIds() {
+        List<Long> tabletIds = new ArrayList<>();
+        try {
+            rwLock.readLock().lock();
+            for (Partition partition : getPartitions()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    tabletIds.addAll(index.getTablets().stream()
+                                                        .map(tablet -> tablet.getId())
+                                                        .collect(Collectors.toList()));
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("get all tablet ids failed {}", e.getMessage());
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return tabletIds;
+    }
+
     public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToMeta() {
         Map<Long, MaterializedIndexMeta> visibleMVs = Maps.newHashMap();
         List<MaterializedIndex> mvs = getVisibleIndex();
@@ -492,6 +530,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
         return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
                 : Collections.emptyList();
+    }
+
+    public MaterializedIndex getBaseIndex() {
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        if (!partition.isPresent()) {
+            partition = tempPartitions.getAllPartitions().stream().findFirst();
+        }
+        return partition.isPresent() ? partition.get().getBaseIndex() : null;
     }
 
     public Column getVisibleColumn(String columnName) {
@@ -566,7 +612,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-                                     boolean reserveReplica) {
+            boolean reserveReplica) {
+        // ATTN: The meta of the restore may come from different clusters, so the
+        // original ID in the meta may conflict with the ID of the new cluster. For
+        // example, if a newly allocated ID happens to be the same as an original ID,
+        // the original one may be overwritten when executing `put`, then causes a
+        // NullPointerException.
+
         // table id
         id = env.getNextId();
 
@@ -577,13 +629,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         // reset all 'indexIdToXXX' map
+        Map<Long, MaterializedIndexMeta> origIdxIdToMeta = indexIdToMeta;
+        indexIdToMeta = Maps.newHashMap();
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
             long newIdxId = env.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToMeta.put(newIdxId, indexIdToMeta.remove(entry.getKey()));
+            MaterializedIndexMeta indexMeta = origIdxIdToMeta.get(entry.getKey());
+            indexMeta.resetIndexIdForRestore(newIdxId);
+            indexIdToMeta.put(newIdxId, indexMeta);
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -594,48 +650,47 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         // reset partition info and idToPartition map
-        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                long newPartId = env.getNextId();
-                if (reserveReplica) {
-                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, false);
-                } else {
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
-                }
-                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
-            }
-        } else {
-            // Single partitioned
+        Map<Long, Long> partitionMap = Maps.newHashMap();
+        Map<Long, Partition> origIdToPartition = idToPartition;
+        idToPartition = Maps.newHashMap();
+        for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
             long newPartId = env.getNextId();
-            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                if (reserveReplica) {
-                    ReplicaAllocation originReplicaAlloc = partitionInfo.getReplicaAllocation(entry.getValue());
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), originReplicaAlloc, true);
-                } else {
-                    partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
-                }
-                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
-            }
+            idToPartition.put(newPartId, origIdToPartition.get(entry.getValue()));
+            partitionMap.put(newPartId, entry.getValue());
         }
+        boolean isSinglePartition = partitionInfo.getType() != PartitionType.RANGE
+                && partitionInfo.getType() != PartitionType.LIST;
+        partitionInfo.resetPartitionIdForRestore(partitionMap,
+                reserveReplica ? null : restoreReplicaAlloc, isSinglePartition);
 
         // for each partition, reset rollup index map
-        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
+        Map<Tag, Integer> nextIndexes = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
-            // entry.getKey() is the new partition id, use it to get the restore specified replica allocation
+            // entry.getKey() is the new partition id, use it to get the restore specified
+            // replica allocation
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
+            // save the materialized indexes before create new index, to avoid ids confliction
+            // between two cluster.
+            Map<Long, MaterializedIndex> idToIndex = Maps.newHashMap();
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
-                int schemaHash = indexIdToMeta.get(newIdxId).getSchemaHash();
                 idx.setIdForRestore(newIdxId);
+                idToIndex.put(newIdxId, idx);
                 if (newIdxId != baseIndexId) {
-                    // not base table, reset
+                    // not base table, delete it.
                     partition.deleteRollupIndex(entry2.getKey());
+                }
+            }
+            for (Map.Entry<Long, MaterializedIndex> entry2 : idToIndex.entrySet()) {
+                Long idxId = entry2.getKey();
+                MaterializedIndex idx = entry2.getValue();
+                if (idxId != baseIndexId) {
+                    // not base table, add it.
                     partition.createRollupIndex(idx);
                 }
-
+                int schemaHash = indexIdToMeta.get(idxId).getSchemaHash();
                 // generate new tablets in origin tablet order
                 int tabletNum = idx.getTablets().size();
                 idx.clearTabletsForRestore();
@@ -648,7 +703,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                     try {
                         Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, nextIndexs, null, false, false);
+                                        replicaAlloc, nextIndexes, null, false, false);
                         Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
@@ -666,6 +721,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
             // reset partition id
             partition.setIdForRestore(entry.getKey());
+        }
+
+        // reset the indexes and update the indexes in materialized index meta too.
+        List<Index> indexes = this.indexes.getIndexes();
+        for (Index idx : indexes) {
+            idx.setIndexId(env.getNextId());
+        }
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            entry.getValue().setIndexes(indexes);
         }
 
         return Status.OK;
@@ -737,9 +801,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
+    public Set<Column> getSchemaAllIndexes(boolean full) {
+        Set<Column> columns = Sets.newHashSet();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            columns.addAll(getSchemaByIndexId(indexId, full));
+        }
+        return columns;
+    }
+
+    public List<Column> getMvColumns(boolean full) {
         List<Column> columns = Lists.newArrayList();
         for (Long indexId : indexIdToMeta.keySet()) {
+            if (indexId == baseIndexId) {
+                continue;
+            }
             columns.addAll(getSchemaByIndexId(indexId, full));
         }
         return columns;
@@ -1053,12 +1128,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return CloudPartition.selectNonEmptyPartitionIds(partitions);
         }
 
-        return partitionIds.stream()
-                .map(this::getPartition)
-                .filter(p -> p != null)
-                .filter(Partition::hasData)
-                .map(Partition::getId)
-                .collect(Collectors.toList());
+        List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            Partition partition = getPartition(partitionId);
+            if (partition != null && partition.hasData()) {
+                nonEmptyIds.add(partitionId);
+            }
+        }
+        return nonEmptyIds;
     }
 
     public int getPartitionNum() {
@@ -1085,6 +1162,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     // get all partitions' name except the temp partitions
     public Set<String> getPartitionNames() {
         return Sets.newHashSet(nameToPartition.keySet());
+    }
+
+    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+        List<String> names = new ArrayList<String>();
+        for (Long id : partitionIds) {
+            names.add(idToPartition.get(id).getName());
+        }
+        return names;
     }
 
     public List<Long> getPartitionIds() {
@@ -1248,55 +1333,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
     }
 
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        if (tblStats == null) {
-            return true;
-        }
-        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
-                .stream()
-                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                .map(Column::getName)
-                .collect(Collectors.toSet()))) {
-            return true;
-        }
-        long rowCount = getRowCount();
-        if (rowCount > 0 && tblStats.rowCount == 0) {
-            return true;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
-    }
-
     @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        Set<String> allPartitions = getPartitionNames().stream().map(this::getPartition)
-                .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        if (tableStats == null) {
-            Map<String, Set<String>> ret = Maps.newHashMap();
-            for (Column col : getSchemaAllIndexes(false)) {
-                if (StatisticsUtil.isUnsupportedType(col.getType())) {
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
+        // Check the schema of all indexes for each given column name,
+        // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
+        for (String column : columns) {
+            for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+                Column col = meta.getColumnByName(column);
+                if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                     continue;
                 }
-                ret.put(col.getName(), allPartitions);
+                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
             }
-            return ret;
         }
-        Map<String, Set<String>> colToPart = new HashMap<>();
-        for (Column col : getSchemaAllIndexes(false)) {
-            if (StatisticsUtil.isUnsupportedType(col.getType())) {
-                continue;
-            }
-            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
-            Set<String> partitions = getPartitionNames().stream()
-                    .map(this::getPartition)
-                    .filter(Partition::hasData)
-                    .filter(partition -> partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
-                    .collect(Collectors.toSet());
-            colToPart.put(col.getName(), partitions);
-        }
-        return colToPart;
+        return ret;
     }
 
     @Override
@@ -1341,12 +1392,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return dataSize;
     }
 
-    // Get the md5 of signature string of this table with specified partitions.
+    // Get the signature string of this table with specified partitions.
     // This method is used to determine whether the tables have the same schema.
     // Contains:
-    // table name, table type, index name, index schema, short key column count, storage type
-    // bloom filter, partition type and columns, distribution type and columns.
-    // buckets number.
+    // table name, table type, index name, index schema, short key column count, storage type,
+    // bloom filter, partition type and columns, distribution type and columns, buckets number,
+    // indexes and columns.
     public String getSignature(int signatureVersion, List<String> partNames) {
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(name);
@@ -1392,11 +1443,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
 
-        String md5 = DigestUtils.md5Hex(sb.toString());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        // indexes
+        if (this.indexes != null) {
+            Map<String, Index> indexes = Maps.newTreeMap();
+            for (Index idx : this.indexes.getIndexes()) {
+                indexes.put(idx.getIndexName(), idx);
+            }
+            for (Map.Entry<String, Index> entry : indexes.entrySet()) {
+                Index idx = entry.getValue();
+                sb.append(entry.getKey());
+                sb.append(idx.getIndexType());
+                sb.append(Joiner.on(",").join(idx.getColumns()));
+            }
         }
-        return md5;
+
+        String signature = sb.toString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of table {}. signature string: {}", name, sb.toString());
+        }
+        return signature;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
@@ -1525,6 +1590,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             this.indexNameToId.put(indexName, indexId);
             MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
             indexIdToMeta.put(indexId, indexMeta);
+
+            // HACK: the index id in MaterializedIndexMeta is not equals to the index id
+            // saved in OlapTable, because the table restore from snapshot is not reset
+            // the MaterializedIndexMeta correctly.
+            if (indexMeta.getIndexId() != indexId) {
+                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                        + " to the index saved in table {} ({}), reset it to {}",
+                        indexMeta.getIndexId(), indexName, name, id, indexId);
+                indexMeta.resetIndexIdForRestore(indexId);
+            }
         }
 
         // partition and distribution info
@@ -1984,6 +2059,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return "";
     }
 
+    public boolean containsPartition(String partitionName) {
+        return nameToPartition.containsKey(partitionName);
+    }
+
     public long getTTLSeconds() {
         if (tableProperty != null) {
             return tableProperty.getTTLSeconds();
@@ -2145,7 +2224,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.compactionPolicy();
         }
-        return "";
+        return PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
     }
 
     public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
@@ -2159,7 +2238,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionGoalSizeMbytes();
         }
-        return null;
+        return PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
     }
 
     public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
@@ -2173,7 +2252,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionFileCountThreshold();
         }
-        return null;
+        return PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
     }
 
     public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
@@ -2188,7 +2267,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
         }
-        return null;
+        return PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
     }
 
     public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
@@ -2202,7 +2281,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
         }
-        return null;
+        return PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
     }
 
     public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
@@ -2216,7 +2295,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionLevelThreshold();
         }
-        return null;
+        return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
     }
 
     public int getBaseSchemaVersion() {
@@ -2257,12 +2336,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     // drop temp partition. if needDropTablet is true, tablets of this temp partition
     // will be dropped from tablet inverted index.
-    public void dropTempPartition(String partitionName, boolean needDropTablet) {
+    public Partition dropTempPartition(String partitionName, boolean needDropTablet) {
         Partition partition = getPartition(partitionName, true);
         if (partition != null) {
             partitionInfo.dropPartition(partition.getId());
             tempPartitions.dropPartition(partitionName, needDropTablet);
         }
+        return partition;
     }
 
     /*
@@ -2511,9 +2591,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        return getKeysType() == KeysType.DUP_KEYS
-                || (getKeysType() == KeysType.UNIQUE_KEYS
-                && getEnableUniqueKeyMergeOnWrite());
+        return keysType == KeysType.DUP_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite());
     }
 
     public void initAutoIncrementGenerator(long dbId) {
@@ -2639,11 +2718,48 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
     // the write lock on the table should be held continuously
     public long getNextVersion() {
-        return tableAttributes.getNextVersion();
+        if (!Config.isCloudMode()) {
+            return tableAttributes.getNextVersion();
+        } else {
+            // cloud mode should not reach here
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getNextVersion in Cloud mode in OlapTable {} ", getName());
+            }
+            return getVisibleVersion() + 1;
+        }
     }
 
     public long getVisibleVersion() {
-        return tableAttributes.getVisibleVersion();
+        if (Config.isNotCloudMode()) {
+            return tableAttributes.getVisibleVersion();
+        }
+        // get version rpc
+        Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setDbId(this.getDatabase().getId())
+                .setTableId(this.id)
+                .setBatchMode(false)
+                .setIsTableVersion(true)
+                .build();
+
+        try {
+            Cloud.GetVersionResponse resp = getVersionFromMeta(request);
+            long version = -1;
+            if (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                version = resp.getVersion();
+            } else {
+                assert resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND;
+                version = 0;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get version from meta service, version: {}, table: {}", version, getId());
+            }
+            if (version == 0) {
+                version = 1;
+            }
+            return version;
+        } catch (RpcException e) {
+            throw new RuntimeException("get version from meta service failed");
+        }
     }
 
     public long getVisibleVersionTime() {
@@ -2692,6 +2808,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
     }
 
+    private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
+            throws RpcException {
+        long startAt = System.nanoTime();
+        try {
+            return VersionHelper.getVisibleVersion(req);
+        } finally {
+            SummaryProfile profile = getSummaryProfile();
+            if (profile != null) {
+                profile.addGetTableVersionTime(System.nanoTime() - startAt);
+            }
+        }
+    }
+
     @Override
     public boolean needAutoRefresh() {
         return true;
@@ -2699,6 +2828,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public boolean isPartitionColumnAllowNull() {
-        return false;
+        return true;
+    }
+
+    private static SummaryProfile getSummaryProfile() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 }

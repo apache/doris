@@ -102,19 +102,16 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
         S3URI s3_uri(location);
         RETURN_IF_ERROR(s3_uri.parse());
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(_prop, s3_uri, &s3_conf));
-        std::shared_ptr<io::S3FileSystem> fs;
-        RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
-        _remote_fs = std::move(fs);
+        _remote_fs =
+                DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
-        _remote_fs = std::move(fs);
+        _remote_fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
+                                                          io::FileSystem::TMP_FS_ID, nullptr));
     } else if (TStorageBackendType::type::BROKER == type) {
         std::shared_ptr<io::BrokerFileSystem> fs;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(_broker_addr, _prop, &fs));
-        _remote_fs = std::move(fs);
+        _remote_fs = DORIS_TRY(
+                io::BrokerFileSystem::create(_broker_addr, _prop, io::FileSystem::TMP_FS_ID));
     } else {
         return Status::InternalError("Unknown storage tpye: {}", type);
     }
@@ -338,7 +335,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             }
             // remove file which will be downloaded now.
             // this file will be added to local_files if it be downloaded successfully.
-            local_files.erase(find);
+            if (find != local_files.end()) {
+                local_files.erase(find);
+            }
             RETURN_IF_ERROR(_remote_fs->download(full_remote_file, full_local_file));
 
             // 3. check md5 of the downloaded file
@@ -772,6 +771,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     } else {
         LOG(FATAL) << "only support overwrite now";
+        __builtin_unreachable();
     }
 
     // snapshot loader not need to change tablet uid

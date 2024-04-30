@@ -346,12 +346,7 @@ struct MethodOneNumber : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
-        key_columns[0]->reserve(num_rows);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        for (size_t i = 0; i != num_rows; ++i) {
-            const auto* key_holder = reinterpret_cast<const char*>(&input_keys[i]);
-            column->insert_raw_data<sizeof(FieldType)>(key_holder);
-        }
+        key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
     }
 };
 

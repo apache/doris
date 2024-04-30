@@ -268,6 +268,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
                                                                    state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);
@@ -322,6 +323,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, Runtim
                     st = hash_table_build_process(arg, _arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);
@@ -372,6 +374,7 @@ Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int chil
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
                     }
                 },
                 *_hash_table_variants));
@@ -521,8 +524,8 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                     bool is_need_shrink =
                             arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
                     if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(
-                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
+                        tmp_hash_table->init_buf_size(size_t(
+                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
                     }
 
                     arg.init_iterator();
@@ -558,6 +561,7 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                     }
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);

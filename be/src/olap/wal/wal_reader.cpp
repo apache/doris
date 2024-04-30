@@ -85,7 +85,7 @@ Status WalReader::read_block(PBlock& block) {
     return Status::OK();
 }
 
-Status WalReader::read_header(std::string& col_ids) {
+Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
     if (file_reader->size() == 0) {
         return Status::DataQualityError("empty file");
     }
@@ -101,7 +101,7 @@ Status WalReader::read_header(std::string& col_ids) {
     RETURN_IF_ERROR(
             file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
     _offset += WalWriter::VERSION_SIZE;
-    _version = decode_fixed32_le(version_buf);
+    version = decode_fixed32_le(version_buf);
     uint8_t len_buf[WalWriter::LENGTH_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;

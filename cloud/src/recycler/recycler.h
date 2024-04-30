@@ -59,6 +59,8 @@ private:
 
     void lease_recycle_jobs();
 
+    void check_recycle_tasks();
+
 private:
     friend class RecyclerServiceImpl;
 
@@ -87,6 +89,7 @@ public:
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
     ~InstanceRecycler();
 
+    // returns 0 for success otherwise error
     int init();
 
     void stop() { stopped_.store(true, std::memory_order_release); }
@@ -155,7 +158,15 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    bool check_recycle_tasks();
+
 private:
+    // returns 0 for success otherwise error
+    int init_obj_store_accessors();
+
+    // returns 0 for success otherwise error
+    int init_storage_vault_accessors();
+
     /**
      * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
      *
@@ -182,11 +193,17 @@ private:
     int init_copy_job_accessor(const std::string& stage_id, const StagePB::StageType& stage_type,
                                std::shared_ptr<ObjStoreAccessor>* accessor);
 
+    void register_recycle_task(const std::string& task_name, int64_t start_time);
+
+    void unregister_recycle_task(const std::string& task_name);
+
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     InstanceInfoPB instance_info_;
+
+    // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
     std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
 
     class InvertedIndexIdCache;
@@ -195,6 +212,10 @@ private:
     std::mutex recycled_tablets_mtx_;
     // Store recycled tablets, we can skip deleting rowset data of these tablets because these data has already been deleted.
     std::unordered_set<int64_t> recycled_tablets_;
+
+    std::mutex recycle_tasks_mutex;
+    // <task_name, start_time>>
+    std::map<std::string, int64_t> running_recycle_tasks;
 };
 
 } // namespace doris::cloud

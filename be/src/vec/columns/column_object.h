@@ -252,16 +252,16 @@ public:
 
     ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
-    bool serialize_one_row_to_string(int row, std::string* output) const;
+    Status serialize_one_row_to_string(int row, std::string* output) const;
 
-    bool serialize_one_row_to_string(int row, BufferWritable& output) const;
+    Status serialize_one_row_to_string(int row, BufferWritable& output) const;
 
     // serialize one row to json format
-    bool serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
-                                          bool* is_null) const;
+    Status serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+                                            bool* is_null) const;
 
     // merge multiple sub sparse columns into root
-    void merge_sparse_to_root_column();
+    Status merge_sparse_to_root_column();
 
     // ensure root node is a certain type
     void ensure_root_node_type(const DataTypePtr& type);
@@ -385,7 +385,14 @@ public:
     void insert(const Field& field) override { try_insert(field); }
 
     void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override;
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
+    }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
@@ -436,6 +443,7 @@ public:
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
@@ -454,23 +462,18 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
-    MutableColumns scatter(ColumnIndex, const Selector&) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return {};
-    }
+    bool is_variable_length() const override { return true; }
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
 
-    void replace_column_data_default(size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void replace_column_data_default(size_t self_row) override;
 
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     template <typename Func>
@@ -494,4 +497,5 @@ public:
 
     std::string debug_string() const;
 };
+
 } // namespace doris::vectorized

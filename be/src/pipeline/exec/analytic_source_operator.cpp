@@ -24,8 +24,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
-
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
@@ -161,15 +159,21 @@ bool AnalyticLocalState::_whether_need_next_partition(
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _blocks_memory_usage =
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    return Status::OK();
+}
+
+Status AnalyticLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
-
-    _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
     for (size_t i = 0; i < _agg_functions.size(); i++) {

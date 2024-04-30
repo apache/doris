@@ -22,6 +22,7 @@ import org.apache.doris.alter.CloudRollupJobV2;
 import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DatabaseIf;
@@ -78,6 +79,8 @@ import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -147,10 +150,15 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -277,6 +285,7 @@ public class GsonUtils {
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
             .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
+            .registerSubtype(ExternalMysqlDatabase.class, ExternalMysqlDatabase.class.getSimpleName())
             .registerSubtype(TrinoConnectorExternalDatabase.class, TrinoConnectorExternalDatabase.class.getSimpleName())
             .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName());
 
@@ -290,6 +299,7 @@ public class GsonUtils {
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
+            .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
             .registerSubtype(TrinoConnectorExternalTable.class, TrinoConnectorExternalTable.class.getSimpleName())
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName());
 
@@ -333,6 +343,7 @@ public class GsonUtils {
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
+            .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
@@ -499,6 +510,50 @@ public class GsonUtils {
                 table.put(rowKey, columnKey, value);
             }
             return table;
+        }
+    }
+
+    private static class ExprAdapter
+            implements JsonSerializer<Expr>, JsonDeserializer<Expr> {
+        private static String EXPR_PROP = "expr";
+
+        @Override
+        public JsonElement serialize(Expr src, Type typeOfSrc, JsonSerializationContext context) {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+            try {
+                Expr.writeTo(src, dataOutputStream);
+                String base64Str = Base64.getEncoder().encodeToString(byteArrayOutputStream.toByteArray());
+                JsonObject exprJsonObject = new JsonObject();
+                exprJsonObject.addProperty(EXPR_PROP, base64Str);
+                return exprJsonObject;
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } finally {
+                try {
+                    dataOutputStream.close();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+
+        @Override
+        public Expr deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
+            String base64Str = json.getAsJsonObject().get(EXPR_PROP).getAsString();
+            DataInputStream dataInputStream = new DataInputStream(
+                    new ByteArrayInputStream(Base64.getDecoder().decode(base64Str)));
+            try {
+                return Expr.readIn(dataInputStream);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } finally {
+                try {
+                    dataInputStream.close();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
         }
     }
 

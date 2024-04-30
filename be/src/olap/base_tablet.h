@@ -60,6 +60,7 @@ public:
     int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
+    int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
@@ -127,8 +128,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
-    std::vector<RowsetSharedPtr> get_rowset_by_ids(const RowsetIdUnorderedSet* specified_rowset_ids,
-                                                   bool include_stale = false);
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(
+            const RowsetIdUnorderedSet* specified_rowset_ids);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -236,6 +237,12 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////
+
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
+    std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
+
+    virtual void clear_cache() = 0;
 
 protected:
     // Find the missed versions until the spec_version.

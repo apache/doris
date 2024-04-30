@@ -45,8 +45,7 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        init_mem_tracker(
-                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -64,8 +63,7 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        init_mem_tracker(
-                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
 
     ~LRUCachePolicy() override { _cache.reset(); }
@@ -93,16 +91,32 @@ public:
         }
     }
 
+    void init_mem_tracker_by_allocator() {
+        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::GLOBAL,
+                fmt::format("{}[{}](AllocByAllocator)", type_string(_type),
+                            lru_cache_type_string(_lru_cache_type)));
+    }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
+        DCHECK(_mem_tracker_by_allocator != nullptr);
+        return _mem_tracker_by_allocator;
+    }
+
     // Insert and cache value destroy will be manually consume tracking_bytes to mem tracker.
-    // If memory is allocated from Allocator, tracking_bytes will is 0, no longer manual tracking.
-    // If lru cache is LRUCacheType::SIZE, tracking_bytes will be equal to charge.
+    // If lru cache is LRUCacheType::SIZE, tracking_bytes usually equal to charge.
     Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
                           CachePriority priority = CachePriority::NORMAL) {
         size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
-        if (value != nullptr && tracking_bytes > 0) {
-            ((LRUCacheValueBase*)value)->mem_tracker()->cache_consume(bytes_with_handle);
+        if (value != nullptr) { // if tracking_bytes = 0, only tracking handle size.
+            ((LRUCacheValueBase*)value)->mem_tracker()->consume(bytes_with_handle);
             ((LRUCacheValueBase*)value)->set_tracking_bytes(bytes_with_handle);
         }
+        return _cache->insert(key, value, charge, priority);
+    }
+
+    Cache::Handle* insert_no_tracking(const CacheKey& key, void* value, size_t charge,
+                                      CachePriority priority = CachePriority::NORMAL) {
+        DCHECK(_mem_tracker_by_allocator != nullptr); // must be tracking in Allcator.
         return _cache->insert(key, value, charge, priority);
     }
 
@@ -120,6 +134,9 @@ public:
 
     uint64_t new_id() { return _cache->new_id(); };
 
+    // Subclass can override this method to determine whether to do the minor or full gc
+    virtual bool exceed_prune_limit() { return mem_consumption() > CACHE_MIN_FREE_SIZE; }
+
     // Try to prune the cache if expired.
     void prune_stale() override {
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
@@ -127,7 +144,7 @@ public:
         if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if (mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if (exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             const int64_t curtime = UnixMillis();
@@ -161,7 +178,7 @@ public:
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
-        if ((force && mem_consumption() != 0) || mem_consumption() > CACHE_MIN_FREE_SIZE) {
+        if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}",
@@ -197,6 +214,7 @@ private:
     // compatible with ShardedLRUCache usage, but will not actually cache.
     std::shared_ptr<Cache> _cache;
     LRUCacheType _lru_cache_type;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
 } // namespace doris

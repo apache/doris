@@ -100,19 +100,27 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
 
 void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
-                                                    int end) const {
-    auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
-    auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+                                                    int end, const cctz::time_zone& ctz) const {
+    const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
+    auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        char buf[64];
-        const DateV2Value<DateTimeV2ValueType>* time_val =
-                (const DateV2Value<DateTimeV2ValueType>*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+            checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            int64_t timestamp = 0;
+            DateV2Value<DateTimeV2ValueType> datetime_val =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
+            datetime_val.unix_timestamp(&timestamp, ctz);
+
+            if (scale > 3) {
+                uint32_t microsecond = datetime_val.microsecond();
+                timestamp = (timestamp * 1000000) + microsecond;
+            } else if (scale > 0) {
+                uint32_t millisecond = datetime_val.microsecond() / 1000;
+                timestamp = (timestamp * 1000) + millisecond;
+            }
+            checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
                              array_builder->type()->name());
         }
     }

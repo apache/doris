@@ -51,7 +51,7 @@
 #include "olap/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
-using doris::segment_v2::DorisCompoundDirectoryFactory;
+using doris::segment_v2::DorisFSDirectoryFactory;
 using doris::segment_v2::InvertedIndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
 using doris::segment_v2::InvertedIndexFileReader;
@@ -248,8 +248,8 @@ int main(int argc, char** argv) {
         std::unique_ptr<DorisCompoundReader> reader;
         try {
             reader = std::make_unique<DorisCompoundReader>(
-                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
-                    file_str.c_str(), 4096);
+                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                    4096);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -283,8 +283,8 @@ int main(int argc, char** argv) {
         std::unique_ptr<DorisCompoundReader> reader;
         try {
             reader = std::make_unique<DorisCompoundReader>(
-                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
-                    file_str.c_str(), 4096);
+                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
+                    4096);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
             check_terms_stats(reader.get());
@@ -327,7 +327,7 @@ int main(int argc, char** argv) {
                             continue;
                         }
                         reader = std::make_unique<DorisCompoundReader>(
-                                DorisCompoundDirectoryFactory::getDirectory(fs, file_str.c_str()),
+                                DorisFSDirectoryFactory::getDirectory(fs, file_str.c_str()),
                                 file_str.c_str(), 4096);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
                     return -1;
                 }
                 reader = std::make_unique<DorisCompoundReader>(
-                        DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
+                        DorisFSDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
                         FLAGS_idx_file_name.c_str(), 4096);
                 std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                           << FLAGS_idx_file_name << std::endl;
@@ -430,7 +430,7 @@ int main(int argc, char** argv) {
 
         std::string index_writer_path = tablet_path + "/tmp_index_writer";
         lucene::store::Directory* dir =
-                DorisCompoundDirectoryFactory::getDirectory(fs, index_writer_path.c_str(), false);
+                DorisFSDirectoryFactory::getDirectory(fs, index_writer_path.c_str(), false);
         lucene::analysis::SimpleAnalyzer<char> analyzer;
         auto index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                               true /* closeDirOnShutdown */);
@@ -443,7 +443,7 @@ int main(int argc, char** argv) {
             std::string src_idx_full_name =
                     src_index_files[i] + "_" + std::to_string(index_id) + ".idx";
             DorisCompoundReader* reader = new DorisCompoundReader(
-                    DorisCompoundDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
+                    DorisFSDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
                     src_idx_full_name.c_str());
             src_index_dirs[i] = reader;
         }
@@ -453,8 +453,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < dest_segment_num; ++i) {
             // format: rowsetId_segmentId_columnId
             auto path = tablet_path + "/" + dest_index_files[i] + "_" + std::to_string(index_id);
-            dest_index_dirs[i] =
-                    DorisCompoundDirectoryFactory::getDirectory(fs, path.c_str(), true);
+            dest_index_dirs[i] = DorisFSDirectoryFactory::getDirectory(fs, path.c_str(), true);
         }
 
         index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,

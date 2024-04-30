@@ -409,11 +409,27 @@ struct TQueryStatistics {
     7: optional i64 workload_group_id
     8: optional i64 shuffle_send_bytes
     9: optional i64 shuffle_send_rows
+    10: optional i64 scan_bytes_from_local_storage
+    11: optional i64 scan_bytes_from_remote_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
     2: optional map<string, TQueryStatistics> query_statistics_map
+}
+
+struct TQueryProfile {
+    1: optional Types.TUniqueId query_id
+
+    2: optional map<i32, list<TDetailedReportParams>> fragment_id_to_profile
+
+    // Types.TUniqueId should not be used as key in thrift map, so we use two lists instead
+    // https://thrift.apache.org/docs/types#containers
+    3: optional list<Types.TUniqueId> fragment_instance_ids
+    // Types.TUniqueId can not be used as key in thrift map, so we use two lists instead
+    4: optional list<RuntimeProfile.TRuntimeProfileTree> instance_profiles
+
+    5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
 }
 
 // The results of an INSERT query, sent to the coordinator as part of
@@ -443,7 +459,7 @@ struct TReportExecStatusParams {
   // cumulative profile
   // required in V1
   // Move to TDetailedReportParams for pipelineX
-  7: optional RuntimeProfile.TRuntimeProfileTree profile
+  7: optional RuntimeProfile.TRuntimeProfileTree profile // to be deprecated
 
   // New errors that have not been reported to the coordinator
   // optional in V1
@@ -473,17 +489,22 @@ struct TReportExecStatusParams {
   20: optional PaloInternalService.TQueryType query_type
 
   // Move to TDetailedReportParams for pipelineX
-  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile // to be deprecated
 
   22: optional i32 finished_scan_ranges
 
-  23: optional list<TDetailedReportParams> detailed_report
+  23: optional list<TDetailedReportParams> detailed_report // to be deprecated
 
   24: optional TQueryStatistics query_statistics // deprecated
 
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
+
+  27: optional TQueryProfile query_profile
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
 }
 
 struct TFeResult {
@@ -494,7 +515,6 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
-
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -524,6 +544,8 @@ struct TMasterOpRequest {
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
     26: optional string defaultDatabase
+    27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
+    28: optional map<string, Exprs.TExprNode> user_variables
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -924,6 +946,8 @@ enum TSchemaTableName {
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
+  ROUTINES_INFO = 4, // db information_schema's table
+  WORKLOAD_SCHEDULE_POLICY = 5,
 }
 
 struct TMetadataTableRequestParams {
@@ -1271,12 +1295,29 @@ struct TCreatePartitionRequest {
     2: optional i64 db_id
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
-    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+    4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
 }
 
 struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
+// these two for auto detect replacing partition
+struct TReplacePartitionRequest {
+    1: optional i64 overwrite_group_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    4: optional list<i64> partition_ids // partition to replace.
+    // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
+    5: optional string be_endpoint
+}
+
+struct TReplacePartitionResult {
     1: optional Status.TStatus status
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
@@ -1415,11 +1456,30 @@ struct TShowProcessListResult {
     1: optional list<list<string>> process_list
 }
 
+struct TShowUserRequest {
+}
+
+struct TShowUserResult {
+    1: optional list<list<string>> userinfo_list
+}
+
 struct TReportCommitTxnResultRequest {
     1: optional i64 dbId
     2: optional i64 txnId
     3: optional string label
     4: optional binary payload
+}
+
+struct TQueryColumn {
+    1: optional string catalogId
+    2: optional string dbId
+    3: optional string tblId
+    4: optional string colName
+}
+
+struct TSyncQueryColumns {
+    1: optional list<TQueryColumn> highPriorityColumns;
+    2: optional list<TQueryColumn> midPriorityColumns;
 }
 
 service FrontendService {
@@ -1498,6 +1558,8 @@ service FrontendService {
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
+    // insert overwrite partition(*)
+    TReplacePartitionResult replacePartition(1: TReplacePartitionRequest request)
 
     TGetMetaResult getMeta(1: TGetMetaRequest request)
 
@@ -1509,4 +1571,6 @@ service FrontendService {
 
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
+    TShowUserResult showUser(1: TShowUserRequest request)
+    Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 }

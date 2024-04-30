@@ -369,7 +369,7 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
     update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
 }
 
-void inherit_tablet_index(TabletSchemaSPtr& schema) {
+void inherit_root_attributes(TabletSchemaSPtr& schema) {
     std::unordered_map<int32_t, TabletIndex> variants_index_meta;
     // Get all variants tablet index metas if exist
     for (const auto& col : schema->columns()) {
@@ -392,6 +392,7 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
             // above types are not supported in bf
             col.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
         }
+        col.set_aggregation_method(schema->column(col.parent_unique_id()).aggregation());
         auto it = variants_index_meta.find(col.parent_unique_id());
         // variant has no index meta, ignore
         if (it == variants_index_meta.end()) {
@@ -467,7 +468,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         update_least_sparse_column(schemas, output_schema, unique_id, path_set);
     }
 
-    inherit_tablet_index(output_schema);
+    inherit_root_attributes(output_schema);
     if (check_schema_size &&
         output_schema->columns().size() > config::variant_max_merged_tablet_schema_size) {
         return Status::DataQualityError("Reached max column size limit {}",
@@ -484,7 +485,8 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
         RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos, ctx));
         vectorized::schema_util::finalize_variant_columns(block, variant_pos,
                                                           false /*not ingore sparse*/);
-        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
+        RETURN_IF_ERROR(
+                vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos));
     } catch (const doris::Exception& e) {
         // TODO more graceful, max_filter_ratio
         LOG(WARNING) << "encounter execption " << e.to_string();
@@ -505,9 +507,9 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         MutableColumnPtr variant_column;
         bool record_raw_string_with_serialization = false;
         // set
-        auto __defer = Defer([&]() {
+        auto encode_rowstore = [&]() {
             if (!ctx.record_raw_json_column) {
-                return;
+                return Status::OK();
             }
             auto* var = static_cast<vectorized::ColumnObject*>(variant_column.get());
             if (record_raw_string_with_serialization) {
@@ -515,7 +517,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                 auto raw_column = vectorized::ColumnString::create();
                 for (size_t i = 0; i < var->rows(); ++i) {
                     std::string raw_str;
-                    var->serialize_one_row_to_string(i, &raw_str);
+                    RETURN_IF_ERROR(var->serialize_one_row_to_string(i, &raw_str));
                     raw_column->insert_data(raw_str.c_str(), raw_str.size());
                 }
                 var->set_rowstore_column(raw_column->get_ptr());
@@ -526,11 +528,13 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                                                  ->get_root();
                 var->set_rowstore_column(original_var_root);
             }
-        });
+            return Status::OK();
+        };
 
         if (!var.is_scalar_variant()) {
             variant_column = var.assume_mutable();
             record_raw_string_with_serialization = true;
+            RETURN_IF_ERROR(encode_rowstore());
             // already parsed
             continue;
         }
@@ -567,6 +571,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             result = ColumnNullable::create(result, null_map);
         }
         block.get_by_position(variant_pos[i]).column = result;
+        RETURN_IF_ERROR(encode_rowstore());
         // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
     return Status::OK();
@@ -587,7 +592,7 @@ void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
     }
 }
 
-void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos) {
+Status encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
         auto& column =
@@ -598,8 +603,9 @@ void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& vari
         // Make sure the root node is jsonb storage type
         auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
         column.ensure_root_node_type(expected_root_type);
-        column.merge_sparse_to_root_column();
+        RETURN_IF_ERROR(column.merge_sparse_to_root_column());
     }
+    return Status::OK();
 }
 
 static void _append_column(const TabletColumn& parent_variant,
@@ -705,7 +711,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
 
-    vectorized::schema_util::inherit_tablet_index(flush_schema);
+    vectorized::schema_util::inherit_root_attributes(flush_schema);
 }
 
 // ---------------------------

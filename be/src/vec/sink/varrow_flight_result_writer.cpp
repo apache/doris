@@ -41,6 +41,7 @@ Status VArrowFlightResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     _is_dry_run = state->query_options().dry_run_query;
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -73,7 +74,7 @@ Status VArrowFlightResultWriter::write(Block& input_block) {
     {
         SCOPED_TIMER(_convert_tuple_timer);
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                               &result));
+                                               &result, _timezone_obj));
     }
     {
         SCOPED_TIMER(_result_send_timer);

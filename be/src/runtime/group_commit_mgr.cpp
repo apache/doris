@@ -74,11 +74,20 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             }
         }
     }
-    if (_data_bytes >= _group_commit_data_bytes) {
-        VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
-                   << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
-        _need_commit = true;
-        data_size_condition = true;
+    if (!_need_commit) {
+        if (_data_bytes >= _group_commit_data_bytes) {
+            VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
+                       << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
+            _need_commit = true;
+            data_size_condition = true;
+        }
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                  _start_time)
+                    .count() >= _group_commit_interval_ms) {
+            VLOG_DEBUG << "group commit meets commit condition for time interval, label=" << label
+                       << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
+            _need_commit = true;
+        }
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -90,11 +99,9 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     *eos = false;
     std::unique_lock l(mutex);
     if (!_need_commit) {
-        auto left_milliseconds =
-                _group_commit_interval_ms - std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                    std::chrono::steady_clock::now() - _start_time)
-                                                    .count();
-        if (left_milliseconds <= 0) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                  _start_time)
+                    .count() >= _group_commit_interval_ms) {
             _need_commit = true;
         }
     }
@@ -186,7 +193,8 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
 
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
-        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version) {
+        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
+        std::shared_ptr<MemTrackerLimiter> mem_tracker) {
     DCHECK(table_id == _table_id);
     {
         std::unique_lock l(_lock);
@@ -212,7 +220,7 @@ Status GroupCommitTable::get_first_block_load_queue(
             if (!_is_creating_plan_fragment) {
                 _is_creating_plan_fragment = true;
                 RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    auto st = _create_group_commit_load(be_exe_version);
+                    auto st = _create_group_commit_load(be_exe_version, mem_tracker);
                     if (!st.ok()) {
                         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
                         std::unique_lock l(_lock);
@@ -228,7 +236,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                                         std::to_string(_table_id));
 }
 
-Status GroupCommitTable::_create_group_commit_load(int be_exe_version) {
+Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
+                                                   std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
     Status st = Status::OK();
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
@@ -314,8 +324,12 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version) {
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
                              pipeline_params);
     if (!st.ok()) {
-        static_cast<void>(_finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
-                                                    st, nullptr));
+        auto finish_st = _finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
+                                                   st, nullptr);
+        if (!finish_st.ok()) {
+            LOG(WARNING) << "finish group commit error, label=" << label
+                         << ", st=" << finish_st.to_string();
+        }
     }
     return st;
 }
@@ -326,6 +340,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                                                    RuntimeState* state) {
     Status st;
     Status result_status;
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+                    { status = Status::InternalError(""); });
     if (status.ok()) {
         // commit txn
         TLoadTxnCommitRequest request;
@@ -361,6 +377,13 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 },
                 10000L);
         result_status = Status::create<false>(result.status);
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
+            std ::string msg = "abort txn";
+            LOG(INFO) << "debug promise set: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+            return status;
+        });
     }
     std::shared_ptr<LoadBlockQueue> load_block_queue;
     {
@@ -385,7 +408,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st",
                     { st = Status::InternalError(""); });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
@@ -432,8 +455,13 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
     auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
-        static_cast<void>(_finish_group_commit_load(db_id, table_id, label, txn_id,
-                                                    state->fragment_instance_id(), *status, state));
+        DCHECK(state);
+        auto finish_st = _finish_group_commit_load(db_id, table_id, label, txn_id,
+                                                   state->fragment_instance_id(), *status, state);
+        if (!finish_st.ok()) {
+            LOG(WARNING) << "finish group commit error, label=" << label
+                         << ", st=" << finish_st.to_string();
+        }
     };
     if (is_pipeline) {
         return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
@@ -475,7 +503,8 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
                                                   int64_t base_schema_version,
                                                   const UniqueId& load_id,
                                                   std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                                  int be_exe_version) {
+                                                  int be_exe_version,
+                                                  std::shared_ptr<MemTrackerLimiter> mem_tracker) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -487,7 +516,7 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
         group_commit_table = _table_map[table_id];
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
-            table_id, base_schema_version, load_id, load_block_queue, be_exe_version));
+            table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker));
     return Status::OK();
 }
 
@@ -512,8 +541,8 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
     std::string real_label = config::group_commit_wait_replay_wal_finish
                                      ? import_label + "_test_wait"
                                      : import_label;
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(db_id, tb_id, wal_id,
-                                                                       real_label, _wal_base_path));
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
+            db_id, tb_id, wal_id, real_label, _wal_base_path, WAL_VERSION));
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
             db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();

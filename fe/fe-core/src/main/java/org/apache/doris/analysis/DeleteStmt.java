@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -218,7 +219,8 @@ public class DeleteStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check load privilege, select privilege will check when analyze insert stmt
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(), tableName.getDb() + ": " + tableName.getTbl());
@@ -307,9 +309,9 @@ public class DeleteStmt extends DdlStmt {
     private void checkDeleteConditions() throws AnalysisException {
         // check condition column is key column and condition value
         // Here we use "getFullSchema()" to get all columns including VISIBLE and SHADOW columns
-
+        CatalogIf catalog = getCatalog();
         // we ensure the db and table exists.
-        Database db = (Database) Env.getCurrentEnv().getCurrentCatalog().getDb(getDbName()).get();
+        Database db = (Database) catalog.getDb(getDbName()).get();
         OlapTable table = ((OlapTable) db.getTable(getTableName()).get());
 
         Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -436,6 +438,15 @@ public class DeleteStmt extends DdlStmt {
             slotRef = (SlotRef) inPredicate.getChild(0);
         }
         return slotRef;
+    }
+
+    private CatalogIf getCatalog() {
+        Env env = Env.getCurrentEnv();
+        if (null == tableName.getCtl()) {
+            return env.getCurrentCatalog();
+        } else {
+            return env.getCatalogMgr().getCatalog(tableName.getCtl());
+        }
     }
 
     @Override

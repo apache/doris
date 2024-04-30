@@ -310,6 +310,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
             int integerPart = Math.max(this.value.precision() - this.value.scale(),
                     type.getPrecision() - ((ScalarType) type).decimalScale());
             this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
+            BigDecimal adjustedValue = value.scale() < 0 ? value
+                    : value.setScale(scale, RoundingMode.HALF_UP);
+            this.value = Objects.requireNonNull(adjustedValue);
         }
     }
 

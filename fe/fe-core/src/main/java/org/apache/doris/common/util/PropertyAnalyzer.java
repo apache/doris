@@ -178,7 +178,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
-    public static final String PROPERTIES_STORAGE_VAULT = "storage_vault";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -1056,8 +1055,9 @@ public class PropertyAnalyzer {
 
     public static String analyzeStorageVault(Map<String, String> properties) {
         String storageVault = null;
-        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
+            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
         return storageVault;
@@ -1232,7 +1232,29 @@ public class PropertyAnalyzer {
 
     public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
             throws AnalysisException {
+        if (!Config.force_olap_table_replication_allocation.isEmpty()) {
+            properties = forceRewriteReplicaAllocation(properties, prefix);
+        }
         return analyzeReplicaAllocationImpl(properties, prefix, true);
+    }
+
+    public static Map<String, String> forceRewriteReplicaAllocation(Map<String, String> properties,
+            String prefix) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        String propNumKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM
+                : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties.containsKey(propNumKey)) {
+            properties.remove(propNumKey);
+        }
+        String propTagKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        if (properties.containsKey(propTagKey)) {
+            properties.remove(propTagKey);
+        }
+        properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
+        return properties;
     }
 
     // There are 2 kinds of replication property:
@@ -1485,7 +1507,7 @@ public class PropertyAnalyzer {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
         }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(ctl);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
         if (catalog == null) {
             return properties;
         }

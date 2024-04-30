@@ -58,6 +58,7 @@ public class DataPartition {
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
+                || type == TPartitionType.TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
@@ -66,6 +67,7 @@ public class DataPartition {
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
+                || type == TPartitionType.TABLE_SINK_RANDOM_PARTITIONED
                 || type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();

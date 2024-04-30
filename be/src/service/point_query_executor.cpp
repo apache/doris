@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
@@ -39,6 +40,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
@@ -54,9 +56,9 @@ namespace doris {
 Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      size_t block_size) {
-    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
+                      const TQueryOptions& query_options, size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
+    _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
@@ -98,16 +100,14 @@ std::unique_ptr<vectorized::Block> Reusable::get_block() {
 
 void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     std::lock_guard lock(_block_mutex);
-    if (_block_pool.size() > s_preallocted_blocks_num) {
+    if (block == nullptr) {
         return;
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
-    _block_pool.resize(s_preallocted_blocks_num);
-}
-
-int64_t Reusable::mem_size() const {
-    return _mem_size;
+    if (_block_pool.size() > s_preallocted_blocks_num) {
+        _block_pool.resize(s_preallocted_blocks_num);
+    }
 }
 
 LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
@@ -160,6 +160,15 @@ void RowCache::erase(const RowCacheKey& key) {
     LRUCachePolicy::erase(encoded_key);
 }
 
+PointQueryExecutor::~PointQueryExecutor() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
+    _tablet.reset();
+    _reusable.reset();
+    _result_block.reset();
+    _row_read_ctxs.clear();
+}
+
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                 PTabletKeyLookupResponse* response) {
     SCOPED_TIMER(&_profile_metrics.init_ns);
@@ -167,6 +176,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     // using cache
     __int128_t uuid =
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
@@ -186,13 +196,21 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
+        TQueryOptions t_query_options;
+        len = request->query_options().size();
+        if (request->has_query_options()) {
+            RETURN_IF_ERROR(deserialize_thrift_msg(
+                    reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
+                    &t_query_options));
+        }
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(
-                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, s_preallocted_blocks_num));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
+            RETURN_IF_ERROR(
+                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options, 1));
         }
     }
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
@@ -206,6 +224,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 }
 
 Status PointQueryExecutor::lookup_up() {
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());

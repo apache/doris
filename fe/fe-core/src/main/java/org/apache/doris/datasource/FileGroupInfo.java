@@ -217,8 +217,8 @@ public class FileGroupInfo {
             if (tmpBytes > bytesPerInstance && jobType != JobType.STREAM_LOAD) {
                 // Now only support split plain text
                 if (compressType == TFileCompressType.PLAIN
-                        && (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
-                        || formatType == TFileFormatType.FORMAT_JSON) {
+                        && ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
+                        || formatType == TFileFormatType.FORMAT_JSON)) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
                             columnsFromPath);

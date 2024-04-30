@@ -27,14 +27,31 @@ static inline bool is_cloud_mode() {
     return !cloud_unique_id.empty();
 }
 
+// Set the endpoint of meta service.
+//
+// If meta services are deployed behind a load balancer, set this config to "host:port" of the load balancer.
+// Here is a set of configs to configure the connection behaviors:
+// - meta_service_connection_pooled: distribute the long connections to different RS of the VIP.
+// - meta_service_connection_age_base_minutes: expire the connection after a random time during [base, 2*base],
+//      so that the BE has a chance to connect to a new RS. (When you add a new RS, the BE will connect to it)
+// - meta_service_idle_connection_timeout_ms: rebuild the idle connections after the timeout exceeds. Some LB
+// vendors will reset the connection if it is idle for a long time.
+//
+// If you want to access a group of meta services directly, set the addresses of meta services to this config,
+// separated by a comma, like "host:port,host:port,host:port", then BE will choose a server to connect in randomly.
+// In this mode, The config meta_service_connection_pooled is still useful, but the other two configs will be ignored.
 DECLARE_String(meta_service_endpoint);
 // Set the underlying connection type to pooled.
 DECLARE_Bool(meta_service_connection_pooled);
 DECLARE_mInt64(meta_service_connection_pool_size);
 // A connection will expire after a random time during [base, 2*base], so that the BE
 // has a chance to connect to a new RS. Set zero to disable it.
+//
+// Only works when meta_service_endpoint is set to a single host.
 DECLARE_mInt32(meta_service_connection_age_base_minutes);
 // Rebuild the idle connections after the timeout exceeds. Set zero to disable it.
+//
+// Only works when meta_service_endpoint is set to a single host.
 DECLARE_mInt32(meta_service_idle_connection_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
@@ -67,5 +84,11 @@ DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(refresh_s3_info_interval_s);
 DECLARE_mInt32(vacuum_stale_rowsets_interval_s);
 DECLARE_mInt32(schedule_sync_tablets_interval_s);
+
+// Cloud mow
+DECLARE_mInt32(mow_stream_load_commit_retry_times);
+
+// the theads which sync the datas which loaded in other clusters
+DECLARE_mInt32(sync_load_for_tablets_thread);
 
 } // namespace doris::config

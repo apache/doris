@@ -67,7 +67,7 @@ message InstanceInfoPB {
     optional int64 ctime = 5;
     optional int64 mtime = 6;
     repeated ClusterPB clusters = 7;
-    repeated ObjectStoreInfoPB obj_info = 8;
+    repeated ObjectStoreInfoPB obj_info = 8; // Only legacy obj info would be store in this fields, other objs would be lied in vaults.
     repeated StagePB stages = 9;
     optional Status status = 10;
     optional RamUserPB ram_user = 11;
@@ -76,6 +76,9 @@ message InstanceInfoPB {
 
     repeated string resource_ids = 100;
     repeated string storage_vault_names = 101;
+    optional string default_storage_vault_id = 102;
+    optional string default_storage_vault_name = 103;
+    optional bool enable_storage_vault = 104;
 }
 
 message StagePB {
@@ -173,6 +176,7 @@ message ObjectStoreInfoPB {
         COS = 2;
         OBS = 3;
         BOS = 4;
+        GCP = 5;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
@@ -190,10 +194,12 @@ message ObjectStoreInfoPB {
     optional bool sse_enabled = 15;
 }
 
+// The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
+    optional ObjectStoreInfoPB obj_info = 4;
 }
 
 message HdfsBuildConf {
@@ -258,6 +264,7 @@ message TxnCoordinatorPB {
 
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
+    optional RoutineLoadJobStatisticPB stat = 2;
 }
 
 message RLTaskTxnCommitAttachmentPB {
@@ -270,6 +277,14 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+}
+
+message RoutineLoadJobStatisticPB {
+    optional int64 filtered_rows = 1;
+    optional int64 loaded_rows = 2;
+    optional int64 unselected_rows = 3;
+    optional int64 received_bytes = 4;
+    optional int64 task_execution_time_ms = 5;
 }
 
 message TxnCommitAttachmentPB {
@@ -460,6 +475,12 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 ttl_seconds = 4;
     optional int64 group_commit_interval_ms = 5;
     optional int64 group_commit_data_bytes = 6;
+    optional string compaction_policy = 7;
+    optional int64 time_series_compaction_goal_size_mbytes = 8;
+    optional int64 time_series_compaction_file_count_threshold = 9;
+    optional int64 time_series_compaction_time_threshold_seconds = 10;
+    optional int64 time_series_compaction_empty_rowsets_threshold = 11;
+    optional int64 time_series_compaction_level_threshold = 12;
 }
 
 message TabletCompactionJobPB {
@@ -622,6 +643,7 @@ message CommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 5;
     // merge-on-write table ids
     repeated int64 mow_table_ids = 6;
+    repeated int64 base_tablet_ids= 7; // all tablet from base tables (excluding mv)
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
@@ -664,6 +686,18 @@ message GetTxnRequest {
 message GetTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
+}
+
+message GetTxnIdRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional string label = 3;
+    repeated TxnStatusPB txn_status = 4;
+}
+
+message GetTxnIdResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 txn_id = 2;
 }
 
 message GetCurrentMaxTxnRequest {
@@ -709,6 +743,9 @@ message GetVersionRequest {
     repeated int64 db_ids = 6;
     repeated int64 table_ids = 7;
     repeated int64 partition_ids = 8;
+
+    // True if get table version
+    optional bool is_table_version = 9;
 };
 
 message GetVersionResponse {
@@ -735,16 +772,25 @@ message AlterObjStoreInfoRequest {
         LEGACY_UPDATE_AK_SK = 3;
 
         ADD_HDFS_INFO = 100;
+        DROP_HDFS_INFO = 101;
+        ADD_BUILT_IN_VAULT = 102;
+        ADD_S3_VAULT = 103;
+        DROP_S3_VAULT = 104;
+
+        SET_DEFAULT_VAULT = 200;
+        UNSET_DEFAULT_VAULT = 201;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
-    optional StorageVaultPB hdfs = 4;
+    optional StorageVaultPB vault = 4;
+    optional bool set_as_default_storage_vault = 5;
 }
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional bool default_storage_vault_replaced = 3;
 }
 
 message UpdateAkSkRequest {
@@ -761,6 +807,8 @@ message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
     repeated StorageVaultPB storage_vault = 3;
+    optional string default_storage_vault_id = 4;
+    optional string default_storage_vault_name = 5;
 };
 
 message CreateTabletsRequest {
@@ -772,6 +820,7 @@ message CreateTabletsRequest {
 message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional string storage_vault_name = 3;
 }
 
 message UpdateTabletRequest {
@@ -843,6 +892,8 @@ message IndexRequest {
     repeated int64 index_ids = 2;
     optional int64 table_id = 3;
     optional int64 expiration = 4;
+    optional int64 db_id = 5;
+    optional bool is_new_table = 6; // For table version
 }
 
 message IndexResponse {
@@ -856,6 +907,7 @@ message PartitionRequest {
     repeated int64 index_ids = 4;
     optional int64 expiration = 5;
     optional int64 db_id = 6;
+    optional bool need_update_table_version = 7;
 }
 
 message PartitionResponse {
@@ -880,7 +932,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
-    optional HdfsVaultInfo hdfs_info = 7;
+    optional StorageVaultPB vault = 7;
 }
 
 message CreateInstanceResponse {
@@ -967,6 +1019,7 @@ message GetClusterStatusResponse {
 message GetClusterResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ClusterPB cluster = 2;
+    optional bool enable_storage_vault = 3;
 }
 
 message GetTabletStatsRequest {
@@ -1172,6 +1225,7 @@ enum MetaServiceCode {
     KV_TXN_STORE_GET_RETRYABLE = 1008;
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
+    KV_TXN_TOO_OLD = 1011;
 
     //Doris error
     TXN_GEN_ID_ERR = 2001;
@@ -1191,6 +1245,8 @@ enum MetaServiceCode {
     ALREADY_EXISTED = 3002;
     CLUSTER_ENDPOINT_MISSING = 3003;
 
+    STORAGE_VAULT_NOT_FOUND = 3004;
+
     // Stage
     STAGE_NOT_FOUND = 4001;
     STAGE_GET_ERR = 4002;
@@ -1202,6 +1258,7 @@ enum MetaServiceCode {
     JOB_TABLET_BUSY = 5001;
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
+    ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1216,6 +1273,9 @@ enum MetaServiceCode {
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
+
+    // The meta service retries KV_TXN_CONFLICT error but is exceeded the max times.
+    KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES = 10001;
 
     UNDEFINED_ERR = 1000000;
 }
@@ -1282,6 +1342,17 @@ message GetDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetRLTaskCommitAttachRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+}
+
+message GetRLTaskCommitAttachResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1291,6 +1362,7 @@ service MetaService {
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
+    rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
@@ -1344,6 +1416,9 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+
+    // routine load progress
+    rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
 };
 
 service RecyclerService {

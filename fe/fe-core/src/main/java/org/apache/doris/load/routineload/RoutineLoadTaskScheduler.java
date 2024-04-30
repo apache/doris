@@ -101,12 +101,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
-            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
-                    < routineLoadTaskInfo.getTimeoutMs()) {
-                // try to delay scheduling this task for 'timeout', to void too many failure
-                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
-                return;
-            }
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
@@ -114,7 +108,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
-        routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         if (LOG.isDebugEnabled()) {
             LOG.debug("schedule routine load task info {} for job {}",
                     routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
@@ -299,7 +292,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     // try to allocate a task to BE which has idle slot.
-    // 1. First is to check if the previous allocated BE is available. If yes, allocate task to previous BE.
+    // 1. First is to check if the previous allocated BE has more than half of available slots.
+    //    If yes, allocate task to previous BE.
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.

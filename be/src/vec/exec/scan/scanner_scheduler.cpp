@@ -97,14 +97,10 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 2. remote scan thread pool
-    _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                           ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                           : std::max(512, CpuInfo::num_cores() * 10);
-    _remote_thread_pool_max_size =
-            std::max(_remote_thread_pool_max_size, config::doris_scanner_thread_pool_thread_num);
+    _remote_thread_pool_max_size = ScannerScheduler::get_remote_scan_thread_num();
+    int remote_scan_pool_queue_size = ScannerScheduler::get_remote_scan_thread_queue_size();
     _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
-            _remote_thread_pool_max_size, config::doris_remote_scanner_thread_pool_queue_size,
-            "RemoteScanThreadPool");
+            _remote_thread_pool_max_size, remote_scan_pool_queue_size, "RemoteScanThreadPool");
 
     // 3. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -266,20 +262,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         }
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
         first_read = false;
-        // The VFileScanner for external table may try to open not exist files,
-        // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for VFileScanner is not a fail case.
-        // Will remove this after file reader refactor.
-        if (!status.ok() && (scanner->get_name() != doris::vectorized::VFileScanner::NAME ||
-                             (scanner->get_name() == doris::vectorized::VFileScanner::NAME &&
-                              !status.is<ErrorCode::NOT_FOUND>()))) {
+        if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
-            break;
-        } else if (status.is<ErrorCode::NOT_FOUND>()) {
-            // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
-            // Set status to OK.
-            status = Status::OK();
-            eos = true;
             break;
         }
         raw_bytes_read += free_block->allocated_bytes();
@@ -287,7 +271,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
             size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
             vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
-            static_cast<void>(mutable_block.merge(*free_block));
+            status = mutable_block.merge(*free_block);
+            if (!status.ok()) {
+                LOG(WARNING) << "Block merge failed: " << status.to_string();
+                break;
+            }
             scan_task->cached_blocks.back().get()->set_columns(
                     std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
@@ -337,4 +325,18 @@ void ScannerScheduler::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
 }
+
+int ScannerScheduler::get_remote_scan_thread_num() {
+    int remote_max_thread_num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                        ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                        : std::max(512, CpuInfo::num_cores() * 10);
+    remote_max_thread_num =
+            std::max(remote_max_thread_num, config::doris_scanner_thread_pool_thread_num);
+    return remote_max_thread_num;
+}
+
+int ScannerScheduler::get_remote_scan_thread_queue_size() {
+    return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
 } // namespace doris::vectorized

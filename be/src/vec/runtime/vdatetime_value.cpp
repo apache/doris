@@ -1994,7 +1994,6 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     const static int allow_space_mask = 4 | 64;
     uint32_t date_val[MAX_DATE_PARTS] = {0};
     int32_t date_len[MAX_DATE_PARTS] = {0};
-    bool carry_bits[MAX_DATE_PARTS] = {false};
 
     // Skip space character
     while (ptr < end && isspace(*ptr)) {
@@ -2028,46 +2027,72 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int field_idx = 0;
     int field_len = year_len;
     long sec_offset = 0;
+
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
-        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 6
-            temp_val = temp_val * 10 + (*ptr++ - '0');
+        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 7
+            temp_val = temp_val * 10 + (*ptr - '0');
+            ptr++;
         }
+
         if (field_idx == 6) {
-            // Microsecond
-            const auto ms_part = ptr - start;
-            temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
+                // round of microseconds
+                // 1. normalize to 7 digits for rounding
+                // 2. rounding
+                // 3. nomalize to 6 digits for storage
                 if (scale >= 0) {
-                    if (scale == 6 && ms_part >= 6) {
-                        if (ptr <= end && isdigit(*ptr) && *ptr >= '5') {
-                            temp_val += 1;
-                        }
+                    // do normalization
+                    const auto ms_digit_count = ptr - start;
+                    const auto normalizer = int_exp10(std::abs(7 - ms_digit_count));
+                    temp_val *= normalizer;
+
+                    // check round
+                    const auto rounder = int_exp10(std::abs(7 - scale));
+                    const auto reminder = temp_val % rounder;
+                    temp_val -= reminder;
+
+                    if (reminder >= 5 * normalizer) {
+                        temp_val += rounder;
+                    }
+
+                    // truncate to 6 digits
+                    if (temp_val == int_exp10(7)) {
+                        temp_val = 0;
+                        sec_offset += 1;
                     } else {
-                        const int divisor = int_exp10(6 - scale);
-                        int remainder = temp_val % divisor;
-                        temp_val /= divisor;
-                        if (scale < 6 && std::abs(remainder) >= (divisor >> 1)) {
-                            temp_val += 1;
-                        }
-                        temp_val *= divisor;
-                        if (temp_val == 1000000L) {
-                            temp_val = 0;
-                            date_val[field_idx - 1] += 1;
-                            carry_bits[field_idx] = true;
-                        }
+                        temp_val /= 10;
                     }
                 }
+
+                // move ptr to start of timezone or end
+                while (ptr < end && isdigit(*ptr)) {
+                    ptr++;
+                }
+            } else {
+                // Microsecond
+                const auto ms_part = ptr - start;
+                temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             }
         }
+
         // Impossible
         if (temp_val > 999999L) {
             return false;
         }
+
         date_val[field_idx] = temp_val;
-        date_len[field_idx] = ptr - start;
+
+        if (field_idx == 6) {
+            // select cast("2020-01-01 12:00:00.12345" as Datetime(4))
+            // ptr - start will be 5, but scale is 4
+            date_len[field_idx] = std::min(static_cast<int>(ptr - start), scale);
+        } else {
+            date_len[field_idx] = ptr - start;
+        }
+
         field_len = 2;
 
         if (ptr == end) {
@@ -2114,7 +2139,14 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (field_idx == 5) {
             if (*ptr == '.') {
                 ptr++;
-                field_len = 6;
+                // for datetime, we need to discard the fraction part
+                // that beyond the scale + 1, and scale + 1 digit will
+                // be used to round the fraction part
+                if constexpr (is_datetime) {
+                    field_len = std::min(7, scale + 1);
+                } else {
+                    field_len = 6;
+                }
             } else if (isdigit(*ptr)) {
                 field_idx++;
                 break;
@@ -2136,6 +2168,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         }
         field_idx++;
     }
+
     int num_field = field_idx;
     if (!is_interval_format) {
         year_len = date_len[0];
@@ -2158,11 +2191,32 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
         return false;
     }
-    format_datetime(date_val, carry_bits);
+
+    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
+    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
+    // time part and apply the offset. Then convert to Date type back.
+    // see https://github.com/apache/doris/pull/33553 for more details.
+    if constexpr (!is_datetime) {
+        if (sec_offset) {
+            DateV2Value<DateTimeV2ValueType> tmp;
+            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
+                                              date_val[4], date_val[5], date_val[6])) {
+                return false;
+            }
+            if (!tmp.date_add_interval<TimeUnit::SECOND>(
+                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
+                return false;
+            }
+            this->assign_from(tmp);
+            return true;
+        }
+    }
+
     if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                   date_val[5], date_val[6])) {
         return false;
     }
+
     return sec_offset ? date_add_interval<TimeUnit::SECOND>(
                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
                       : true;
@@ -3231,7 +3285,7 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                               ctz);
         timestamp->first = tp.time_since_epoch().count();
         timestamp->second = date_v2_value_.microsecond_;
-    } else {
+    } else { // just make compiler happy
     }
     return true;
 }
@@ -3353,6 +3407,7 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+        __builtin_unreachable();
     }
 }
 
@@ -3362,6 +3417,7 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+        __builtin_unreachable();
     }
 }
 

@@ -92,7 +92,7 @@ public:
     const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : *_output_row_desc;
+                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
     }
 
     std::shared_ptr<Block> get_left_block() { return _left_block; }

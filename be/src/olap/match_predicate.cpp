@@ -57,7 +57,7 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     }
     auto type = name_with_type.second;
     const std::string& name = name_with_type.first;
-    roaring::Roaring roaring;
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
     TypeDescriptor column_desc = type->get_type_as_type_descriptor();
     if (is_string_type(column_desc.type) ||
@@ -67,16 +67,16 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, length); //is it safe?
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                name, &match_value, inverted_index_query_type, num_rows, &roaring));
+                name, &match_value, inverted_index_query_type, num_rows, roaring));
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
-        char buf[column_desc.children[0].len];
+        std::vector<char> buf(column_desc.children[0].len);
         const TypeInfo* type_info = get_scalar_type_info(
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
-        RETURN_IF_ERROR(type_info->from_string(buf, _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(name, buf, inverted_index_query_type,
-                                                           num_rows, &roaring, true));
+        RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                name, buf.data(), inverted_index_query_type, num_rows, roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -91,7 +91,7 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
         }
     }
 
-    *bitmap &= roaring;
+    *bitmap &= *roaring;
     return Status::OK();
 }
 

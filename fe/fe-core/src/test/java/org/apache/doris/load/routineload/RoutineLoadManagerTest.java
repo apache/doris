@@ -116,7 +116,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
                 minTimes = 0;
                 result = true;
             }
@@ -176,7 +176,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
                 minTimes = 0;
                 result = false;
             }
@@ -217,7 +217,7 @@ public class RoutineLoadManagerTest {
         try {
             routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
     }
@@ -225,7 +225,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext,
                                                    @Mocked Env env,
-                                                   @Mocked EditLog editLog) throws DdlException {
+                                                   @Mocked EditLog editLog) throws UserException {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
@@ -628,7 +628,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -696,7 +696,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -748,7 +748,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -761,7 +761,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testCheckBeToTask(@Mocked Env env,
-                                  @Mocked SystemInfoService systemInfoService) throws LoadException, DdlException {
+                                  @Mocked SystemInfoService systemInfoService) throws UserException {
         List<Long> beIdsInCluster = Lists.newArrayList();
         beIdsInCluster.add(1L);
         Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
@@ -993,7 +993,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -1057,7 +1057,7 @@ public class RoutineLoadManagerTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
                 resumeRoutineLoadStmt.isAll();

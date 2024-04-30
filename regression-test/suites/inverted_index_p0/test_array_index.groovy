@@ -24,6 +24,21 @@ suite("test_array_index1"){
     def alter_res = "null"
     def useTime = 0
 
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(10000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     def indexTblName = "test_array_index"
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
@@ -65,8 +80,11 @@ suite("test_array_index1"){
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', '[\"y\"]'); """
 
     sql """ ALTER TABLE ${indexTblName} ADD INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''; """
+    wait_for_latest_op_on_table_finish(indexTblName, timeout)
 
-    sql """ BUILD INDEX index_inverted_inventors ON ${indexTblName}; """
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX index_inverted_inventors ON ${indexTblName}; """
+    }
 }
 
 suite("test_array_index2"){

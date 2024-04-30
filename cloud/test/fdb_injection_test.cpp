@@ -67,8 +67,11 @@ int main(int argc, char** argv) {
 
     cloud::config::enable_txn_store_retry = true;
     cloud::config::txn_store_retry_times = 100;
+    cloud::config::txn_store_retry_base_intervals_ms = 1;
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
+    // UT may be run without fdb, it will take unnecessary time with the default value
+    cloud::config::fdb_txn_timeout_ms = 500;
 
     auto sp = cloud::SyncPoint::get_instance();
     sp->enable_processing();
@@ -108,8 +111,6 @@ int main(int argc, char** argv) {
     // 1. https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes
     // 2. FDB source code: flow/include/flow/error_definitions.h
     std::vector<fdb_error_t> retryable_not_committed {
-            // too old
-            1007,
             // future version
             1009,
             // process_behind

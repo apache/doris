@@ -60,7 +60,6 @@ class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
-class MemTracker;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -125,10 +124,6 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
-    const std::shared_ptr<MemTracker>& segment_meta_mem_tracker() {
-        return _segment_meta_mem_tracker;
-    }
-
     void add_quering_rowset(RowsetSharedPtr rs);
 
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
@@ -148,13 +143,6 @@ protected:
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
     CountDownLatch _stop_background_threads_latch;
-
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
@@ -182,7 +170,7 @@ public:
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(const std::string& file_path);
+    static int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
@@ -254,10 +242,6 @@ public:
     }
 
     Status get_compaction_status_json(std::string* result);
-
-    const std::shared_ptr<MemTracker>& segcompaction_mem_tracker() {
-        return _segcompaction_mem_tracker;
-    }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
@@ -413,9 +397,6 @@ private:
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
-    // Count the memory consumption of segment compaction tasks.
-    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
-
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
     scoped_refptr<Thread> _garbage_sweeper_thread;
@@ -427,8 +408,6 @@ private:
     scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
-    // threads to scan disk paths
-    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
@@ -462,6 +441,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -492,6 +472,9 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    std::mutex _cold_compaction_tablet_submitted_mtx;
+    std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;

@@ -270,8 +270,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         auto data = new (place) WindowFunnelState<DateValueType, NativeType>();
-        /// support window funnel mode from 2.1. See `BeExecVersionManager::max_be_exec_version`
-        data->enable_mode = version >= USE_NEW_SERDE;
+        /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
+        data->enable_mode = version >= 3;
     }
 
     String get_name() const override { return "window_funnel"; }

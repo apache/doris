@@ -80,7 +80,17 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                           tnode.hash_join_node.is_mark),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join),
-          _runtime_filter_descs(tnode.runtime_filters) {
+          _runtime_filter_descs(tnode.runtime_filters),
+          _use_specific_projections(
+                  tnode.__isset.hash_join_node
+                          ? (tnode.hash_join_node.__isset.use_specific_projections
+                                     ? tnode.hash_join_node.use_specific_projections
+                                     : true)
+                          : (tnode.nested_loop_join_node.__isset.use_specific_projections
+                                     ? tnode.nested_loop_join_node.use_specific_projections
+                                     : true)
+
+          ) {
     _runtime_filters.resize(_runtime_filter_descs.size());
     _init_join_op();
     if (_is_mark_join) {
@@ -95,14 +105,18 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 
     if (tnode.__isset.hash_join_node) {
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        if (!_output_row_descriptor) {
+            _output_row_desc.reset(
+                    new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+        }
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())));
     } else if (tnode.__isset.nested_loop_join_node) {
-        _output_row_desc.reset(
-                new RowDescriptor(descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        if (!_output_row_descriptor) {
+            _output_row_desc.reset(new RowDescriptor(
+                    descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+        }
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
                 std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
@@ -130,6 +144,7 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
 
     _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
+    _runtime_filter_init_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterInitTime");
 
     return Status::OK();
 }
@@ -166,6 +181,16 @@ void VJoinNodeBase::_construct_mutable_join_block() {
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
                                           bool keep_origin) {
     SCOPED_TIMER(_build_output_block_timer);
+    if (!_projections.empty()) {
+        // In previous versions, the join node had a separate set of project structures,
+        // and you could see a 'todo' in the Thrift definition.
+        //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
+        if (!output_block->mem_reuse()) {
+            output_block->swap(origin_block->clone_empty());
+        }
+        output_block->swap(*origin_block);
+        return Status::OK();
+    }
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
             is_mem_reuse

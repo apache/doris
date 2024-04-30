@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -77,6 +77,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                     + " Please check the following session variables: "
                     + String.join(", ", SessionVariable.DEBUG_VARIABLES));
         }
+        // NOTE: delete from using command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
                 executor);
     }
@@ -115,7 +116,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                 && cols.size() < targetTable.getColumns().size();
 
         // make UnboundTableSink
-        return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
+        return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
                 isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_half_join_nullable_build_side", "query,p0") {
-    /// TODO: fix on pipelinex
-    sql " set ENABLE_PIPELINE_X_ENGINE = 0; "
     sql " set disable_join_reorder = 1; "
     sql " drop table if exists test_half_join_nullable_build_side_l; ";
     sql " drop table if exists test_half_join_nullable_build_side_l2; ";
@@ -278,5 +276,18 @@ suite("test_half_join_nullable_build_side", "query,p0") {
         from
             test_half_join_nullable_build_side_l2 l right semi join test_half_join_nullable_build_side_r2 r on  l.v2 = r.v2
         order by 1, 2, 3;
+    """
+
+    qt_sql30 """
+        select
+            *
+        from
+            test_half_join_nullable_build_side_l2 l
+            left join test_half_join_nullable_build_side_l r on  l.v2 <=> r.v2
+        order by 1, 2, 3;
+    """
+
+    qt_shortcut """
+    select *         from             test_half_join_nullable_build_side_l l left anti join test_half_join_nullable_build_side_r r on  l.v2 <=> r.v2 and r.k1=5         order by 1, 2, 3;
     """
 }

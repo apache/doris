@@ -72,7 +72,7 @@ using DORIS_NUMERIC_ARROW_BUILDER =
 template <typename T>
 void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                    arrow::ArrayBuilder* array_builder, int start,
-                                                   int end) const {
+                                                   int end, const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);
@@ -244,9 +244,19 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (std::is_same_v<T, Int128>) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (std::is_same_v<T, float>) {
-        buf_ret = result.push_float(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for float, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_float(data[col_index]);
+        }
     } else if constexpr (std::is_same_v<T, double>) {
-        buf_ret = result.push_double(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for double, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_double(data[col_index]);
+        }
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");

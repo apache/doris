@@ -18,7 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -81,6 +83,15 @@ public class SetUserPropertyVar extends SetVar {
                         PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             "GRANT");
+                }
+                if (Config.isCloudMode()) {
+                    // check value, clusterName is valid.
+                    if (key.equals(UserProperty.DEFAULT_CLOUD_CLUSTER)
+                            && !Strings.isNullOrEmpty(value)
+                            && !((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCloudClusterNames().contains(value)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
+                    }
                 }
                 return;
             }

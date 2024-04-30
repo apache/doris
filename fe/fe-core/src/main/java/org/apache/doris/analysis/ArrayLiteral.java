@@ -99,7 +99,14 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        int size = Math.min(expr.getChildren().size(), this.children.size());
+        for (int i = 0; i < size; i++) {
+            if (((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i))) != 0) {
+                return ((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i)));
+            }
+        }
+        return this.children.size() > expr.getChildren().size() ? 1 :
+                (this.children.size() == expr.getChildren().size() ? 0 : -1);
     }
 
     @Override

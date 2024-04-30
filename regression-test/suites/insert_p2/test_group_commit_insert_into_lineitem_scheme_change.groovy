@@ -47,25 +47,23 @@ enum STATE {
     }
 }
 
-String[] getFiles(String dirName, int num) {
-    File[] datas = new File(dirName).listFiles()
-    if (num != datas.length) {
-        throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
-    }
-    String[] tmp_array = new String[datas.length];
-    for (int i = 0; i < datas.length; i++) {
-        tmp_array[i] = datas[i].getPath();
-    }
-    Arrays.sort(tmp_array);
-    String[] array = new String[5];
-    for (int i = 0; i < 5; i++) {
-        array[i] = tmp_array[i];
-    }
-    return array;
-}
-
 suite("test_group_commit_insert_into_lineitem_scheme_change") {
     String[] file_array;
+    def getFiles = { String dirName, int num ->
+        File[] datas = new File(dirName).listFiles()
+        if (num != datas.length) {
+            throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
+        }
+        String[] tmp_array = new String[datas.length];
+        for (int i = 0; i < datas.length; i++) {
+            tmp_array[i] = datas[i].getPath();
+        }
+        Arrays.sort(tmp_array);
+        file_array = new String[5];
+        for (int i = 0; i < 5; i++) {
+            file_array[i] = tmp_array[i];
+        }
+    }
     def prepare = {
         def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_scheme_change"
         File dir = new File(dataDir)
@@ -77,7 +75,7 @@ suite("test_group_commit_insert_into_lineitem_scheme_change") {
             def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
             def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 11)
+        getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
@@ -313,6 +311,7 @@ PROPERTIES (
             String fileName = file_array[i]
             logger.info("process file:" + fileName)
             if (i == (int) (file_array.length / 2)) {
+                getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
                     try {
@@ -320,6 +319,7 @@ PROPERTIES (
                         log.info("rowCount:" + rowCount[0][0])
                         sql """ delete from ${table_name} where l_orderkey >=10000; """
                         total -= rowCount[0][0]
+                        getRowCount(total, table_name)
                         break
                     } catch (Exception e) {
                         log.info("exception:", e)

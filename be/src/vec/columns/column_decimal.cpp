@@ -236,6 +236,7 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
         LOG(FATAL) << "Size of permutation is less than required.";
+        __builtin_unreachable();
     }
 
     auto res = this->create(size, scale);

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <memory>
 #include <vector>
 
@@ -64,7 +66,7 @@ public:
 
 private:
     Status _prepare_vexpr(RuntimeState* state);
-
+    cctz::time_zone _timezone_obj;
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.

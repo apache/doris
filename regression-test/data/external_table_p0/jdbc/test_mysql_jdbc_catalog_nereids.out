@@ -175,6 +175,7 @@ key_column_usage
 metadata_name_ids
 parameters
 partitions
+processlist
 profiling
 referential_constraints
 routines
@@ -190,6 +191,7 @@ triggers
 user_privileges
 views
 workload_groups
+workload_schedule_policy
 
 -- !test_insert1 --
 doris1	18

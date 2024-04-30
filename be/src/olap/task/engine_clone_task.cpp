@@ -150,19 +150,20 @@ EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_r
           _tablet_infos(tablet_infos),
           _signature(signature),
           _master_info(master_info) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::CLONE,
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
             "EngineCloneTask#tabletId=" + std::to_string(_clone_req.tablet_id));
 }
 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
-    SCOPED_ATTACH_TASK(_mem_tracker);
     if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
         return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
     }
     Status st = _do_clone();
     _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    _engine.tablet_manager()->update_partitions_visible_version(
+            {{_clone_req.partition_id, _clone_req.version}});
     return st;
 }
 

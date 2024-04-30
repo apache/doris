@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -111,7 +112,8 @@ public class GroupCommitInserter {
         for (List<Expr> list : materializedConstExprLists) {
             rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
         }
-        GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
+        GroupCommitPlanner groupCommitPlanner = EnvFactory.getInstance().createGroupCommitPlanner(
+                physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), null, ctx.queryId(),
                 ConnectContext.get().getSessionVariable().getGroupCommit());
         PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);

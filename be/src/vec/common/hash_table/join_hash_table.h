@@ -90,11 +90,11 @@ public:
                     int probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, bool& probe_visited,
                     uint32_t* __restrict build_idxs) {
-        if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+        if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
             if (_empty_build_side) {
-                return _process_null_aware_left_anti_join_for_empty_build_side<
-                        JoinOpType, with_other_conjuncts, is_mark_join>(probe_idx, probe_rows,
-                                                                        probe_idxs, build_idxs);
+                return _process_null_aware_left_half_join_for_empty_build_side<JoinOpType>(
+                        probe_idx, probe_rows, probe_idxs, build_idxs);
             }
         }
 
@@ -247,11 +247,12 @@ public:
     }
 
 private:
-    template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join>
-    auto _process_null_aware_left_anti_join_for_empty_build_side(int probe_idx, int probe_rows,
+    template <int JoinOpType>
+    auto _process_null_aware_left_half_join_for_empty_build_side(int probe_idx, int probe_rows,
                                                                  uint32_t* __restrict probe_idxs,
                                                                  uint32_t* __restrict build_idxs) {
-        static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN);
+        static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
 

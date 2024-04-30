@@ -144,6 +144,10 @@ public:
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
+    void get_partitions_visible_version(std::map<int64_t, int64_t>* partitions_version);
+
+    void update_partitions_visible_version(const std::map<int64_t, int64_t>& partitions_version);
+
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
@@ -162,6 +166,9 @@ public:
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
     std::set<int64_t> check_all_tablet_segment(bool repair);
+
+    bool update_tablet_partition_id(::doris::TPartitionId partition_id,
+                                    ::doris::TTabletId tablet_id);
 
 private:
     // Add a tablet pointer to StorageEngine
@@ -226,22 +233,27 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    struct Partition {
+        std::set<TabletInfo> tablets;
+        std::shared_ptr<VersionWithTime> visible_version {new VersionWithTime};
+    };
+
     StorageEngine& _engine;
 
     // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;
     std::vector<tablets_shard> _tablets_shards;
 
-    // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
-    std::shared_mutex _partition_tablet_map_lock;
+    // Protect _partitions, should not be obtained before _tablet_map_lock to avoid dead lock
+    std::shared_mutex _partitions_lock;
+    // partition_id => partition
+    std::map<int64_t, Partition> _partitions;
+
     // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
     std::shared_mutex _shutdown_tablets_lock;
-    // partition_id => tablet_info
-    std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
     std::list<TabletSharedPtr> _shutdown_tablets;
     std::mutex _gc_tablets_lock;

@@ -20,11 +20,11 @@
 #include <bthread/bthread.h>
 #include <glog/logging.h>
 
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_system.h"
 #include "util/async_io.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
                            const IOContext* io_ctx) {
@@ -36,5 +36,16 @@ Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
     return st;
 }
 
-} // namespace io
-} // namespace doris
+Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,
+                                                 const FileReaderOptions& opts) {
+    switch (opts.cache_type) {
+    case io::FileCachePolicy::NO_CACHE:
+        return raw_reader;
+    case FileCachePolicy::FILE_BLOCK_CACHE:
+        return std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), opts);
+    default:
+        return ResultError(Status::InternalError("Unknown cache type: {}", opts.cache_type));
+    }
+}
+
+} // namespace doris::io

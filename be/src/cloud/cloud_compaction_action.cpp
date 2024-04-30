@@ -121,58 +121,29 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
 
     // check compaction_type equals 'base' or 'cumulative'
-    std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
+    auto& compaction_type = req->param(PARAM_COMPACTION_TYPE);
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE &&
         compaction_type != PARAM_COMPACTION_FULL) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
-    if (tablet_id == 0 && table_id != 0) {
-        /*
-        std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
-                [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
-        */
-        auto tablet_vec = _engine.tablet_mgr().get_weak_tablets();
-        for (const auto& weak_tablet : tablet_vec) {
-            if (auto tablet = weak_tablet.lock()) {
-                if (tablet->table_id() != table_id) {
-                    continue;
-                }
-                RETURN_IF_ERROR(
-                        _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION));
-            }
-        }
-    } else {
-        // 2. fetch the tablet by tablet_id
-        CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
-        if (tablet == nullptr) {
-            return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-        }
-
-        // 3. execute compaction task
-        std::packaged_task<Status()> task([this, tablet, compaction_type]() {
-            return _execute_compaction_callback(tablet, compaction_type);
-        });
-        std::future<Status> future_obj = task.get_future();
-        std::thread(std::move(task)).detach();
-
-        // 4. wait for result for 2 seconds by async
-        std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
-        if (status == std::future_status::ready) {
-            // fetch execute result
-            Status olap_status = future_obj.get();
-            if (!olap_status.ok()) {
-                return olap_status;
-            }
-        } else {
-            LOG(INFO) << "Manual compaction task is timeout for waiting "
-                      << (status == std::future_status::timeout);
-        }
+    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
+    if (tablet == nullptr) {
+        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
+
+    // 3. submit compaction task
+    RETURN_IF_ERROR(_engine.submit_compaction_task(
+            tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
+                    : compaction_type == PARAM_COMPACTION_CUMULATIVE
+                            ? CompactionType::CUMULATIVE_COMPACTION
+                            : CompactionType::FULL_COMPACTION));
+
     LOG(INFO) << "Manual compaction task is successfully triggered";
     *json_result =
-            R"({"status": "Success", "msg": "compaction task is successfully triggered. Table id: )" +
+            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
+            "id: " +
             std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
     return Status::OK();
 }
@@ -190,14 +161,6 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
         return Status::OK();
     } else {
-        // fetch the tablet by tablet_id
-        //TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
-        if (tablet == nullptr) {
-            LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
-            return Status::InternalError("fail to get {}", tablet_id);
-        }
-
         std::string json_template = R"({
             "status" : "Success",
             "run_status" : $0,
@@ -210,99 +173,37 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         std::string compaction_type;
         bool run_status = false;
 
-        {
-            // use try lock to check this tablet is running cumulative compaction
-            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(),
-                                                         std::try_to_lock);
-            if (!lock_cumulative.owns_lock()) {
-                msg = "compaction task for this tablet is running";
-                compaction_type = "cumulative";
-                run_status = true;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   compaction_type);
-                return Status::OK();
-            }
+        if (_engine.has_cumu_compaction(tablet_id)) {
+            msg = "compaction task for this tablet is running";
+            compaction_type = "cumulative";
+            run_status = true;
+            *json_result =
+                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+            return Status::OK();
         }
 
-        {
-            // use try lock to check this tablet is running base compaction
-            std::unique_lock<std::mutex> lock_base(tablet->get_base_compaction_lock(),
-                                                   std::try_to_lock);
-            if (!lock_base.owns_lock()) {
-                msg = "compaction task for this tablet is running";
-                compaction_type = "base";
-                run_status = true;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   compaction_type);
-                return Status::OK();
-            }
+        if (_engine.has_base_compaction(tablet_id)) {
+            msg = "compaction task for this tablet is running";
+            compaction_type = "base";
+            run_status = true;
+            *json_result =
+                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+            return Status::OK();
+        }
+
+        if (_engine.has_full_compaction(tablet_id)) {
+            msg = "compaction task for this tablet is running";
+            compaction_type = "full";
+            run_status = true;
+            *json_result =
+                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+            return Status::OK();
         }
         // not running any compaction
         *json_result =
                 strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
         return Status::OK();
     }
-}
-
-Status CloudCompactionAction::_execute_compaction_callback(CloudTabletSPtr tablet,
-                                                           const std::string& compaction_type) {
-    MonotonicStopWatch timer;
-    timer.start();
-
-    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    tablet->tablet_meta()->compaction_policy());
-    /*
-    if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
-    }
-    */
-    Status res = Status::OK();
-    auto do_compact = [](Compaction& compaction) {
-        RETURN_IF_ERROR(compaction.prepare_compact());
-        return compaction.execute_compact();
-    };
-    if (compaction_type == PARAM_COMPACTION_BASE) {
-        CloudBaseCompaction base_compaction(_engine, tablet);
-        res = do_compact(base_compaction);
-        if (!res) {
-            if (!res.is<BE_NO_SUITABLE_VERSION>()) {
-                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-            }
-        }
-    } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CloudCumulativeCompaction cumulative_compaction(_engine, tablet);
-        res = do_compact(cumulative_compaction);
-        if (!res) {
-            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
-                            << "tablet=" << tablet->tablet_id();
-            } else {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                             << ", table=" << tablet->tablet_id();
-            }
-        }
-    } else if (compaction_type == PARAM_COMPACTION_FULL) {
-        CloudFullCompaction full_compaction(_engine, tablet);
-        res = do_compact(full_compaction);
-        if (!res) {
-            if (res.is<FULL_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
-                            << "tablet=" << tablet->tablet_id();
-            } else {
-                LOG(WARNING) << "failed to do full compaction. res=" << res
-                             << ", table=" << tablet->tablet_id();
-            }
-        }
-    }
-
-    timer.stop();
-    LOG(INFO) << "Manual compaction task finish, status=" << res
-              << ", compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
-    return res;
 }
 
 void CloudCompactionAction::handle(HttpRequest* req) {

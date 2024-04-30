@@ -60,7 +60,7 @@ Status VWalWriter::init() {
         ss << std::to_string(slot_desc.col_unique_id) << ",";
     }
     std::string col_ids = ss.str().substr(0, ss.str().size() - 1);
-    RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
+    RETURN_IF_ERROR(_wal_writer->append_header(col_ids));
     return Status::OK();
 }
 

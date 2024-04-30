@@ -54,6 +54,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     for (auto& column : mutable_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
         columns.push_back(std::move(column));
     }
@@ -63,6 +64,7 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -74,6 +76,7 @@ ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
             LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            __builtin_unreachable();
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -146,6 +149,7 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
         LOG(FATAL) << "Cannot insert value of different size into tuple.";
+        __builtin_unreachable();
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -251,6 +255,15 @@ void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
+void ColumnStruct::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                     size_t length) {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        columns[i]->insert_range_from_ignore_overflow(
+                *assert_cast<const ColumnStruct&>(src).columns[i], start, length);
+    }
+}
+
 ColumnPtr ColumnStruct::filter(const Filter& filt, ssize_t result_size_hint) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
@@ -295,42 +308,28 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
+bool ColumnStruct::could_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->could_shrinked_column()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 MutableColumnPtr ColumnStruct::get_shrinked_column() {
     const size_t tuple_size = columns.size();
     MutableColumns new_columns(tuple_size);
 
     for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
-            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+        if (columns[i]->could_shrinked_column()) {
             new_columns[i] = columns[i]->get_shrinked_column();
         } else {
             new_columns[i] = columns[i]->get_ptr();
         }
     }
     return ColumnStruct::create(std::move(new_columns));
-}
-
-MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    const size_t tuple_size = columns.size();
-    std::vector<MutableColumns> scattered_tuple_elements(tuple_size);
-
-    for (size_t tuple_element_idx = 0; tuple_element_idx < tuple_size; ++tuple_element_idx) {
-        scattered_tuple_elements[tuple_element_idx] =
-                columns[tuple_element_idx]->scatter(num_columns, selector);
-    }
-
-    MutableColumns res(num_columns);
-
-    for (size_t scattered_idx = 0; scattered_idx < num_columns; ++scattered_idx) {
-        MutableColumns new_columns(tuple_size);
-        for (size_t tuple_element_idx = 0; tuple_element_idx < tuple_size; ++tuple_element_idx) {
-            new_columns[tuple_element_idx] =
-                    std::move(scattered_tuple_elements[tuple_element_idx][scattered_idx]);
-        }
-        res[scattered_idx] = ColumnStruct::create(std::move(new_columns));
-    }
-
-    return res;
 }
 
 void ColumnStruct::reserve(size_t n) {

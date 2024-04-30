@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -146,6 +147,9 @@ public:
 
     Status update_status(Status status);
 
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_query_profile() const;
+    std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
+
 private:
     ExecEnv* _exec_env = nullptr; // not owned
     ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
@@ -214,6 +218,8 @@ private:
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
+
+    QueryThreadContext _query_thread_context;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;

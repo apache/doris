@@ -23,18 +23,14 @@
 #include <glog/logging.h>
 
 #include <functional>
-#include <ostream>
 #include <utility>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
@@ -170,6 +166,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeLevelTime", parquet_profile, 1);
         _parquet_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", parquet_profile, 1);
+        _parquet_profile.skip_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
     }
 }
 
@@ -180,43 +180,6 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
-        if (_profile != nullptr) {
-            COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
-            COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _statistics.read_row_groups);
-            COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _statistics.filtered_group_rows);
-            COUNTER_UPDATE(_parquet_profile.filtered_page_rows, _statistics.filtered_page_rows);
-            COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows,
-                           _statistics.lazy_read_filtered_rows);
-            COUNTER_UPDATE(_parquet_profile.filtered_bytes, _statistics.filtered_bytes);
-            COUNTER_UPDATE(_parquet_profile.raw_rows_read, _statistics.read_rows);
-            COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
-            COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
-            COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
-            COUNTER_UPDATE(_parquet_profile.parse_footer_time, _statistics.parse_footer_time);
-            COUNTER_UPDATE(_parquet_profile.open_file_time, _statistics.open_file_time);
-            COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
-            COUNTER_UPDATE(_parquet_profile.page_index_filter_time,
-                           _statistics.page_index_filter_time);
-            COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
-                           _statistics.row_group_filter_time);
-
-            COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
-            COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
-            COUNTER_UPDATE(_parquet_profile.file_meta_read_calls,
-                           _column_statistics.meta_read_calls);
-            COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
-            COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
-            COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
-            COUNTER_UPDATE(_parquet_profile.decode_header_time,
-                           _column_statistics.decode_header_time);
-            COUNTER_UPDATE(_parquet_profile.decode_value_time,
-                           _column_statistics.decode_value_time);
-            COUNTER_UPDATE(_parquet_profile.decode_dict_time, _column_statistics.decode_dict_time);
-            COUNTER_UPDATE(_parquet_profile.decode_level_time,
-                           _column_statistics.decode_level_time);
-            COUNTER_UPDATE(_parquet_profile.decode_null_map_time,
-                           _column_statistics.decode_null_map_time);
-        }
         _closed = true;
     }
 }
@@ -232,9 +195,9 @@ Status ParquetReader::_open_file() {
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &_file_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
@@ -590,6 +553,9 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
 }
 
 Status ParquetReader::_next_row_group_reader() {
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->collect_profile_before_close();
+    }
     if (_read_row_groups.empty()) {
         _row_group_eof = true;
         _current_group_reader.reset(nullptr);
@@ -770,16 +736,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         read_whole_row_group();
         return Status::OK();
     }
-    uint8_t col_index_buff[page_index._column_index_size];
+    std::vector<uint8_t> col_index_buff(page_index._column_index_size);
     size_t bytes_read = 0;
-    Slice result(col_index_buff, page_index._column_index_size);
+    Slice result(col_index_buff.data(), page_index._column_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
-    uint8_t off_index_buff[page_index._offset_index_size];
-    Slice res(off_index_buff, page_index._offset_index_size);
+    std::vector<uint8_t> off_index_buff(page_index._offset_index_size);
+    Slice res(off_index_buff.data(), page_index._offset_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
@@ -800,7 +766,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         tparquet::ColumnIndex column_index;
-        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
+        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff.data(), &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             continue;
@@ -814,7 +780,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -930,4 +896,49 @@ int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& 
     }
     return column.data_page_offset;
 }
+
+void ParquetReader::_collect_profile() {
+    if (_profile == nullptr) {
+        return;
+    }
+
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->collect_profile_before_close();
+    }
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
+    COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _statistics.read_row_groups);
+    COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _statistics.filtered_group_rows);
+    COUNTER_UPDATE(_parquet_profile.filtered_page_rows, _statistics.filtered_page_rows);
+    COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows, _statistics.lazy_read_filtered_rows);
+    COUNTER_UPDATE(_parquet_profile.filtered_bytes, _statistics.filtered_bytes);
+    COUNTER_UPDATE(_parquet_profile.raw_rows_read, _statistics.read_rows);
+    COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
+    COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
+    COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
+    COUNTER_UPDATE(_parquet_profile.parse_footer_time, _statistics.parse_footer_time);
+    COUNTER_UPDATE(_parquet_profile.open_file_time, _statistics.open_file_time);
+    COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
+    COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
+    COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
+
+    COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
+                   _column_statistics.parse_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
+    COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
+    COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
+    COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
+    COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
+    COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
+    COUNTER_UPDATE(_parquet_profile.decode_header_time, _column_statistics.decode_header_time);
+    COUNTER_UPDATE(_parquet_profile.decode_value_time, _column_statistics.decode_value_time);
+    COUNTER_UPDATE(_parquet_profile.decode_dict_time, _column_statistics.decode_dict_time);
+    COUNTER_UPDATE(_parquet_profile.decode_level_time, _column_statistics.decode_level_time);
+    COUNTER_UPDATE(_parquet_profile.decode_null_map_time, _column_statistics.decode_null_map_time);
+}
+
+void ParquetReader::_collect_profile_before_close() {
+    _collect_profile();
+}
+
 } // namespace doris::vectorized

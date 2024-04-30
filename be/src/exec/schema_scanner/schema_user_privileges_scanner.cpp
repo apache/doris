@@ -103,11 +103,11 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
 
     // grantee
     {
-        StringRef strs[privileges_num];
+        std::vector<StringRef> strs(privileges_num);
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
@@ -123,22 +123,22 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // privilege type
     {
-        StringRef strs[privileges_num];
+        std::vector<StringRef> strs(privileges_num);
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.privilege_type.c_str(),
                                 priv_status.privilege_type.size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // is grantable
     {
-        StringRef strs[privileges_num];
+        std::vector<StringRef> strs(privileges_num);
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }

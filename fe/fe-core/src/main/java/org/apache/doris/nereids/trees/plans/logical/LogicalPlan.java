@@ -19,13 +19,11 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -61,7 +59,21 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
+    default FunctionalDependencies computeFuncDeps() {
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
+        fdBuilder.addFdItems(fdItems);
+        return fdBuilder.build();
+    }
 
-    ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier);
+    ImmutableSet<FdItem> computeFdItems();
+
+    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+
+    void computeUniform(FunctionalDependencies.Builder fdBuilder);
+
+    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
 }

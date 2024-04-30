@@ -27,12 +27,20 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/broker_file_writer.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
+#include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
+#include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -42,9 +50,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-namespace io {
-class FileWriter;
-} // namespace io
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
@@ -63,81 +68,129 @@ io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
     return opts;
 }
 
-Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
-                                       const std::vector<TNetworkAddress>& broker_addresses,
-                                       const std::map<std::string, std::string>& properties,
-                                       const std::string& path, int64_t start_offset,
-                                       std::unique_ptr<io::FileWriter>& file_writer) {
+Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_properties,
+                                                  const io::FileDescription& file_description) {
+    switch (fs_properties.type) {
+    case TFileType::FILE_LOCAL:
+        return io::global_local_filesystem();
+    case TFileType::FILE_BROKER:
+        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[0],
+                                            *fs_properties.properties, io::FileSystem::TMP_FS_ID);
+    case TFileType::FILE_S3: {
+        S3URI s3_uri(file_description.path);
+        RETURN_IF_ERROR_RESULT(s3_uri.parse());
+        S3Conf s3_conf;
+        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
+                *fs_properties.properties, s3_uri, &s3_conf));
+        return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    }
+    case TFileType::FILE_HDFS:
+        return fs_properties.hdfs_params
+                       ? io::HdfsFileSystem::create(*fs_properties.hdfs_params,
+                                                    file_description.fs_name,
+                                                    io::FileSystem::TMP_FS_ID, nullptr)
+                       : io::HdfsFileSystem::create(*fs_properties.properties,
+                                                    file_description.fs_name,
+                                                    io::FileSystem::TMP_FS_ID, nullptr);
+    default:
+        return ResultError(Status::InternalError("unsupported fs type: {}",
+                                                 std::to_string(fs_properties.type)));
+    }
+}
+
+Result<io::FileWriterPtr> FileFactory::create_file_writer(
+        TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
+        const std::map<std::string, std::string>& properties, const std::string& path,
+        const io::FileWriterOptions& options) {
+    io::FileWriterPtr file_writer;
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
-        break;
+        RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->create_file(path, &file_writer));
+        return file_writer;
     }
     case TFileType::FILE_BROKER: {
-        std::shared_ptr<io::BrokerFileSystem> fs;
-        RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addresses[0], properties, &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
-        break;
+        return io::BrokerFileWriter::create(env, broker_addresses[0], properties, path);
     }
     case TFileType::FILE_S3: {
         S3URI s3_uri(path);
-        RETURN_IF_ERROR(s3_uri.parse());
+        RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
-        RETURN_IF_ERROR(
+        RETURN_IF_ERROR_RESULT(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
-        std::shared_ptr<io::S3FileSystem> fs;
-        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
-        break;
+        auto client = S3ClientFactory::instance().create(s3_conf.client_conf);
+        return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
+                                                  s3_uri.get_key(), &options);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
-        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
-        break;
+        std::shared_ptr<io::HdfsHandler> handler;
+        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+                hdfs_params, hdfs_params.fs_name, &handler));
+        return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
     default:
-        return Status::InternalError("unsupported file writer type: {}", std::to_string(type));
+        return ResultError(
+                Status::InternalError("unsupported file writer type: {}", std::to_string(type)));
     }
-
-    return Status::OK();
 }
 
-Status FileFactory::create_file_reader(const io::FileSystemProperties& system_properties,
-                                       const io::FileDescription& file_description,
-                                       const io::FileReaderOptions& reader_options,
-                                       std::shared_ptr<io::FileSystem>* file_system,
-                                       io::FileReaderSPtr* file_reader, RuntimeProfile* profile) {
+Result<io::FileReaderSPtr> FileFactory::create_file_reader(
+        const io::FileSystemProperties& system_properties,
+        const io::FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
-    // FIXME(plat1ko): Maybe we can create reader without filesystem?
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description.path, file_reader,
-                                                                 &reader_options));
-        break;
+        io::FileReaderSPtr file_reader;
+        RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->open_file(
+                file_description.path, &file_reader, &reader_options));
+        return file_reader;
     }
     case TFileType::FILE_S3: {
-        RETURN_IF_ERROR(create_s3_reader(system_properties.properties, file_description,
-                                         reader_options, file_system, file_reader));
-        break;
+        S3URI s3_uri(file_description.path);
+        RETURN_IF_ERROR_RESULT(s3_uri.parse());
+        S3Conf s3_conf;
+        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
+                system_properties.properties, s3_uri, &s3_conf));
+        auto client_holder = std::make_shared<io::S3ClientHolder>(s3_conf.client_conf);
+        RETURN_IF_ERROR_RESULT(client_holder->init());
+        return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
+                                        file_description.file_size)
+                .and_then([&](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), reader_options);
+                });
     }
     case TFileType::FILE_HDFS: {
-        RETURN_IF_ERROR(create_hdfs_reader(system_properties.hdfs_params, file_description,
-                                           reader_options, file_system, file_reader, profile));
-        break;
+        std::shared_ptr<io::HdfsHandler> handler;
+        // FIXME(plat1ko): Explain the difference between `system_properties.hdfs_params.fs_name`
+        // and `file_description.fs_name`, it's so confused.
+        const auto* fs_name = &file_description.fs_name;
+        if (fs_name->empty()) {
+            fs_name = &system_properties.hdfs_params.fs_name;
+        }
+        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+                system_properties.hdfs_params, *fs_name, &handler));
+        return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
+                                          reader_options, profile)
+                .and_then([&](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), reader_options);
+                });
     }
     case TFileType::FILE_BROKER: {
-        RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
-                                             system_properties.properties, file_description,
-                                             reader_options, file_system, file_reader));
-        break;
+        // TODO(plat1ko): Create `FileReader` without FS
+        return io::BrokerFileSystem::create(system_properties.broker_addresses[0],
+                                            system_properties.properties, io::FileSystem::TMP_FS_ID)
+                .and_then([&](auto&& fs) -> Result<io::FileReaderSPtr> {
+                    io::FileReaderSPtr file_reader;
+                    RETURN_IF_ERROR_RESULT(
+                            fs->open_file(file_description.path, &file_reader, &reader_options));
+                    return file_reader;
+                });
     }
     default:
-        return Status::NotSupported("unsupported file reader type: {}", std::to_string(type));
+        return ResultError(
+                Status::InternalError("unsupported file reader type: {}", std::to_string(type)));
     }
-    return Status::OK();
 }
 
 // file scan node/stream load pipe
@@ -147,7 +200,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    if (need_schema == true) {
+    if (need_schema) {
         // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
@@ -170,7 +223,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     }
 
     TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_exec()) {
+    if (runtime_state->enable_pipeline_x_exec()) {
         pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
                                                         runtime_state->fragment_id());
     } else {
@@ -183,44 +236,4 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     return Status::OK();
 }
 
-Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
-                                       const io::FileDescription& fd,
-                                       const io::FileReaderOptions& reader_options,
-                                       std::shared_ptr<io::FileSystem>* hdfs_file_system,
-                                       io::FileReaderSPtr* reader, RuntimeProfile* profile) {
-    std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", fd.fs_name, profile, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
-    *hdfs_file_system = std::move(fs);
-    return Status::OK();
-}
-
-Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& prop,
-                                     const io::FileDescription& fd,
-                                     const io::FileReaderOptions& reader_options,
-                                     std::shared_ptr<io::FileSystem>* s3_file_system,
-                                     io::FileReaderSPtr* reader) {
-    S3URI s3_uri(fd.path);
-    RETURN_IF_ERROR(s3_uri.parse());
-    S3Conf s3_conf;
-    RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
-    std::shared_ptr<io::S3FileSystem> fs;
-    RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
-    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
-    *s3_file_system = std::move(fs);
-    return Status::OK();
-}
-
-Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
-                                         const std::map<std::string, std::string>& prop,
-                                         const io::FileDescription& fd,
-                                         const io::FileReaderOptions& reader_options,
-                                         std::shared_ptr<io::FileSystem>* broker_file_system,
-                                         io::FileReaderSPtr* reader) {
-    std::shared_ptr<io::BrokerFileSystem> fs;
-    RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addr, prop, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
-    *broker_file_system = std::move(fs);
-    return Status::OK();
-}
 } // namespace doris

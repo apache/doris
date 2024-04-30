@@ -17,37 +17,76 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
-#include "util/slice.h"
 
 namespace doris {
+struct Slice;
 namespace io {
 
-class HdfsFileSystem;
+class HdfsHandler;
+class BlockFileCache;
+struct FileCacheAllocatorBuilder;
 
-class HdfsFileWriter : public FileWriter {
+class HdfsFileWriter final : public FileWriter {
 public:
-    HdfsFileWriter(Path file, FileSystemSPtr fs, const FileWriterOptions* opts);
-    ~HdfsFileWriter();
+    // Accepted path format:
+    // - fs_name/path_to_file
+    // - /path_to_file
+    // TODO(plat1ko): Support related path for cloud mode
+    static Result<FileWriterPtr> create(Path path, std::shared_ptr<HdfsHandler> handler,
+                                        const std::string& fs_name,
+                                        const FileWriterOptions* opts = nullptr);
 
-    Status open() override;
+    HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
+                   std::string fs_name, const FileWriterOptions* opts = nullptr);
+    ~HdfsFileWriter() override;
+
     Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return _bytes_appended; }
+    bool closed() const override { return _closed; }
+
+    FileCacheAllocatorBuilder* cache_builder() const override {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
 
 private:
-    Status _open();
+    // Flush buffered data into HDFS client and write local file cache if enabled
+    // **Notice**: this would clear the underlying buffer
+    Status _flush_buffer();
+    Status append_hdfs_file(std::string_view content);
+    void _write_into_local_file_cache();
+    Status _append(std::string_view content);
 
-private:
+    Path _path;
+    std::shared_ptr<HdfsHandler> _hdfs_handler = nullptr;
     hdfsFile _hdfs_file = nullptr;
-    // A convenient pointer to _fs
-    HdfsFileSystem* _hdfs_fs = nullptr;
+    std::string _fs_name;
+    size_t _bytes_appended = 0;
+    bool _closed = false;
+    bool _sync_file_data;
+    std::unique_ptr<FileCacheAllocatorBuilder>
+            _cache_builder; // nullptr if disable write file cache
+    class BatchBuffer {
+    public:
+        BatchBuffer(size_t capacity);
+        size_t append(std::string_view content);
+        bool full() const;
+        const char* data() const;
+        size_t capacity() const;
+        size_t size() const;
+        void clear();
+        std::string_view content() const;
+
+    private:
+        std::string _batch_buffer;
+    };
+    BatchBuffer _batch_buffer;
 };
 
 } // namespace io

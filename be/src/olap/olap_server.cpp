@@ -17,6 +17,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -280,6 +281,9 @@ void StorageEngine::_cache_clean_callback() {
                          << "], force set to 3600 ";
             interval = 3600;
         }
+        if (config::disable_memory_gc) {
+            continue;
+        }
 
         CacheManager::instance()->for_each_cache_prune_stale();
 
@@ -331,7 +335,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        uint32_t curr_interval = max_interval * ratio;
+        auto curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -682,7 +686,8 @@ void StorageEngine::_update_replica_infos_callback() {
 
         int start = 0;
         int tablet_size = all_tablets.size();
-        while (start < tablet_size) {
+        // The while loop may take a long time, we should skip it when stop
+        while (start < tablet_size && _stop_background_threads_latch.count() > 0) {
             int batch_size = std::min(100, tablet_size - start);
             int end = start + batch_size;
             TGetTabletReplicaInfosRequest request;
@@ -798,7 +803,7 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         return;
     }
-    std::vector<Version> local_versions = tablet->get_all_versions();
+    std::vector<Version> local_versions = tablet->get_all_local_versions();
     for (const auto& local_version : local_versions) {
         auto version = response->add_versions();
         version->set_first(local_version.first);
@@ -913,8 +918,13 @@ bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr table
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()]
+                                    .insert(tablet->tablet_id())
+                                    .second);
+        break;
+    case CompactionType::FULL_COMPACTION:
+        already_existed = !(_tablet_submitted_full_compaction[tablet->data_dir()]
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
@@ -930,8 +940,11 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     case CompactionType::CUMULATIVE_COMPACTION:
         removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+        break;
+    case CompactionType::FULL_COMPACTION:
+        removed = _tablet_submitted_full_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
     }
 
@@ -986,7 +999,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type, permits, is_low_priority_task,
+                                            compaction_type, permits, force, is_low_priority_task,
                                             this]() {
             if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
                 VLOG_DEBUG << "skip low priority compaction task for tablet: "
@@ -998,11 +1011,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _decrease_low_priority_task_nums(tablet->data_dir());
                 }
             }
-            _permit_limiter.release(permits);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         });
         if (!st.ok()) {
-            _permit_limiter.release(permits);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -1165,21 +1182,6 @@ void StorageEngine::do_remove_unused_remote_files() {
     constexpr int64_t max_files_in_buffer = 1000000;
 
     auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
-        auto storage_policy = get_storage_policy(t->storage_policy_id());
-        if (storage_policy == nullptr) {
-            LOG(WARNING) << "could not find storage_policy, storage_policy_id="
-                         << t->storage_policy_id();
-            return;
-        }
-        auto resource = get_storage_resource(storage_policy->resource_id);
-        auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
-        if (dest_fs == nullptr) {
-            LOG(WARNING) << "could not find resource, resouce_id=" << storage_policy->resource_id;
-            return;
-        }
-        DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
-        DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
-
         std::shared_ptr<io::RemoteFileSystem> fs;
         auto st = get_remote_file_system(t->storage_policy_id(), &fs);
         if (!st.ok()) {
@@ -1192,7 +1194,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
         bool exists = true;
-        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        st = fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
@@ -1242,7 +1244,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         files.shrink_to_fit();
         num_files_in_buffer += files.size();
-        buffer.insert({t->tablet_id(), {std::move(dest_fs), std::move(files)}});
+        buffer.insert({t->tablet_id(), {std::move(fs), std::move(files)}});
         auto& info = req.confirm_list.emplace_back();
         info.__set_tablet_id(t->tablet_id());
         info.__set_cooldown_replica_id(cooldown_replica_id);
@@ -1310,9 +1312,6 @@ void StorageEngine::do_remove_unused_remote_files() {
 }
 
 void StorageEngine::_cold_data_compaction_producer_callback() {
-    std::unordered_set<int64_t> tablet_submitted;
-    std::mutex tablet_submitted_mtx;
-
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
         if (config::disable_auto_compaction ||
@@ -1322,8 +1321,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 
         std::unordered_set<int64_t> copied_tablet_submitted;
         {
-            std::lock_guard lock(tablet_submitted_mtx);
-            copied_tablet_submitted = tablet_submitted;
+            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+            copied_tablet_submitted = _cold_compaction_tablet_submitted;
         }
         int n = config::cold_data_compaction_thread_num - copied_tablet_submitted.size();
         if (n <= 0) {
@@ -1332,7 +1331,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         auto tablets = _tablet_manager->get_all_tablet([&copied_tablet_submitted](Tablet* t) {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
                    t->tablet_state() == TABLET_RUNNING &&
-                   !copied_tablet_submitted.count(t->tablet_id()) &&
+                   !copied_tablet_submitted.contains(t->tablet_id()) &&
                    !t->tablet_meta()->tablet_schema()->disable_auto_compaction();
         });
         std::vector<std::pair<TabletSharedPtr, int64_t>> tablet_to_compact;
@@ -1357,7 +1356,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
             // else, need to follow
             {
                 std::lock_guard lock(_running_cooldown_mutex);
-                if (_running_cooldown_tablets.count(t->table_id())) {
+                if (_running_cooldown_tablets.contains(t->table_id())) {
                     // already in cooldown queue
                     continue;
                 }
@@ -1380,12 +1379,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     [&, t = std::move(tablet), this]() {
                         auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
                         }
                         Defer defer {[&] {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
                         }};
                         std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
                                                               std::try_to_lock);
@@ -1414,22 +1413,25 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
-                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
-                        }
-                        auto st = t->cooldown();
-                        {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
-                        }
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                         << " err=" << st;
-                        }
-                    }));
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
+                                                                              t = std::move(
+                                                                                      tablet)]() {
+                {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
+                }
+                auto st = t->cooldown();
+                {
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
+                }
+                if (!st.ok()) {
+                    // The cooldown of the replica may be relatively slow
+                    // resulting in a short period of time where following cannot be successful
+                    LOG_EVERY_N(WARNING, 5)
+                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
+                }
+            }));
         }
     }
 }

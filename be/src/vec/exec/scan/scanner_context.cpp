@@ -78,7 +78,6 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                               : config::doris_scanner_thread_pool_thread_num /
                                         (_local_state ? num_parallel_instances
                                                       : state->query_parallel_instance_num());
-    _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
@@ -87,6 +86,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
         (_local_state && _local_state->should_run_serial())) {
         _max_thread_num = 1;
     }
+    _query_thread_context = {_query_id, _state->query_mem_tracker()};
 }
 
 ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,
@@ -254,18 +254,19 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _set_scanner_done();
             return scan_task->get_status();
         }
-        DCHECK(!scan_task->cached_blocks.empty());
-        vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
-        scan_task->cached_blocks.pop_front();
-        size_t block_size = current_block->allocated_bytes();
-        if (_estimated_block_size > block_size) {
-            _estimated_block_size = block_size;
+        if (!scan_task->cached_blocks.empty()) {
+            vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
+            scan_task->cached_blocks.pop_front();
+            size_t block_size = current_block->allocated_bytes();
+            if (_estimated_block_size > block_size) {
+                _estimated_block_size = block_size;
+            }
+            _free_blocks_memory_usage -= block_size;
+            _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+            // consume current block
+            block->swap(*current_block);
+            return_free_block(std::move(current_block));
         }
-        _free_blocks_memory_usage -= block_size;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        // consume current block
-        block->swap(*current_block);
-        return_free_block(std::move(current_block));
         if (scan_task->cached_blocks.empty()) {
             _blocks_queue.pop_front();
             if (scan_task->is_eos()) { // current scanner is finished, and no more data to read
@@ -326,8 +327,8 @@ void ScannerContext::_try_to_scale_up() {
 
         bool is_scale_up = false;
         // calculate the number of scanners that can be scheduled
-        int num_add = std::min(_num_running_scanners * SCALE_UP_RATIO,
-                               _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners);
+        int num_add = int(std::min(_num_running_scanners * SCALE_UP_RATIO,
+                                   _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners));
         if (_estimated_block_size > 0) {
             int most_add =
                     (_max_bytes_in_queue - _free_blocks_memory_usage) / _estimated_block_size;
@@ -404,9 +405,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
         std::stringstream scanner_wait_worker_time;
+        std::stringstream scanner_projection;
         scanner_statistics << "[";
         scanner_rows_read << "[";
         scanner_wait_worker_time << "[";
+        scanner_projection << "[";
         // Scanners can in 3 state
         //  state 1: in scanner context, not scheduled
         //  state 2: in scanner worker pool's queue, scheduled but not running
@@ -418,6 +421,9 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             }
             // Add per scanner running time before close them
             scanner_statistics << PrettyPrinter::print(scanner->_scanner->get_time_cost_ns(),
+                                                       TUnit::TIME_NS)
+                               << ", ";
+            scanner_projection << PrettyPrinter::print(scanner->_scanner->projection_time(),
                                                        TUnit::TIME_NS)
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->_scanner->get_rows_read(),
@@ -433,9 +439,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         scanner_statistics << "]";
         scanner_rows_read << "]";
         scanner_wait_worker_time << "]";
+        scanner_projection << "]";
         _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
         _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
+        _scanner_profile->add_info_string("PerScannerProjectionTime", scanner_projection.str());
     }
 
     _blocks_queue_added_cv.notify_one();

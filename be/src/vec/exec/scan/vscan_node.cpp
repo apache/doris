@@ -100,7 +100,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     _state = state;
-    _is_pipeline_scan = state->enable_pipeline_exec();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -140,26 +139,11 @@ Status VScanNode::prepare(RuntimeState* state) {
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(_runtime_profile.get());
 
-    if (_is_pipeline_scan) {
-        if (_shared_scan_opt) {
-            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
-            auto [should_create_scanner, queue_id] =
-                    _shared_scanner_controller->should_build_scanner_and_queue_id(id());
-            _should_create_scanner = should_create_scanner;
-            _context_queue_id = queue_id;
-        } else {
-            _should_create_scanner = true;
-            _context_queue_id = 0;
-        }
-    }
-
     // 1: running at not pipeline mode will init profile.
     // 2: the scan node should create scanner at pipeline mode will init profile.
     // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
     // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
-    if (!_is_pipeline_scan || _should_create_scanner) {
-        RETURN_IF_ERROR(_init_profile());
-    }
+    RETURN_IF_ERROR(_init_profile());
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
@@ -187,38 +171,12 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     }
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_acquire_runtime_filter(false));
     RETURN_IF_ERROR(_process_conjuncts());
 
-    if (_is_pipeline_scan) {
-        if (_should_create_scanner) {
-            auto status =
-                    !_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK();
-            if (_scanner_ctx) {
-                DCHECK(!_eos && _num_scanners->value() > 0);
-                RETURN_IF_ERROR(_scanner_ctx->init());
-            }
-            if (_shared_scan_opt) {
-                LOG(INFO) << "instance shared scan enabled"
-                          << print_id(state->fragment_instance_id());
-                _shared_scanner_controller->set_scanner_context(id(),
-                                                                _eos ? nullptr : _scanner_ctx);
-            }
-            RETURN_IF_ERROR(status);
-        } else if (_shared_scanner_controller->scanner_context_is_ready(id())) {
-            _scanner_ctx = _shared_scanner_controller->get_scanner_context(id());
-            if (!_scanner_ctx) {
-                _eos = true;
-            }
-        } else {
-            return Status::WaitForScannerContext("Need wait for scanner context create");
-        }
-    } else {
-        RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num())
-                              : Status::OK());
-        if (_scanner_ctx) {
-            RETURN_IF_ERROR(_scanner_ctx->init());
-        }
+    RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK());
+    if (_scanner_ctx) {
+        RETURN_IF_ERROR(_scanner_ctx->init());
     }
 
     RETURN_IF_CANCELLED(state);
@@ -305,16 +263,9 @@ Status VScanNode::_init_profile() {
 
 void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                 const int query_parallel_instance_num) {
-    if (_is_pipeline_scan) {
-        int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
-        _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
-                _state->scan_queue_mem_limit(), max_queue_size);
-    } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
-                                                     _output_row_descriptor.get(), scanners,
-                                                     limit(), _state->scan_queue_mem_limit());
-    }
+    _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
+                                                 _output_row_descriptor.get(), scanners, limit(),
+                                                 _state->scan_queue_mem_limit());
 }
 
 Status VScanNode::close(RuntimeState* state) {
@@ -328,11 +279,7 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     if (_scanner_ctx) {
-        if (!state->enable_pipeline_exec() || _should_create_scanner) {
-            // stop and wait the scanner scheduler to be done
-            // _scanner_ctx may not be created for some short circuit case.
-            _scanner_ctx->stop_scanners(state);
-        }
+        _scanner_ctx->stop_scanners(state);
     }
     _scanners.clear();
     ExecNode::release_resource(state);
@@ -380,18 +327,18 @@ Status VScanNode::_normalize_conjuncts() {
         }
     };
 
-    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
+    for (auto& slot : slots) {
+        _colname_to_slot_id[slot->col_name()] = slot->id();
+        _slot_id_to_slot_desc[slot->id()] = slot;
 
-        auto type = slots[slot_idx]->type().type;
-        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
-            type = slots[slot_idx]->type().children[0].type;
+        auto type = slot->type().type;
+        if (slot->type().type == TYPE_ARRAY) {
+            type = slot->type().children[0].type;
             if (type == TYPE_ARRAY) {
                 continue;
             }
         }
-        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+        init_value_range(slot, slot->type().type);
     }
 
     get_cast_types_for_variants();
@@ -471,7 +418,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            auto* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
             bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
@@ -642,8 +589,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_function_filter(
-                reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
+        RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
+                                                          expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
@@ -699,16 +646,15 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const ColumnConst* const_column =
+        if (const auto* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
             }
-        } else if (const ColumnVector<UInt8>* bool_column =
-                           check_and_get_column<ColumnVector<UInt8>>(
-                                   const_col_wrapper->column_ptr)) {
+        } else if (const auto* bool_column = check_and_get_column<ColumnVector<UInt8>>(
+                           const_col_wrapper->column_ptr)) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -759,14 +705,14 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             }
         } else {
             // normal in predicate
-            VInPredicate* pred = static_cast<VInPredicate*>(expr);
+            auto* pred = static_cast<VInPredicate*>(expr);
             PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
             if (temp_pdt == PushDownType::UNACCEPTABLE) {
                 return Status::OK();
             }
 
             // begin to push InPredicate value into ColumnValueRange
-            InState* state = reinterpret_cast<InState*>(
+            auto* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -785,7 +731,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                 iter->next();
                 continue;
             }
-            auto value = const_cast<void*>(iter->get_value());
+            auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
@@ -846,14 +792,14 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
-        VInPredicate* pred = static_cast<VInPredicate*>(expr);
+        auto* pred = static_cast<VInPredicate*>(expr);
         if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
             PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
         // begin to push InPredicate value into ColumnValueRange
-        InState* state = reinterpret_cast<InState*>(
+        auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -864,7 +810,8 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->hybrid_set->contain_null()) {
+        // https://github.com/apache/doris/pull/15466
+        if (state->hybrid_set->contain_null()) {
             _eos = true;
         }
         while (iter->has_next()) {
@@ -872,7 +819,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
             if (nullptr == iter->get_value()) {
                 continue;
             }
-            auto value = const_cast<void*>(iter->get_value());
+            auto* value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
@@ -1017,7 +964,7 @@ Status VScanNode::_normalize_compound_predicate(
         auto compound_fn_name = expr->fn().name.function_name;
         auto children_num = expr->children().size();
         for (auto i = 0; i < children_num; ++i) {
-            auto child_expr = expr->children()[i].get();
+            auto* child_expr = expr->children()[i].get();
             if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
                 SlotDescriptor* slot = nullptr;
                 ColumnValueRangeType* range_on_slot = nullptr;
@@ -1276,7 +1223,7 @@ Status VScanNode::_should_push_down_binary_predicate(
         } else {
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const ColumnConst* const_column =
+            if (const auto* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);

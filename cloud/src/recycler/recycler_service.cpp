@@ -384,7 +384,6 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
         LOG(INFO) << " host " << *host;
         LOG(INFO) << " port " << *port;
         LOG(INFO) << " user " << *user;
-        LOG(INFO) << " passwd " << *password;
         LOG(INFO) << " instance " << *instance_id;
         if (instance_id == nullptr || instance_id->empty() || host == nullptr || host->empty() ||
             port == nullptr || port->empty() || password == nullptr || user == nullptr ||

@@ -123,13 +123,23 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
         _is_null_safe_eq_join.push_back(null_aware);
 
+        const bool build_side_nullable = _build_expr_ctxs.back()->root()->is_nullable();
+        const bool probe_side_nullable = _probe_expr_ctxs.back()->root()->is_nullable();
         // if is null aware, build join column and probe join column both need dispose null value
-        _store_null_in_hash_table.emplace_back(
-                null_aware ||
-                (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+        _store_null_in_hash_table.emplace_back(null_aware ||
+                                               (build_side_nullable && build_stores_null));
         probe_not_ignore_null[conjuncts_index] =
-                null_aware ||
-                (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
+                null_aware || (probe_side_nullable && probe_dispose_null);
+
+        const bool should_convert_build_side_to_nullable =
+                null_aware && !build_side_nullable && probe_side_nullable;
+        const bool should_convert_probe_side_to_nullable =
+                (null_aware || _join_op == TJoinOp::RIGHT_ANTI_JOIN) && build_side_nullable &&
+                !probe_side_nullable;
+
+        _should_convert_build_side_to_nullable.emplace_back(should_convert_build_side_to_nullable);
+        _should_convert_probe_side_to_nullable.emplace_back(should_convert_probe_side_to_nullable);
+
         conjuncts_index++;
     }
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
@@ -484,11 +494,11 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         _probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
-        RETURN_IF_ERROR(
-                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
         if (!_has_set_need_null_map_for_probe) {
@@ -553,6 +563,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
 void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     DCHECK(_is_outer_join);
+    if (!_use_specific_projections) {
+        return;
+    }
     auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
     auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
     auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
@@ -594,7 +607,7 @@ void HashJoinNode::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
-    _temp_probe_nullable_columns.clear();
+    _key_columns_holder.clear();
     release_block_memory(_probe_block);
 }
 
@@ -731,7 +744,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                          res_col_ids));
 
             SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(_build_side_mutable_block.merge_ignore_overflow(*in_block));
             if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
                 return Status::NotSupported(
                         "Hash join do not support build table rows"
@@ -745,8 +758,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         DCHECK(!_build_side_mutable_block.empty());
         _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
         COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
-        RETURN_IF_ERROR(process_runtime_filter_build(state, _build_block.get(), this));
+        _runtime_filter_slots =
+                std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
         RETURN_IF_ERROR(_process_build_block(state, *_build_block));
+        RETURN_IF_ERROR(process_runtime_filter_build(state, _build_block.get(), this));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.
@@ -798,8 +813,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                   _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
                                           _build_expr_ctxs, _runtime_filters);
 
-                                  RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table->size()));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   RETURN_IF_ERROR(_runtime_filter_slots->publish(true));
@@ -841,8 +854,17 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                                           ColumnRawPtrs& raw_ptrs,
                                           const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
-    _temp_probe_nullable_columns.clear();
+    _key_columns_holder.clear();
+    auto& should_convert_to_nullable = BuildSide ? _should_convert_build_side_to_nullable
+                                                 : _should_convert_probe_side_to_nullable;
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
+        if (should_convert_to_nullable[i]) {
+            _key_columns_holder.emplace_back(
+                    make_nullable(block.get_by_position(res_col_ids[i]).column));
+            raw_ptrs[i] = _key_columns_holder.back().get();
+            continue;
+        }
+
         if (_is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
@@ -865,15 +887,6 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
-                if constexpr (!BuildSide) {
-                    if (_join_op == TJoinOp::RIGHT_ANTI_JOIN &&
-                        _build_expr_ctxs[i]->root()->is_nullable()) {
-                        _temp_probe_nullable_columns.emplace_back(make_nullable(
-                                block.get_by_position(res_col_ids[i]).column->assume_mutable()));
-                        raw_ptrs[i] = _temp_probe_nullable_columns.back().get();
-                        continue;
-                    }
-                }
                 raw_ptrs[i] = column;
             }
         }
@@ -929,6 +942,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     COUNTER_UPDATE(_build_rows_counter, rows);
+    block.replace_if_overflow();
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
@@ -938,6 +952,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            if (column->size() == 0) {
+                return Status::InternalError("here should not be empty column in build block");
+            }
             assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
@@ -1043,8 +1060,18 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
+                std::vector<DataTypePtr> data_types;
+                for (size_t i = 0; i != _build_expr_ctxs.size(); ++i) {
+                    auto& ctx = _build_expr_ctxs[i];
+                    auto data_type = ctx->root()->data_type();
+                    if (_should_convert_build_side_to_nullable[i]) {
+                        data_type = make_nullable(data_type);
+                    }
+                    data_types.emplace_back(std::move(data_type));
+                }
+
                 if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(*_hash_table_variants,
-                                                                            _build_expr_ctxs)) {
+                                                                            data_types)) {
                     _hash_table_variants->emplace<SerializedHashTableContext>();
                 }
             },

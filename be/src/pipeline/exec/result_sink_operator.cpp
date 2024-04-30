@@ -28,42 +28,24 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vmysql_result_writer.h"
-#include "vec/sink/vresult_sink.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
-
-ResultSinkOperatorBuilder::ResultSinkOperatorBuilder(int32_t id, DataSink* sink)
-        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
-
-OperatorPtr ResultSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ResultSinkOperator>(this, _sink);
-}
-
-ResultSinkOperator::ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-        : DataSinkOperator(operator_builder, sink) {};
-
-bool ResultSinkOperator::can_write() {
-    return _sink->_sender->can_sink();
-}
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
+
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+
     // create sender
-    std::shared_ptr<BufferControlBlock> sender = nullptr;
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
     return Status::OK();
 }

@@ -133,8 +133,8 @@ void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
 }
 
 void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start,
-                                             int end) const {
+                                             arrow::ArrayBuilder* array_builder, int start, int end,
+                                             const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {

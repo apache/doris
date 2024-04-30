@@ -30,10 +30,13 @@
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
 
+#include <algorithm>
+#include <execution>
 #include <utility>
 
 #include "common/logging.h"
 #include "common/sync_point.h"
+#include "recycler/obj_store_accessor.h"
 
 namespace doris::cloud {
 #ifndef UNIT_TEST
@@ -66,7 +69,7 @@ private:
     Aws::SDKOptions aws_options_;
 };
 
-S3Accessor::S3Accessor(S3Conf conf) : conf_(std::move(conf)) {
+S3Accessor::S3Accessor(S3Conf conf) : ObjStoreAccessor(AccessorType::S3), conf_(std::move(conf)) {
     path_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
 }
 
@@ -186,7 +189,8 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
             LOG_INFO("delete object")
                     .tag("endpoint", conf_.endpoint)
                     .tag("bucket", conf_.bucket)
-                    .tag("key", key);
+                    .tag("key", key)
+                    .tag("size", objects.size());
             objects.emplace_back().SetKey(std::move(key));
         }
         if (objects.empty()) {
@@ -224,7 +228,21 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
 }
 
 int S3Accessor::delete_object(const std::string& relative_path) {
-    // TODO(cyx)
+    Aws::S3::Model::DeleteObjectRequest request;
+    auto key = get_key(relative_path);
+    request.WithBucket(conf_.bucket).WithKey(key);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->DeleteObject(request),
+                                                "s3_client::delete_object", request);
+    if (!outcome.IsSuccess()) {
+        LOG_WARNING("failed to delete object")
+                .tag("endpoint", conf_.endpoint)
+                .tag("bucket", conf_.bucket)
+                .tag("key", key)
+                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("exception", outcome.GetError().GetExceptionName());
+        return -1;
+    }
     return 0;
 }
 
@@ -418,6 +436,21 @@ int S3Accessor::check_bucket_versioning() {
         return -1;
     }
     return 0;
+}
+
+int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) {
+    std::vector<int> delete_rets(relative_paths.size());
+    std::transform(std::execution::par, relative_paths.begin(), relative_paths.end(),
+                   delete_rets.begin(),
+                   [this](const std::string& path) { return delete_object(path); });
+    int ret = 0;
+    for (int delete_ret : delete_rets) {
+        if (delete_ret != 0) {
+            ret = delete_ret;
+            break;
+        }
+    }
+    return ret;
 }
 
 #undef HELP_MACRO

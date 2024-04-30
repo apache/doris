@@ -41,6 +41,7 @@ private:
     // column_id, column_pos
     std::map<int64_t, int64_t> _column_pos_map;
     int64_t _column_id_count;
+    uint32_t _version = 0;
 };
 } // namespace vectorized
 } // namespace doris

@@ -82,7 +82,7 @@ public class OneListPartitionEvaluator
         expr = super.visit(expr, context);
         if (!(expr instanceof Literal)) {
             // just forward to fold constant rule
-            return expr.accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+            return FoldConstantRuleOnFE.evaluate(expr, expressionRewriteContext);
         }
         return expr;
     }

@@ -35,7 +35,7 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <awssdk.version>2.20.131</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
-        <tencentcos.version>3.3.5</tencentcos.version>
+        <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
     <profiles>
         <profile>
@@ -156,6 +156,11 @@ under the License.
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava-testlib</artifactId>
+            <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
         <dependency>
@@ -418,9 +423,15 @@ under the License.
             <artifactId>hadoop-aliyun</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
+            <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.json</groupId>
+                    <artifactId>json</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
@@ -652,10 +663,9 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.alibaba/druid -->
         <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>druid</artifactId>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
         </dependency>
 
         <dependency>
@@ -788,6 +798,10 @@ under the License.
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>concurrent</artifactId>
         </dependency>
     </dependencies>
     <repositories>
@@ -987,7 +1001,7 @@ under the License.
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
-                    <execution>
+                    <!--execution>
                         <id>doc</id>
                         <phase>process-classes</phase>
                         <goals>
@@ -1007,7 +1021,7 @@ under the License.
                             </arguments>
                             <skip>${skip.doc}</skip>
                         </configuration>
-                    </execution>
+                    </execution-->
                 </executions>
             </plugin>
 
@@ -1042,7 +1056,7 @@ under the License.
                         <configuration>
                             <proc>only</proc>
                             <compilerArgs>
-                                <arg>-AplanPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
+                                <arg>-Apath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
                                 <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>

@@ -7,17 +7,10 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/recycler")
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 
-set (SRC_LIST
-    checker.cpp
-    recycler.cpp
-    recycler_service.cpp
-    s3_accessor.cpp
-    util.cpp
-    white_black_list.cpp
-)
+file(GLOB_RECURSE SRC_LIST CONFIGURE_DEPENDS *.cpp)
 
-if(BUILD_CHECK_META STREQUAL "ON")
-    set (SRC_LIST ${SRC_LIST} meta_checker.cpp)
+if(BUILD_CHECK_META STREQUAL "OFF")
+    list(REMOVE_ITEM SRC_LIST ${CMAKE_CURRENT_SOURCE_DIR}/meta_checker.cpp)
 endif ()
 
 add_library(Recycler ${SRC_LIST})

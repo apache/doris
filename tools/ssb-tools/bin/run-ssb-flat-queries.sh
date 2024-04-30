@@ -83,17 +83,15 @@ check_prerequest() {
     fi
 }
 
-check_prerequest "mysqlslap --version" "mysqlslap"
 check_prerequest "mysql --version" "mysql"
-check_prerequest "bc --version" "bc"
 
 source "${CURDIR}/../conf/doris-cluster.conf"
-export MYSQL_PWD=${PASSWORD}
+export MYSQL_PWD=${PASSWORD:-}
 
-echo "FE_HOST: ${FE_HOST}"
-echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
-echo "USER: ${USER}"
-echo "DB: ${DB}"
+echo "FE_HOST: ${FE_HOST:='127.0.0.1'}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
+echo "USER: ${USER:='root'}"
+echo "DB: ${DB:='ssb'}"
 
 run_sql() {
     echo "$@"
@@ -101,55 +99,56 @@ run_sql() {
 }
 
 echo '============================================'
-echo "optimize some session variables before run, and then restore it after run."
-origin_parallel_fragment_exec_instance_num=$(
-    set -e
-    run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
-)
-origin_exec_mem_limit=$(
-    set -e
-    run_sql 'select @@exec_mem_limit;' | sed -n '3p'
-)
-origin_batch_size=$(
-    set -e
-    run_sql 'select @@batch_size;' | sed -n '3p'
-)
-run_sql "set global parallel_fragment_exec_instance_num=8;"
-run_sql "set global exec_mem_limit=8G;"
-run_sql "set global batch_size=4096;"
-run_sql "set global query_timeout=900;"
-echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-start=$(date +%s)
-run_sql "analyze table lineorder_flat with sync;"
-end=$(date +%s)
-totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${totalTime} s"
-echo '============================================'
 
-sum=0
+RESULT_DIR="${CURDIR}/result"
+if [[ -d "${RESULT_DIR}" ]]; then
+    rm -r "${RESULT_DIR}"
+fi
+mkdir -p "${RESULT_DIR}"
+touch result.csv
+
+cold_run_sum=0
+best_hot_run_sum=0
+
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
-    # Each query is executed 3 times and takes the min time
-    res1=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
-    res2=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
-    res3=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    cold=0
+    hot1=0
+    hot2=0
+    echo -ne "q${i}\t" | tee -a result.csv
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    end=$(date +%s%3N)
+    cold=$((end - start))
+    echo -ne "${cold}\t" | tee -a result.csv
 
-    min_value=$(echo "${res1} ${res2} ${res3}" | tr ' ' '\n' | sort -n | head -n 1)
-    echo -e "q${i}:\t${res1}\t${res2}\t${res3}\tfast:${min_value}"
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    end=$(date +%s%3N)
+    hot1=$((end - start))
+    echo -ne "${hot1}\t" | tee -a result.csv
 
-    cost=$(echo "${min_value}" | cut -d' ' -f1)
-    sum=$(echo "${sum} + ${cost}" | bc)
+    start=$(date +%s%3N)
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    end=$(date +%s%3N)
+    hot2=$((end - start))
+    echo -ne "${hot2}\t" | tee -a result.csv
+
+    cold_run_sum=$((cold_run_sum + cold))
+    if [[ ${hot1} -lt ${hot2} ]]; then
+        best_hot_run_sum=$((best_hot_run_sum + hot1))
+        echo -ne "${hot1}" | tee -a result.csv
+        echo "" | tee -a result.csv
+    else
+        best_hot_run_sum=$((best_hot_run_sum + hot2))
+        echo -ne "${hot2}" | tee -a result.csv
+        echo "" | tee -a result.csv
+    fi
 done
-echo "total time: ${sum} seconds"
 
-echo '============================================'
-echo "restore session variables"
-run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel_fragment_exec_instance_num};"
-run_sql "set global exec_mem_limit=${origin_exec_mem_limit};"
-run_sql "set global batch_size=${origin_batch_size};"
-echo '============================================'
-
+echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish ssb-flat queries.'

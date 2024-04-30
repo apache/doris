@@ -299,6 +299,10 @@ public class ColumnDefinition {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Struct type column default value just support null");
             }
+        } else if (type.isJsonType() || type.isVariantType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Json or Variant type column default value just support null");
+            }
         }
 
         if (!isNullable && defaultValue.isPresent()

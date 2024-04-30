@@ -26,6 +26,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -66,6 +67,13 @@ public:
         return _calc_tablet_delete_bitmap_task_thread_pool;
     }
 
+    io::FileSystemSPtr get_fs_by_vault_id(const std::string& vault_id) const {
+        if (vault_id.empty()) {
+            return latest_fs();
+        }
+        return get_filesystem(vault_id);
+    }
+
     io::FileSystemSPtr latest_fs() const {
         std::lock_guard lock(_latest_fs_mtx);
         return _latest_fs;
@@ -79,13 +87,29 @@ public:
     void get_cumu_compaction(int64_t tablet_id,
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
-    CloudSizeBasedCumulativeCompactionPolicy* cumu_compaction_policy() const {
-        return _cumulative_compaction_policy.get();
-    }
-
     Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
 
     Status get_compaction_status_json(std::string* result);
+
+    bool has_base_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_base_compactions.count(tablet_id);
+    }
+
+    bool has_cumu_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_cumu_compactions.count(tablet_id);
+    }
+
+    bool has_full_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_full_compactions.count(tablet_id);
+    }
+
+    std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
+            std::string_view compaction_policy);
+
+    void sync_storage_vault();
 
 private:
     void _refresh_storage_vault_info_thread_callback();
@@ -94,7 +118,7 @@ private:
     void _compaction_tasks_producer_callback();
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
-    void _adjust_compaction_thread_num();
+    Status _adjust_compaction_thread_num();
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
@@ -128,7 +152,9 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
 
-    std::shared_ptr<CloudSizeBasedCumulativeCompactionPolicy> _cumulative_compaction_policy;
+    using CumuPolices =
+            std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
+    CumuPolices _cumulative_compaction_policies;
 };
 
 } // namespace doris

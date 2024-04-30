@@ -21,7 +21,10 @@ suite("paimon_timestamp_types", "p2,external,paimon,external_remote,external_rem
     def ts_parquet = """select * from ts_parquet"""
 
     String enabled = context.config.otherConfigs.get("enableExternalPaimonTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled != null && enabled.equalsIgnoreCase("enable_deprecated_case")) {
+        // The timestamp type of paimon has no logical or converted type,
+        // and is conflict with column type change from bigint to timestamp.
+        // Deprecated currently.
         String catalog_name = "paimon_timestamp_catalog"
         String user_name = context.config.otherConfigs.get("extHiveHmsUser")
         String hiveHost = context.config.otherConfigs.get("extHiveHmsHost")

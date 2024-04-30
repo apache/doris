@@ -27,6 +27,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
+#include "util/debug_points.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -122,6 +123,13 @@ Status IndexBuilder::update_inverted_index_info() {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
                 auto column_uid = index.col_unique_ids()[0];
+                if (column_uid < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << t_inverted_index.columns[0]
+                                 << " referenced_column=" << column_uid << "]";
+                    output_rs_tablet_schema->append_index(index);
+                    continue;
+                }
                 const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
                 const TabletIndex* exist_index = output_rs_tablet_schema->get_inverted_index(col);
                 if (exist_index && exist_index->index_id() != index.index_id()) {
@@ -339,6 +347,9 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 auto column = output_rowset_schema->column(column_idx);
+                if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+                    continue;
+                }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
@@ -361,6 +372,12 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     inverted_index_writer_signs.emplace_back(writer_sign);
                 }
             }
+
+            if (return_columns.empty()) {
+                // no columns to read
+                break;
+            }
+
             _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                  std::move(inverted_index_file_writer));
 
@@ -379,10 +396,14 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
-            std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
+            auto block = vectorized::Block::create_unique(
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto status = iter->next_batch(block.get());
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset", {
+                    status = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "next_batch fault injection");
+                });
                 if (!status.ok()) {
                     if (status.is<ErrorCode::END_OF_FILE>()) {
                         break;
@@ -390,6 +411,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     LOG(WARNING)
                             << "failed to read next block when schema change for inverted index."
                             << ", err=" << status.to_string();
+                    return status;
                 }
 
                 // write inverted index data
@@ -448,12 +470,6 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
-        auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (!converted_result.first.ok()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
-        }
-
         auto column_name = inverted_index.columns[0];
         auto column_idx = tablet_schema->field_index(column_name);
         if (column_idx < 0) {
@@ -464,6 +480,11 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
         std::unique_ptr<Field> field(FieldFactory::create(column));
+        auto converted_result = _olap_data_convertor->convert_column_data(i);
+        if (converted_result.first != Status::OK()) {
+            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
+            return converted_result.first;
+        }
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
         if (converted_result.second->get_nullmap()) {
             RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),
@@ -692,7 +713,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         }
         _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
 
-        // modify_rowsets will remove the delete_bimap for input rowsets,
+        // modify_rowsets will remove the delete_bitmap for input rowsets,
         // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {

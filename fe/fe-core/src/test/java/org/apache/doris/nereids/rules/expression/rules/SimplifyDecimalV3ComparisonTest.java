@@ -39,7 +39,9 @@ class SimplifyDecimalV3ComparisonTest extends ExpressionRewriteTestHelper {
         Config.enable_decimal_conversion = false;
         Map<String, Slot> nameToSlot = new HashMap<>();
         nameToSlot.put("col1", new SlotReference("col1", DecimalV3Type.createDecimalV3Type(15, 2)));
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyDecimalV3Comparison.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyDecimalV3Comparison.INSTANCE)
+        ));
         assertRewriteAfterSimplify("cast(col1 as decimalv3(27, 9)) > 0.6", "cast(col1 as decimalv3(27, 9)) > 0.6", nameToSlot);
     }
 
@@ -48,7 +50,7 @@ class SimplifyDecimalV3ComparisonTest extends ExpressionRewriteTestHelper {
         if (slotNameToSlot != null) {
             needRewriteExpression = replaceUnboundSlot(needRewriteExpression, slotNameToSlot);
         }
-        Expression rewritten = SimplifyDecimalV3Comparison.INSTANCE.rewrite(needRewriteExpression, context);
+        Expression rewritten = executor.rewrite(needRewriteExpression, context);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
     }

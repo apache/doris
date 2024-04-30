@@ -54,9 +54,7 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore") {
         ON (${tableName})
     """    
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
@@ -72,9 +70,7 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore") {
             "reserve_replica" = "true"
         )
     """
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 

@@ -153,11 +153,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         } else if (iter->second == "schema_change") {
             MemTrackerLimiter::make_type_snapshots(&snapshots,
                                                    MemTrackerLimiter::Type::SCHEMA_CHANGE);
-        } else if (iter->second == "clone") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::CLONE);
-        } else if (iter->second == "experimental") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots,
-                                                   MemTrackerLimiter::Type::EXPERIMENTAL);
+        } else if (iter->second == "other") {
+            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
         }
     } else {
         (*output) << "<h4>*Notice:</h4>\n";

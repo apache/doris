@@ -203,6 +203,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         LOG(FATAL) << "AggregateFunctionPercentileApproxMerge do not support add()";
+        __builtin_unreachable();
     }
 };
 

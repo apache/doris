@@ -24,11 +24,8 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace vectorized {
 class NewOlapScanner;
@@ -58,7 +55,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
-    Status _process_conjuncts() override;
+    Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
@@ -82,6 +79,8 @@ private:
     bool _should_push_down_common_expr() override;
 
     bool _storage_no_merge() override;
+
+    bool _push_down_topn() override { return true; }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
@@ -135,6 +134,7 @@ private:
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -144,6 +144,8 @@ private:
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
+    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;

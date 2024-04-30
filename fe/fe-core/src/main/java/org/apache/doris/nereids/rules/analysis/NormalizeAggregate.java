@@ -23,13 +23,16 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -37,12 +40,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -137,8 +142,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // Push down exprs:
         // collect group by exprs
-        Set<Expression> groupingByExprs =
-                ImmutableSet.copyOf(aggregate.getGroupByExpressions());
+        Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
@@ -147,27 +151,37 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // split non-distinct agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subquery or window expression
-        Map<Boolean, Set<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
+        Map<Boolean, ImmutableSet<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
                 .filter(aggFunc -> !aggFunc.isDistinct())
                 .flatMap(agg -> agg.children().stream())
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
                 .collect(Collectors.groupingBy(
                         child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
-                        Collectors.toSet()));
+                        ImmutableSet.toImmutableSet()));
 
         // split distinct agg child as two parts
         // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
         // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
-        Map<Boolean, Set<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
+        Map<Boolean, ImmutableSet<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(agg -> agg.children().stream())
-                .collect(Collectors.groupingBy(child -> !(child instanceof SlotReference), Collectors.toSet()));
+                // should not push down literal under aggregate
+                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                .filter(arg -> !(arg instanceof Literal))
+                .collect(
+                        Collectors.groupingBy(
+                                child -> !(child instanceof SlotReference),
+                                ImmutableSet.toImmutableSet())
+                );
 
         Set<Expression> needPushSelf = Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(true, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(true, new HashSet<>()));
+                categorizedNoDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()));
         Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(false, new HashSet<>()),
-                categorizedDistinctAggsChildren.getOrDefault(false, new HashSet<>())));
+                categorizedNoDistinctAggsChildren.getOrDefault(false, ImmutableSet.of()),
+                categorizedDistinctAggsChildren.getOrDefault(false, ImmutableSet.of())));
 
         Set<Alias> existsAlias =
                 ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
@@ -192,8 +206,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // create bottom project
         Plan bottomPlan;
         if (!bottomProjects.isEmpty()) {
-            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects),
-                    aggregate.child());
+            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
         } else {
             bottomPlan = aggregate.child();
         }
@@ -228,13 +241,17 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // agg output include 2 parts
         // pushedGroupByExprs and normalized agg functions
-        List<NamedExpression> normalizedAggOutput = ImmutableList.<NamedExpression>builder()
-                .addAll(pushedGroupByExprs.stream().map(NamedExpression::toSlot).iterator())
-                .addAll(normalizedAggFuncsToSlotContext
-                        .pushDownToNamedExpression(normalizedAggFuncs))
-                .build();
 
+        ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder
+                = ImmutableList.builderWithExpectedSize(groupingByExprs.size() + normalizedAggFuncs.size());
+        for (NamedExpression pushedGroupByExpr : pushedGroupByExprs) {
+            normalizedAggOutputBuilder.add(pushedGroupByExpr.toSlot());
+        }
+        normalizedAggOutputBuilder.addAll(
+                normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
+        );
         // create new agg node
+        ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutput, bottomPlan);
 
@@ -244,10 +261,33 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // create a parent project node
         LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
+        // verify project used slots are all coming from agg's output
+        List<Slot> slots = collectAllUsedSlots(upperProjects);
+        if (!slots.isEmpty()) {
+            Set<ExprId> aggOutputExprIds = new HashSet<>(slots.size());
+            for (NamedExpression expression : normalizedAggOutput) {
+                aggOutputExprIds.add(expression.getExprId());
+            }
+            List<Slot> errorSlots = new ArrayList<>(slots.size());
+            for (Slot slot : slots) {
+                if (!aggOutputExprIds.contains(slot.getExprId()) && !(slot instanceof SlotNotFromChildren)) {
+                    errorSlots.add(slot);
+                }
+            }
+            if (!errorSlots.isEmpty()) {
+                throw new AnalysisException(String.format("%s not in aggregate's output", errorSlots
+                        .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+            }
+        }
         if (having.isPresent()) {
-            if (upperProjects.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance))) {
-                // when project contains window functions, in order to get the correct result
-                // push having through project to make it the parent node of logicalAgg
+            Set<Slot> havingUsedSlots = ExpressionUtils.getInputSlotSet(having.get().getExpressions());
+            Set<ExprId> havingUsedExprIds = new HashSet<>(havingUsedSlots.size());
+            for (Slot slot : havingUsedSlots) {
+                havingUsedExprIds.add(slot.getExprId());
+            }
+            Set<ExprId> aggOutputExprIds = newAggregate.getOutputExprIdSet();
+            if (aggOutputExprIds.containsAll(havingUsedExprIds)) {
+                // when having just use output slots from agg, we push down having as parent of agg
                 return project.withChildren(ImmutableList.of(
                         new LogicalHaving<>(
                                 ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
@@ -286,5 +326,16 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             builder.add(e);
         }
         return builder.build();
+    }
+
+    private List<Slot> collectAllUsedSlots(List<NamedExpression> expressions) {
+        Set<Slot> inputSlots = ExpressionUtils.getInputSlotSet(expressions);
+        List<SubqueryExpr> subqueries = ExpressionUtils.collectAll(expressions, SubqueryExpr.class::isInstance);
+        List<Slot> slots = new ArrayList<>(inputSlots.size() + subqueries.size());
+        for (SubqueryExpr subqueryExpr : subqueries) {
+            slots.addAll(subqueryExpr.getCorrelateSlots());
+        }
+        slots.addAll(ExpressionUtils.getInputSlotSet(expressions));
+        return slots;
     }
 }

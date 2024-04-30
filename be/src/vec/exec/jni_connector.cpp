@@ -66,11 +66,7 @@ namespace doris::vectorized {
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
 JniConnector::~JniConnector() {
-    Status st = close();
-    if (!st.ok()) {
-        // Ensure successful resource release
-        LOG(FATAL) << "Failed to release jni resource: " << st.to_string();
-    }
+    static_cast<void>(close());
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -102,13 +98,16 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
 
 Status JniConnector::init(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _generate_predicates(colname_to_value_range);
-    if (_predicates_length != 0 && _predicates != nullptr) {
-        int64_t predicates_address = (int64_t)_predicates.get();
-        // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-        // serialized predicates in java side.
-        _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    }
+    // TODO: This logic need to be changed.
+    // See the comment of "predicates" field in JniScanner.java
+
+    // _generate_predicates(colname_to_value_range);
+    // if (_predicates_length != 0 && _predicates != nullptr) {
+    //     int64_t predicates_address = (int64_t)_predicates.get();
+    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
+    //     // serialized predicates in java side.
+    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
+    // }
     return Status::OK();
 }
 
@@ -169,44 +168,22 @@ Status JniConnector::close() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         if (_scanner_opened) {
-            // update scanner metrics
-            for (const auto& metric : get_statistics(env)) {
-                std::vector<std::string> type_and_name = split(metric.first, ":");
-                if (type_and_name.size() != 2) {
-                    LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
-                                 << "'metricType:metricName'";
-                    continue;
-                }
-                long metric_value = std::stol(metric.second);
-                RuntimeProfile::Counter* scanner_counter;
-                if (type_and_name[0] == "timer") {
-                    scanner_counter =
-                            ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
-                } else if (type_and_name[0] == "counter") {
-                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
-                                                        _connector_name.c_str());
-                } else if (type_and_name[0] == "bytes") {
-                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
-                                                        _connector_name.c_str());
-                } else {
-                    LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
-                    continue;
-                }
-                COUNTER_UPDATE(scanner_counter, metric_value);
-            }
-
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
             env->DeleteGlobalRef(_jni_scanner_obj);
         }
-        env->DeleteGlobalRef(_jni_scanner_cls);
+        if (_jni_scanner_cls != nullptr) {
+            // _jni_scanner_cls may be null if init connector failed
+            env->DeleteGlobalRef(_jni_scanner_cls);
+        }
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
-            LOG(WARNING) << "Failed to release jni resource: "
-                         << JniUtil::GetJniExceptionMsg(env).to_string();
+            // Ensure successful resource release
+            LOG(FATAL) << "Failed to release jni resource: "
+                       << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();
@@ -765,4 +742,39 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
     return parse_table_schema(block, arguments, true);
 }
 
+void JniConnector::_collect_profile_before_close() {
+    if (_scanner_opened && _profile != nullptr) {
+        JNIEnv* env = nullptr;
+        Status st = JniUtil::GetJNIEnv(&env);
+        if (!st) {
+            LOG(WARNING) << "failed to get jni env when collect profile: " << st;
+            return;
+        }
+        // update scanner metrics
+        for (const auto& metric : get_statistics(env)) {
+            std::vector<std::string> type_and_name = split(metric.first, ":");
+            if (type_and_name.size() != 2) {
+                LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                             << "'metricType:metricName'";
+                continue;
+            }
+            long metric_value = std::stol(metric.second);
+            RuntimeProfile::Counter* scanner_counter;
+            if (type_and_name[0] == "timer") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+            } else if (type_and_name[0] == "counter") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+            } else if (type_and_name[0] == "bytes") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+            } else {
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                continue;
+            }
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        }
+    }
+}
 } // namespace doris::vectorized

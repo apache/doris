@@ -58,43 +58,16 @@ private:
     }
 };
 
-// Use `SharedHeapSortCursorBlockView` for `HeapSortCursorBlockView` instead of shared_ptr because there will be no
-// concurrent operation for `HeapSortCursorBlockView` and we don't need the lock inside shared_ptr
-class SharedHeapSortCursorBlockView {
-public:
-    SharedHeapSortCursorBlockView(HeapSortCursorBlockView&& reference)
-            : _ref_count(0), _reference(std::move(reference)) {}
-    SharedHeapSortCursorBlockView(const SharedHeapSortCursorBlockView&) = delete;
-    void unref() noexcept {
-        DCHECK_GT(_ref_count, 0);
-        _ref_count--;
-        if (_ref_count == 0) {
-            delete this;
-        }
-    }
-    void ref() noexcept { _ref_count++; }
-
-    HeapSortCursorBlockView& value() { return _reference; }
-
-    int ref_count() const { return _ref_count; }
-
-private:
-    ~SharedHeapSortCursorBlockView() noexcept = default;
-    int _ref_count;
-    HeapSortCursorBlockView _reference;
-};
+using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
 
 struct HeapSortCursorImpl {
 public:
-    HeapSortCursorImpl(int row_id, SharedHeapSortCursorBlockView* block_view)
-            : _row_id(row_id), _block_view(block_view) {
-        block_view->ref();
-    }
+    HeapSortCursorImpl(int row_id, HeapSortCursorBlockSPtr block_view)
+            : _row_id(row_id), _block_view(block_view) {}
 
     HeapSortCursorImpl(const HeapSortCursorImpl& other) {
         _row_id = other._row_id;
         _block_view = other._block_view;
-        _block_view->ref();
     }
 
     HeapSortCursorImpl(HeapSortCursorImpl&& other) {
@@ -109,19 +82,15 @@ public:
         return *this;
     }
 
-    ~HeapSortCursorImpl() {
-        if (_block_view) {
-            _block_view->unref();
-        }
-    }
+    ~HeapSortCursorImpl() = default;
 
     size_t row_id() const { return _row_id; }
 
-    const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
+    const ColumnRawPtrs& sort_columns() const { return _block_view->sort_columns; }
 
-    const Block* block() const { return &_block_view->value().block; }
+    const Block* block() const { return &_block_view->block; }
 
-    const SortDescription& sort_desc() const { return _block_view->value().desc; }
+    const SortDescription& sort_desc() const { return _block_view->desc; }
 
     bool operator<(const HeapSortCursorImpl& rhs) const {
         for (size_t i = 0; i < sort_desc().size(); ++i) {
@@ -143,7 +112,7 @@ public:
 
 private:
     size_t _row_id;
-    SharedHeapSortCursorBlockView* _block_view;
+    HeapSortCursorBlockSPtr _block_view;
 };
 
 /** Cursor allows to compare rows in different blocks (and parts).

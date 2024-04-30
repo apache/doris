@@ -201,8 +201,6 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) { // abnormal exit, remove all files generated
-        WARN_IF_ERROR(_segment_creator.close(),
-                      "close segment creator failed"); // ensure all files are closed
         const auto& fs = _rowset_meta->fs();
         if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
@@ -508,6 +506,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
+        _context.tablet_schema->num_variant_columns() > 0 ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -595,6 +594,7 @@ Status BaseBetaRowsetWriter::flush() {
 
 Status BaseBetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
                                             int64_t* flush_size) {
+    SCOPED_SKIP_MEMORY_CHECK();
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -813,8 +813,7 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
             .file_cache_expiration =
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0,
-            .create_empty_file = false};
+                            : 0};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -848,7 +847,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
+            _context.fs);
     if (_segcompaction_worker->get_file_writer() != nullptr) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }

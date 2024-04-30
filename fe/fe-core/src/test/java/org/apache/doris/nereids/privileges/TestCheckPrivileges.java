@@ -29,9 +29,22 @@ import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.pattern.GeneratedMemoPatterns;
+import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.policy.FilterType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -46,9 +59,12 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-public class TestCheckPrivileges extends TestWithFeService {
+public class TestCheckPrivileges extends TestWithFeService implements GeneratedMemoPatterns {
     private static final Map<String, Map<String, List<Column>>> CATALOG_META = ImmutableMap.of(
             "test_db", ImmutableMap.of(
                     "test_tbl1", ImmutableList.of(
@@ -62,12 +78,16 @@ public class TestCheckPrivileges extends TestWithFeService {
                     "test_tbl3", ImmutableList.of(
                             new Column("id", PrimitiveType.INT),
                             new Column("name", PrimitiveType.VARCHAR)
+                    ),
+                    "test_tbl4", ImmutableList.of(
+                            new Column("id", PrimitiveType.INT),
+                            new Column("name", PrimitiveType.VARCHAR)
                     )
             )
     );
 
     @Test
-    public void testColumnPrivileges() throws Exception {
+    public void testPrivilegesAndPolicies() throws Exception {
         FeConstants.runningUnitTest = true;
         String catalogProvider
                 = "org.apache.doris.nereids.privileges.TestCheckPrivileges$CustomCatalogProvider";
@@ -87,6 +107,7 @@ public class TestCheckPrivileges extends TestWithFeService {
         String table1 = "test_tbl1";
         String table2 = "test_tbl2";
         String table3 = "test_tbl3";
+        String table4 = "test_tbl4";
 
         String view1 = "query_tbl2_view1";
         createView("create view " + internalDb + "."
@@ -116,7 +137,12 @@ public class TestCheckPrivileges extends TestWithFeService {
                         .allowSelectColumns(user, ImmutableSet.of("name")),
 
                 MakePrivileges.table("internal", internalDb, view4)
-                        .allowSelectColumns(user, ImmutableSet.of("id"))
+                        .allowSelectColumns(user, ImmutableSet.of("id")),
+
+                // data masking and row policy
+                MakePrivileges.table(catalog, db, table4).allowSelectTable(user)
+                        .addRowPolicy(user, "id = 1")
+                        .addDataMasking(user, "id", "concat(id, '_****_', id)")
         );
 
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
@@ -179,6 +205,64 @@ public class TestCheckPrivileges extends TestWithFeService {
                             query("select name from " + internalDb + "." + view4)
                     );
                 }
+
+                // test row policy with data masking
+                {
+                    Function<NamedExpression, Boolean> checkId = (NamedExpression ne) -> {
+                        if (!(ne instanceof Alias) || !ne.getName().equals("id")) {
+                            return false;
+                        }
+                        return ne.child(0) instanceof Concat;
+                    };
+                    PlanChecker.from(connectContext)
+                            .parse("select id,"
+                                    + "  test_tbl4.id,"
+                                    + "  test_db.test_tbl4.id, "
+                                    + "  custom_catalog.test_db.test_tbl4.id, "
+                                    + "  * "
+                                    + "from custom_catalog.test_db.test_tbl4")
+                            .analyze()
+                            .rewrite()
+                            .matches(logicalProject(
+                                    logicalFilter(
+                                        logicalTestScan()
+                                    ).when(f -> {
+                                        EqualTo predicate = (EqualTo) f.getPredicate();
+                                        return predicate.left() instanceof Slot
+                                                && predicate.right().equals(new IntegerLiteral((byte) 1));
+                                    })
+                            ).when(p -> {
+                                List<NamedExpression> projects = p.getProjects();
+                                if (!checkId.apply(projects.get(0)) || !checkId.apply(projects.get(1))
+                                        || !checkId.apply(projects.get(2)) || !checkId.apply(projects.get(3))
+                                        || !checkId.apply(projects.get(4))) {
+                                    return false;
+                                }
+                                return projects.get(5) instanceof Slot && projects.get(5).getName().equals("name");
+                            }));
+
+                    PlanChecker.from(connectContext)
+                            .parse("select id, t.id, *"
+                                    + "from custom_catalog.test_db.test_tbl4 t")
+                            .analyze()
+                            .rewrite()
+                            .matches(logicalProject(
+                                    logicalFilter(
+                                            logicalTestScan()
+                                    ).when(f -> {
+                                        EqualTo predicate = (EqualTo) f.getPredicate();
+                                        return predicate.left() instanceof Slot
+                                                && predicate.right().equals(new IntegerLiteral((byte) 1));
+                                    })
+                            ).when(p -> {
+                                List<NamedExpression> projects = p.getProjects();
+                                if (!checkId.apply(projects.get(0)) || !checkId.apply(projects.get(1))
+                                        || !checkId.apply(projects.get(2))) {
+                                    return false;
+                                }
+                                return projects.get(3) instanceof Slot && projects.get(3).getName().equals("name");
+                            }));
+                }
         });
     }
 
@@ -192,21 +276,34 @@ public class TestCheckPrivileges extends TestWithFeService {
     private void withPrivileges(List<MakeTablePrivileges> privileges, Runnable task) {
         List<TablePrivilege> tablePrivileges = Lists.newArrayList();
         List<ColumnPrivilege> columnPrivileges = Lists.newArrayList();
+        List<CustomRowPolicy> rowPolicies = Lists.newArrayList();
+        List<CustomDataMaskingPolicy> dataMaskingPolicies = Lists.newArrayList();
 
         for (MakeTablePrivileges privilege : privileges) {
             tablePrivileges.addAll(privilege.tablePrivileges);
             columnPrivileges.addAll(privilege.columnPrivileges);
+            rowPolicies.addAll(privilege.rowPolicies);
+            dataMaskingPolicies.addAll(privilege.dataMaskingPolicies);
         }
 
         SimpleCatalogAccessController.tablePrivileges.set(tablePrivileges);
         SimpleCatalogAccessController.columnPrivileges.set(columnPrivileges);
+        SimpleCatalogAccessController.rowPolicies.set(rowPolicies);
+        SimpleCatalogAccessController.dataMaskings.set(dataMaskingPolicies);
 
         try {
             task.run();
         } finally {
+            SimpleCatalogAccessController.rowPolicies.remove();
+            SimpleCatalogAccessController.dataMaskings.remove();
             SimpleCatalogAccessController.tablePrivileges.remove();
             SimpleCatalogAccessController.columnPrivileges.remove();
         }
+    }
+
+    @Override
+    public RulePromise defaultPromise() {
+        return RulePromise.REWRITE;
     }
 
     public static class CustomCatalogProvider implements TestCatalogProvider {
@@ -227,6 +324,8 @@ public class TestCheckPrivileges extends TestWithFeService {
     public static class SimpleCatalogAccessController implements CatalogAccessController {
         private static ThreadLocal<List<TablePrivilege>> tablePrivileges = new ThreadLocal<>();
         private static ThreadLocal<List<ColumnPrivilege>> columnPrivileges = new ThreadLocal<>();
+        private static ThreadLocal<List<CustomRowPolicy>> rowPolicies = new ThreadLocal<>();
+        private static ThreadLocal<List<CustomDataMaskingPolicy>> dataMaskings = new ThreadLocal<>();
 
         @Override
         public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
@@ -305,6 +404,45 @@ public class TestCheckPrivileges extends TestWithFeService {
                 ResourceTypeEnum type) {
             return true;
         }
+
+        @Override
+        public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+                String col) {
+            List<CustomDataMaskingPolicy> dataMaskingPolicies = dataMaskings.get();
+            if (dataMaskingPolicies == null) {
+                return Optional.empty();
+            }
+
+            for (CustomDataMaskingPolicy dataMaskingPolicy : dataMaskingPolicies) {
+                if (dataMaskingPolicy.column.equalsIgnoreCase(col)) {
+                    return Optional.of(dataMaskingPolicy);
+                }
+            }
+            return Optional.empty();
+        }
+
+        @Override
+        public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+                String tbl) {
+            List<CustomRowPolicy> customRowPolicies = rowPolicies.get();
+            if (customRowPolicies == null) {
+                return ImmutableList.of();
+            }
+            NereidsParser nereidsParser = new NereidsParser();
+            return customRowPolicies.stream()
+                    .map(p -> new RowFilterPolicy() {
+                        @Override
+                        public Expression getFilterExpression() {
+                            return nereidsParser.parseExpression(p.filter);
+                        }
+
+                        @Override
+                        public String getPolicyIdent() {
+                            return "custom policy: " + p.filter;
+                        }
+                    })
+                    .collect(Collectors.toList());
+        }
     }
 
     private static class MakePrivileges {
@@ -320,6 +458,8 @@ public class TestCheckPrivileges extends TestWithFeService {
 
         private List<TablePrivilege> tablePrivileges;
         private List<ColumnPrivilege> columnPrivileges;
+        private List<CustomRowPolicy> rowPolicies;
+        private List<CustomDataMaskingPolicy> dataMaskingPolicies;
 
         public MakeTablePrivileges(String catalog, String db, String table) {
             this.catalog = catalog;
@@ -327,6 +467,8 @@ public class TestCheckPrivileges extends TestWithFeService {
             this.table = table;
             this.tablePrivileges = Lists.newArrayList();
             this.columnPrivileges = Lists.newArrayList();
+            this.rowPolicies = Lists.newArrayList();
+            this.dataMaskingPolicies = Lists.newArrayList();
         }
 
         public MakeTablePrivileges allowSelectTable(String user) {
@@ -336,6 +478,16 @@ public class TestCheckPrivileges extends TestWithFeService {
 
         public MakeTablePrivileges allowSelectColumns(String user, Set<String> allowColumns) {
             columnPrivileges.add(new ColumnPrivilege(catalog, db, table, user, allowColumns));
+            return this;
+        }
+
+        public MakeTablePrivileges addRowPolicy(String user, String filter) {
+            rowPolicies.add(new CustomRowPolicy(user, filter));
+            return this;
+        }
+
+        public MakeTablePrivileges addDataMasking(String user, String column, String project) {
+            dataMaskingPolicies.add(new CustomDataMaskingPolicy(user, column, project));
             return this;
         }
     }
@@ -392,6 +544,61 @@ public class TestCheckPrivileges extends TestWithFeService {
             return StringUtils.equals(this.catalog, catalog)
                     && StringUtils.equals(this.db, db)
                     && StringUtils.equals(this.table, tbl);
+        }
+    }
+
+    private static class CustomRowPolicy implements RowFilterPolicy {
+        private final String user;
+        private final String filter;
+
+        public CustomRowPolicy(String user, String filter) {
+            this.user = user;
+            this.filter = filter;
+        }
+
+        public String getUser() {
+            return user;
+        }
+
+        @Override
+        public Expression getFilterExpression() {
+            return new NereidsParser().parseExpression(filter);
+        }
+
+        @Override
+        public String getPolicyIdent() {
+            return "custom policy: " + filter;
+        }
+
+        @Override
+        public FilterType getFilterType() {
+            return FilterType.PERMISSIVE;
+        }
+    }
+
+    private static class CustomDataMaskingPolicy implements DataMaskPolicy {
+        private final String user;
+        private final String column;
+        private final String project;
+
+        public CustomDataMaskingPolicy(String user, String name, String project) {
+            this.user = user;
+            this.column = name;
+            this.project = project;
+        }
+
+        public String getUser() {
+            return user;
+        }
+
+        @Override
+        public String getMaskTypeDef() {
+            return project;
+        }
+
+        @Override
+        public String getPolicyIdent() {
+            return "custom policy: " + project;
         }
     }
 }

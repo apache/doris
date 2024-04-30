@@ -56,6 +56,7 @@ struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
+class FileSystem;
 } // namespace io
 
 namespace segment_v2 {
@@ -82,7 +83,8 @@ public:
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, uint32_t max_row_per_segment,
                                    const VerticalSegmentWriterOptions& opts,
-                                   std::shared_ptr<MowContext> mow_context);
+                                   std::shared_ptr<MowContext> mow_context,
+                                   const std::shared_ptr<io::FileSystem>& fs);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;

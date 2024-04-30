@@ -25,8 +25,6 @@ public interface CoordInterface {
 
     public RowBatch getNext() throws Exception;
 
-    public int getInstanceTotalNum();
-
     public void cancel(Types.PPlanFragmentCancelReason cancelReason);
 
     // When call exec or get next data finished, should call this method to release

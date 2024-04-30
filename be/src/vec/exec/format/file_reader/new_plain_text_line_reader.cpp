@@ -479,4 +479,11 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
 
     return Status::OK();
 }
+
+void NewPlainTextLineReader::_collect_profile_before_close() {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
+}
+
 } // namespace doris

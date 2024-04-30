@@ -21,30 +21,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class AnalyticSourceOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
-
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
@@ -53,6 +34,7 @@ public:
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     void init_result_columns();

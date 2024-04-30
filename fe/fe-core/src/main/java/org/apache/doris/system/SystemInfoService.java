@@ -993,12 +993,31 @@ public class SystemInfoService {
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
     }
 
+    // CloudSystemInfoService override
+    public List<Backend> getBackendsByCurrentCluster() throws UserException {
+        return idToBackendRef.values().stream().collect(Collectors.toList());
+    }
+
+    // CloudSystemInfoService override
+    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
+        return getIdToBackend();
+    }
+
     public int getMinPipelineExecutorSize() {
-        if (idToBackendRef.size() == 0) {
+        List<Backend> currentBackends = null;
+        try {
+            currentBackends = getBackendsByCurrentCluster();
+        } catch (UserException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get current cluster backends failed: ", e);
+            }
+            return 1;
+        }
+        if (currentBackends.size() == 0) {
             return 1;
         }
         int minPipelineExecutorSize = Integer.MAX_VALUE;
-        for (Backend be : idToBackendRef.values()) {
+        for (Backend be : currentBackends) {
             int size = be.getPipelineExecutorSize();
             if (size > 0) {
                 minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);

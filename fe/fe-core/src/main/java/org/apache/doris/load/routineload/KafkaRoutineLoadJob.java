@@ -23,6 +23,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.InternalErrorCode;
@@ -40,6 +42,7 @@ import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -68,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
+
 
 /**
  * KafkaRoutineLoadJob is a kind of RoutineLoadJob which fetch data from kafka.
@@ -227,7 +231,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
-                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress, isMultiTable());
+                            maxBatchIntervalS * 2 * 1000, 0, taskKafkaProgress, isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -245,6 +249,35 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             writeUnlock();
         }
+    }
+
+    @Override
+    public void updateCloudProgress() throws UserException {
+        Cloud.GetRLTaskCommitAttachRequest.Builder builder =
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(dbId);
+        builder.setJobId(id);
+
+        Cloud.GetRLTaskCommitAttachResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().getRLTaskCommitAttach(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to get routine load commit attach, response: {}", response);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
+                    LOG.warn("not found routine load progress, response: {}", response);
+                    return;
+                } else {
+                    throw new UserException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            LOG.info("failed to get routine load commit attach {}", e);
+            throw new UserException(e.getMessage());
+        }
+
+        RLTaskTxnCommitAttachment commitAttach = new RLTaskTxnCommitAttachment(response.getCommitAttach());
+        updateProgress(commitAttach);
     }
 
     @Override
@@ -269,7 +302,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                       TransactionState txnState,
                                       TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
-        if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+        if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED
+                    || txnState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             // For committed txn, update the progress.
             return true;
         }
@@ -285,16 +319,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return false;
     }
 
+    private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
+        ((KafkaProgress) attachment.getProgress()).getOffsetByPartition().entrySet().stream()
+                .forEach(entity -> {
+                    if (cachedPartitionWithLatestOffsets.containsKey(entity.getKey())
+                            && cachedPartitionWithLatestOffsets.get(entity.getKey()) < entity.getValue() + 1) {
+                        cachedPartitionWithLatestOffsets.put(entity.getKey(), entity.getValue() + 1);
+                    }
+                });
+        this.progress.update(attachment);
+    }
+
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         super.updateProgress(attachment);
-        this.progress.update(attachment);
+        updateProgressAndOffsetsCache(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
-        this.progress.update(attachment);
+        updateProgressAndOffsetsCache(attachment);
     }
 
     @Override
@@ -746,7 +791,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get latest partition offset. {}", e.getMessage(), e);
+            // It needs to pause job when can not get partition meta.
+            // To ensure the stability of the routine load,
+            // the scheduler will automatically pull up routine load job in this scenario,
+            // to avoid some network and Kafka exceptions causing the routine load job to stop
+            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+                        "failed to get latest partition offset. {}" + e.getMessage()),
+                        false /* not replay */);
             return false;
         }
 

@@ -34,6 +34,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
@@ -82,10 +83,11 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class SegmentWriter {
 public:
+    // If `fs` is nullptr, use global local fs
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context);
+                           std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs);
     ~SegmentWriter();
 
     Status init();
@@ -183,7 +185,7 @@ private:
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
-    // Not owned. owned by RowsetWriter
+    // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 

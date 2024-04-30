@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 public class CreateJobStmtTest {
 
@@ -74,5 +76,29 @@ public class CreateJobStmtTest {
         Assertions.assertThrows(AnalysisException.class, () -> {
             sqlParse(badSql);
         });
+    }
+
+    @Test
+    public void testParseExecuteSql() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+        Method method = CreateJobStmt.class.getDeclaredMethod("parseExecuteSql", String.class, String.class, String.class);
+        method.setAccessible(true);
+        String executeSql = "insert into table.B select * from table.A ;";
+        String comment = "do do do do ";
+        String jobName = "do";
+        String doKeywordJobSql = "Create job " + jobName
+                + "on Scheduler every second comment " + comment + "\n"
+                + "do"
+                + executeSql;
+
+        String result = (String) method.invoke(null, doKeywordJobSql, jobName, comment);
+        Assertions.assertEquals(executeSql, result.trim());
+        executeSql = "insert into table.do select * from do.B ;";
+        comment = "do starts  end do \n \b \r ";
+        jobName = "do";
+        doKeywordJobSql = "Create job " + jobName
+                + "on Scheduler every second comment " + comment + "do\n"
+                + executeSql;
+        result = (String) method.invoke(null, doKeywordJobSql, jobName, comment);
+        Assertions.assertEquals(executeSql, result.trim());
     }
 }

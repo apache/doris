@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -42,6 +42,7 @@ public:
     ~StreamingAggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
@@ -182,6 +183,27 @@ private:
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
     std::vector<vectorized::AggregateDataPtr> _values;
+    bool _opened = false;
+
+    void _destroy_agg_status(vectorized::AggregateDataPtr data);
+
+    void _close_with_serialized_key() {
+        std::visit(
+                [&](auto&& agg_method) -> void {
+                    auto& data = *agg_method.hash_table;
+                    data.for_each_mapped([&](auto& mapped) {
+                        if (mapped) {
+                            _destroy_agg_status(mapped);
+                            mapped = nullptr;
+                        }
+                    });
+                    if (data.has_null_key_data()) {
+                        _destroy_agg_status(
+                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
+                    }
+                },
+                _agg_data->method_variant);
+    }
 };
 
 class StreamingAggOperatorX final : public StatefulOperatorX<StreamingAggLocalState> {
@@ -212,14 +234,16 @@ private:
     vectorized::Sizes _offsets_of_aggregate_states;
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
-    size_t _external_agg_bytes_threshold;
+
+    /// When spilling is enabled, the streaming agg should not occupy too much memory.
+    size_t _spill_streaming_agg_mem_limit;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
-    size_t _spill_partition_count_bits;
     bool _have_conjuncts;
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace pipeline

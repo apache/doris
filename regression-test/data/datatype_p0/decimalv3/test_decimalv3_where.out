@@ -4,3 +4,9 @@
 2	spark	10	96
 1	doris	20	324
 
+-- !select --
+1.00100	2.00200
+
+-- !select_after_update --
+1.00100	0.00010
+

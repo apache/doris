@@ -42,12 +42,12 @@ public:
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
     Status init(int len) {
-        int log_space = log2(len);
+        int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
     Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
-        int log_space = log2(data_size);
+        int log_space = (int)log2(data_size);
         return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
@@ -81,6 +81,11 @@ public:
 
     void set_contain_null() { _contain_null = true; }
 
+    void set_contain_null_and_null_aware() {
+        _contain_null = true;
+        _null_aware = true;
+    }
+
     bool contain_null() const { return _null_aware && _contain_null; }
 
 private:
@@ -94,11 +99,16 @@ class BloomFilterFuncBase : public RuntimeFilterFuncBase {
 public:
     virtual ~BloomFilterFuncBase() = default;
 
-    void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
-
-    void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
+    void init_params(const RuntimeFilterParams* params) {
+        _bloom_filter_length = params->bloom_filter_size;
+        _build_bf_exactly = params->build_bf_exactly;
+        _null_aware = params->null_aware;
+        _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
+    }
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+
+    bool get_build_bf_cardinality() const { return _build_bf_exactly; }
 
     Status init_with_cardinality(const size_t build_bf_cardinality) {
         if (_build_bf_exactly) {
@@ -110,7 +120,14 @@ public:
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
-            _bloom_filter_length = (((int64_t)1) << log_filter_size);
+            auto be_calculate_size = (((int64_t)1) << log_filter_size);
+            // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
+            // exactly row count stat. which one is min is more correctly.
+            if (_bloom_filter_size_calculated_by_ndv) {
+                _bloom_filter_length = std::min(be_calculate_size, _bloom_filter_length);
+            } else {
+                _bloom_filter_length = be_calculate_size;
+            }
         }
         return init_with_fixed_length(_bloom_filter_length);
     }
@@ -150,13 +167,13 @@ public:
         DCHECK(bloomfilter_func != nullptr);
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            return Status::InvalidArgument(
+            return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
                     "allocated bytes {}",
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);
         }
         if (other_func->_bloom_filter->contain_null()) {
-            _bloom_filter->set_contain_null();
+            _bloom_filter->set_contain_null_and_null_aware();
         }
         return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
@@ -185,7 +202,7 @@ public:
         return _bloom_filter->contain_null();
     }
 
-    void set_contain_null() { _bloom_filter->set_contain_null(); }
+    void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
@@ -214,6 +231,7 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
+    bool _bloom_filter_size_calculated_by_ndv = false;
 };
 
 template <typename T, bool need_trim = false>
@@ -361,25 +379,38 @@ struct CommonFindOp {
 struct StringFindOp : CommonFindOp<StringRef> {
     static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
                              size_t start) {
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
-
-            for (size_t i = start; i < col.size(); i++) {
-                if (!nullmap[i]) {
+        auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
+                                         size_t start, size_t size) {
+            for (size_t i = start; i < size; i++) {
+                if (nullmap == nullptr || !nullmap[i]) {
                     bloom_filter.add_element(col.get_data_at(i));
                 } else {
                     bloom_filter.set_contain_null();
                 }
             }
+        };
+
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+            if (nullable->get_nested_column().is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(
+                                              nullable->get_nested_column()),
+                                      nullmap.data(), start, nullmap.size());
+            } else {
+                _insert_batch_col_str(
+                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
+            }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < col->size(); i++) {
-                bloom_filter.add_element(col->get_data_at(i));
+            if (column->is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(*column),
+                                      nullptr, start, column->size());
+            } else {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString&>(*column),
+                                      nullptr, start, column->size());
             }
         }
     }

@@ -347,7 +347,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
-                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+                new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
             } else {
                 // nullable to not nullable:
                 // suppose column `c_phone` is originally varchar(16) NOT NULL,
@@ -394,11 +394,22 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                 return Status::DataQualityError("Null data is changed to not nullable");
             }
         } else {
-            const auto* new_null_map =
+            const auto& null_map_column =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
-                            ->get_null_map_column()
-                            .get_data()
-                            .data();
+                            ->get_null_map_column();
+            const auto& nested_column =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_nested_column();
+            const auto* new_null_map = null_map_column.get_data().data();
+
+            if (null_map_column.size() != new_column->size() ||
+                nested_column.size() != new_column->size()) {
+                DCHECK(false);
+                return Status::InternalError(
+                        "null_map_column size is changed, null_map_column_size={}, "
+                        "new_column_size={}",
+                        null_map_column.size(), new_column->size());
+            }
 
             bool is_changed = false;
             for (size_t i = 0; i < ref_column->size(); i++) {
@@ -474,7 +485,11 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
@@ -538,7 +553,11 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                eof = true;
+                if (ref_block->rows() == 0) {
+                    break;
+                } else {
+                    eof = true;
+                }
             } else {
                 return st;
             }
@@ -590,7 +609,6 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet_schema;
-    context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -619,7 +637,6 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet_schema;
-    context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -707,7 +724,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 }
 
 SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
-                                 const TAlterTabletReqV2& request)
+                                 const TAlterTabletReqV2& request, const std::string& job_id)
         : _local_storage_engine(local_storage_engine) {
     _base_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.base_tablet_id);
     _new_tablet = _local_storage_engine.tablet_manager()->get_tablet(request.new_tablet_id);
@@ -720,6 +737,7 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // the complete variant is constructed by reading all the sub-columns of the variant.
         _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
     }
+    _job_id = job_id;
 }
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
@@ -797,10 +815,19 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         do {
             RowsetSharedPtr max_rowset;
             // get history data to be converted and it will check if there is hold in base tablet
-            if (!_get_versions_to_be_changed(&versions_to_be_changed, &max_rowset)) {
+            res = _get_versions_to_be_changed(&versions_to_be_changed, &max_rowset);
+            if (!res) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
+
+            DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.alter_fail", {
+                res = Status::InternalError(
+                        "inject alter tablet failed. base_tablet={}, new_tablet={}",
+                        request.base_tablet_id, request.new_tablet_id);
+                LOG(WARNING) << "inject error. res=" << res;
+                break;
+            });
 
             // should check the max_version >= request.alter_version, if not the convert is useless
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
@@ -951,6 +978,8 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             break;
         }
 
+        DCHECK_GE(real_alter_version, request.alter_version);
+
         if (_new_tablet->keys_type() == UNIQUE_KEYS &&
             _new_tablet->enable_unique_key_merge_on_write()) {
             res = _calc_delete_bitmap_for_mow_table(real_alter_version);
@@ -1011,7 +1040,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                                                     int64_t* real_alter_version) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << _base_tablet->tablet_id()
-              << ", new_tablet=" << _new_tablet->tablet_id();
+              << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
 
     // find end version
     int32_t end_version = -1;
@@ -1068,6 +1097,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     auto sc_procedure = _get_sc_procedure(changer, sc_sorting, sc_directly);
 
     // c.Convert historical data
+    bool have_failure_rowset = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
         // set status for monitor
         // As long as there is a new_table as running, ref table is set as running
@@ -1079,7 +1109,6 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
-        context.original_tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
@@ -1114,6 +1143,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                          << "tablet=" << _new_tablet->tablet_id() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             _local_storage_engine.add_unused_rowset(new_rowset);
+            have_failure_rowset = true;
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
@@ -1127,7 +1157,9 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
-        *real_alter_version = rs_reader->version().second;
+        if (!have_failure_rowset) {
+            *real_alter_version = rs_reader->version().second;
+        }
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
@@ -1279,6 +1311,17 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         if (column_mapping->expr != nullptr) {
             *sc_directly = true;
             return Status::OK();
+        } else if (column_mapping->ref_column >= 0) {
+            const auto& column_new = new_tablet_schema->column(i);
+            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column);
+            // index changed
+            if (column_new.is_bf_column() != column_old.is_bf_column() ||
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                new_tablet_schema->has_inverted_index(column_new) !=
+                        base_tablet_schema->has_inverted_index(column_old)) {
+                *sc_directly = true;
+                return Status::OK();
+            }
         }
     }
 
@@ -1286,6 +1329,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     // use directly schema change instead.
     if (!(*sc_directly) && !(*sc_sorting)) {
         // check has remote rowset
+        // work for cloud and cold storage
         for (const auto& rs_reader : sc_params.ref_rowset_readers) {
             if (!rs_reader->rowset()->is_local()) {
                 *sc_directly = true;

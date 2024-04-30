@@ -220,12 +220,12 @@ public:
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         uint32_t last_offset = guarded_offset(_cur_idx);
-        uint32_t offsets[max_fetch + 1];
-        offsets[0] = last_offset;
+        _offsets.resize(max_fetch + 1);
+        _offsets[0] = last_offset;
         for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
-            offsets[i + 1] = last_offset;
+            _offsets[i + 1] = last_offset;
             if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
@@ -233,13 +233,13 @@ public:
             }
         }
         _cur_idx++;
-        offsets[max_fetch] = offset(_cur_idx);
+        _offsets[max_fetch] = offset(_cur_idx);
         if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
+        dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch);
 
         *n = max_fetch;
         return Status::OK();
@@ -255,8 +255,8 @@ public:
 
         auto total = *n;
         size_t read_count = 0;
-        uint32_t len_array[total];
-        uint32_t start_offset_array[total];
+        _len_array.resize(total);
+        _start_offset_array.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {
@@ -264,14 +264,15 @@ public:
             }
 
             const uint32_t start_offset = offset(ord);
-            start_offset_array[read_count] = start_offset;
-            len_array[read_count] = offset(ord + 1) - start_offset;
+            _start_offset_array[read_count] = start_offset;
+            _len_array[read_count] = offset(ord + 1) - start_offset;
             read_count++;
         }
 
-        if (LIKELY(read_count > 0))
-            dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                         read_count);
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_binary_data(_data.mutable_data(), _len_array.data(),
+                                         _start_offset_array.data(), read_count);
+        }
 
         *n = read_count;
         return Status::OK();
@@ -293,16 +294,23 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-    void get_dict_word_info(StringRef* dict_word_info) {
+    Status get_dict_word_info(StringRef* dict_word_info) {
         if (UNLIKELY(_num_elems <= 0)) {
-            return;
+            return Status::OK();
         }
 
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
 
         for (uint32_t i = 0; i < _num_elems; ++i) {
-            dict_word_info[i].data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+            uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
+            if (offset > _offsets_pos) {
+                return Status::Corruption(
+                        "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                        ", offset_pos: {}, offset: {}",
+                        _data.size, _num_elems, _offsets_pos, offset);
+            }
+            dict_word_info[i].data = data_begin + offset;
             offset_ptr += sizeof(uint32_t);
         }
 
@@ -313,6 +321,7 @@ public:
 
         dict_word_info[_num_elems - 1].size =
                 (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+        return Status::OK();
     }
 
 private:
@@ -339,6 +348,10 @@ private:
 
     uint32_t _num_elems;
     uint32_t _offsets_pos;
+
+    std::vector<uint32_t> _offsets;
+    std::vector<uint32_t> _len_array;
+    std::vector<uint32_t> _start_offset_array;
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;

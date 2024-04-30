@@ -94,16 +94,17 @@ import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -173,7 +174,7 @@ import org.apache.doris.load.sync.SyncChecker;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
-import org.apache.doris.master.PartitionInMemoryInfoCollector;
+import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
@@ -181,6 +182,8 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -229,6 +232,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -240,9 +244,11 @@ import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.FollowerColumnSender;
 import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -251,10 +257,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
-import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TGetMetaDBMeta;
@@ -312,6 +318,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+
 /**
  * A singleton class can also be seen as an entry point of Doris.
  * All manager classes can be obtained through this class.
@@ -346,7 +353,7 @@ public class Env {
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
     private Load load;
-    private LoadManager loadManager;
+    protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
@@ -361,7 +368,7 @@ public class Env {
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
-    private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
+    private PartitionInfoCollector partitionInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
@@ -446,12 +453,12 @@ public class Env {
 
     private DeployManager deployManager;
 
-    private TabletStatMgr tabletStatMgr;
-
-    private CloudTabletStatMgr cloudTabletStatMgr;
+    private MasterDaemon tabletStatMgr;
 
     private Auth auth;
     private AccessControllerManager accessManager;
+
+    private AuthenticatorManager authenticatorManager;
 
     private DomainResolver domainResolver;
 
@@ -465,7 +472,7 @@ public class Env {
     private MasterTaskExecutor pendingLoadTaskScheduler;
     private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
-    private LoadJobScheduler loadJobScheduler;
+    protected LoadJobScheduler loadJobScheduler;
 
     private LoadEtlChecker loadEtlChecker;
     private LoadLoadingChecker loadLoadingChecker;
@@ -519,6 +526,10 @@ public class Env {
 
     private StatisticsAutoCollector statisticsAutoCollector;
 
+    private StatisticsJobAppender statisticsJobAppender;
+
+    private FollowerColumnSender followerColumnSender;
+
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
@@ -526,6 +537,10 @@ public class Env {
     private MTMVService mtmvService;
 
     private InsertOverwriteManager insertOverwriteManager;
+
+    private DNSCache dnsCache;
+
+    private final NereidsSqlCacheManager sqlCacheManager;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -637,7 +652,7 @@ public class Env {
     public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
-        this.routineLoadManager = new RoutineLoadManager();
+        this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
@@ -650,7 +665,7 @@ public class Env {
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
-        this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
+        this.partitionInfoCollector = new PartitionInfoCollector();
         if (Config.enable_storage_policy) {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
@@ -660,7 +675,6 @@ public class Env {
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
-        this.transientTaskManager = new TransientTaskManager();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -690,15 +704,15 @@ public class Env {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
-        this.storageVaultMgr = new StorageVaultMgr();
+        this.storageVaultMgr = new StorageVaultMgr(systemInfo);
 
         this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
-        this.tabletStatMgr = new TabletStatMgr();
-        this.cloudTabletStatMgr = new CloudTabletStatMgr();
+        this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
         this.accessManager = new AccessControllerManager(auth);
+        this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfig());
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -720,7 +734,7 @@ public class Env {
                 Config.async_loading_load_task_pool_size, LoadTask.COMPARATOR, LoadTask.class, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
-        this.loadManager = new LoadManager(loadJobScheduler);
+        this.loadManager = EnvFactory.getInstance().createLoadManager(loadJobScheduler);
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
@@ -748,6 +762,7 @@ public class Env {
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
+        this.statisticsJobAppender = new StatisticsJobAppender();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
@@ -764,6 +779,10 @@ public class Env {
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
+        this.dnsCache = new DNSCache();
+        this.sqlCacheManager = new NereidsSqlCacheManager(
+                Config.sql_cache_manage_num, Config.cache_last_version_interval_second
+        );
     }
 
     public static void destroyCheckpoint() {
@@ -821,6 +840,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public AuthenticatorManager getAuthenticatorManager() {
+        return authenticatorManager;
     }
 
     public MTMVService getMtmvService() {
@@ -923,6 +946,10 @@ public class Env {
         return getCurrentEnv().getHiveTransactionMgr();
     }
 
+    public DNSCache getDnsCache() {
+        return dnsCache;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -1003,7 +1030,13 @@ public class Env {
         auditEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)
-        getClusterIdAndRole();
+        if (!Config.enable_check_compatibility_mode) {
+            getClusterIdAndRole();
+        } else {
+            role = FrontendNodeType.FOLLOWER;
+            nodeName = genFeNodeName(selfNode.getHost(),
+                    selfNode.getPort(), false /* new style */);
+        }
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -1011,6 +1044,10 @@ public class Env {
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
+
+        if (Config.enable_check_compatibility_mode) {
+            replayJournalsAndExit();
+        }
 
         // 4. create load and export job label cleaner thread
         createLabelCleaner();
@@ -1028,24 +1065,7 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
-        if (statisticsCleaner != null) {
-            statisticsCleaner.start();
-        }
-        if (statisticsAutoCollector != null) {
-            statisticsAutoCollector.start();
-        }
-
         queryCancelWorker.start();
-
-        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wgPublisher);
-        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
-        topicPublisherThread.addToTopicPublisherList(wpPublisher);
-        topicPublisherThread.start();
-
-        workloadGroupMgr.startUpdateThread();
-        workloadSchedPolicyMgr.start();
-        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -1436,6 +1456,7 @@ public class Env {
         }
     }
 
+    @SuppressWarnings({"checkstyle:WhitespaceAfter", "checkstyle:LineLength"})
     private void transferToMaster() {
         // stop replayer
         if (replayer != null) {
@@ -1468,6 +1489,13 @@ public class Env {
         replayJournal(-1);
         long replayEndTime = System.currentTimeMillis();
         LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+
+        if (Config.enable_check_compatibility_mode) {
+            String msg = "check metadata compatibility successfully";
+            LOG.info(msg);
+            System.out.println(msg);
+            System.exit(0);
+        }
 
         checkCurrentNodeExist();
 
@@ -1503,24 +1531,28 @@ public class Env {
                 // because the default parallelism of pipeline engine is higher than previous version.
                 // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
                 int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
-                VariableMgr.setGlobalPipelineTask(newVal);
-                LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
-                        + "to parallel_fragment_exec_instance_num: {}", newVal);
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x", SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                        String.valueOf(newVal));
 
                 // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
                 // if the default value has been upgraded
                 double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
-                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
-                LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
-                        + "to new default value: {}", newBcFactorVal);
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x",
+                        SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR,
+                        String.valueOf(newBcFactorVal));
 
                 // similar reason as above, need to upgrade enable_nereids_planner to true
-                VariableMgr.enableNereidsPlanner();
-                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
+                VariableMgr.refreshDefaultSessionVariables("1.x to 2.x", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                        "true");
             }
             if (journalVersion <= FeMetaVersion.VERSION_123) {
-                VariableMgr.enableNereidsDml();
-                LOG.info("upgrade FE from 2.0 to 2.1, set enable_nereids_dml to new default value: true");
+                VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1", SessionVariable.ENABLE_NEREIDS_DML, "true");
+                VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                        SessionVariable.FRAGMENT_TRANSMISSION_COMPRESSION_CODEC, "none");
+                if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+                }
             }
         }
 
@@ -1622,22 +1654,26 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // Tablet checker and scheduler
-        tabletChecker.start();
-        tabletScheduler.start();
-        // Colocate tables checker and balancer
-        ColocateTableCheckerAndBalancer.getInstance().start();
-        // Publish Version Daemon
-        publishVersionDaemon.start();
-        // Start txn cleaner
-        txnCleaner.start();
+        if (Config.isNotCloudMode()) {
+            // Tablet checker and scheduler
+            tabletChecker.start();
+            tabletScheduler.start();
+            // Colocate tables checker and balancer
+            ColocateTableCheckerAndBalancer.getInstance().start();
+            // Publish Version Daemon
+            publishVersionDaemon.start();
+            // Start txn cleaner
+            txnCleaner.start();
+            // Consistency checker
+            getConsistencyChecker().start();
+            // Backup handler
+            getBackupHandler().start();
+        }
         jobManager.start();
+        // transient task manager
+        transientTaskManager.start();
         // Alter
         getAlterInstance().start();
-        // Consistency checker
-        getConsistencyChecker().start();
-        // Backup handler
-        getBackupHandler().start();
         // catalog recycle bin
         getRecycleBin().start();
         // time printer
@@ -1659,7 +1695,7 @@ public class Env {
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
-        partitionInMemoryInfoCollector.start();
+        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }
@@ -1672,17 +1708,25 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
+        topicPublisherThread.start();
+
+        // auto analyze related threads.
+        statisticsCleaner.start();
+        statisticsAutoCollector.start();
+        statisticsJobAppender.start();
     }
 
-    // start threads that should running on all FE
-    private void startNonMasterDaemonThreads() {
+    // start threads that should run on all FE
+    protected void startNonMasterDaemonThreads() {
         // start load manager thread
         loadManager.start();
-        if (Config.isNotCloudMode()) {
-            tabletStatMgr.start();
-        } else {
-            cloudTabletStatMgr.start();
-        }
+        tabletStatMgr.start();
+
         // load and export job label cleaner thread
         labelCleaner.start();
         // es repository
@@ -1694,6 +1738,13 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
+
+        dnsCache.start();
+
+        workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadRuntimeStatusMgr.start();
+
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -1729,6 +1780,11 @@ public class Env {
 
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
+        }
+
+        if (followerColumnSender == null) {
+            followerColumnSender = new FollowerColumnSender();
+            followerColumnSender.start();
         }
     }
 
@@ -2971,7 +3027,13 @@ public class Env {
 
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        getCurrentCatalog().createDb(stmt);
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(stmt.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+        }
+        catalogIf.createDb(stmt);
     }
 
     // For replay edit log, need't lock metadata
@@ -2984,7 +3046,13 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        getCurrentCatalog().dropDb(stmt);
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(stmt.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+        }
+        catalogIf.dropDb(stmt);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -3478,6 +3546,13 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+            }
+
+            // Storage Vault
+            if (!olapTable.getStorageVaultName().isEmpty()) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
+                sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
             // disable auto compaction
@@ -4171,9 +4246,15 @@ public class Env {
                                                 boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         Map<Integer, Column> clusterColumns = new TreeMap<>();
+        boolean hasValueColumn = false;
         for (Column column : columns) {
             if (column.isKey()) {
+                if (hasValueColumn && isKeysRequired) {
+                    throw new DdlException("The materialized view not support value column before key column");
+                }
                 indexColumns.add(column);
+            } else {
+                hasValueColumn = true;
             }
             if (column.isClusterKey()) {
                 clusterColumns.put(column.getClusterKeyId(), column);
@@ -4910,7 +4991,8 @@ public class Env {
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold();
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4921,7 +5003,7 @@ public class Env {
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
-        editLog.logModifyInMemory(info);
+        editLog.logModifyTableProperties(info);
     }
 
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
@@ -4956,7 +5038,7 @@ public class Env {
 
             // need to replay partition info meta
             switch (opCode) {
-                case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                     for (Partition partition : olapTable.getPartitions()) {
                         olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                         // storage policy re-use modify in memory
@@ -5058,7 +5140,7 @@ public class Env {
 
     // Switch catalog of this sesseion.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
-        CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
+        CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
         if (catalogIf == null) {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
@@ -5253,6 +5335,9 @@ public class Env {
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
+            if (Config.enable_check_compatibility_mode) {
+                dumpFile = new File(imageDir, "image." + journalId);
+            }
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
                 LOG.info("begin to dump {}", dumpFilePath);
@@ -5299,6 +5384,15 @@ public class Env {
         } else {
             Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
             db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+            if (stmt.getFunction().isUDTFunction()) {
+                // all of the table function in doris will have two function
+                // one is the noraml, and another is outer, the different of them is deal with
+                // empty: whether need to insert NULL result value
+                Function outerFunction = stmt.getFunction().clone();
+                FunctionName name = outerFunction.getFunctionName();
+                name.setFn(name.getFunction() + "_outer");
+                db.addFunction(outerFunction, stmt.isIfNotExists());
+            }
         }
     }
 
@@ -5499,9 +5593,14 @@ public class Env {
             }
         }
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
-        long version = olapTable.getNextVersion();
+        long version;
         long versionTime = System.currentTimeMillis();
-        olapTable.updateVisibleVersionAndTime(version, versionTime);
+        if (Config.isNotCloudMode()) {
+            version = olapTable.getNextVersion();
+            olapTable.updateVisibleVersionAndTime(version, versionTime);
+        } else {
+            version = olapTable.getVisibleVersion();
+        }
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
@@ -5772,25 +5871,13 @@ public class Env {
 
     public void cleanTrash(AdminCleanTrashStmt stmt) {
         List<Backend> backends = stmt.getBackends();
+        AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backends) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
-            try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                client.cleanTrash(); // async
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("trash clean exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
-            }
+            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
+            batchTask.addTask(cleanTrashTask);
+            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
         }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
@@ -6027,6 +6114,18 @@ public class Env {
         return statisticsAutoCollector;
     }
 
+    public MasterDaemon getTabletStatMgr() {
+        return tabletStatMgr;
+    }
+
+    public NereidsSqlCacheManager getSqlCacheManager() {
+        return sqlCacheManager;
+    }
+
+    public StatisticsJobAppender getStatisticsJobAppender() {
+        return statisticsJobAppender;
+    }
+
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
         AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), MTMVAlterOpType.ALTER_REFRESH_INFO);
         this.alter.processAlterMTMV(alter, false);
@@ -6109,5 +6208,20 @@ public class Env {
         } catch (Exception e) {
             throw new TException(e);
         }
+    }
+
+    private void replayJournalsAndExit() {
+        replayJournal(-1);
+        LOG.info("check metadata compatibility successfully");
+        System.out.println("check metadata compatibility successfully");
+
+        if (Config.checkpoint_after_check_compatibility) {
+            String imagePath = dumpImage();
+            String msg = "the new image file path is: " + imagePath;
+            LOG.info(msg);
+            System.out.println(msg);
+        }
+
+        System.exit(0);
     }
 }

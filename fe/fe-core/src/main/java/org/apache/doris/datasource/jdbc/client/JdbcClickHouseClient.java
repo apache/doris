@@ -28,11 +28,6 @@ public class JdbcClickHouseClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SHOW DATABASES";
-    }
-
-    @Override
     protected String[] getTableTypes() {
         return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
     }

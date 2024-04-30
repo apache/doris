@@ -18,12 +18,8 @@
 package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -36,23 +32,18 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
-    // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
+
+    // use exclusive lock to make sure only one thread can add or remove client from
+    // serviceMap.
     // use concurrent map to allow access serviceMap in multi thread.
-    private static Pair<String, Integer> metaServiceHostPort = null;
+    private ReentrantLock lock = new ReentrantLock();
+    private final Map<String, MetaServiceClient> serviceMap;
 
     static {
-        if (Config.isCloudMode()) {
-            try {
-                metaServiceHostPort = SystemInfoService.validateHostAndPort(Config.meta_service_endpoint);
-            } catch (AnalysisException e) {
-                throw new RuntimeException(e);
-            }
+        if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
+            throw new RuntimeException("in cloud mode, please configure cloud_unique_id and meta_service_endpoint");
         }
     }
-
-    private ReentrantLock lock = new ReentrantLock();
-
-    private final Map<TNetworkAddress, MetaServiceClient> serviceMap;
 
     public MetaServiceProxy() {
         this.serviceMap = Maps.newConcurrentMap();
@@ -65,7 +56,8 @@ public class MetaServiceProxy {
         static {
             if (Config.isCloudMode()) {
                 int size = Config.meta_service_connection_pooled
-                        ? Config.meta_service_connection_pool_size : 1;
+                        ? Config.meta_service_connection_pool_size
+                        : 1;
                 proxies = new MetaServiceProxy[size];
                 for (int i = 0; i < size; ++i) {
                     proxies[i] = new MetaServiceProxy();
@@ -84,19 +76,15 @@ public class MetaServiceProxy {
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getInstance(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public void removeProxy(TNetworkAddress address) {
+    public void removeProxy(String address) {
         LOG.warn("begin to remove proxy: {}", address);
         MetaServiceClient service;
         lock.lock();
@@ -111,7 +99,8 @@ public class MetaServiceProxy {
         }
     }
 
-    private MetaServiceClient getProxy(TNetworkAddress address) {
+    private MetaServiceClient getProxy() {
+        String address = Config.meta_service_endpoint;
         MetaServiceClient service = serviceMap.get(address);
         if (service != null && service.isNormalState()) {
             return service;
@@ -123,8 +112,10 @@ public class MetaServiceProxy {
         try {
             service = serviceMap.get(address);
             if (service != null && !service.isNormalState()) {
-                // At this point we cannot judge the progress of reconnecting the underlying channel.
-                // In the worst case, it may take two minutes. But we can't stand the connection refused
+                // At this point we cannot judge the progress of reconnecting the underlying
+                // channel.
+                // In the worst case, it may take two minutes. But we can't stand the connection
+                // refused
                 // for two minutes, so rebuild the channel directly.
                 serviceMap.remove(address);
                 removedClient = service;
@@ -148,451 +139,338 @@ public class MetaServiceProxy {
         }
     }
 
-    public Future<Cloud.GetVersionResponse>
-            getVisibleVersionAsync(Cloud.GetVersionRequest request)
+    public Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getVisibleVersionAsync(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetVersionResponse
-            getVersion(Cloud.GetVersionRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getVersion(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.CreateTabletsResponse
-            createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.createTablets(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.UpdateTabletResponse
-            updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.updateTablet(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.BeginTxnResponse
-            beginTxn(Cloud.BeginTxnRequest request)
+    public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.beginTxn(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.PrecommitTxnResponse
-            precommitTxn(Cloud.PrecommitTxnRequest request)
+    public Cloud.PrecommitTxnResponse precommitTxn(Cloud.PrecommitTxnRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.precommitTxn(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.CommitTxnResponse
-            commitTxn(Cloud.CommitTxnRequest request)
+    public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.commitTxn(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.AbortTxnResponse
-            abortTxn(Cloud.AbortTxnRequest request)
+    public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.abortTxn(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetTxnResponse
-            getTxn(Cloud.GetTxnRequest request)
+    public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getTxn(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetCurrentMaxTxnResponse
-            getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
+            return client.getTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
             return client.getCurrentMaxTxnId(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.CheckTxnConflictResponse
-            checkTxnConflict(Cloud.CheckTxnConflictRequest request)
+    public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.checkTxnConflict(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.CleanTxnLabelResponse
-            cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
+    public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.cleanTxnLabel(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetClusterResponse
-            getCluster(Cloud.GetClusterRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getCluster(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.IndexResponse
-            prepareIndex(Cloud.IndexRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.IndexResponse prepareIndex(Cloud.IndexRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.prepareIndex(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.IndexResponse
-            commitIndex(Cloud.IndexRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.IndexResponse commitIndex(Cloud.IndexRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.commitIndex(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.IndexResponse
-            dropIndex(Cloud.IndexRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.dropIndex(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.preparePartition(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.PartitionResponse
-            commitPartition(Cloud.PartitionRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.commitPartition(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.PartitionResponse
-            dropPartition(Cloud.PartitionRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.dropPartition(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetTabletStatsResponse
-            getTabletStats(Cloud.GetTabletStatsRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.GetTabletStatsResponse getTabletStats(Cloud.GetTabletStatsRequest request) throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getTabletStats(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.CreateStageResponse createStage(Cloud.CreateStageRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.createStage(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.GetStageResponse getStage(Cloud.GetStageRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getStage(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.DropStageResponse dropStage(Cloud.DropStageRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.dropStage(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.GetIamResponse getIam(Cloud.GetIamRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getIam(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.BeginCopyResponse beginCopy(Cloud.BeginCopyRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.beginCopy(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.FinishCopyResponse finishCopy(Cloud.FinishCopyRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.finishCopy(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.GetCopyJobResponse getCopyJob(Cloud.GetCopyJobRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getCopyJob(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.GetCopyFilesResponse getCopyFiles(Cloud.GetCopyFilesRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getCopyFiles(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.FilterCopyFilesResponse filterCopyFiles(Cloud.FilterCopyFilesRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.filterCopyFiles(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
     public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.alterCluster(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.GetDeleteBitmapUpdateLockResponse
-            getDeleteBitmapUpdateLock(Cloud.GetDeleteBitmapUpdateLockRequest request)
+    public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
+            Cloud.GetDeleteBitmapUpdateLockRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getDeleteBitmapUpdateLock(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 
-    public Cloud.AlterObjStoreInfoResponse
-            alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
+    public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
+            throws RpcException {
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.alterObjStoreInfo(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetRLTaskCommitAttachResponse
+            getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getRLTaskCommitAttach(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetObjStoreInfoResponse
+            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 }

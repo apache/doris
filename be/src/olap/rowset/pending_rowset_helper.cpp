@@ -17,6 +17,8 @@
 
 #include "olap/rowset/pending_rowset_helper.h"
 
+#include "olap/olap_common.h"
+
 namespace doris {
 
 PendingRowsetGuard::~PendingRowsetGuard() {
@@ -27,6 +29,35 @@ PendingRowsetGuard::~PendingRowsetGuard() {
 
 PendingRowsetGuard::PendingRowsetGuard(const RowsetId& rowset_id, PendingRowsetSet* set)
         : _rowset_id(rowset_id), _pending_rowset_set(set) {}
+
+PendingRowsetGuard::PendingRowsetGuard(PendingRowsetGuard&& other) noexcept {
+    CHECK(!_pending_rowset_set ||
+          (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set))
+            << _rowset_id << ' ' << other._rowset_id << ' ' << _pending_rowset_set << ' '
+            << other._pending_rowset_set;
+    _rowset_id = other._rowset_id;
+    _pending_rowset_set = other._pending_rowset_set;
+    other._pending_rowset_set = nullptr;
+}
+
+PendingRowsetGuard& PendingRowsetGuard::operator=(PendingRowsetGuard&& other) noexcept {
+    CHECK(!_pending_rowset_set ||
+          (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set))
+            << _rowset_id << ' ' << other._rowset_id << ' ' << _pending_rowset_set << ' '
+            << other._pending_rowset_set;
+    _rowset_id = other._rowset_id;
+    _pending_rowset_set = other._pending_rowset_set;
+    other._pending_rowset_set = nullptr;
+    return *this;
+}
+
+void PendingRowsetGuard::drop() {
+    if (_pending_rowset_set) {
+        _pending_rowset_set->remove(_rowset_id);
+    }
+    _pending_rowset_set = nullptr;
+    _rowset_id = RowsetId {};
+}
 
 bool PendingRowsetSet::contains(const RowsetId& rowset_id) {
     std::lock_guard lock(_mtx);

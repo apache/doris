@@ -32,27 +32,13 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
-BrokerFileWriter::BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address,
-                                   const std::map<std::string, std::string>& properties,
-                                   const std::string& path, int64_t start_offset, FileSystemSPtr fs,
-                                   const FileWriterOptions* opts)
-        : FileWriter(path, fs),
-          _env(env),
-          _address(broker_address),
-          _properties(properties),
-          _cur_offset(start_offset) {
-    _create_empty_file = opts ? opts->create_empty_file : true;
-}
+BrokerFileWriter::BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address, Path path,
+                                   TBrokerFD fd)
+        : _env(env), _address(broker_address), _path(std::move(path)), _fd(fd) {}
 
-BrokerFileWriter::~BrokerFileWriter() {
-    if (_opened) {
-        static_cast<void>(close());
-    }
-    CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
-}
+BrokerFileWriter::~BrokerFileWriter() = default;
 
 #ifdef BE_TEST
 inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
@@ -131,10 +117,8 @@ Status BrokerFileWriter::close() {
 }
 
 Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(!_closed);
-    if (!_opened) {
-        RETURN_IF_ERROR(_open());
-        _opened = true;
+    if (_closed) [[unlikely]] {
+        return Status::InternalError("append to closed file: {}", _path.native());
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
@@ -146,7 +130,6 @@ Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
             RETURN_IF_ERROR(_write((const uint8_t*)p, left_bytes, &written_bytes));
             left_bytes -= written_bytes;
             p += written_bytes;
-            _bytes_appended += written_bytes;
         }
     }
     return Status::OK();
@@ -156,22 +139,16 @@ Status BrokerFileWriter::finalize() {
     return Status::OK();
 }
 
-Status BrokerFileWriter::open() {
-    if (_create_empty_file && !_opened) {
-        RETURN_IF_ERROR(_open());
-        _opened = true;
-    }
-    return Status::OK();
-}
-
-Status BrokerFileWriter::_open() {
+Result<FileWriterPtr> BrokerFileWriter::create(ExecEnv* env, const TNetworkAddress& broker_address,
+                                               const std::map<std::string, std::string>& properties,
+                                               Path path) {
     TBrokerOpenWriterRequest request;
 
     request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_path(_path);
+    request.__set_path(path);
     request.__set_openMode(TBrokerOpenMode::APPEND);
-    request.__set_clientId(client_id(_env, _address));
-    request.__set_properties(_properties);
+    request.__set_clientId(client_id(env, broker_address));
+    request.__set_properties(properties);
 
     VLOG_ROW << "debug: send broker open writer request: "
              << apache::thrift::ThriftDebugString(request).c_str();
@@ -179,25 +156,25 @@ Status BrokerFileWriter::_open() {
     TBrokerOpenWriterResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), _address, config::thrift_rpc_timeout_ms,
-                                       &status);
+        BrokerServiceConnection client(client_cache(env), broker_address,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker writer client failed. "
-                         << "broker=" << _address << ", status=" << status;
-            return status;
+                         << "broker=" << broker_address << ", status=" << status;
+            return ResultError(std::move(status));
         }
 
         try {
             client->openWriter(response, request);
         } catch (apache::thrift::transport::TTransportException&) {
-            RETURN_IF_ERROR(client.reopen());
+            RETURN_IF_ERROR_RESULT(client.reopen());
             client->openWriter(response, request);
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
-        ss << "Open broker writer failed, broker:" << _address << " failed:" << e.what();
+        ss << "Open broker writer failed, broker:" << broker_address << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::RpcError(ss.str());
+        return ResultError(Status::RpcError(ss.str()));
     }
 
     VLOG_ROW << "debug: send broker open writer response: "
@@ -205,14 +182,13 @@ Status BrokerFileWriter::_open() {
 
     if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
-        ss << "Open broker writer failed, broker:" << _address
+        ss << "Open broker writer failed, broker:" << broker_address
            << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        return ResultError(Status::InternalError(ss.str()));
     }
 
-    _fd = response.fd;
-    return Status::OK();
+    return std::make_unique<BrokerFileWriter>(env, broker_address, std::move(path), response.fd);
 }
 
 Status BrokerFileWriter::_write(const uint8_t* buf, size_t buf_len, size_t* written_bytes) {
@@ -271,5 +247,4 @@ Status BrokerFileWriter::_write(const uint8_t* buf, size_t buf_len, size_t* writ
     return Status::OK();
 }
 
-} // end namespace io
-} // end namespace doris
+} // namespace doris::io

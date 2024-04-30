@@ -17,6 +17,7 @@
 
 #include "olap/wal/wal_manager.h"
 
+#include <bvar/bvar.h>
 #include <glog/logging.h>
 
 #include <chrono>
@@ -38,6 +39,9 @@
 #include "vec/exec/format/wal/wal_reader.h"
 
 namespace doris {
+
+bvar::Status<size_t> g_wal_total_count("wal_total_count", 0);
+
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env),
           _stop(false),
@@ -205,11 +209,12 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
 }
 
 Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                                   const std::string& label, std::string& base_path) {
+                                   const std::string& label, std::string& base_path,
+                                   uint32_t wal_version) {
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
-       << _wal_version << "_" << _exec_env->master_info()->backend_id << "_"
+       << std::to_string(wal_version) << "_" << _exec_env->master_info()->backend_id << "_"
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
@@ -298,6 +303,7 @@ Status WalManager::_load_wals() {
 
 Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res) {
     bool exists = false;
+    auto last_total_size = res.size();
     std::vector<io::FileInfo> dbs;
     Status st = io::global_local_filesystem()->list(wal_path, false, &dbs, &exists);
     if (!st.ok()) {
@@ -361,7 +367,8 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             }
         }
     }
-    LOG(INFO) << "Finish list wal_dir=" << wal_path << ", wal count=" << res.size();
+    LOG(INFO) << "Finish list wal_dir=" << wal_path
+              << ", wal count=" << std::to_string(res.size() - last_total_size);
     return Status::OK();
 }
 
@@ -380,6 +387,7 @@ Status WalManager::_replay_background() {
         if (_first_replay.compare_exchange_strong(expected, false)) {
             RETURN_IF_ERROR(_load_wals());
         }
+        g_wal_total_count.set_value(get_wal_queue_size(-1));
         // replay wal of current process
         std::vector<int64_t> replay_tables;
         {

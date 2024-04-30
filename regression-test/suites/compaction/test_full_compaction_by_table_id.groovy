@@ -169,7 +169,11 @@ suite("test_full_compaction_by_table_id") {
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
             rowsetCount =((List<String>) tabletJson.rowsets).size()
-            assertEquals (rowsetCount, 1)
+            if (isCloudMode()) {
+                assertEquals (rowsetCount, 2)
+            } else {
+                assertEquals (rowsetCount, 1)
+            }
         }
 
 

@@ -23,10 +23,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSinkOperator>(this, _node);
-}
-
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -141,8 +137,6 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._value_places[i]->create_or_reset_sorter_state();
             auto sorter = std::move(local_state._value_places[i]->_partition_topn_sorter);
 
-            DCHECK(_child_x->row_desc().num_materialized_slots() ==
-                   local_state._value_places[i]->_blocks.back()->columns());
             //get blocks from every partition, and sorter get those data.
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));

@@ -49,6 +49,7 @@ suite("test_mow_update_on_current_timestamp", "p0") {
         file 'update_on_current_timestamp1.csv'
         time 10000 // limit inflight 10s
     }
+    sql """ sync; """
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
     qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
 
@@ -67,6 +68,7 @@ suite("test_mow_update_on_current_timestamp", "p0") {
         file 'update_on_current_timestamp2.csv'
         time 10000 // limit inflight 10s
     }
+    sql """ sync; """
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
     qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
 
@@ -82,6 +84,7 @@ suite("test_mow_update_on_current_timestamp", "p0") {
         file 'update_on_current_timestamp3.csv'
         time 10000 // limit inflight 10s
     }
+    sql """ sync; """
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
     qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
     qt_sql "select count(distinct update_time) from ${t1};"

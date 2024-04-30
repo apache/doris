@@ -1,4 +1,3 @@
-package pipeline.external.conf
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -26,6 +25,11 @@ targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLo
 jdbcUser = "root"
 jdbcPassword = ""
 
+ccrDownstreamUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+ccrDownstreamUser = "root"
+ccrDownstreamPassword = ""
+ccrDownstreamFeThriftAddress = "127.0.0.1:9020"
+
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
 feSyncerUser = "root"
@@ -41,6 +45,7 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+trinoPluginsPath = "/tmp/trino_connector"
 // sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
 //sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
@@ -55,9 +60,27 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
+// load_stream_fault_injection may cause bad disk
+
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_bitmap_filter," +
+    "test_dump_image," +
+    "test_index_failure_injection," +
+    "test_information_schema_external," +
+    "test_profile," +
+    "test_refresh_mtmv," +
+    "test_spark_load," +
+    "test_broker_load_func," +
+    "test_stream_stub_fault_injection," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "cloud," +
+    "cloud_p0," +
+    "nereids_rules_p0/subquery," +
+    "workload_manager_p1," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -76,21 +99,38 @@ enableBrokerLoad=true
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableJdbcTest=true
 mysql_57_port=3316
-pg_14_port=7121
-oracle_11_port=1521
-sqlserver_2022_port=1433
-clickhouse_22_port=8123
-db2_11_port=50000
-
+pg_14_port=5442
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=true
-hms_port=7141
-hive_pg_port=5432
+enablePaimonTest=enable_deprecated_case
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=true
+kafka_port=19193
+
+// iceberg test config
+iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 enableEsTest=true
-es_6_port="19200/"
+es_6_port=19200
 es_7_port=29200
 es_8_port=39200
 
@@ -104,3 +144,10 @@ max_failure_num=50
 
 externalEnvIp="127.0.0.1"
 
+enablePaimonTest=true
+
+hdfs_port=8020
+
+oracle_11_port=1521
+sqlserver_2022_port=1433
+clickhouse_22_port=8123

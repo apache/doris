@@ -62,7 +62,7 @@ public class ForEachCombinator extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return nested.getSignatures().stream().map(sig -> {
-            return sig.withReturnType(ArrayType.of(sig.returnType)).withArgumentTypes(false,
+            return sig.withReturnType(ArrayType.of(sig.returnType)).withArgumentTypes(sig.hasVarArgs,
                     sig.argumentsTypes.stream().map(arg -> {
                         return ArrayType.of(arg);
                     }).collect(ImmutableList.toImmutableList()));

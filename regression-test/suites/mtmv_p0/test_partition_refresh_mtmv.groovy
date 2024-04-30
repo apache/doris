@@ -166,7 +166,7 @@ suite("test_partition_refresh_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20170301_20170401"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -212,7 +212,7 @@ suite("test_partition_refresh_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_3_4"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -259,7 +259,7 @@ suite("test_partition_refresh_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("_3"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -324,7 +324,7 @@ suite("test_partition_refresh_mtmv") {
 
     //refresh other partitions
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinished(jobName)
     order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by user_id,age,date,num"
@@ -361,7 +361,7 @@ suite("test_partition_refresh_mtmv") {
 
     //refresh other partition ,data will be fresh
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName};
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO;
         """
     waitingMTMVTaskFinished(jobName)
     order_qt_refresh_other_table_change_other "SELECT * FROM ${mvName} order by user_id,age,date,num"
@@ -369,7 +369,7 @@ suite("test_partition_refresh_mtmv") {
     //test base table add partition
     sql """alter table ${tableNameNum} ADD PARTITION p201704 VALUES [('2017-04-01'), ('2017-05-01'))"""
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName};
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO;
         """
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
@@ -379,7 +379,7 @@ suite("test_partition_refresh_mtmv") {
     //test base table drop partition
     sql """alter table ${tableNameNum} drop PARTITION p201704"""
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName};
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO;
         """
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
@@ -435,7 +435,7 @@ suite("test_partition_refresh_mtmv") {
             select ${tableNameUser}.user_id,${tableNameUser}.age,${tableNameNum}.date,${tableNameNum}.num from ${tableNameUser} join ${tableNameNum} on ${tableNameUser}.user_id = ${tableNameNum}.user_id;
         """
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName};
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO;
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -447,7 +447,7 @@ suite("test_partition_refresh_mtmv") {
         insert into ${tableNameUser} values(1,9);
         """
      sql """
-         REFRESH MATERIALIZED VIEW ${mvName};
+         REFRESH MATERIALIZED VIEW ${mvName} AUTO;
         """
      waitingMTMVTaskFinished(jobName)
      order_qt_exclude_will_not_change "SELECT * FROM ${mvName} order by user_id,age,date,num"

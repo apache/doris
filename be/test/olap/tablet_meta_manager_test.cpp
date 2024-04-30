@@ -113,7 +113,7 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     // EXPECT_EQ(_json_header, json_meta_read);
 }
 
-TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
+TEST_F(TabletMetaManagerTest, TestDeleteBitmapEncode) {
     TTabletId tablet_id = 1234;
     int64_t version = 456;
     std::string key = TabletMetaManager::encode_delete_bitmap_key(tablet_id, version);
@@ -125,7 +125,7 @@ TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
     EXPECT_EQ(version, de_version);
 }
 
-TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
+TEST_F(TabletMetaManagerTest, TestSaveDeleteBitmap) {
     int64_t test_tablet_id = 10086;
     std::shared_ptr<DeleteBitmap> dbmp = std::make_shared<DeleteBitmap>(test_tablet_id);
     auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {

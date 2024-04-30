@@ -28,12 +28,6 @@ public class JdbcPostgreSQLClient extends JdbcClient {
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
-                + "'" + jdbcUser + "', nspname, 'USAGE');";
-    }
-
-    @Override
     protected String[] getTableTypes() {
         return new String[] {"TABLE", "PARTITIONED TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"};
     }

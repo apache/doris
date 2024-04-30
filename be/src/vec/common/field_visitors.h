@@ -69,6 +69,7 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<JsonbField>());
     default:
         LOG(FATAL) << "Bad type of Field";
+        __builtin_unreachable();
         return {};
     }
 }

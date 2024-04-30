@@ -21,10 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
@@ -1327,16 +1325,17 @@ public class StmtRewriter {
             if (!(tableRef instanceof BaseTableRef)) {
                 continue;
             }
-            TableIf table = tableRef.getTable();
+            String tableName = tableRef.getName().getTbl();
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            DatabaseIf db = currentEnv.getCatalogMgr().getCatalogOrAnalysisException(tableRef.getName().getCtl())
-                    .getDbOrAnalysisException(dbName);
-            long dbId = db.getId();
-            long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, currentUserIdentity);
+            String ctlName = tableRef.getName().getCtl();
+            if (ctlName == null) {
+                ctlName = analyzer.getDefaultCatalog();
+            }
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr()
+                    .getMatchTablePolicy(ctlName, dbName, tableName, currentUserIdentity);
             if (matchPolicy == null) {
                 continue;
             }

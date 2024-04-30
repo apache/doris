@@ -193,6 +193,10 @@ if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
 
+if(BUILD_CHECK_META STREQUAL "ON")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBUILD_CHECK_META")
+endif()
+
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
@@ -242,10 +246,6 @@ endif()
 # Add flags that are common across build types
 SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
-if(BUILD_CHECK_META STREQUAL "ON")
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBUILD_CHECK_META")
-endif()
-
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
 # Thrift requires these two definitions for some types that we use
@@ -264,6 +264,17 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
+if ("${DORIS_JAVA_HOME}" STREQUAL "")
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+endif()
+
+include_directories(${DORIS_JAVA_HOME}/include)
+if (NOT OS_MACOSX)
+    include_directories(${DORIS_JAVA_HOME}/include/linux)
+else()
+    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+endif()
+
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
@@ -273,30 +284,26 @@ set(DORIS_LINK_LIBS
     ${WL_END_GROUP}
 )
 
-# COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
-# When adding new dependencies, If you don’t know if it can run on all platforms,
-# add it here first.
-set(COMMON_THIRDPARTY
-    brpc
-    leveldb
-    libz
-    gflags
-    glog
-    jemalloc
-    pprof
-    protobuf
-    thrift
-    openssl
-    crypto
-    rocksdb
-    zstd
-    curl
-    ${AWS_LIBS}
-    fmt
-    jsoncpp
-    libuuid
-    ali-sdk
-)
+if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
+    add_library(hadoop_hdfs STATIC IMPORTED)
+    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
+
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        hadoop_hdfs
+    )
+    add_definitions(-DUSE_HADOOP_HDFS)
+else()
+    add_library(hdfs3 STATIC IMPORTED)
+    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
+
+    # TODO: use arm hadoop hdfs to replace this
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        hdfs3
+    )
+    add_definitions(-DUSE_LIBHDFS3)
+endif()
 
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
@@ -305,9 +312,11 @@ set(DORIS_DEPENDENCIES
     ${WL_END_GROUP}
 )
 
-# set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
-
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
+
+if ("${DORIS_JAVA_HOME}" STREQUAL "")
+    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+endif()
 
 # Add all external dependencies. They should come after the project's libs.
 # static link gcc's lib
@@ -324,6 +333,9 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libstdc++
     -static-libgcc
     -lstdc++fs
+    -lresolv
+    -L${DORIS_JAVA_HOME}/lib/server
+    -ljvm
 )
 
 if (USE_JEMALLOC)
@@ -370,6 +382,7 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
     gmock
     gtest
+    gtest_main
     ${WL_END_GROUP}
 )
 

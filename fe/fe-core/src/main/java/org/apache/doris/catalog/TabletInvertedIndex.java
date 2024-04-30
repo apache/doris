@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
+import org.apache.doris.master.PartitionInfoCollector.PartitionCollectInfo;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -37,7 +38,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -91,12 +92,17 @@ public class TabletInvertedIndex {
     private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
 
     // tablet id -> (backend id -> replica)
+    // for cloud mode, no need to known the replica's backend, so use backend id = -1 in cloud mode.
     private Table<Long, Long, Replica> replicaMetaTable = HashBasedTable.create();
+
     // backing replica table, for visiting backend replicas faster.
     // backend id -> (tablet id -> replica)
     private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
 
-    private volatile ImmutableSet<Long> partitionIdInMemorySet = ImmutableSet.of();
+    // partition id -> partition info.
+    // notice partition info update every Config.partition_info_update_interval_secs seconds,
+    // so it may be stale.
+    private volatile ImmutableMap<Long, PartitionCollectInfo> partitionCollectInfoMap = ImmutableMap.of();
 
     private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
 
@@ -120,11 +126,13 @@ public class TabletInvertedIndex {
     }
 
     public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
+                             Map<Long, Long> backendPartitionsVersion,
                              final HashMap<Long, TStorageMedium> storageMediumMap,
                              ListMultimap<Long, Long> tabletSyncMap,
                              ListMultimap<Long, Long> tabletDeleteFromMeta,
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
+                             Map<Long, Long> partitionVersionSyncMap,
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
@@ -132,6 +140,7 @@ public class TabletInvertedIndex {
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
         List<Pair<TabletMeta, TTabletInfo>> cooldownTablets = new ArrayList<>();
+        long feTabletNum = 0;
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -140,6 +149,7 @@ public class TabletInvertedIndex {
             }
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
+                feTabletNum = replicaMetaWithBackend.size();
                 taskPool.submit(() -> {
                     // traverse replicas in meta with this backend
                     replicaMetaWithBackend.entrySet().parallelStream().forEach(entry -> {
@@ -160,12 +170,23 @@ public class TabletInvertedIndex {
                                 tabletMetaInfo = new TTabletMetaInfo();
                                 tabletMetaInfo.setReplicaId(replica.getId());
                             }
-                            if (partitionIdInMemorySet.contains(
-                                    backendTabletInfo.getPartitionId()) != backendTabletInfo.isIsInMemory()) {
+                            PartitionCollectInfo partitionCollectInfo =
+                                    partitionCollectInfoMap.get(backendTabletInfo.getPartitionId());
+                            boolean isInMemory = partitionCollectInfo != null && partitionCollectInfo.isInMemory();
+                            if (isInMemory != backendTabletInfo.isIsInMemory()) {
                                 if (tabletMetaInfo == null) {
                                     tabletMetaInfo = new TTabletMetaInfo();
-                                    tabletMetaInfo.setIsInMemory(!backendTabletInfo.isIsInMemory());
+                                    tabletMetaInfo.setIsInMemory(isInMemory);
                                 }
+                            }
+                            if (Config.fix_tablet_partition_id_eq_0
+                                    && tabletMeta.getPartitionId() > 0
+                                    && backendTabletInfo.getPartitionId() == 0) {
+                                LOG.warn("be report tablet partition id not eq fe, in be {} but in fe {}",
+                                        backendTabletInfo, tabletMeta);
+                                // Need to update partition id in BE
+                                tabletMetaInfo = new TTabletMetaInfo();
+                                tabletMetaInfo.setPartitionId(tabletMeta.getPartitionId());
                             }
                             // 1. (intersection)
                             if (needSync(replica, backendTabletInfo)) {
@@ -314,8 +335,11 @@ public class TabletInvertedIndex {
 
                             // update replicase's version count
                             // no need to write log, and no need to get db lock.
-                            if (backendTabletInfo.isSetVersionCount()) {
-                                replica.setVersionCount(backendTabletInfo.getVersionCount());
+                            if (backendTabletInfo.isSetTotalVersionCount()) {
+                                replica.setTotalVersionCount(backendTabletInfo.getTotalVersionCount());
+                                replica.setVisibleVersionCount(backendTabletInfo.isSetVisibleVersionCount()
+                                        ? backendTabletInfo.getVisibleVersionCount()
+                                                : backendTabletInfo.getTotalVersionCount());
                             }
                             if (tabletMetaInfo != null) {
                                 tabletMetaInfo.setTabletId(tabletId);
@@ -334,6 +358,15 @@ public class TabletInvertedIndex {
                             }
                         }
                     });
+
+                    backendPartitionsVersion.entrySet().parallelStream().forEach(entry -> {
+                        long partitionId = entry.getKey();
+                        long backendVersion = entry.getValue();
+                        PartitionCollectInfo partitionInfo = partitionCollectInfoMap.get(partitionId);
+                        if (partitionInfo != null && partitionInfo.getVisibleVersion() > backendVersion) {
+                            partitionVersionSyncMap.put(partitionId, partitionInfo.getVisibleVersion());
+                        }
+                    });
                 }).join();
             }
         } finally {
@@ -342,11 +375,13 @@ public class TabletInvertedIndex {
         cooldownTablets.forEach(p -> handleCooldownConf(p.first, p.second, cooldownConfToPush, cooldownConfToUpdate));
 
         long end = System.currentTimeMillis();
-        LOG.info("finished to do tablet diff with backend[{}]. sync: {}."
-                        + " metaDel: {}. foundInMeta: {}. migration: {}. "
-                        + "found invalid transactions {}. found republish transactions {}. tabletToUpdate: {}."
-                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
+        LOG.info("finished to do tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. sync: {}."
+                        + " metaDel: {}. foundInMeta: {}. migration: {}. backend partition num: {}, backend need "
+                        + "update: {}. found invalid transactions {}. found republish "
+                        + "transactions {}. tabletToUpdate: {}. need recovery: {}. cost: {} ms",
+                backendId, feTabletNum, backendTablets.size(), tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
+                backendPartitionsVersion.size(), partitionVersionSyncMap.size(),
                 transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
                 tabletRecoveryMap.size(), (end - start));
     }
@@ -608,10 +643,24 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
-                replicaToTabletMap.remove(replica.getId());
-                replicaMetaTable.remove(tabletId, backendId);
+
+                // sometimes, replicas may have same replica id in different backend
+                // we need to cover this situation to avoid some "replica not found" issue
+                if (replicaMetaTable.containsRow(tabletId)) {
+                    long replicaNum = replicaMetaTable.row(tabletId).values().stream()
+                            .filter(c -> c.getId() == replica.getId()).count();
+                    if (replicaNum == 0) {
+                        replicaToTabletMap.remove(replica.getId());
+                    }
+                } else {
+                    replicaToTabletMap.remove(replica.getId());
+                }
+
                 backingReplicaMetaTable.remove(backendId, tabletId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("delete replica {} of tablet {} in backend {}",
@@ -632,6 +681,9 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, backend " + backendId);
+            if (Config.isCloudMode()) {
+                backendId = -1;
+            }
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
             readUnlock(stamp);
@@ -739,8 +791,8 @@ public class TabletInvertedIndex {
         }
     }
 
-    public void setPartitionIdInMemorySet(ImmutableSet<Long> partitionIdInMemorySet) {
-        this.partitionIdInMemorySet = partitionIdInMemorySet;
+    public void setPartitionCollectInfoMap(ImmutableMap<Long, PartitionCollectInfo> partitionCollectInfoMap) {
+        this.partitionCollectInfoMap = partitionCollectInfoMap;
     }
 
     public Map<Long, Long> getReplicaToTabletMap() {

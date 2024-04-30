@@ -21,6 +21,9 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 # shellcheck source=/dev/null
 # upload_doris_log_to_oss
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
+# shellcheck source=/dev/null
+# reporting_build_problem, reporting_messages_error
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/teamcity-utils.sh
 
 if ${DEBUG:-false}; then
     pr_num_from_trigger=${pr_num_from_debug:-"30772"}
@@ -40,6 +43,7 @@ echo "#### Run cloud_p0 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
+need_collect_log=false
 
 # shellcheck disable=SC2317
 run() {
@@ -51,6 +55,10 @@ run() {
     echo "sk='${cos_sk}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
+    # start kafka docker to run case test_rountine_load
+    sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
+    bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
@@ -63,6 +71,7 @@ run() {
         -actionParallel 2; then
         echo
     else
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"
         # regression 测试跑完后输出的汇总信息，Test 1961 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
         # 如果 test_suites>0 && failed_suites<=3  && fatal_scripts=0，就把返回状态码改为正常的0，让teamcity根据跑case的情况去判断成功还是失败
         # 这样预期能够快速 mute 不稳定的 case
@@ -86,19 +95,24 @@ export -f run
 timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-180}))m
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
+# shellcheck source=/dev/null
+source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
 echo "#### 5. check if need backup doris logs"
-if [[ ${exit_flag} != "0" ]]; then
-    check_if_need_gcore
+if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
+    check_if_need_gcore "${exit_flag}"
+    if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
+        reporting_build_problem "coredump"
+        print_doris_fe_log
+        print_doris_be_log
+    fi
     stop_doris
-    print_doris_fe_log
-    print_doris_be_log
-    if file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
-        upload_doris_log_to_oss "${file_name}"
+    if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
+        if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
+            reporting_messages_error "${log_info##*logs.tar.gz to }"
+        fi
     fi
-    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
-        upload_doris_log_to_oss "${file_name}"
-    fi
+    if core_info="$(upload_doris_log_to_oss "${core_file_name}")"; then reporting_messages_error "${core_info##*coredump.tar.gz to }"; fi
 fi
 
 exit "${exit_flag}"

@@ -177,6 +177,12 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::GC_BINLOG] = std::make_unique<TaskWorkerPool>(
             "GC_BINLOG", 1, [&engine](auto&& task) { return gc_binlog_callback(engine, task); });
 
+    _workers[TTaskType::CLEAN_TRASH] = std::make_unique<TaskWorkerPool>(
+            "CLEAN_TRASH", 1, [&engine](auto&& task) {return clean_trash_callback(engine, task); });
+
+    _workers[TTaskType::UPDATE_VISIBLE_VERSION] = std::make_unique<TaskWorkerPool>(
+            "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
 
@@ -200,11 +206,15 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
-            [&engine](auto&& task) { return calc_delete_bimtap_callback(engine, task); });
+            [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds,
             [&master_info = _master_info] { report_task_callback(master_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
+            [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
@@ -257,6 +267,12 @@ void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
     Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
     status.to_thrift(&t_agent_result.status);
+}
+
+void AgentServer::stop_report_workers() {
+    for (auto& work : _report_workers) {
+        work->stop();
+    }
 }
 
 } // namespace doris

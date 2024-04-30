@@ -123,8 +123,6 @@ public:
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
-    void clean_trash() override;
-
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;
 
@@ -137,14 +135,17 @@ public:
     void query_ingest_binlog(TQueryIngestBinlogResult& result,
                              const TQueryIngestBinlogRequest& request) override;
 
+    void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                  const TGetRealtimeExecStatusRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
-    void pre_cache_async(TPreCacheAsyncResponse& response,
-                         const TPreCacheAsyncRequest& request) override;
+    void warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                             const TWarmUpCacheAsyncRequest& request) override;
 
-    void check_pre_cache(TCheckPreCacheResponse& response,
-                         const TCheckPreCacheRequest& request) override;
+    void check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                   const TCheckWarmUpCacheAsyncRequest& request) override;
 
     // If another cluster load, FE need to notify the cluster to sync the load data
     void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -155,6 +156,8 @@ public:
 
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
+
+    void stop_works() { _agent_server->stop_report_workers(); }
 
 protected:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
@@ -169,7 +172,8 @@ class BackendService final : public BaseBackendService {
 public:
     // NOTE: now we do not support multiple backend in one process
     static Status create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server);
+                                 std::unique_ptr<ThriftServer>* server,
+                                 std::shared_ptr<doris::BackendService> service);
 
     BackendService(StorageEngine& engine, ExecEnv* exec_env);
 
@@ -183,8 +187,6 @@ public:
                                 int64_t last_stream_record_time) override;
 
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
-
-    void clean_trash() override;
 
     void make_snapshot(TAgentResult& return_value,
                        const TSnapshotRequest& snapshot_request) override;

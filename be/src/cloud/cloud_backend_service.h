@@ -26,13 +26,34 @@ class CloudStorageEngine;
 class CloudBackendService final : public BaseBackendService {
 public:
     static Status create_service(CloudStorageEngine& engine, ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server);
+                                 std::unique_ptr<ThriftServer>* server,
+                                 std::shared_ptr<doris::CloudBackendService> service);
 
     CloudBackendService(CloudStorageEngine& engine, ExecEnv* exec_env);
 
     ~CloudBackendService() override;
 
     // TODO(plat1ko): cloud backend functions
+
+    // If another cluster load, FE need to notify the cluster to sync the load data
+    void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                               const TSyncLoadForTabletsRequest& request) override;
+
+    // Get top n hot partition which count times in scanner
+    void get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                  const TGetTopNHotPartitionsRequest& request) override;
+
+    // Download target tablets data in cache
+    void warm_up_tablets(TWarmUpTabletsResponse& response,
+                         const TWarmUpTabletsRequest& request) override;
+
+    // Download the datas which load in other cluster
+    void warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                             const TWarmUpCacheAsyncRequest& request) override;
+
+    // Check whether the tablets finish warm up or not
+    void check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                   const TCheckWarmUpCacheAsyncRequest& request) override;
 
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;

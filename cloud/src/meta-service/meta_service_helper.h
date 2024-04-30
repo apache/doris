@@ -109,6 +109,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_CONFLICT:
         return MetaServiceCode::KV_TXN_CONFLICT;
     case TxnErrorCode::TXN_TOO_OLD:
+        return MetaServiceCode::KV_TXN_TOO_OLD;
     case TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED:
         if (config::enable_txn_store_retry) {
             if constexpr (category == ErrCategory::READ) {

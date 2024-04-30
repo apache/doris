@@ -21,10 +21,10 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -128,7 +128,7 @@ public class RoutineLoadSchedulerTest {
 
     public void functionTest(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Mocked SystemInfoService systemInfoService, @Injectable Database database)
-            throws DdlException, InterruptedException {
+            throws UserException, InterruptedException {
         new Expectations() {
             {
                 minTimes = 0;

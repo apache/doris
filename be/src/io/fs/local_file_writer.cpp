@@ -21,8 +21,6 @@
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdint.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -38,14 +36,13 @@
 #include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -70,15 +67,15 @@ Status sync_dir(const io::Path& dirname) {
 
 } // namespace
 
-LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data)
-        : FileWriter(std::move(path), fs), _fd(fd), _sync_data(sync_data) {
-    _opened = true;
+LocalFileWriter::LocalFileWriter(Path path, int fd, bool sync_data)
+        : _path(std::move(path)), _fd(fd), _sync_data(sync_data) {
     DorisMetrics::instance()->local_file_open_writing->increment(1);
     DorisMetrics::instance()->local_file_writer_total->increment(1);
 }
 
-LocalFileWriter::LocalFileWriter(Path path, int fd)
-        : LocalFileWriter(path, fd, global_local_filesystem()) {}
+size_t LocalFileWriter::bytes_appended() const {
+    return _bytes_appended;
+}
 
 LocalFileWriter::~LocalFileWriter() {
     if (!_closed) {
@@ -105,6 +102,8 @@ void LocalFileWriter::_abort() {
 }
 
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
@@ -113,7 +112,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     // Convert the results into the iovec vector to request
     // and calculate the total bytes requested.
     size_t bytes_req = 0;
-    struct iovec iov[data_cnt];
+    std::vector<iovec> iov(data_cnt);
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;
@@ -126,9 +125,9 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         // Never request more than IOV_MAX in one request.
         size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t res;
-        RETRY_ON_EINTR(res,
-                       SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov + completed_iov, iov_count),
-                                                    "LocalFileWriter::writev", _fd));
+        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(
+                                    ::writev(_fd, iov.data() + completed_iov, iov_count),
+                                    "LocalFileWriter::writev", _fd));
         if (UNLIKELY(res < 0)) {
             return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }
@@ -161,8 +160,10 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status LocalFileWriter::finalize() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
+                                      Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: ", _path.native());
+        return Status::InternalError("finalize closed file: {}", _path.native());
     }
 
     if (_dirty) {
@@ -180,7 +181,6 @@ Status LocalFileWriter::_close(bool sync) {
     if (_closed) {
         return Status::OK();
     }
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     if (sync) {
         if (_dirty) {
 #ifdef __APPLE__
@@ -209,8 +209,8 @@ Status LocalFileWriter::_close(bool sync) {
         }
     });
 
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

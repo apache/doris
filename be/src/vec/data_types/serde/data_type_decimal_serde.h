@@ -97,8 +97,8 @@ public:
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override;
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
@@ -127,7 +127,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
                                                    int start, int end) const {
     int row_count = end - start;
     const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
-    auto ptype = result.mutable_type();
+    auto* ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         ptype->set_id(PGenericType::DECIMAL128);
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
@@ -154,10 +154,11 @@ template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128V3> ||
                   std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>>) {
-        column.resize(arg.bytes_value_size());
+        auto old_column_size = column.size();
+        column.resize(old_column_size + arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            data[i] = *(T*)(arg.bytes_value(i).c_str());
+            data[old_column_size + i] = *(T*)(arg.bytes_value(i).c_str());
         }
         return Status::OK();
     }

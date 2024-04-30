@@ -147,7 +147,8 @@ public class SchemaTable extends Table {
                             .column("SCHEMA_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
-                            .column("SQL_PATH", ScalarType.createVarchar(512)).build()))
+                            .column("SQL_PATH", ScalarType.createVarchar(512))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
@@ -460,11 +461,14 @@ public class SchemaTable extends Table {
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
                     builder().column("QUERY_ID", ScalarType.createVarchar(256))
-                            .column("START_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_START_TIME", ScalarType.createVarchar(256))
                             .column("QUERY_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("DATABASE", ScalarType.createVarchar(256))
                             .column("FRONTEND_INSTANCE", ScalarType.createVarchar(256))
+                            .column("QUEUE_START_TIME", ScalarType.createVarchar(256))
+                            .column("QUEUE_END_TIME", ScalarType.createVarchar(256))
+                            .column("QUERY_STATUS", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
@@ -476,11 +480,36 @@ public class SchemaTable extends Table {
                             .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("CPU_HARD_LIMIT", ScalarType.createStringType())
+                            .column("CPU_HARD_LIMIT", ScalarType.createVarchar(256))
                             .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
+                            .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
+                            .column("TAG", ScalarType.createVarchar(256))
                             .build()))
+            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                            .column("USER", ScalarType.createVarchar(32))
+                            .column("HOST", ScalarType.createVarchar(261))
+                            .column("CATALOG", ScalarType.createVarchar(64))
+                            .column("DB", ScalarType.createVarchar(64))
+                            .column("COMMAND", ScalarType.createVarchar(16))
+                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(64))
+                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                            .build()))
+            .put("workload_schedule_policy",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_schedule_policy", TableType.SCHEMA,
+                            builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NAME", ScalarType.createVarchar(256))
+                                    .column("CONDITION", ScalarType.createStringType())
+                                    .column("ACTION", ScalarType.createStringType())
+                                    .column("PRIORITY", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .column("WORKLOAD_GROUP", ScalarType.createStringType())
+                                    .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

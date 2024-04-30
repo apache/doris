@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -105,6 +106,16 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
     }
 
+    public BrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
+            OriginStatement originStmt, UserIdentity userInfo)
+            throws MetaNotFoundException {
+        super(type, dbId, label, originStmt, userInfo);
+        this.brokerDesc = brokerDesc;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
+        }
+    }
+
     @Override
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
@@ -118,10 +129,13 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     @Override
     protected void unprotectedExecuteJob() {
-        LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
-                brokerDesc, getPriority());
+        LoadTask task = createPendingTask();
         idToTasks.put(task.getSignature(), task);
         Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
+    }
+
+    protected LoadTask createPendingTask() {
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
     }
 
     /**
@@ -221,7 +235,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
-            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true);
+            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
+                    false);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
@@ -312,7 +328,11 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             db = getDb();
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-            MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitLockTables(tableList);
+            } else {
+                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -327,9 +347,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("msg", "Load job try to commit txn")
                     .build());
             Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos,
-                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                            finishTimestamp, state, failMsg));
+                    dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
+            afterLoadingTaskCommitTransaction(tableList);
+            afterCommit();
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -337,18 +357,23 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitUnlockTables(tableList);
+            } else {
+                MetaLockUtils.writeUnlockTables(tableList);
+            }
         }
     }
 
-    private void writeProfile() {
-        if (!enableProfile) {
-            return;
-        }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
-                Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
-        // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
-        jobProfile = null;
+    // cloud override
+    protected void afterLoadingTaskCommitTransaction(List<Table> tableList) {
+    }
+
+    protected void afterCommit() throws DdlException {}
+
+    protected LoadJobFinalOperation getLoadJobFinalOperation() {
+        return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, state,
+                failMsg);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
@@ -422,7 +447,12 @@ public class BrokerLoadJob extends BulkLoadJob {
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         super.afterVisible(txnState, txnOperated);
-        writeProfile();
+        if (!enableProfile) {
+            return;
+        }
+        jobProfile.updateSummary(createTimestamp, getSummaryInfo(true), true, null);
+        // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
+        jobProfile = null;
     }
 
     @Override

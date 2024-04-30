@@ -44,8 +44,6 @@ private:
     int64_t _db_id;
     int64_t _tb_id;
     int64_t _wal_id;
-    // TODO version should in olap/wal_writer
-    uint32_t _version = 0;
     std::string _label;
     WalManager* _wal_manager;
     std::vector<TSlotDescriptor>& _slot_descs;

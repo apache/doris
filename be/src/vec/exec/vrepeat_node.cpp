@@ -153,6 +153,15 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 
     const auto rows = child_block->rows();
     // Fill grouping ID to block
+    RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+    output_block->set_columns(std::move(columns));
+    DCHECK_EQ(cur_col, column_size);
+
+    return Status::OK();
+}
+
+Status VRepeatNode::add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
+                                           vectorized::MutableColumns& columns, int repeat_id_idx) {
     for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, _output_tuple_desc->slots().size());
         const SlotDescriptor* _virtual_slot_desc = _output_tuple_desc->slots()[cur_col];
@@ -166,9 +175,6 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         col->insert_raw_integers(val, rows);
         cur_col++;
     }
-    output_block->set_columns(std::move(columns));
-    DCHECK_EQ(cur_col, column_size);
-
     return Status::OK();
 }
 
@@ -194,8 +200,15 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
             _repeat_id_idx = 0;
         }
     } else if (_expr_ctxs.empty()) {
-        DCHECK(!_intermediate_block || (_intermediate_block && _intermediate_block->rows() == 0));
-        output_block->swap(*_child_block);
+        auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                                  _output_slots);
+        auto rows = _child_block->rows();
+        auto& columns = m_block.mutable_columns();
+
+        for (int repeat_id_idx = 0; repeat_id_idx < _repeat_id_list.size(); repeat_id_idx++) {
+            std::size_t cur_col = 0;
+            RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+        }
         release_block_memory(*_child_block);
     }
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));

@@ -18,10 +18,15 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -29,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * The cache for materialized view cache
@@ -61,16 +68,25 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
+        // Can not convert to table sink, because use the same column from different table when self join
+        // the out slot is wrong
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
+        // and the top sort can also be removed
         Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
-            public Plan visit(Plan plan, Object context) {
-                if (plan instanceof LogicalResultSink) {
-                    return ((LogicalResultSink<Plan>) plan).child();
-                }
-                return super.visit(plan, context);
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
             }
         }, null);
+        // Optimize by rules to remove top sort
+        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                PhysicalProperties.ANY);
+        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+            Rewriter.getCteChildrenRewriter(childContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            return childContext.getRewritePlan();
+        }, mvPlan, originPlan);
         return new MTMVCache(mvPlan, originPlan);
     }
 }

@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Util for plan
@@ -89,6 +90,30 @@ public class PlanUtils {
         } else {
             return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan);
         }
+    }
+
+    /**
+     * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
+     */
+    public static List<NamedExpression> adjustNullableForRepeat(
+            List<List<Expression>> groupingSets,
+            List<NamedExpression> outputs) {
+        Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
+                .flatMap(Collection::stream)
+                .map(Expression::getInputSlots)
+                .flatMap(Set::stream)
+                .collect(Collectors.toSet());
+        Builder<NamedExpression> nullableOutputs = ImmutableList.builderWithExpectedSize(outputs.size());
+        for (NamedExpression output : outputs) {
+            Expression nullableOutput = output.rewriteUp(expr -> {
+                if (expr instanceof Slot && groupingSetsUsedSlots.contains(expr)) {
+                    return ((Slot) expr).withNullable(true);
+                }
+                return expr;
+            });
+            nullableOutputs.add((NamedExpression) nullableOutput);
+        }
+        return nullableOutputs.build();
     }
 
     /**
@@ -153,6 +178,30 @@ public class PlanUtils {
             output.addAll(child.getOutput());
         }
         return output.build();
+    }
+
+    /** fastGetInputSlots */
+    public static Set<Slot> fastGetInputSlots(List<? extends Expression> expressions) {
+        switch (expressions.size()) {
+            case 1: return expressions.get(0).getInputSlots();
+            case 0: return ImmutableSet.of();
+            default: {
+            }
+        }
+
+        int inputSlotsNum = 0;
+        // child.inputSlots is cached by Expression.inputSlots,
+        // we can compute output num without the overhead of re-compute output
+        for (Expression expr : expressions) {
+            Set<Slot> output = expr.getInputSlots();
+            inputSlotsNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        ImmutableSet.Builder<Slot> inputSlots = ImmutableSet.builderWithExpectedSize(inputSlotsNum);
+        for (Expression expr : expressions) {
+            inputSlots.addAll(expr.getInputSlots());
+        }
+        return inputSlots.build();
     }
 
     /**

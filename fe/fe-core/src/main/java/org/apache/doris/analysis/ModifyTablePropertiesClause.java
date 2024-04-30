@@ -299,6 +299,15 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {
+            throw new AnalysisException("You can not modify storage vault name");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID)) {
+            throw new AnalysisException("You can not modify storage vault id");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            throw new AnalysisException("You can not modify estimate partition size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

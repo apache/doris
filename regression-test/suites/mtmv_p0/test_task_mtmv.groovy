@@ -42,7 +42,7 @@ suite("test_task_mtmv") {
         SELECT * FROM ${tableName};
     """
      sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     def jobName = getJobName(dbName, mvName);
     waitingMTMVTaskFinished(jobName)

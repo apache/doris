@@ -216,12 +216,12 @@ struct TimeCast {
     template <typename T, typename S>
     //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
     static bool try_parse_time(T from, S& x, const cctz::time_zone& local_time_zone) {
-        int64 seconds = from / 100;
+        int64 seconds = int64(from / 100);
         int64 hour = 0, minute = 0, second = 0;
-        second = from - 100 * seconds;
+        second = int64(from - 100 * seconds);
         from /= 100;
-        seconds = from / 100;
-        minute = from - 100 * seconds;
+        seconds = int64(from / 100);
+        minute = int64(from - 100 * seconds);
         hour = seconds;
         if (minute >= 60 || second >= 60) {
             return false;
@@ -388,7 +388,7 @@ struct ConvertImpl {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
                             UInt32 scale = additions;
-                            vec_to[i] = vec_from[i] / std::pow(10, 6 - scale);
+                            vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -515,7 +515,7 @@ struct ConvertImplToTimeType {
                     [&](auto narrow_integral) {
                         for (size_t i = 0; i < size; ++i) {
                             auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
+                            vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
                             // DateType of VecDateTimeValue should cast to date
                             if constexpr (IsDateType<ToDataType>) {
                                 date_value.cast_to_date();
@@ -646,6 +646,7 @@ struct ConvertImplNumberToJsonb {
                 writer.writeDouble(data[i]);
             } else {
                 LOG(FATAL) << "unsupported type ";
+                __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
                                        writer.getOutput()->getSize());
@@ -893,6 +894,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else {
                     LOG(FATAL) << "unsupported type ";
+                    __builtin_unreachable();
                 }
             }
 
@@ -1908,7 +1910,7 @@ private:
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                        const size_t result, size_t /*input_rows_count*/) -> Status {
-            auto& from_column = block.get_by_position(arguments.front()).column;
+            ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
                     check_and_get_column<ColumnArray>(from_column.get());

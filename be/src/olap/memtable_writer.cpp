@@ -70,6 +70,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
+    _query_thread_context.init();
 
     _reset_mem_table();
 
@@ -150,6 +151,12 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
+    // In order to avoid repeated ATTACH, use SWITCH here. have two calling paths:
+    // 1. call by local, from `VTabletWriterV2::_write_memtable`, has been ATTACH Load memory tracker
+    // into thread context, ATTACH cannot be repeated here.
+    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`, no ATTACH because LoadChannelMgr
+    // not know Load context.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -193,12 +200,12 @@ void MemTableWriter::_reset_mem_table() {
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num,
                         UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker());
+            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++,
                         UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker());
+            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
 #else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(fmt::format(
             "MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",

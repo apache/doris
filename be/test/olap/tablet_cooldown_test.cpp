@@ -87,10 +87,10 @@ static std::string get_remote_path(const Path& path) {
     return fmt::format("{}/remote/{}", config::storage_root_path, path.string());
 }
 
-class FileWriterMock : public io::FileWriter {
+class FileWriterMock final : public io::FileWriter {
 public:
-    FileWriterMock(Path path) : io::FileWriter(std::move(path), io::global_local_filesystem()) {
-        Status st = io::global_local_filesystem()->create_file(get_remote_path(_path),
+    FileWriterMock(Path path) {
+        Status st = io::global_local_filesystem()->create_file(get_remote_path(path),
                                                                &_local_file_writer);
         if (!st.ok()) {
             std::cerr << "create file writer failed: " << st << std::endl;
@@ -107,23 +107,30 @@ public:
 
     Status finalize() override { return _local_file_writer->finalize(); }
 
+    bool closed() const override { return _local_file_writer->closed(); }
+
+    size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
+
+    const Path& path() const override { return _local_file_writer->path(); }
+
+    io::FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
+
 private:
     std::unique_ptr<io::FileWriter> _local_file_writer;
 };
 
 class RemoteFileSystemMock : public io::RemoteFileSystem {
 public:
-    RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
+    RemoteFileSystemMock(Path root_path, std::string id, io::FileSystemType type)
             : RemoteFileSystem(std::move(root_path), std::move(id), type) {
-        _local_fs = io::LocalFileSystem::create(get_remote_path(_root_path));
+        _local_fs = io::global_local_filesystem();
     }
     ~RemoteFileSystemMock() override = default;
 
 protected:
     Status create_file_impl(const Path& path, io::FileWriterPtr* writer,
                             const io::FileWriterOptions* opts = nullptr) override {
-        Path fs_path = path;
-        *writer = std::make_unique<FileWriterMock>(fs_path);
+        *writer = std::make_unique<FileWriterMock>(path);
         return Status::OK();
     }
 
@@ -185,8 +192,6 @@ protected:
         return _local_fs->open_file(path, reader);
     }
 
-    Status connect_impl() override { return Status::OK(); }
-
     Status rename_impl(const Path& orig_name, const Path& new_name) override {
         return Status::OK();
     }
@@ -229,6 +234,7 @@ public:
         st = engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_write_cooldown_meta_executors(); // default cons
         exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }

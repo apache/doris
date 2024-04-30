@@ -1190,4 +1190,44 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     EXPECT_EQ(Status::OK(), res);
 }
 
+// clang-format off
+TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
+    auto test = [](const std::tuple<std::string, bool, TCondition>& in) {
+        auto& [cond_str, exp_succ, exp_cond] = in;
+        TCondition parsed_cond;
+        EXPECT_EQ(DeleteHandler::parse_condition(cond_str, &parsed_cond), exp_succ) << " unexpected result, cond_str: " << cond_str;
+        if (exp_succ) EXPECT_EQ(parsed_cond, exp_cond) << " unexpected result, cond_str: " << cond_str;
+    };
+
+    auto gen_cond = [](const std::string& col, const std::string& op, const std::string& val) {
+        TCondition cond;
+        cond.__set_column_name(col);
+        cond.__set_condition_op(op);
+        cond.__set_condition_values(std::vector<std::string>{val});
+        return cond;
+    };
+
+    // <cond_str, parsed, expect_value>>
+    std::vector<std::tuple<std::string, bool, TCondition>> test_input {
+        {R"(abc=b)"             , true,  gen_cond(R"(abc)"   , "=" , R"(b)"         )}, // normal case
+        {R"(abc!=b)"            , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // normal case
+        {R"(abc<=b)"            , true,  gen_cond(R"(abc)"   , "<=", R"(b)"         )}, // normal case
+        {R"(abc>=b)"            , true,  gen_cond(R"(abc)"   , ">=", R"(b)"         )}, // normal case
+        {R"(abc>>b)"            , true,  gen_cond(R"(abc)"   , ">>", R"(b)"         )}, // normal case
+        {R"(abc<<b)"            , true,  gen_cond(R"(abc)"   , "<<", R"(b)"         )}, // normal case
+        {R"(abc!='b')"          , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // value surrounded by '
+        {R"(abc=)"              , true, gen_cond(R"(abc)"    , "=" , R"()"          )}, // missing value, it means not to be parsed succefully, how every it's a ignorable bug
+        {R"(@a*<<10086)"        , true,  gen_cond(R"(@a*)"   , "<<", R"(10086)"     )}, // column ends with *
+        {R"(*a=b)"              , false, gen_cond(R"(*a)"    , "=" , R"(b)"         )}, // starts with *
+        {R"(a*a>>WTF(10086))"   , true,  gen_cond(R"(a*a)"   , ">>", R"(WTF(10086))")}, // function
+        {R"(a-b IS NULL)"       , true,  gen_cond(R"(a-b)"   , "IS", R"(NULL)"      )}, // - in col name and test IS NULL
+        {R"(@a*-b IS NOT NULL)" , true,  gen_cond(R"(@a*-b)" , "IS", R"(NOT NULL)"  )}, // test IS NOT NULL
+        {R"(a IS b IS NOT NULL)", true,  gen_cond(R"(a IS b)", "IS", R"(NOT NULL)"  )}, // test " IS " in column name
+        {R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:=hell)", true, gen_cond(R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:)", "=", R"(hell)")}, // hellbound column name
+        {R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name=long)", true,  gen_cond(R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name)", "=", R"(long)")}, // test " IS " in column name
+    };
+    for (auto& i : test_input) { test(i); }
+}
+// clang-format on
+
 } // namespace doris

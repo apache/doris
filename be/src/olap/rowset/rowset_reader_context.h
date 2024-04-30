@@ -83,6 +83,8 @@ struct RowsetReaderContext {
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    int64_t ttl_seconds = 0;
+    size_t topn_limit = 0;
 };
 
 } // namespace doris

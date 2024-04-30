@@ -8,3 +8,15 @@
 2	{"a":18811,"b":"hello world","c":1181111}
 4	{"a":1234,"b":"hello xxx world","c":8181111}
 
+-- !sql --
+1	{"a":123,"b":"xxxyyy","c":111999111}
+2	{"a":18811,"b":"hello world","c":1181111}
+3	{"a":18811,"b":"hello wworld","c":11111}
+4	{"a":1234,"b":"hello xxx world","c":8181111}
+5	{"a":123456789,"b":123456,"c":8181111}
+6	{"timestamp":1713283200.060359}
+7	{"timestamp":17.0}
+8	{"timestamp":[123]}
+9	{"timestamp":17.0}
+10	{"timestamp":"17.0"}
+

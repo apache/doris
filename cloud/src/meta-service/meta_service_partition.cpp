@@ -222,6 +222,16 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         LOG_INFO("remove recycle index").tag("key", hex(key));
         txn->remove(key);
     }
+
+    if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
+        // init table version, for create and truncate table
+        std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
+        std::string val(sizeof(int64_t), 0);
+        *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
+        txn->put(key, val);
+        LOG_INFO("put table version").tag("key", hex(key));
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -493,6 +503,15 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
     }
+
+    // update table versions
+    if (request->has_db_id()) {
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(ver_key, 1);
+        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -579,6 +598,16 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         }
     }
     if (!need_commit) return;
+
+    // Update table version only when deleting non-empty partitions
+    if (request->has_db_id() && request->has_need_update_table_version() &&
+        request->need_update_table_version()) {
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
+        txn->atomic_add(ver_key, 1);
+        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);

@@ -17,6 +17,7 @@
 
 suite("test_date_function_const") {
     sql 'set enable_nereids_planner=false'
+    sql 'set enable_fold_constant_by_be = false;'
 
     qt_select1 """
         select hours_add('2023-03-30 22:23:45.23452',8)
@@ -36,6 +37,7 @@ suite("test_date_function_const") {
     """ 
 
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_fold_constant_by_be = true;'
 	sql 'set enable_fallback_to_original_planner=false'
 
 
@@ -55,5 +57,8 @@ suite("test_date_function_const") {
     qt_select10 """
         select hours_add(cast('2023-03-30 22:23:45.23452' as datetimev2(6)),8)
     """ 
-
+    explain {
+        sql("""select date_add(CURRENT_DATE(),-2);""")
+        notContains("00:00:00")
+    }
 }

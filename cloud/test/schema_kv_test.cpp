@@ -280,7 +280,8 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
 
 static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
                                               const std::string& rowset_id, int32_t schema_version,
-                                              int64_t version = -1) {
+                                              int64_t version = -1,
+                                              const TabletSchemaCloudPB* schema = nullptr) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
     rowset.set_rowset_id_v2(rowset_id);
@@ -295,6 +296,10 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     }
     rowset.mutable_tablet_schema()->set_schema_version(schema_version);
     rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
+    if (schema != nullptr) {
+        rowset.mutable_tablet_schema()->CopyFrom(*schema);
+        rowset.mutable_tablet_schema()->set_schema_version(schema_version);
+    }
     return rowset;
 }
 
@@ -319,17 +324,52 @@ static void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMet
 }
 
 static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
-                          int64_t table_id, int64_t tablet_id, int32_t schema_version) {
+                          int64_t table_id, int64_t tablet_id, int32_t schema_version,
+                          const TabletSchemaCloudPB* schema = nullptr) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
-    auto rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), schema_version);
+    auto rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), schema_version, -1, schema);
+    rowset.set_has_variant_type_in_schema(schema != nullptr);
     prepare_rowset(meta_service, rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, rowset, res));
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label << ", msg=" << res.status().msg();
     commit_txn(meta_service, db_id, txn_id, label);
+}
+
+static TabletSchemaCloudPB getVariantSchema() {
+    TabletSchemaCloudPB schema;
+    schema.set_schema_version(3);
+    // columns
+    ColumnPB var;
+    var.set_type("VARIANT");
+    var.set_unique_id(10);
+    ColumnPB var_sub1;
+    var_sub1.set_type("INT");
+    var_sub1.set_unique_id(-1);
+    schema.add_column()->CopyFrom(var_sub1);
+    ColumnPB var_sub2;
+    var_sub2.set_type("DOUBLE");
+    var_sub2.set_unique_id(-1);
+    schema.add_column()->CopyFrom(var_sub2);
+    ColumnPB var_sparse_sub1;
+    var_sparse_sub1.set_type("DOUBLE");
+    var_sparse_sub1.set_unique_id(-1);
+    var.add_sparse_columns()->CopyFrom(var_sparse_sub1);
+    schema.add_column()->CopyFrom(var);
+
+    // indexes
+    doris::TabletIndexPB index1;
+    index1.set_index_id(111);
+    index1.set_index_suffix_name("aaabbbccc");
+    schema.add_index()->CopyFrom(index1);
+
+    doris::TabletIndexPB index2;
+    index2.set_index_id(222);
+    schema.add_index()->CopyFrom(index2);
+    return schema;
 }
 
 TEST(DetachSchemaKVTest, RowsetTest) {
@@ -439,7 +479,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     auto insert_and_get_rowset = [&meta_service](int64_t table_id, int64_t index_id,
                                                  int64_t partition_id, int64_t tablet_id,
                                                  int label_base,
-                                                 google::protobuf::Arena* arena = nullptr) {
+                                                 google::protobuf::Arena* arena = nullptr,
+                                                 const TabletSchemaCloudPB* schema = nullptr) {
         config::write_schema_kv = false;
         std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
         std::uniform_int_distribution<int> dist1(1, 4);
@@ -451,14 +492,14 @@ TEST(DetachSchemaKVTest, RowsetTest) {
             schema_versions.push_back(dist1(rng));
             ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), db_id,
                                                   std::to_string(++label_base), table_id, tablet_id,
-                                                  schema_versions.back()));
+                                                  schema_versions.back(), schema));
         }
         config::write_schema_kv = true;
         for (int i = 0; i < 15; ++i) {
             schema_versions.push_back(dist2(rng));
             ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), db_id,
                                                   std::to_string(++label_base), table_id, tablet_id,
-                                                  schema_versions.back()));
+                                                  schema_versions.back(), schema));
         }
         // check get rowset response
         auto get_rowset_res = google::protobuf::Arena::CreateMessage<GetRowsetResponse>(arena);
@@ -481,11 +522,21 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res->stats().num_rowsets(), 26);
         EXPECT_EQ(get_rowset_res->stats().num_segments(), 25);
         EXPECT_EQ(get_rowset_res->stats().data_size(), 250000);
+        if (schema != nullptr) {
+            auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
+            get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);
+            EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().SerializeAsString(),
+                      schema->SerializeAsString());
+            get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(
+                    schema_version);
+        }
     };
     insert_and_get_rowset(10031, 10032, 10033, 10034, 300);
     // use arena
     google::protobuf::Arena arena;
     insert_and_get_rowset(10041, 10042, 10043, 10044, 400, &arena);
+    TabletSchemaCloudPB schema = getVariantSchema();
+    insert_and_get_rowset(10051, 10052, 10053, 10054, 500, &arena, &schema);
 }
 
 TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {

@@ -41,6 +41,14 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
                                        StatementContext context) {
         Plan topPlan = visitChildren(this, unboundResultSink, context);
         if (!aliasQueries.isEmpty()) {
+            if (((UnboundResultSink) topPlan).child() instanceof LogicalCTE) {
+                LogicalCTE logicalCTE = (LogicalCTE) ((UnboundResultSink) topPlan).child();
+                List<LogicalSubQueryAlias<Plan>> subQueryAliases = new ArrayList<>();
+                subQueryAliases.addAll(logicalCTE.getAliasQueries());
+                subQueryAliases.addAll(aliasQueries);
+                return topPlan.withChildren(
+                        new LogicalCTE<>(subQueryAliases, (LogicalPlan) ((UnboundResultSink) topPlan).child()));
+            }
             return topPlan.withChildren(
                     new LogicalCTE<>(aliasQueries, (LogicalPlan) ((UnboundResultSink) topPlan).child()));
         }

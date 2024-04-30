@@ -130,7 +130,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         time = -time;
         *buffer++ = '-';
     }
-    int64_t m_time = time;
+    auto m_time = int64_t(time);
     // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
     m_time = check_over_max_time(m_time);
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
@@ -196,7 +196,7 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
         time = -time;
         fmt::format_to(buffer, "-");
     }
-    int64_t m_time = time;
+    auto m_time = int64_t(time);
     m_time = check_over_max_time(m_time);
     // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);

@@ -62,10 +62,7 @@ using namespace ErrorCode;
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
-        : _exec_env(exec_env),
-          _thread_pool(config::routine_load_thread_pool_size, config::routine_load_thread_pool_size,
-                       "routine_load"),
-          _data_consumer_pool(config::routine_load_consumer_pool_size) {
+        : _exec_env(exec_env), _data_consumer_pool(config::routine_load_consumer_pool_size) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
@@ -79,10 +76,19 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _task_map.clear();
 }
 
+Status RoutineLoadTaskExecutor::init() {
+    return ThreadPoolBuilder("routine_load")
+            .set_min_threads(0)
+            .set_max_threads(config::max_routine_load_thread_pool_size)
+            .set_max_queue_size(config::max_routine_load_thread_pool_size)
+            .build(&_thread_pool);
+}
+
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
-    _thread_pool.shutdown();
-    _thread_pool.join();
+    if (_thread_pool) {
+        _thread_pool->shutdown();
+    }
     _data_consumer_pool.stop();
 }
 
@@ -130,7 +136,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
-        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets,
+        int timeout) {
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
@@ -142,7 +149,7 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
             std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
-            partition_offsets);
+            partition_offsets, timeout);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -150,7 +157,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
-        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets,
+        int timeout) {
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
@@ -165,7 +173,7 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
                     ->get_latest_offsets_for_partitions(
                             std::vector<int32_t>(request.partition_id_for_latest_offsets().begin(),
                                                  request.partition_id_for_latest_offsets().end()),
-                            partition_offsets);
+                            partition_offsets, timeout);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -180,10 +188,10 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK();
     }
 
-    if (_task_map.size() >= config::routine_load_thread_pool_size) {
+    if (_task_map.size() >= config::max_routine_load_thread_pool_size) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
-                  << ", queue size: " << _thread_pool.get_queue_size()
+                  << ", queue size: " << _thread_pool->get_queue_size()
                   << ", current tasks num: " << _task_map.size();
         return Status::TooManyTasks("{}_{}", UniqueId(task.id).to_string(),
                                     BackendOptions::get_localhost());
@@ -215,6 +223,12 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
     if (task.__isset.memtable_on_sink_node) {
         ctx->memtable_on_sink_node = task.memtable_on_sink_node;
+    }
+    if (task.__isset.qualified_user) {
+        ctx->qualified_user = task.qualified_user;
+    }
+    if (task.__isset.cloud_cluster) {
+        ctx->cloud_cluster = task.cloud_cluster;
     }
 
     // set execute plan params (only for non-single-stream-multi-table load)
@@ -253,7 +267,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     _task_map[ctx->id] = ctx;
 
     // offer the task to thread pool
-    if (!_thread_pool.offer(std::bind<void>(
+    if (!_thread_pool->submit_func(std::bind<void>(
                 &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
                 [this](std::shared_ptr<StreamLoadContext> ctx) {
                     std::unique_lock<std::mutex> l(_lock);
@@ -298,7 +312,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
         if (ctx->is_multi_table) {
-            LOG(INFO) << "recv single-stream-multi-table request, ctx=" << ctx->brief();
+            LOG(INFO) << "recv single-stream-multi-table request, ctx: " << ctx->brief();
             pipe = std::make_shared<io::MultiTablePipe>(ctx);
         } else {
             pipe = std::make_shared<io::KafkaConsumerPipe>();

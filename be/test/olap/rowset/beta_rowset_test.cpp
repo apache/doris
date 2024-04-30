@@ -40,6 +40,7 @@
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
@@ -226,23 +227,26 @@ class S3ClientMockGetErrorData : public S3ClientMock {
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, "", rowset_meta);
-    S3Conf s3_conf;
-    s3_conf.ak = "ak";
-    s3_conf.sk = "sk";
-    s3_conf.endpoint = "endpoint";
-    s3_conf.region = "region";
-    s3_conf.bucket = "bucket";
-    s3_conf.prefix = "prefix";
+    S3Conf s3_conf {.bucket = "bucket",
+                    .prefix = "prefix",
+                    .client_conf = {
+                            .endpoint = "endpoint",
+                            .region = "region",
+                            .ak = "ak",
+                            .sk = "sk",
+                    }};
     std::string resource_id = "10000";
-    std::shared_ptr<io::S3FileSystem> fs;
-    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
+    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto fs = res.value();
+    auto& client = fs->client_holder()->_client;
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(
-                new S3ClientMock(aws_cred, aws_config,
-                                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
+        client.reset(new S3ClientMock(aws_cred, aws_config,
+                                      Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                                      true));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -256,7 +260,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(new S3ClientMockGetError());
+        client.reset(new S3ClientMockGetError());
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -270,7 +274,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        fs->_client.reset(new S3ClientMockGetErrorData());
+        client.reset(new S3ClientMockGetErrorData());
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);

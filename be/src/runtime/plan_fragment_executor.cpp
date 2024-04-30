@@ -25,11 +25,13 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -97,17 +99,17 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
     _start_time = VecDateTimeValue::local_time();
     _query_statistics = std::make_shared<QueryStatistics>();
     _query_ctx->register_query_statistics(_query_statistics);
+    _query_thread_context = {_query_ctx->query_id(), query_ctx->query_mem_tracker};
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
-    if (_runtime_state != nullptr) {
-        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
-        close();
-        _runtime_state.reset();
-    } else {
-        close();
-    }
+    // The memory released by the query end is recorded in the query mem tracker.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    close();
+    _query_ctx.reset();
+    _query_statistics.reset();
+    _sink.reset();
+    _runtime_state.reset();
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
 }
@@ -129,9 +131,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state = RuntimeState::create_unique(params, request.query_options, query_globals,
                                                  _exec_env, _query_ctx.get());
     _runtime_state->set_task_execution_context(shared_from_this());
-    _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
-    SCOPED_ATTACH_TASK(_runtime_state.get());
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -639,10 +640,41 @@ void PlanFragmentExecutor::close() {
                 load_channel_profile()->pretty_print(&ss);
             }
             LOG(INFO) << ss.str();
+
+            _query_ctx->add_instance_profile(_fragment_instance_id,
+                                             collect_realtime_query_profile(),
+                                             collect_realtime_load_channel_profile());
         }
     }
 
     _closed = true;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_query_profile() const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_load_channel_profile()
+        const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->load_channel_profile()->compute_time_in_profile();
+        _runtime_state->load_channel_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
 }
 
 } // namespace doris

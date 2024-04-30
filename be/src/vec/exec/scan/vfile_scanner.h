@@ -93,6 +93,8 @@ protected:
     // TODO: cast input block columns type to string.
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
+    void _collect_profile_before_close() override;
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     const std::vector<TFileRangeDesc>& _ranges;
@@ -231,6 +233,15 @@ private:
         } else {
             return _local_state->get_push_down_count();
         }
+    }
+
+    // enable the file meta cache only when
+    // 1. max_external_file_meta_cache_num is > 0
+    // 2. the file number is less than 1/3 of cache's capacibility
+    // Otherwise, the cache miss rate will be high
+    bool _shoudl_enable_file_meta_cache() {
+        return config::max_external_file_meta_cache_num > 0 &&
+               _ranges.size() < config::max_external_file_meta_cache_num / 3;
     }
 };
 } // namespace doris::vectorized

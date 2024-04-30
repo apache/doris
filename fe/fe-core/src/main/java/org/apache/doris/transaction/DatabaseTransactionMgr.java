@@ -44,10 +44,12 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
@@ -995,7 +997,12 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void finishTransaction(long transactionId) throws UserException {
+    public void finishTransaction(long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
+        if (DebugPointUtil.isEnable("DatabaseTransactionMgr.stop_finish_transaction")) {
+            return;
+        }
+
         TransactionState transactionState = null;
         readLock();
         try {
@@ -1040,6 +1047,7 @@ public class DatabaseTransactionMgr {
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                setTableVersion(transactionState, db);
                 unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;
                 // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
@@ -1057,7 +1065,7 @@ public class DatabaseTransactionMgr {
                     LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
                 }
             }
-            updateCatalogAfterVisible(transactionState, db);
+            updateCatalogAfterVisible(transactionState, db, partitionVisibleVersions, backendPartitions);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -1068,6 +1076,20 @@ public class DatabaseTransactionMgr {
         transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully, publish times {}, publish result {}",
                 transactionState, transactionState.getPublishCount(), publishResult.name());
+    }
+
+    private void setTableVersion(TransactionState transactionState, Database db) {
+        Map<Long, TableCommitInfo> idToTableCommitInfos = transactionState.getIdToTableCommitInfos();
+        for (Entry<Long, TableCommitInfo> entry : idToTableCommitInfos.entrySet()) {
+            OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+            if (table == null) {
+                LOG.warn("table {} does not exist when setTableVersion. transaction: {}, db: {}",
+                        entry.getKey(), transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            entry.getValue().setVersion(table.getNextVersion());
+            entry.getValue().setVersionTime(System.currentTimeMillis());
+        }
     }
 
     private boolean finishCheckPartitionVersion(TransactionState transactionState, Database db,
@@ -1323,8 +1345,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1364,8 +1385,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1820,8 +1840,10 @@ public class DatabaseTransactionMgr {
                 for (Long tblId : tblIds) {
                     Table tbl = db.getTableNullable(tblId);
                     if (tbl != null) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                tbl.getName(), PrivPredicate.SHOW)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                        db.getFullName(),
+                                        tbl.getName(), PrivPredicate.SHOW)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                     "SHOW TRANSACTION",
                                     ConnectContext.get().getQualifiedUser(),
@@ -1909,7 +1931,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
+    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db,
+            Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         List<Long> newPartitionLoadedTableIds = new ArrayList<>();
@@ -1966,7 +1989,13 @@ public class DatabaseTransactionMgr {
                                     lastFailedVersion = newCommitVersion;
                                 }
                             }
-                            replica.updateVersionWithFailedInfo(newVersion, lastFailedVersion, lastSuccessVersion);
+                            replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendId());
+                            if (partitionIds == null) {
+                                partitionIds = Sets.newHashSet();
+                                backendPartitions.put(replica.getBackendId(), partitionIds);
+                            }
+                            partitionIds.add(partitionId);
                         }
                     }
                 } // end for indices
@@ -1977,6 +2006,7 @@ public class DatabaseTransactionMgr {
                     newPartitionLoadedTableIds.add(tableId);
                 }
                 partition.updateVisibleVersionAndTime(version, versionTime);
+                partitionVisibleVersions.put(partition.getId(), version);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
                             transactionState, partition.getId(), version);
@@ -2125,7 +2155,7 @@ public class DatabaseTransactionMgr {
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 updateCatalogAfterCommitted(transactionState, db, true);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                updateCatalogAfterVisible(transactionState, db);
+                updateCatalogAfterVisible(transactionState, db, Maps.newHashMap(), Maps.newHashMap());
             }
             unprotectUpsertTransactionState(transactionState, true);
         } finally {

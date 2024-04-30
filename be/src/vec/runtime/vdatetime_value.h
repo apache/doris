@@ -824,6 +824,19 @@ public:
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
+    template <typename U>
+    void assign_from(DateV2Value<U> src) {
+        date_v2_value_.year_ = src.year();
+        date_v2_value_.month_ = src.month();
+        date_v2_value_.day_ = src.day();
+        if constexpr (is_datetime && std::is_same_v<U, DateTimeV2ValueType>) {
+            date_v2_value_.hour_ = src.hour();
+            date_v2_value_.minute_ = src.minute();
+            date_v2_value_.second_ = src.second();
+            date_v2_value_.microsecond_ = src.microsecond();
+        }
+    }
+
     // Construct Date/Datetime type value from string.
     // At least the following formats are recognised (based on number of digits)
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
@@ -1119,13 +1132,13 @@ public:
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
+    // used by INT microseconds_diff(DATETIME enddate, DATETIME startdate)
+    // return it's int type, so shouldn't have any limit.
+    // when used by TIME TIMEDIFF(DATETIME expr1, DATETIME expr2), it's return time type, should have limited.
     template <typename RHS>
-    double microsecond_diff(const RHS& rhs) const {
+    int64_t microsecond_diff(const RHS& rhs) const {
         int64_t diff_m = (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY * 1000 * 1000 +
                          time_part_diff_microsecond(rhs);
-        if (diff_m > (int64_t)3020399 * 1000 * 1000) {
-            diff_m = (int64_t)3020399 * 1000 * 1000;
-        }
         return diff_m;
     }
 

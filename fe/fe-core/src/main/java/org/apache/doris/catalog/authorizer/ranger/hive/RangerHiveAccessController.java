@@ -25,22 +25,25 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Maps;
-import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveAccessControlException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -57,23 +60,28 @@ public class RangerHiveAccessController extends RangerAccessController {
         String serviceName = properties.get("ranger.service.name");
         hivePlugin = new RangerHivePlugin(serviceName);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
-        //start a timed log flusher
+        // start a timed log flusher
         logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        if (accessType == HiveAccessType.USE) {
+            request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
+        } else {
+            request.setAccessType(accessType.name().toLowerCase());
+        }
+        return request;
+    }
+
+    @Override
+    protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         String user = currentUser.getQualifiedUser();
         request.setUser(ClusterNamespace.getNameFromFullName(user));
         Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
         request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
                 Collectors.toSet()));
-        request.setAction(accessType.name());
-        if (accessType == HiveAccessType.USE) {
-            request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
-        } else {
-            request.setAccessType(accessType.name().toLowerCase());
-        }
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
@@ -102,27 +110,6 @@ public class RangerHiveAccessController extends RangerAccessController {
 
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
         return checkRequestResult(request, result, accessType.name());
-    }
-
-    public String getFilterExpr(UserIdentity currentUser, HiveAccessType accessType,
-            RangerHiveResource resource) throws HiveAccessControlException {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-
-        return result.getFilterExpr();
-    }
-
-    public void getColumnMask(UserIdentity currentUser, HiveAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                    result.getMaskTypeDef(), result.getMaskedValue()));
-        }
     }
 
     private HiveAccessType convertToAccessType(PrivPredicate predicate) {
@@ -187,8 +174,14 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         return false;
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        return Optional.empty();
     }
 
     @Override
@@ -199,6 +192,28 @@ public class RangerHiveAccessController extends RangerAccessController {
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         return false;
+    }
+
+    @Override
+    protected RangerHiveResource createResource(String ctl, String db, String tbl) {
+        return new RangerHiveResource(HiveObjectType.TABLE,
+                ClusterNamespace.getNameFromFullName(db), tbl);
+    }
+
+    @Override
+    protected RangerHiveResource createResource(String ctl, String db, String tbl, String col) {
+        return new RangerHiveResource(HiveObjectType.COLUMN,
+                ClusterNamespace.getNameFromFullName(db), tbl, col);
+    }
+
+    @Override
+    protected RangerBasePlugin getPlugin() {
+        return hivePlugin;
+    }
+
+    @Override
+    protected RangerAccessResultProcessor getAccessResultProcessor() {
+        return auditHandler;
     }
 
     // For test only

@@ -24,6 +24,7 @@ suite("multi_leading") {
 
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
+    sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
 
@@ -98,14 +99,14 @@ suite("multi_leading") {
 
     // test subquery + cte
     qt_sql3_1 """explain shape plan with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;"""
-    qt_sql3_2 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
+    qt_sql3_2 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
     qt_sql3_3 """explain shape plan with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
-    qt_sql3_4 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
+    qt_sql3_4 """explain shape plan with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
 
     qt_sql3_res_1 """with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
-    qt_sql3_res_2 """with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
+    qt_sql3_res_2 """with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
     qt_sql3_res_3 """with cte as (select c11, c1 from t1 join t2 on c1 = c2) select count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
-    qt_sql3_res_4 """with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
+    qt_sql3_res_4 """with cte as (select /*+ leading(t2 t1) */ c11, c1 from t1 join t2 on c1 = c2) select /*+ leading(t3 alias1 cte) */ count(*) from (select /*+ leading(t2 t1) */ c1, c11 from t1 join t2 on c1 = c2) as alias1 join t3 on alias1.c1 = t3.c3 join cte on alias1.c1 = cte.c11;;"""
 
     // test multi level subqueries
     qt_sql4_0 """explain shape plan select count(*) from (select c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
@@ -113,9 +114,18 @@ suite("multi_leading") {
     qt_sql4_2 """explain shape plan select count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_3 """explain shape plan select count(*) from (select c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_4 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
-    qt_sql4_5 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
-    qt_sql4_6 """explain shape plan select count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
-    qt_sql4_7 """explain shape plan select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
+    explain {
+        sql """shape plan select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
+        contains("SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause")
+    }
+    explain {
+        sql """shape plan select count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
+        contains("SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause")
+    }
+    explain {
+        sql """shape plan select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
+        contains("UnUsed: leading(alias2 t1)")
+    }
 
     qt_sql4_res_0 """select count(*) from (select c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
     qt_sql4_res_1 """select /*+ leading(t3 alias1) */ count(*) from (select c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""

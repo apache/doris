@@ -34,6 +34,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
@@ -42,11 +43,13 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -66,6 +69,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
     private PaimonSource source = null;
     private List<Predicate> predicates;
+    private int rawFileSplitNum = 0;
+    private int paimonSplitNum = 0;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
@@ -144,15 +149,19 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .withProjection(projected)
                 .newScan().plan().splits();
         boolean supportNative = supportNativeReader();
+        // Just for counting the number of selected partitions for this paimon table
+        Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             if (!forceJniScanner && supportNative && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
-                Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
-                if (optRowFiles.isPresent()) {
-                    List<RawFile> rawFiles = optRowFiles.get();
+                BinaryRow partitionValue = dataSplit.partition();
+                selectedPartitionValues.add(partitionValue);
+                Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+                if (optRawFiles.isPresent()) {
+                    List<RawFile> rawFiles = optRawFiles.get();
                     for (RawFile file : rawFiles) {
                         LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
-                        Path finalDataFilePath = locationPath.toScanRangeLocation();
+                        Path finalDataFilePath = locationPath.toStorageLocation();
                         try {
                             splits.addAll(
                                     splitFile(
@@ -164,17 +173,22 @@ public class PaimonScanNode extends FileQueryScanNode {
                                         true,
                                         null,
                                         PaimonSplit.PaimonSplitCreator.DEFAULT));
+                            ++rawFileSplitNum;
                         } catch (IOException e) {
                             throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                         }
                     }
                 } else {
                     splits.add(new PaimonSplit(split));
+                    ++paimonSplitNum;
                 }
             } else {
                 splits.add(new PaimonSplit(split));
+                ++paimonSplitNum;
             }
         }
+        this.readPartitionNum = selectedPartitionValues.size();
+        // TODO: get total partition number
         return splits;
     }
 
@@ -207,7 +221,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType(((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
+        return getLocationType(((FileStoreTable) source.getPaimonTable()).location().toString());
     }
 
     @Override
@@ -244,4 +258,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         return map;
     }
 
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return super.getNodeExplainString(prefix, detailLevel)
+                + String.format("%spaimonNativeReadSplits=%d/%d\n",
+                prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
+    }
 }

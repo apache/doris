@@ -17,7 +17,7 @@
 
 #pragma once
 #include "aggregation_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -71,7 +71,8 @@ public:
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
                 Base::_shared_state->partition_count);
         auto& iter = Base::_shared_state->in_mem_shared_state->aggregate_data_container->iterator;
-        while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end()) {
+        while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end() &&
+               !state->is_cancelled()) {
             const auto& key = iter.template get_key<typename HashTableType::key_type>();
             auto partition_index = Base::_shared_state->get_partition_index(hash_table.hash(key));
             spill_infos[partition_index].keys_.emplace_back(key);
@@ -82,7 +83,7 @@ public:
                 for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled();
                      ++i) {
                     if (spill_infos[i].keys_.size() >= spill_batch_rows) {
-                        status = _async_spill_partition_and_wait(
+                        status = _spill_partition(
                                 state, context, Base::_shared_state->spill_partitions[i],
                                 spill_infos[i].keys_, spill_infos[i].values_, nullptr, false);
                         RETURN_IF_ERROR(status);
@@ -93,17 +94,17 @@ public:
             ++iter;
         }
         auto hash_null_key_data = hash_table.has_null_key_data();
-        for (int i = 0; i < Base::_shared_state->partition_count; ++i) {
+        for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled(); ++i) {
             auto spill_null_key_data =
                     (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
             if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
-                status = _async_spill_partition_and_wait(
-                        state, context, Base::_shared_state->spill_partitions[i],
-                        spill_infos[i].keys_, spill_infos[i].values_,
-                        spill_null_key_data ? hash_table.template get_null_key_data<
-                                                      vectorized::AggregateDataPtr>()
-                                            : nullptr,
-                        true);
+                status = _spill_partition(state, context, Base::_shared_state->spill_partitions[i],
+                                          spill_infos[i].keys_, spill_infos[i].values_,
+                                          spill_null_key_data
+                                                  ? hash_table.template get_null_key_data<
+                                                            vectorized::AggregateDataPtr>()
+                                                  : nullptr,
+                                          true);
                 RETURN_IF_ERROR(status);
             }
         }
@@ -119,19 +120,18 @@ public:
     }
 
     template <typename HashTableCtxType, typename KeyType>
-    Status _async_spill_partition_and_wait(RuntimeState* state, HashTableCtxType& context,
-                                           AggSpillPartitionSPtr& spill_partition,
-                                           std::vector<KeyType>& keys,
-                                           std::vector<vectorized::AggregateDataPtr>& values,
-                                           const vectorized::AggregateDataPtr null_key_data,
-                                           bool is_last) {
+    Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
+                            AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
+                            std::vector<vectorized::AggregateDataPtr>& values,
+                            const vectorized::AggregateDataPtr null_key_data, bool is_last) {
         vectorized::SpillStreamSPtr spill_stream;
         auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
                                                         Base::profile(), spill_stream);
         RETURN_IF_ERROR(status);
         spill_stream->set_write_counters(Base::_spill_serialize_block_timer,
                                          Base::_spill_block_count, Base::_spill_data_size,
-                                         Base::_spill_write_disk_timer);
+                                         Base::_spill_write_disk_timer,
+                                         Base::_spill_write_wait_io_timer);
 
         status = to_block(context, keys, values, null_key_data);
         RETURN_IF_ERROR(status);
@@ -146,27 +146,15 @@ public:
             keys.clear();
             values.clear();
         }
-
         status = spill_stream->prepare_spill();
         RETURN_IF_ERROR(status);
 
-        status = ExecEnv::GetInstance()
-                         ->spill_stream_mgr()
-                         ->get_spill_io_thread_pool(spill_stream->get_spill_root_dir())
-                         ->submit_func([this, state, &spill_stream] {
-                             (void)state; // avoid ut compile error
-                             SCOPED_ATTACH_TASK(state);
-                             SCOPED_TIMER(_spill_write_disk_timer);
-                             Status status;
-                             Defer defer {[&]() { spill_stream->end_spill(status); }};
-                             status = spill_stream->spill_block(block_, false);
-                             return status;
-                         });
-        if (!status.ok()) {
-            spill_stream->end_spill(status);
+        {
+            SCOPED_TIMER(_spill_write_disk_timer);
+            status = spill_stream->spill_block(state, block_, false);
         }
         RETURN_IF_ERROR(status);
-        status = spill_partition->wait_spill(state);
+        status = spill_partition->flush_if_full();
         _reset_tmp_data();
         return status;
     }
@@ -272,9 +260,11 @@ public:
 
     bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
-    bool _is_spilling = false;
-    std::mutex _spill_lock;
-    std::condition_variable _spill_cv;
+
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::shared_ptr<PartitionedAggSharedState> _shared_state_holder;
 
     // temp structures during spilling
     vectorized::MutableColumns key_columns_;
@@ -304,7 +294,7 @@ public:
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {
 public:
     PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                const DescriptorTbl& descs);
+                                const DescriptorTbl& descs, bool require_bucket_distribution);
     ~PartitionedAggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -316,8 +306,6 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

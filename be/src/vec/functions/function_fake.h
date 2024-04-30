@@ -63,4 +63,12 @@ public:
     }
 };
 
+struct UDTFImpl {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(false) << "get_return_type_impl not supported, shouldn't into here.";
+        return nullptr;
+    }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
 } // namespace doris::vectorized

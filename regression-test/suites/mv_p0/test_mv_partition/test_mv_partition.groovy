@@ -29,28 +29,15 @@ suite ("test_mv_partition") {
         `device_id` varchar(150) NULL DEFAULT "" COMMENT ''
         ) ENGINE=OLAP
         DUPLICATE KEY(`event_id`)
-        PARTITION BY RANGE(`time_stamp`)()
+        PARTITION BY RANGE(`time_stamp`)
+        (
+            PARTITION p1 VALUES LESS THAN ("2023-01-01"),
+            PARTITION p2 VALUES LESS THAN ("2024-01-01"),
+            PARTITION p3 VALUES LESS THAN ("2025-01-01")
+        )
         DISTRIBUTED BY HASH(`device_id`) BUCKETS AUTO
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
-        "dynamic_partition.enable" = "true",
-        "dynamic_partition.time_unit" = "DAY",
-        "dynamic_partition.time_zone" = "Asia/Shanghai",
-        "dynamic_partition.start" = "-30",
-        "dynamic_partition.end" = "1",
-        "dynamic_partition.prefix" = "p",
-        "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-        "dynamic_partition.buckets" = "20",
-        "dynamic_partition.create_history_partition" = "true",
-        "dynamic_partition.history_partition_num" = "-1",
-        "dynamic_partition.hot_partition_num" = "0",
-        "dynamic_partition.reserved_history_periods" = "NULL",
-        "dynamic_partition.storage_policy" = "",
-        "dynamic_partition.storage_medium" = "HDD",
-        "storage_format" = "V2",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "replication_allocation" = "tag.location.default: 1"
         ); 
         """
 

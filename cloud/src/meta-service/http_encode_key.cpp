@@ -140,7 +140,8 @@ static std::unordered_map<std::string_view,
     {"TxnInfoKey",                 {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_info_key(KeyInfoSetter<TxnInfoKeyInfo>{p}.get()); }                                       , parse<TxnInfoPB>}}               ,
     {"TxnIndexKey",                {{"instance_id", "txn_id"},                                       [](param_type& p) { return txn_index_key(KeyInfoSetter<TxnIndexKeyInfo>{p}.get()); }                                     , parse<TxnIndexPB>}}              ,
     {"TxnRunningKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_running_key(KeyInfoSetter<TxnRunningKeyInfo>{p}.get()); }                                 , parse<TxnRunningPB>}}            ,
-    {"VersionKey",                 {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return version_key(KeyInfoSetter<VersionKeyInfo>{p}.get()); }                                        , parse<VersionPB>}}               ,
+    {"PartitionVersionKey",        {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return partition_version_key(KeyInfoSetter<PartitionVersionKeyInfo>{p}.get()); }                     , parse<VersionPB>}}               ,
+    {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get()); }                             , parse<VersionPB>}}               ,
     {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get()); }                                 , parse<doris::RowsetMetaCloudPB>}}     ,
     {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get()); }                          , parse<doris::RowsetMetaCloudPB>}}     ,
     {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get()); }                                 , parse<doris::TabletMetaCloudPB>}}     ,
@@ -163,7 +164,7 @@ static std::unordered_map<std::string_view,
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key(); }                                                         , parse<ServiceRegistryPB>}}       ,
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key(); }                                                         , parse<RamUserPB>}}               ,
     {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key(); }                                              , parse<EncryptionKeyInfoPB>}}     ,
-};
+    {"StorageVaultKey",           {{"instance_id", "vault_id"},                              [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get()); }                    , parse<StorageVaultPB>}}   ,};
 // clang-format on
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {

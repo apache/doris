@@ -46,7 +46,7 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {0, 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
+        {1024 * 1024, 0.0},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
         {16 * 1024 * 1024, 2.0},
@@ -59,6 +59,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
           dummy_mapped_data(std::make_shared<char>('A')),
+          batch_size(state->batch_size()),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
           _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
@@ -68,7 +69,22 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_init_timer);
+    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
+    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
+    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
+    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
+
+    return Status::OK();
+}
+
+Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = Base::_parent->template cast<DistinctStreamingAggOperatorX>();
     for (auto& evaluator : p._aggregate_evaluators) {
         _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
@@ -78,18 +94,13 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
 
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-
     if (_probe_expr_ctxs.empty()) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
                 _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
     } else {
         _init_hash_method(_probe_expr_ctxs);
     }
+    _opened = true;
     return Status::OK();
 }
 
@@ -120,7 +131,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
                 // were aggregated into it. Exclude passed through rows from this calculation since
                 // they were not in hash tables.
                 const int64_t input_rows = _input_num_rows;
-                const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
+                const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
                 // TODO chenhao
                 //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
                 double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
@@ -245,22 +256,48 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
-    RETURN_IF_CATCH_EXCEPTION(
-            _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
-    // need use _cur_num_rows_returned to decide whether to do continue emplace into hash table
-    _cur_num_rows_returned += _distinct_row.size();
+    if (!_stop_emplace_flag) {
+        RETURN_IF_CATCH_EXCEPTION(
+                _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
+    }
 
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
                      out_block->mem_reuse();
+    SCOPED_TIMER(_insert_keys_to_column_timer);
     if (mem_reuse) {
-        for (int i = 0; i < key_size; ++i) {
-            auto output_column = out_block->get_by_position(i).column;
-            if (_stop_emplace_flag) { // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+        if (_stop_emplace_flag && !out_block->empty()) {
+            // when out_block row >= batch_size, push it to data_queue, so when _stop_emplace_flag = true, maybe have some data in block
+            // need output those data firstly
+            DCHECK(_distinct_row.empty());
+            _distinct_row.resize(rows);
+            std::iota(_distinct_row.begin(), _distinct_row.end(), 0);
+        }
+        DCHECK_EQ(out_block->columns(), key_size);
+        if (_stop_emplace_flag && _distinct_row.empty()) {
+            // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+            for (int i = 0; i < key_size; ++i) {
+                auto output_column = out_block->get_by_position(i).column;
                 out_block->replace_by_position(i, key_columns[i]->assume_mutable());
                 in_block->replace_by_position(result_idxs[i], output_column);
+            }
+        } else {
+            DCHECK_EQ(_cache_block.rows(), 0);
+            if (out_block->rows() + _distinct_row.size() > batch_size) {
+                size_t split_size = batch_size - out_block->rows();
+                for (int i = 0; i < key_size; ++i) {
+                    auto output_dst = out_block->get_by_position(i).column->assume_mutable();
+                    key_columns[i]->append_data_by_selector(output_dst, _distinct_row, 0,
+                                                            split_size);
+                    auto cache_dst = _cache_block.get_by_position(i).column->assume_mutable();
+                    key_columns[i]->append_data_by_selector(cache_dst, _distinct_row, split_size,
+                                                            _distinct_row.size());
+                }
             } else {
-                auto dst = output_column->assume_mutable();
-                key_columns[i]->append_data_by_selector(dst, _distinct_row);
+                for (int i = 0; i < key_size; ++i) {
+                    auto output_column = out_block->get_by_position(i).column;
+                    auto dst = output_column->assume_mutable();
+                    key_columns[i]->append_data_by_selector(dst, _distinct_row);
+                }
             }
         }
     } else {
@@ -279,6 +316,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
             }
         }
         out_block->swap(vectorized::Block(columns_with_schema));
+        _cache_block = out_block->clone_empty();
         if (_stop_emplace_flag) {
             in_block->clear(); // clear the column ref with stop_emplace_flag = true
         }
@@ -443,26 +481,18 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
                                            bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
-    Status ret = Status::OK();
-    if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(
-                in_block, local_state._aggregated_block.get()));
-
-        // get enough data or reached limit rows, need push block to queue
-        if (!local_state._stop_emplace_flag && _limit != -1 &&
-            (local_state._aggregated_block->rows() + local_state._output_distinct_rows) >= _limit) {
-            auto limit_rows = _limit - local_state._output_distinct_rows;
-            local_state._aggregated_block->set_num_rows(limit_rows);
-            local_state._output_distinct_rows += limit_rows;
-        } else if (!local_state._stop_emplace_flag) {
-            local_state._output_distinct_rows += local_state._aggregated_block->rows();
-        }
+    if (in_block->rows() == 0) {
+        return Status::OK();
     }
 
-    // reach limit or source finish
-    if ((UNLIKELY(eos)) || (_limit != -1 && local_state._output_distinct_rows >= _limit)) {
-        local_state._output_distinct_rows += local_state._aggregated_block->rows();
-        return Status::OK(); // need given finish signal
+    RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(
+            in_block, local_state._aggregated_block.get()));
+    // set limit and reach limit
+    if (_limit != -1 &&
+        (local_state._num_rows_returned + local_state._aggregated_block->rows()) > _limit) {
+        auto limit_rows = _limit - local_state._num_rows_returned;
+        local_state._aggregated_block->set_num_rows(limit_rows);
+        local_state._reach_limit = true;
     }
     return Status::OK();
 }
@@ -473,35 +503,59 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
     if (!local_state._aggregated_block->empty()) {
         block->swap(*local_state._aggregated_block);
         local_state._aggregated_block->clear_column_data(block->columns());
+        // The cache block may have additional data due to exceeding the batch size.
+        if (!local_state._cache_block.empty()) {
+            local_state._swap_cache_block(local_state._aggregated_block.get());
+        }
     }
 
     local_state._make_nullable_output_key(block);
-    if (_is_streaming_preagg == false) {
+    if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
-    *eos = local_state._child_eos || (_limit != -1 && local_state._output_distinct_rows >= _limit);
+    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
+    // If the limit is not reached, it is important to ensure that _aggregated_block is empty
+    // because it may still contain data.
+    // However, if the limit is reached, there is no need to output data even if some exists.
+    *eos = (local_state._child_eos && local_state._aggregated_block->empty()) ||
+           (local_state._reach_limit);
     return Status::OK();
 }
 
 bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    return local_state._aggregated_block->empty() && !local_state._child_eos &&
-           (_limit == -1 || local_state._output_distinct_rows < _limit);
+    const bool need_batch = local_state._stop_emplace_flag
+                                    ? local_state._aggregated_block->empty()
+                                    : local_state._aggregated_block->rows() < state->batch_size();
+    return need_batch && !(local_state._child_eos || local_state._reach_limit);
 }
 
 Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
-    if (_closed) {
+    if (!_opened || _closed) {
         return Status::OK();
     }
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
+    /// _hash_table_size_counter may be null if prepare failed.
+    if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {
+        std::visit(
+                [&](auto&& agg_method) {
+                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.hash_table->size()));
+                },
+                _agg_data->method_variant);
+    }
     if (Base::_closed) {
         return Status::OK();
     }
     _aggregated_block->clear();
+    // If the limit is reached, there may still be remaining data in the cache block.
+    // If the limit is not reached, the cache block must be empty.
+    DCHECK(_reach_limit || _aggregated_block->empty());
+    DCHECK(_reach_limit || _cache_block.empty());
+    _cache_block.clear();
     return Base::close(state);
 }
 

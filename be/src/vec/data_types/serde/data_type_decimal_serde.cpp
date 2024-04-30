@@ -86,7 +86,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
 template <typename T>
 void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
-                                                    int end) const {
+                                                    int end, const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
     auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {

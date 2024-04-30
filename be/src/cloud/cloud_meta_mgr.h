@@ -43,6 +43,8 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
+using StorageVaultInfos = std::vector<std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>>>;
+
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
 
 class CloudMetaMgr {
@@ -70,8 +72,7 @@ public:
 
     Status precommit_txn(const StreamLoadContext& ctx);
 
-    Status get_storage_vault_info(
-            std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos);
+    Status get_storage_vault_info(StorageVaultInfos* vault_infos);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
@@ -90,10 +91,9 @@ public:
                                          int64_t initiator);
 
 private:
-    Status sync_tablet_delete_bitmap(
-            CloudTablet* tablet, int64_t old_max_version,
-            const google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>& rs_metas,
-            const TabletStatsPB& stas, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
+    Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
+                                     std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
+                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
 };
 
 } // namespace cloud

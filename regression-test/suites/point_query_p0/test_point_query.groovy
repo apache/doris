@@ -256,6 +256,22 @@ suite("test_point_query") {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
             }
         }
+        sql "DROP TABLE IF EXISTS test_ODS_EBA_LLREPORT";
+        sql """
+            CREATE TABLE `test_ODS_EBA_LLREPORT` (
+              `RPTNO` VARCHAR(20) NOT NULL ,
+              `A_ENTTYP` VARCHAR(6) NULL ,
+              `A_INTIME` DATETIME NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`RPTNO`)
+            DISTRIBUTED BY HASH(`RPTNO`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "store_row_column" = "true"
+            ); 
+        """                
+        sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
+        sql "select  /*+ SET_VAR(enable_nereids_planner=false) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
     }

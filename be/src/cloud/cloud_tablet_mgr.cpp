@@ -208,7 +208,7 @@ void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
     _cache->erase(key);
 }
 
-void CloudTabletMgr::vacuum_stale_rowsets() {
+void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to vacuum stale rowsets");
     std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
     tablets_to_vacuum.reserve(_tablet_map->size());
@@ -219,6 +219,10 @@ void CloudTabletMgr::vacuum_stale_rowsets() {
     });
     int num_vacuumed = 0;
     for (auto& t : tablets_to_vacuum) {
+        if (stop_latch.count() <= 0) {
+            break;
+        }
+
         num_vacuumed += t->delete_expired_stale_rowsets();
     }
     LOG_INFO("finish vacuum stale rowsets").tag("num_vacuumed", num_vacuumed);
@@ -231,7 +235,7 @@ std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
     return weak_tablets;
 }
 
-void CloudTabletMgr::sync_tablets() {
+void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to sync tablets");
     int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_s;
 
@@ -256,6 +260,10 @@ void CloudTabletMgr::sync_tablets() {
 
     int num_sync = 0;
     for (auto&& [_, weak_tablet] : sync_time_tablet_set) {
+        if (stop_latch.count() <= 0) {
+            break;
+        }
+
         if (auto tablet = weak_tablet.lock()) {
             if (tablet->last_sync_time_s > last_sync_time_bound) {
                 continue;
@@ -319,6 +327,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         if (t == nullptr) { continue; }
 
         int64_t s = score(t.get());
+        if (s <= 0) { continue; }
         if (s > *max_score) {
             max_score_tablet_id = t->tablet_id();
             *max_score = s;

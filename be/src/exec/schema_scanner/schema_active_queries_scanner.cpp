@@ -29,11 +29,14 @@ namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUERY_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
         {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATABASE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"FRONTEND_INSTANCE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUEUE_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SQL", TYPE_STRING, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
@@ -127,6 +130,9 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
         insert_string_value(4, row.column_value[4].stringVal, _active_query_block.get());
         insert_string_value(5, row.column_value[5].stringVal, _active_query_block.get());
         insert_string_value(6, row.column_value[6].stringVal, _active_query_block.get());
+        insert_string_value(7, row.column_value[7].stringVal, _active_query_block.get());
+        insert_string_value(8, row.column_value[8].stringVal, _active_query_block.get());
+        insert_string_value(9, row.column_value[9].stringVal, _active_query_block.get());
     }
     return Status::OK();
 }

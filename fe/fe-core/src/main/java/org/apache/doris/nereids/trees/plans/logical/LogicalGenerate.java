@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,7 +39,6 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
@@ -157,16 +157,22 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        builder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
+    public ImmutableSet<FdItem> computeFdItems() {
+        return ImmutableSet.of();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ImmutableSet.of();
+    public void computeUnique(Builder fdBuilder) {
+        // don't generate and propagate unique
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

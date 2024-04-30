@@ -17,10 +17,15 @@
 
 suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_mtmv"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_mtmv"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -59,7 +64,7 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             //refresh other partitions
             // current, for hive, auto refresh will not change data
             sql """
-                    REFRESH MATERIALIZED VIEW ${mvName}
+                    REFRESH MATERIALIZED VIEW ${mvName} AUTO
                 """
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by id"

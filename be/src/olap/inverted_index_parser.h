@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 
+#include "util/debug_points.h"
+
 namespace lucene {
 namespace analysis {
 class Analyzer;
@@ -48,6 +50,9 @@ struct InvertedIndexCtx {
 };
 
 using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
+
+const std::string INVERTED_INDEX_PARSER_TRUE = "true";
+const std::string INVERTED_INDEX_PARSER_FALSE = "false";
 
 const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
 const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
@@ -90,6 +95,21 @@ CharFilterMap get_parser_char_filter_map_from_properties(
 // get parser ignore_above value from properties
 std::string get_parser_ignore_above_value_from_properties(
         const std::map<std::string, std::string>& properties);
+
+template <bool ReturnTrue = false>
 std::string get_parser_lowercase_from_properties(
-        const std::map<std::string, std::string>& properties);
+        const std::map<std::string, std::string>& properties) {
+    DBUG_EXECUTE_IF("inverted_index_parser.get_parser_lowercase_from_properties", { return ""; })
+
+    if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+    } else {
+        if constexpr (ReturnTrue) {
+            return INVERTED_INDEX_PARSER_TRUE;
+        } else {
+            return "";
+        }
+    }
+}
+
 } // namespace doris

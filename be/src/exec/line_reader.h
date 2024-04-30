@@ -19,13 +19,14 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "util/profile_collector.h"
 
 namespace doris {
 namespace io {
 struct IOContext;
 }
 // This class is used to read content line by line
-class LineReader {
+class LineReader : public ProfileCollector {
 public:
     virtual ~LineReader() = default;
     virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof,

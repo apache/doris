@@ -52,9 +52,7 @@ suite("test_backup_restore_inverted_index", "backup_restore") {
         PROPERTIES ("type" = "full")
         """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
 
@@ -72,13 +70,11 @@ suite("test_backup_restore_inverted_index", "backup_restore") {
         )
         """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     def restore_index_comment = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"parser\" = \"english\")"))
+    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"parser\" = \"english\", \"lower_case\" = \"true\")"))
 
     result = sql "SELECT id, TOKENIZE(comment,'\"parser\"=\"english\"') as token FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)

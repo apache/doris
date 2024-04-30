@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -151,6 +150,9 @@ public:
         _table_col_to_file_col = map;
     }
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
@@ -180,6 +182,8 @@ private:
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* skip_page_header_num = nullptr;
+        RuntimeProfile::Counter* parse_page_header_num = nullptr;
     };
 
     Status _open_file();
@@ -210,7 +214,9 @@ private:
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
+    void _collect_profile();
 
+private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -229,7 +235,6 @@ private:
     FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
-    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader

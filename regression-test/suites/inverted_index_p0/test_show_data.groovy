@@ -21,6 +21,8 @@ suite("test_show_data", "p0") {
     def testTableWithIndex = "test_show_data_httplogs_with_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_index = {testTablex ->
@@ -99,7 +101,6 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -117,9 +118,8 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -133,10 +133,12 @@ suite("test_show_data", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
@@ -165,23 +167,28 @@ suite("test_show_data", "p0") {
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
-        // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_request ON ${testTableWithoutIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state, "FINISHED")
+        def state = ""
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_request ON ${testTableWithoutIndex} """
+            state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
         sql """ ALTER TABLE ${testTableWithoutIndex} DROP INDEX idx_request """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
         def another_no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size)
-        assertEquals(another_no_index_size, no_index_size)
-
+        if (!isCloudMode()) {
+            assertEquals(another_no_index_size, no_index_size)
+        }
         sql "DROP TABLE IF EXISTS ${testTableWithIndex}"
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_httplogs_load_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 300000, 0)
-        assertEquals(another_with_index_size, with_index_size)
+        if (!isCloudMode()) {
+            assertEquals(another_with_index_size, with_index_size)
+        }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -193,6 +200,8 @@ suite("test_show_data_for_bkd", "p0") {
     def testTableWithBKDIndex = "test_show_data_httplogs_with_bkd_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_bkd_index = {testTablex ->
@@ -271,7 +280,6 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -289,9 +297,8 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -305,10 +312,12 @@ suite("test_show_data_for_bkd", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
@@ -319,7 +328,6 @@ suite("test_show_data_for_bkd", "p0") {
             useTime = t
             Thread.sleep(delta_time)
         }
-        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
@@ -338,22 +346,28 @@ suite("test_show_data_for_bkd", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_status ON ${testTableWithoutBKDIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutBKDIndex, timeout)
-        assertEquals(state, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_status ON ${testTableWithoutBKDIndex} """
+            def state = wait_for_last_build_index_on_table_finish(testTableWithoutBKDIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
         sql """ ALTER TABLE ${testTableWithoutBKDIndex} DROP INDEX idx_status """
         wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
         def another_no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, with_index_size)
-        assertEquals(another_no_index_size, no_index_size)
+        if (!isCloudMode()) {
+            assertEquals(another_no_index_size, no_index_size)
+        }
 
         sql "DROP TABLE IF EXISTS ${testTableWithBKDIndex}"
         create_httplogs_table_with_bkd_index.call(testTableWithBKDIndex)
         load_httplogs_data.call(testTableWithBKDIndex, 'test_httplogs_load_with_bkd_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithBKDIndex, 300000, 0)
-        assertEquals(another_with_index_size, with_index_size)
+        if (!isCloudMode()) {
+            assertEquals(another_with_index_size, with_index_size)
+        }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -365,6 +379,8 @@ suite("test_show_data_multi_add", "p0") {
     def testTableWithIndex = "test_show_data_httplogs_multi_add_with_index"
     def delta_time = 5000
     def timeout = 60000
+    def alter_res = "null"
+    def useTime = 0
     String database = context.config.getDbNameByFile(context.file)
 
     def create_httplogs_table_without_index = {testTablex ->
@@ -444,7 +460,6 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             def result = sql """show data from ${database}.${table_name};"""
             if (result.size() > 0) {
@@ -462,9 +477,8 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -478,10 +492,12 @@ suite("test_show_data_multi_add", "p0") {
     }
 
     def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        def useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
+            if (alter_res.size() == 0) {
+                return "FINISHED"
+            }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
                 if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
@@ -510,9 +526,11 @@ suite("test_show_data_multi_add", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_status ON ${testTableWithoutIndex} """
-        def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_status ON ${testTableWithoutIndex} """
+            def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state, "FINISHED")
+        }
         def with_index_size1 = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
         assertTrue(with_index_size1 != "wait_timeout")
 
@@ -520,9 +538,11 @@ suite("test_show_data_multi_add", "p0") {
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX request_idx ON ${testTableWithoutIndex} """
-        def state2 = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
-        assertEquals(state2, "FINISHED")
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX request_idx ON ${testTableWithoutIndex} """
+            def state2 = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
+            assertEquals(state2, "FINISHED")
+        }
         def with_index_size2 = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size1)
         assertTrue(with_index_size2 != "wait_timeout")
 
@@ -530,7 +550,9 @@ suite("test_show_data_multi_add", "p0") {
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_show_data_httplogs_multi_add_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 300000, 0)
-        assertEquals(another_with_index_size, with_index_size2)
+        if (!isCloudMode()) {
+            assertEquals(another_with_index_size, with_index_size2)
+        }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

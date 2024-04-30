@@ -118,7 +118,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink);
+                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -130,6 +130,7 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
+
         retryTime--;
         beginTime = System.currentTimeMillis();
         if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
@@ -140,11 +141,13 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     protected void executeOnce() throws Exception {
+        final boolean enabelProfile = this.jobProfile != null;
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
-        if (this.jobProfile != null) {
+                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
+                enabelProfile);
+        if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
@@ -174,8 +177,11 @@ public class LoadLoadingTask extends LoadTask {
         }
 
         try {
-            QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
             actualExecute(curCoordinator, timeoutS);
+            if (this.jobProfile != null) {
+                curCoordinator.getExecutionProfile().update(beginTime, true);
+            }
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }
@@ -200,8 +206,6 @@ public class LoadLoadingTask extends LoadTask {
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
                                 .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())));
                 curCoordinator.getErrorTabletInfos().clear();
-                // Create profile of this task and add to the job profile.
-                createProfile(curCoordinator);
             } else {
                 throw new LoadException(status.getErrorMsg());
             }
@@ -212,15 +216,6 @@ public class LoadLoadingTask extends LoadTask {
 
     public long getLeftTimeMs() {
         return jobDeadlineMs - System.currentTimeMillis();
-    }
-
-    private void createProfile(Coordinator coord) {
-        if (jobProfile == null) {
-            // No need to gather profile
-            return;
-        }
-        // Summary profile
-        coord.getExecutionProfile().update(beginTime, true);
     }
 
     @Override

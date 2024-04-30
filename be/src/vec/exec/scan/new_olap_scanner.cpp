@@ -30,13 +30,14 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
-#include "io/cache/block/block_file_cache_profile.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -183,6 +184,7 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
+            TabletHotspot::instance()->count(tablet);
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
                                                  &read_source.rs_splits,
                                                  _state->skip_missing_version());
@@ -218,6 +220,9 @@ Status NewOlapScanner::init() {
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
+    auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
+                          : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
+    SCOPED_TIMER(timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -390,12 +395,26 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
 
         // runtime predicate push down optimization for topn
-        _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
-        if (olap_scan_node.__isset.topn_filter_source_node_ids) {
+        if (!_parent && !((pipeline::OlapScanLocalState*)_local_state)
+                                 ->get_topn_filter_source_node_ids()
+                                 .empty()) {
+            // the new topn whitch support external table
             _tablet_reader_params.topn_filter_source_node_ids =
-                    olap_scan_node.topn_filter_source_node_ids;
-        } else if (_tablet_reader_params.use_topn_opt) {
-            _tablet_reader_params.topn_filter_source_node_ids = {0};
+                    ((pipeline::OlapScanLocalState*)_local_state)
+                            ->get_topn_filter_source_node_ids();
+        } else {
+            _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
+            if (_tablet_reader_params.use_topn_opt) {
+                if (olap_scan_node.__isset.topn_filter_source_node_ids) {
+                    // the 2.1 new multiple topn
+                    _tablet_reader_params.topn_filter_source_node_ids =
+                            olap_scan_node.topn_filter_source_node_ids;
+
+                } else {
+                    // the 2.0 old topn
+                    _tablet_reader_params.topn_filter_source_node_ids = {0};
+                }
+            }
         }
     }
 
@@ -441,7 +460,7 @@ Status NewOlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_tablet_index(tablet_schema);
+    schema_util::inherit_root_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -554,14 +573,14 @@ void NewOlapScanner::_update_realtime_counters() {
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
-void NewOlapScanner::_update_counters_before_close() {
+void NewOlapScanner::_collect_profile_before_close() {
     //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
     if (_has_updated_counter) {
         return;
     }
     _has_updated_counter = true;
 
-    VScanner::_update_counters_before_close();
+    VScanner::_collect_profile_before_close();
 
 #ifndef INCR_COUNTER
 #define INCR_COUNTER(Parent)                                                                      \
@@ -573,6 +592,7 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                               \
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
+    COUNTER_UPDATE(Parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
     COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
@@ -585,6 +605,8 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
                    stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_collect_iterator_merge_next_timer,                                    \
+                   stats.collect_iterator_merge_next_timer);                                      \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
                    stats.block_conditions_filtered_zonemap_ns);                                   \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
@@ -666,6 +688,12 @@ void NewOlapScanner::_update_counters_before_close() {
     tablet->query_scan_bytes->increment(_compressed_bytes_read);
     tablet->query_scan_rows->increment(_raw_rows_read);
     tablet->query_scan_count->increment(1);
+    if (_query_statistics) {
+        _query_statistics->add_scan_bytes_from_local_storage(
+                stats.file_cache_stats.bytes_read_from_local);
+        _query_statistics->add_scan_bytes_from_remote_storage(
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
 }
 
 } // namespace doris::vectorized

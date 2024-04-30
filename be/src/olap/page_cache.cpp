@@ -70,7 +70,7 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
     }
 
     auto* cache = _get_page_cache(page_type);
-    auto* lru_handle = cache->insert(key.encode(), data, data->capacity(), 0, priority);
+    auto* lru_handle = cache->insert_no_tracking(key.encode(), data, data->capacity(), priority);
     *handle = PageCacheHandle(cache, lru_handle);
 }
 

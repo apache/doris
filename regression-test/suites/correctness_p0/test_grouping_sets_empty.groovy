@@ -18,11 +18,15 @@
 suite("test_grouping_sets_empty") {
 
     sql"""
+        drop table if exists test_grouping_sets_empty;
+    """
+
+    sql"""
         create table test_grouping_sets_empty (a int) distributed by hash(a) buckets 1 properties ( 'replication_num' = '1');
     """
 
     sql """
-        insert into test_grouping_sets_empty values (1);
+        insert into test_grouping_sets_empty values (1),(2),(3);
     """
 
 
@@ -39,19 +43,35 @@ suite("test_grouping_sets_empty") {
         select count(*) from test_grouping_sets_empty group by grouping sets (());
     """
 
+    qt_select3 """
+        select count(*) from test_grouping_sets_empty group by grouping sets ((),(),());
+    """
+
+    qt_select4 """
+        select a from test_grouping_sets_empty group by grouping sets ((),(),(),(a)) order by a;
+    """
+
 
     sql """ 
         set experimental_enable_pipeline_x_engine=false;
     """
 
 
-    qt_select3 """
+    qt_select5 """
         select count(a) from test_grouping_sets_empty group by grouping sets (());
     """
 
 
-    qt_select4 """
+    qt_select6 """
         select count(*) from test_grouping_sets_empty group by grouping sets (());
+    """
+
+    qt_select7 """
+        select count(*) from test_grouping_sets_empty group by grouping sets ((),(),());
+    """
+
+    qt_select8 """
+        select a from test_grouping_sets_empty group by grouping sets ((),(),(),(a)) order by a;
     """
 
 

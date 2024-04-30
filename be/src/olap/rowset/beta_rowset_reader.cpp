@@ -101,6 +101,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
+    _read_options.topn_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
@@ -185,6 +186,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
+        SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
         RowsetId rowset_id = rowset()->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
             auto d = _read_context->delete_bitmap->get_agg(
@@ -215,6 +217,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
     _read_options.use_page_cache = _read_context->use_page_cache;
     _read_options.tablet_schema = _read_context->tablet_schema;
+    _read_options.enable_unique_key_merge_on_write =
+            _read_context->enable_unique_key_merge_on_write;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.use_topn_opt = _read_context->use_topn_opt;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
@@ -225,7 +229,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
-    _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
     _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
@@ -234,6 +237,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_context->runtime_state->query_options().enable_file_cache;
         _read_options.io_ctx.is_disposable =
                 _read_context->runtime_state->query_options().disable_file_cache;
+    }
+
+    _read_options.io_ctx.expiration_time =
+            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
+                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
+                    : 0;
+    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
+        _read_options.io_ctx.expiration_time = 0;
     }
 
     // load segments
@@ -295,6 +306,9 @@ Status BetaRowsetReader::_init_iterator() {
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
 
+    if (_read_context->merged_rows == nullptr) {
+        _read_context->merged_rows = &_merged_rows;
+    }
     // merge or union segment iterator
     if (_is_merge_iterator()) {
         auto sequence_loc = -1;

@@ -142,7 +142,7 @@ public class Stmt {
                 }
             } else if (ctx instanceof Doris_statementContext) { // only from visitStatement
                 // Print all results for standalone Statement.
-                if (query.metadata() != null) {
+                if (query.metadata() != null && !query.isHandleQueryInFe()) {
                     resultListener.onMetadata(query.metadata());
                     int cols = query.columnCount();
                     if (trace) {

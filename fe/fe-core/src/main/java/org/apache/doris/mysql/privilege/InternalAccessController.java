@@ -19,8 +19,11 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthorizationException;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class InternalAccessController implements CatalogAccessController {
@@ -68,7 +71,19 @@ public class InternalAccessController implements CatalogAccessController {
 
     @Override
     public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
+            PrivPredicate wanted, ResourceTypeEnum type) {
         return auth.checkResourcePriv(currentUser, resourceName, wanted);
+    }
+
+    @Override
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
+            String col) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl) {
+        return Env.getCurrentEnv().getPolicyMgr().getUserPolicies(ctl, db, tbl, currentUser);
     }
 }
