@@ -85,7 +85,7 @@ suite("test_recover_mtmv") {
     sql """recover database ${dbName1};"""
 
     def result =  sql """show tables from ${dbName1};"""
-    log.info(result)
+    log.info(result.toString())
     assertEquals(0, result.size())
 
     sql """drop database if exists `${dbName1}`"""
