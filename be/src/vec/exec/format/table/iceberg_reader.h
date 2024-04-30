@@ -37,7 +37,9 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/equality_delete.h"
 #include "vec/exprs/vslot_ref.h"
+
 namespace tparquet {
 class KeyValue;
 } // namespace tparquet
@@ -92,8 +94,6 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) final;
 
-    Status _position_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
-
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
@@ -129,6 +129,14 @@ protected:
 
     void _gen_new_colname_to_value_range();
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
+
+    Status _position_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    virtual std::unique_ptr<GenericReader> _create_equality_reader(
+            const TFileRangeDesc& delete_desc) = 0;
+    void _generate_equality_delete_block(
+            Block* block, const std::vector<std::string>& equality_delete_col_names,
+            const std::vector<TypeDescriptor>& equality_delete_col_types);
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
@@ -175,6 +183,10 @@ protected:
 
     void _gen_position_delete_file_range(Block& block, DeleteFile* const position_delete,
                                          size_t read_rows, bool file_path_column_dictionary_coded);
+
+    // equality delete
+    Block _equality_delete_block;
+    std::unique_ptr<EqualityDeleteBase> _equality_delete_impl;
 };
 
 class IcebergParquetReader final : public IcebergTableReader {
@@ -206,6 +218,14 @@ public:
     }
 
     Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+
+protected:
+    std::unique_ptr<GenericReader> _create_equality_reader(
+            const TFileRangeDesc& delete_desc) override {
+        return ParquetReader::create_unique(
+                _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
+                const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
+    }
 };
 class IcebergOrcReader final : public IcebergTableReader {
 public:
@@ -237,6 +257,13 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
     Status _gen_col_name_maps(OrcReader* orc_reader);
+
+protected:
+    std::unique_ptr<GenericReader> _create_equality_reader(
+            const TFileRangeDesc& delete_desc) override {
+        return OrcReader::create_unique(_profile, _state, _params, delete_desc,
+                                        READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx);
+    }
 
 private:
     const std::string ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
