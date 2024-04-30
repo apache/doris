@@ -47,6 +47,7 @@ import java.util.UUID;
 
 public class ProfilePersistentTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
+
     public static SummaryProfile constructRandomSummaryProfile() {
         TUniqueId qUniqueId = new TUniqueId();
         UUID uuid = UUID.randomUUID();
@@ -55,9 +56,8 @@ public class ProfilePersistentTest {
         // Construct a summary profile
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(qUniqueId));
+        builder.taskType(System.currentTimeMillis() % 2 == 0 ? "QUERY" : "LOAD");
         long currentTimestampSeconds = System.currentTimeMillis() / 1000;
-        builder.taskType(currentTimestampSeconds % 2 == 0 ? "QUERY" : "LOAD");
-        
         builder.startTime(TimeUtils.longToTimeString(currentTimestampSeconds));
         builder.endTime(TimeUtils.longToTimeString(currentTimestampSeconds + 10));
         builder.totalTime(DebugUtil.getPrettyStringMs(10));
@@ -241,7 +241,7 @@ public class ProfilePersistentTest {
     public void profileBasicTest() {
         final int executionProfileNum = 5;
         Profile profile = constructRandomProfile(executionProfileNum);
-    
+
         // after profile is stored to disk, futher read will be from disk
         // so we store the original answer to a string
         String profileContentString = profile.getProfileByLevel();

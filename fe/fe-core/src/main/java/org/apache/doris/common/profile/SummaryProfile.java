@@ -29,8 +29,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -42,7 +40,7 @@ import java.util.Map;
  * It contains the summary information of a query.
  */
 public class SummaryProfile {
-    private static final Logger LOG = LogManager.getLogger(SummaryProfile.class);
+
     // Summary
     public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
@@ -305,7 +303,7 @@ public class SummaryProfile {
     private long filesystemDeleteDirCnt = 0;
     @SerializedName(value = "filesystemDeleteFileCnt")
     private long filesystemDeleteFileCnt = 0;
-    @SerializedName(value = "transactionType")    
+    @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
     public static SummaryProfile read(DataInput input) throws IOException {
