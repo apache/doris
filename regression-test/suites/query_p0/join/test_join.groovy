@@ -18,12 +18,8 @@
 suite("test_join", "query,p0") {
     sql"use test_query_db"
 
-    def tbName1 = "test"
-    def tbName2 = "baseall"
-    def tbName3 = "bigtable"
-    def empty_name = "empty"
 
-    sql"drop view if exists empty"
+    sql"drop view if exists test_join_empty_view"
     sql"create view empty as select * from baseall where k1 = 0"
 
     order_sql """select j.*, d.* from baseall j full outer join test d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
@@ -725,11 +721,11 @@ suite("test_join", "query,p0") {
 
     qt_left_anti_join_null_1 "select b.k1 from baseall b left anti join test t on b.k1 = t.k1 order by b.k1"
 
-    qt_left_anti_join_null_2 "select b.k1 from baseall b left anti join empty_name t on b.k1 = t.k1 order by b.k1"
+    qt_left_anti_join_null_2 "select b.k1 from baseall b left anti join test_join_empty_view t on b.k1 = t.k1 order by b.k1"
 
     qt_left_anti_join_null_3 "select b.k1 from baseall b left anti join test t on b.k1 > t.k2 order by b.k1"
 
-    qt_left_anti_join_null_4 "select b.k1 from baseall b left anti join empty_name t on b.k1 > t.k2 order by b.k1"
+    qt_left_anti_join_null_4 "select b.k1 from baseall b left anti join test_join_empty_view t on b.k1 > t.k2 order by b.k1"
 
     // right anti join
     for (s in right_selected){
@@ -804,7 +800,7 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_null_1 "select b.k1 from test t right anti join baseall b on b.k1 > t.k1 order by b.k1"
 
-    qt_right_anti_join_null_2 "select /*+SET_VAR(batch_size=3) */ b.k1 from empty_name t right anti join baseall b on b.k1 > t.k1 order by b.k1"
+    qt_right_anti_join_null_2 "select /*+SET_VAR(batch_size=3) */ b.k1 from test_join_empty_view t right anti join baseall b on b.k1 > t.k1 order by b.k1"
 
     // join with no join keyword
     for (s in selected){
@@ -848,23 +844,23 @@ suite("test_join", "query,p0") {
     }
 
     // join with empty table
-    qt_join_with_emptyTable1"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a join empty_name b on a.k1 = b.k1 
+    qt_join_with_emptyTable1"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    qt_join_with_emptyTable2"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a inner join empty_name b on a.k1 = b.k1 
+    qt_join_with_emptyTable2"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a inner join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    qt_join_with_emptyTable3"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a left join empty_name b on a.k1 = b.k1 
+    qt_join_with_emptyTable3"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a left join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    qt_join_with_emptyTable4"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a right join empty_name b on a.k1 = b.k1 
+    qt_join_with_emptyTable4"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a right join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    def res53 = sql"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a full outer join empty_name b on a.k1 = b.k1 
+    def res53 = sql"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a full outer join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
-    def res54 = sql"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a left join empty_name b on a.k1 = b.k1 
+    def res54 = sql"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a left join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
     check2_doris(res53, res54)
-    // qt_join_with_emptyTable5"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a cross join empty_name b on a.k1 = b.k1
+    // qt_join_with_emptyTable5"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from baseall a cross join test_join_empty_view b on a.k1 = b.k1
     //         order by 1, 2, 3, 4, 5"""
     test {
-        sql"""select a.k1, a.k2, a.k3 from baseall a left semi join empty_name b on a.k1 = b.k1 
+        sql"""select a.k1, a.k2, a.k3 from baseall a left semi join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3"""
         check{result, exception, startTime, endTime ->
             logger.info(result.toString())
@@ -872,18 +868,18 @@ suite("test_join", "query,p0") {
         }
     }
     test {
-        sql"""select b.k1, b.k2, b.k3 from baseall a right semi join empty_name b on a.k1 = b.k1 
+        sql"""select b.k1, b.k2, b.k3 from baseall a right semi join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3"""
         check{result, exception, startTime, endTime ->
             assertTrue(result.isEmpty())
         }
     }
-    def res55 = sql"""select a.k1, a.k2, a.k3 from baseall a left anti join empty_name b on a.k1 = b.k1 
+    def res55 = sql"""select a.k1, a.k2, a.k3 from baseall a left anti join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3"""
     def res56 = sql"""select k1, k2, k3 from baseall order by 1, 2, 3"""
     check2_doris(res55, res56)
     test {
-        sql"""select b.k1, b.k2, b.k3 from baseall a right anti join empty_name b on a.k1 = b.k1 
+        sql"""select b.k1, b.k2, b.k3 from baseall a right anti join test_join_empty_view b on a.k1 = b.k1 
             order by 1, 2, 3"""
         check{result, exception, startTime, endTime ->
             assertTrue(result.isEmpty())
