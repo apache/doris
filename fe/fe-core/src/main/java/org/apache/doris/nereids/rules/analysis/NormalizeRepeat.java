@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotTri
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -127,9 +128,14 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
 
         // replace the arguments of grouping scalar function to virtual slots
         // replace some complex expression to slot, e.g. `a + 1`
-        List<NamedExpression> normalizedAggOutput = context.normalizeToUseSlotRef(
-                repeat.getOutputExpressions(), this::normalizeGroupingScalarFunction);
-
+        List<NamedExpression> normalizedAggOutput = repeat.getOutputExpressions().stream()
+                .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
+                        e -> normalizeGroupingScalarFunction(context, e)))
+                .collect(Collectors.toList());
+        normalizedAggOutput = normalizedAggOutput.stream()
+                .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
+                        e -> normalizeAggFunctionChildren(context, e)))
+                .collect(Collectors.toList());
         Set<VirtualSlotReference> virtualSlotsInFunction =
                 ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
 
@@ -183,21 +189,17 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .flatMap(function -> function.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
-        // List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs
-        // .collect(repeat.getOutputExpressions());
+        List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs.collect(repeat.getOutputExpressions());
 
-        // ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-        //         .flatMap(function -> function.getArguments().stream().map(arg -> {
-        //             if (arg instanceof OrderExpression) {
-        //                 return arg.child(0);
-        //             } else {
-        //                 return arg;
-        //             }
-        //         }))
-        //         .collect(ImmutableSet.toImmutableSet());
-
-        Set<SlotReference> argumentsOfAggregateFunction = ExpressionUtils.collect(
-                repeat.getOutputExpressions(), expr -> expr.getClass().equals(SlotReference.class));
+        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
+                .collect(ImmutableSet.toImmutableSet());
 
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
                 // grouping sets should be pushed down, e.g. grouping sets((k + 1)),
@@ -260,6 +262,18 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             function = function.withChildren(normalizedRealExpressions);
             // eliminate GroupingScalarFunction and replace to VirtualSlotReference
             return Repeat.generateVirtualSlotByFunction(function);
+        } else {
+            return expr;
+        }
+    }
+
+    private Expression normalizeAggFunctionChildren(NormalizeToSlotContext context, Expression expr) {
+        if (expr instanceof AggregateFunction) {
+            AggregateFunction function = (AggregateFunction) expr;
+            List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
+            function = function.withChildren(normalizedRealExpressions);
+            // eliminate GroupingScalarFunction and replace to VirtualSlotReference
+            return function;
         } else {
             return expr;
         }
