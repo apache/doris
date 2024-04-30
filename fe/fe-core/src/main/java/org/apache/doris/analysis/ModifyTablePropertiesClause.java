@@ -315,6 +315,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES (");

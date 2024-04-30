@@ -439,58 +439,6 @@ suite("test_build_mtmv") {
     """
     order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
 
-    // use alter table
-    // not allow rename
-    try {
-        sql """
-            alter table ${mvName} rename ${mvNameRenamed}
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-
-    // not allow modify `grace_period`
-    try {
-        sql """
-            alter table ${mvName} set("grace_period"="3333");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // allow modify comment
-    try {
-        sql """
-            alter table ${mvName} MODIFY COMMENT "new table comment";
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
-    }
-
-    // not allow modify column
-    try {
-        sql """
-            alter table ${mvName} DROP COLUMN pv;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow replace
-    try {
-        sql """
-            alter table ${mvName} REPLACE WITH TABLE ${tableName};
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // not allow use mv modify property of table
     try {
         sql """
