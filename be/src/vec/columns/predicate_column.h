@@ -49,18 +49,18 @@ private:
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
-        StringRef refs[sel_size];
+        _refs.resize(sel_size);
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringRef&>(data[n]);
-            refs[i].data = sv.data;
-            refs[i].size = sv.size;
+            _refs[i].data = sv.data;
+            _refs[i].size = sv.size;
             length += sv.size;
         }
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
-        res_ptr->insert_many_strings_without_reserve(refs, sel_size);
+        res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
     template <typename Y, template <typename> typename ColumnContainer>
@@ -477,6 +477,7 @@ private:
     Container data;
     // manages the memory for slice's data(For string type)
     std::unique_ptr<Arena> _arena;
+    std::vector<StringRef> _refs;
 };
 
 } // namespace doris::vectorized
