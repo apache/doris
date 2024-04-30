@@ -102,7 +102,7 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
             if ((!columnName.toLowerCase().equals(colDb))
                     && (!columnName.toLowerCase().equals(colName))
                     && (!columnName.toLowerCase().equals(colProcName))) {
-                throw new AnalysisException("Only supports filter  " + colProcName + ", "
+                throw new AnalysisException("Only supports filter " + colProcName + ", "
                         + colName + "," + colProcName + " with equalTo or LIKE");
             }
             if (columnName.toLowerCase().equals(colDb)) {

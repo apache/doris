@@ -76,7 +76,7 @@ suite("test_plsql_show_procedure_fail") {
          log.info("{}", t.toString())
          if (t instanceof java.sql.SQLException) {
              String result = t.toString()
-             String expected = "java.sql.SQLException: errCode = 2, detailMessage = Only supports filter  procedurename, name,procedurename with equalTo or LIKE";
+             String expected = "java.sql.SQLException: errCode = 2, detailMessage = Only supports filter procedurename, name,procedurename with equalTo or LIKE";
              boolean check = result.equals(expected);
              assertTrue(check)
          } else {
