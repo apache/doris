@@ -845,8 +845,25 @@ class Config {
         }
     }
 
+    boolean fetchRunMode() {
+        if (isCloudMode == RunMode.UNKNOWN) {
+            try {
+                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            } catch (Throwable t) {
+                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+            }
+        }
+        return isCloudMode == RunMode.CLOUD
+
+    }
+
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getRootConnection() {
+        return DriverManager.getConnection(jdbcUrl, 'root', '')
     }
 
     Connection getConnectionByDbName(String dbName) {

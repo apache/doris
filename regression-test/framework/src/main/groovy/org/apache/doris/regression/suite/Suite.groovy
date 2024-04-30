@@ -1124,12 +1124,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        logger.info("get mode {}", context.config.isCloudMode)
-        if (context.config.isCloudMode == RunMode.UNKNOWN) {
-            context.config.isCloudMode = getFeConfig("cloud_unique_id").isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
-            logger.info("set runmode : {} and cache it", context.config.isCloudMode)
-        }
-        return context.config.isCloudMode == RunMode.CLOUD
+        return context.config.fetchRunMode()
     }
 
     boolean enableStoragevault() {
@@ -1137,9 +1132,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        def ret = sql_return_maparray_impl("SHOW FRONTEND CONFIG LIKE '${key}'", context.getConnection('root', ''))
-        logger.info("ret = {}", ret)
-        return ret[0].Value
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
 
     void setFeConfig(String key, Object value) {
