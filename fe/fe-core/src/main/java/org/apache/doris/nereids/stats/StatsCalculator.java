@@ -769,7 +769,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // rows newly updated after last analyze
         long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();
-        boolean hasUnknownCol = false;
+        boolean hasUnknownKeyCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
             OlapScan olapScan = (OlapScan) catalogRelation;
@@ -782,6 +782,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     catalogRelation.getTable().getName());
         }
         for (SlotReference slotReference : slotSet) {
+            boolean usedAsKey = false;
+            if (ConnectContext.get() != null && slotReference.getColumn().isPresent()
+                    && ConnectContext.get().getStatementContext() != null) {
+                usedAsKey = ConnectContext.get().getStatementContext().isKeyColumn(slotReference.getColumn().get());
+            }
             String colName = slotReference.getColumn().isPresent()
                     ? slotReference.getColumn().get().getName()
                     : slotReference.getName();
@@ -804,7 +809,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count + deltaRowCount);
             } else {
-                hasUnknownCol = true;
+                if (usedAsKey) {
+                    hasUnknownKeyCol = true;
+                }
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
                 if (deltaRowCount > 0) {
@@ -818,10 +825,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
-                hasUnknownCol = true;
+                hasUnknownKeyCol = true;
             }
         }
-        if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+        if (hasUnknownKeyCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
         return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);
