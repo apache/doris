@@ -131,7 +131,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         }
 
-        if (current->isFirst()) {
+        if (current->is_first()) {
             if (current->block_ptr() != nullptr) {
                 current->block_ptr()->swap(*output_block);
                 if (_pipeline_engine_enabled) {
@@ -174,6 +174,22 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                     num_columns, merged_columns.size());
         }
 
+        _indexs.clear();
+        _block_addrs.clear();
+        _column_addrs.clear();
+        _indexs.reserve(_batch_size);
+        _block_addrs.reserve(_batch_size);
+
+        auto do_insert = [&]() {
+            _column_addrs.resize(_indexs.size());
+            for (size_t i = 0; i < num_columns; ++i) {
+                for (size_t j = 0; j < _indexs.size(); j++) {
+                    _column_addrs[j] = _block_addrs[j]->get_by_position(i).column.get();
+                }
+                merged_columns[i]->insert_from_multi_column(_column_addrs, _indexs);
+            }
+        };
+
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
         while (!_priority_queue.empty()) {
@@ -183,18 +199,19 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (_offset > 0) {
                 _offset--;
             } else {
-                for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
-                }
+                _indexs.emplace_back(current->pos);
+                _block_addrs.emplace_back(current->block_ptr());
                 ++merged_rows;
             }
 
             // In pipeline engine, needs to check if the sender is readable before the next reading.
             if (!next_heap(current)) {
+                do_insert();
                 return Status::OK();
             }
 
             if (merged_rows == _batch_size) {
+                do_insert();
                 break;
             }
         }
@@ -215,7 +232,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
 }
 
 bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
-    if (!current->isLast()) {
+    if (!current->is_last()) {
         current->next();
         _priority_queue.push(current);
     } else if (_pipeline_engine_enabled) {
