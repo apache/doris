@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -34,11 +30,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;

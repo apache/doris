@@ -17,26 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 

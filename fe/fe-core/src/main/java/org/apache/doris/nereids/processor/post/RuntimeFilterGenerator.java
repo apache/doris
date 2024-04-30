@@ -690,12 +690,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     /**
      * Get all relation node from current root plan.
      */
-    public static void getAllScanInfo(PhysicalPlan root, Set<PhysicalRelation> scans) {
+    public static void getAllScanInfo(Plan root, Set<PhysicalRelation> scans) {
         if (root instanceof PhysicalRelation) {
             scans.add((PhysicalRelation) root);
         } else {
-            for (Object child : root.children()) {
-                getAllScanInfo((PhysicalPlan) child, scans);
+            for (Plan child : root.children()) {
+                getAllScanInfo(child, scans);
             }
         }
     }

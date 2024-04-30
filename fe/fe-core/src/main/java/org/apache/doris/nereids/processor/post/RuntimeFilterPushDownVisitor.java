@@ -281,8 +281,13 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         for (Expression prob : probExprList) {
-            pushed |= leftNode.accept(this, ctx.withNewProbeExpression(prob));
-            pushed |= rightNode.accept(this, ctx.withNewProbeExpression(prob));
+            PushDownContext ctxForChild = prob.equals(ctx.probeExpr) ? ctx : ctx.withNewProbeExpression(prob);
+            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)) {
+                pushed |= leftNode.accept(this, ctxForChild);
+            }
+            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)) {
+                pushed |= rightNode.accept(this, ctxForChild);
+            }
         }
         return pushed;
     }
@@ -307,22 +312,17 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         boolean pushed = false;
-        pushed |= join.left().accept(this, ctx);
-        pushed |= join.right().accept(this, ctx);
+        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)) {
+            pushed |= join.left().accept(this, ctx);
+        }
+        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)) {
+            pushed |= join.right().accept(this, ctx);
+        }
         return pushed;
     }
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, PushDownContext ctx) {
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(ctx.probeExpr);
-        if (probeSlot == null) {
-            return false;
-        }
-        if (! RuntimeFilterGenerator.checkProbeSlot(ctx.rfContext, probeSlot)) {
-            return false;
-        }
-        PhysicalRelation scan = ctx.rfContext.getAliasTransferPair(probeSlot).first;
-        Preconditions.checkState(scan != null, "scan is null");
         // project ( A+1 as x)
         // probeExpr: abs(x) => abs(A+1)
         PushDownContext ctxProjectProbeExpr = ctx;
@@ -349,9 +349,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
 
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(project, scan)) {
-            return false;
-        }
         return project.child().accept(this, ctxProjectProbeExpr);
     }
 

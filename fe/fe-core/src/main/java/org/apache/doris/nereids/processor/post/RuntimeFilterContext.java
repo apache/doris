@@ -131,6 +131,8 @@ public class RuntimeFilterContext {
 
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
+    private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
+
     /**
      * info about expand rf by inner join
      */
@@ -156,6 +158,23 @@ public class RuntimeFilterContext {
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
+    }
+
+    public void setRelationsUsedByPlan(Plan plan, Set<PhysicalRelation> relations) {
+        relationsUsedByPlan.put(plan, relations);
+    }
+
+    /**
+     * return true, if the relation is in the subtree
+     */
+    public boolean isRelationUseByPlan(Plan plan, PhysicalRelation relation) {
+        Set<PhysicalRelation> relations = relationsUsedByPlan.get(plan);
+        if (relations == null) {
+            relations = Sets.newHashSet();
+            RuntimeFilterGenerator.getAllScanInfo(plan, relations);
+            relationsUsedByPlan.put(plan, relations);
+        }
+        return relations.contains(relation);
     }
 
     public SessionVariable getSessionVariable() {
