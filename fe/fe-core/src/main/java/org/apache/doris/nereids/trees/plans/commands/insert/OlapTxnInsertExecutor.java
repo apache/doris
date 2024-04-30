@@ -92,7 +92,12 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
 
     @Override
     public long getTimeout() {
-        return Math.min(super.getTimeout(), ctx.getTxnEntry().getTimeout());
+        long timeout = Math.min(super.getTimeout(), ctx.getTxnEntry().getTimeout());
+        if (timeout <= 0) {
+            LOG.warn("The transaction {} is already timeout for {} seconds", this.txnId, Math.abs(timeout));
+            throw new AnalysisException("The transaction is already timeout");
+        }
+        return timeout;
     }
 
     @Override

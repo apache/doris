@@ -62,8 +62,6 @@ suite("txn_insert") {
     def txnInsert = { sqls ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            statement.execute("SET enable_nereids_planner = true")
-            statement.execute("SET enable_fallback_to_original_planner = false")
             statement.execute("begin")
             statement.execute(sqls[0])
 

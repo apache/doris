@@ -23,9 +23,6 @@ import java.util.concurrent.TimeUnit
 
 suite("txn_insert_with_schema_change") {
     def table = "txn_insert_with_schema_change"
-    sql " SET enable_nereids_planner = true; "
-    sql " SET enable_fallback_to_original_planner = false; "
-
     def dbName = "regression_test_insert_p0"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
@@ -56,8 +53,6 @@ suite("txn_insert_with_schema_change") {
     def txnInsert = { sqls ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            statement.execute("SET enable_nereids_planner = true")
-            statement.execute("SET enable_fallback_to_original_planner = false")
             statement.execute("begin")
             statement.execute(sqls[0])
 

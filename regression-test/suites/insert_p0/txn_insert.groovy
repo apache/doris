@@ -44,7 +44,6 @@ suite("txn_insert") {
 
     for (def use_nereids_planner : [false, true]) {
         sql " SET enable_nereids_planner = $use_nereids_planner; "
-        sql " SET enable_fallback_to_original_planner = false; "
 
         sql """ DROP TABLE IF EXISTS $table """
         sql """
@@ -569,8 +568,6 @@ suite("txn_insert") {
             Thread thread = new Thread(() -> {
                 try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
                      Statement statement = conn.createStatement()) {
-                    statement.execute("SET enable_nereids_planner = true")
-                    statement.execute("SET enable_fallback_to_original_planner = false")
                     statement.execute("begin");
                     statement.execute("insert into ${table}_0 select * from ${table}_1;")
                     txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
@@ -597,13 +594,12 @@ suite("txn_insert") {
         // 17. txn insert does not commit or rollback by user, and txn is aborted because timeout
         // TODO find a way to check be txn_manager is also cleaned
         if (use_nereids_planner) {
+            // 1. use show transaction command to check
             CountDownLatch insertLatch = new CountDownLatch(1)
             def txn_id = 0
             Thread thread = new Thread(() -> {
                 try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
                      Statement statement = conn.createStatement()) {
-                    statement.execute("SET enable_nereids_planner = true")
-                    statement.execute("SET enable_fallback_to_original_planner = false")
                     statement.execute("SET insert_timeout = 5")
                     statement.execute("SET query_timeout = 5")
                     statement.execute("begin");
@@ -629,6 +625,53 @@ suite("txn_insert") {
                 }
             }
             assertEquals("ABORTED", txn_state)
+
+            // after the txn is timeout: do insert/ commit/ rollback
+            try {
+                sql "SET insert_timeout = 5"
+                sql "SET query_timeout = 5"
+                // 1. do insert after the txn is timeout
+                try {
+                    sql "begin"
+                    sql """ insert into ${table}_0 select * from ${table}_1; """
+                    sleep(10000)
+                    sql """ insert into ${table}_0 select * from ${table}_1; """
+                    assertFalse(true, "should not reach here")
+                } catch (Exception e) {
+                    logger.info("exception: " + e)
+                    assertTrue(e.getMessage().contains("The transaction is already timeout"))
+                } finally {
+                    try {
+                        sql "rollback"
+                    } catch (Exception e) {
+
+                    }
+                }
+                // 2. commit after the txn is timeout, the transaction_clean_interval_second = 30
+                /*try {
+                    sql "begin"
+                    sql """ insert into ${table}_0 select * from ${table}_1; """
+                    sleep(10000)
+                    sql "commit"
+                    assertFalse(true, "should not reach here")
+                } catch (Exception e) {
+                    logger.info("exception: " + e)
+                    assertTrue(e.getMessage().contains("is already aborted. abort reason: timeout by txn manager"))
+                }*/
+                // 3. rollback after the txn is timeout
+                /*try {
+                    sql "begin"
+                    sql """ insert into ${table}_0 select * from ${table}_1; """
+                    sleep(10000)
+                    sql "rollback"
+                    assertFalse(true, "should not reach here")
+                } catch (Exception e) {
+                    logger.info("exception: " + e)
+                    assertTrue(e.getMessage().contains("transaction not found"))
+                }*/
+            } finally {
+
+            }
         }
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
@@ -71,8 +72,13 @@ public class TxnDeleteJob extends DeleteJob {
 
     @Override
     public long getTimeoutMs() {
-        long timeout = super.getTimeoutMs();
-        return Math.min(timeout, ConnectContext.get().getTxnEntry().getTimeout());
+        long timeout = Math.min(super.getTimeoutMs(), ConnectContext.get().getTxnEntry().getTimeout() * 1000);
+        if (timeout <= 0) {
+            LOG.warn("The transaction {} is already timeout for {} microseconds", this.transactionId,
+                    Math.abs(timeout));
+            throw new AnalysisException("The transaction is already timeout");
+        }
+        return timeout;
     }
 
     @Override

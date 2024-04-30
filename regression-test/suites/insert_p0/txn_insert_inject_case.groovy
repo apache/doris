@@ -23,9 +23,6 @@ import java.sql.Statement
 suite("txn_insert_inject_case", "nonConcurrent") {
     def table = "txn_insert_inject_case"
 
-    sql " SET enable_nereids_planner = true; "
-    sql " SET enable_fallback_to_original_planner = false; "
-
     for (int j = 0; j < 3; j++) {
         def tableName = table + "_" + j
         sql """ DROP TABLE IF EXISTS $tableName """
@@ -95,9 +92,6 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     long txn_id = 0
     try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
         Statement statement = conn.createStatement()) {
-        statement.execute("SET enable_nereids_planner = true")
-        statement.execute("SET enable_fallback_to_original_planner = false")
-
         statement.execute("begin");
         statement.execute("insert into ${table}_0 select * from ${table}_1;")
         txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
