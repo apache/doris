@@ -152,44 +152,37 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
     std::string cancel_str = "";
     if (is_minor_gc) {
         cancel_str = fmt::format(
-                "try cancel memory overcommit query in workload group when MinorGC happens, group "
-                "id:{}, "
-                "name:{}, used:{}, limit:{}, "
+                "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
                 "backend:{}.",
                 _id, _name, MemTracker::print_bytes(used_memory),
                 MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
     } else {
         if (_enable_memory_overcommit) {
             cancel_str = fmt::format(
-                    "workload group release overcommit memory when FullGC happens which means sys "
-                    "memory is not enough, group id:{}, "
-                    "name:{}, used:{}, "
-                    "limit:{}, "
-                    "backend:{}.",
+                    "FullGC release wg overcommit mem, wg id:{}, name:{}, "
+                    "used:{},limit:{},backend:{}.",
                     _id, _name, MemTracker::print_bytes(used_memory),
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
-                    "memory hard limit workload group release overcommit memory, group id:{}, "
-                    "name:{}, used:{}, "
-                    "limit:{}, "
+                    "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
                     "backend:{}.",
                     _id, _name, MemTracker::print_bytes(used_memory),
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
-    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
-                                                  const std::string& label) {
+    std::string process_mem_usage_str = MemTrackerLimiter::process_mem_log_str();
+    auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
+                                                                         const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. execute again after "
-                "enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption), process_mem_usage_str);
     };
-    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. execute again after "
-                "enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+    auto cancel_top_usage_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
+                                                                    const std::string& label) {
+        return fmt::format("{} cancel top memory used tracker <{}> consumption {}. details:{}",
+                           cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                           process_mem_usage_str);
     };
 
     LOG(INFO) << fmt::format(
