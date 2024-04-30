@@ -47,8 +47,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalDistribute[DistributionSpecGather]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]

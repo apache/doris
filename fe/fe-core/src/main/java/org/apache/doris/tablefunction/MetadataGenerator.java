@@ -727,7 +727,7 @@ public class MetadataGenerator {
                 }
                 MTMV mv = (MTMV) table;
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("mv: " + mv);
+                    LOG.debug("mv: " + mv.toInfoString());
                 }
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));

@@ -613,8 +613,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
 ------------------------PhysicalOlapScan[t1]
 ------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !sql5_2 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -639,8 +638,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
 ------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalOlapScan[t1]
 

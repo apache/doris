@@ -529,11 +529,9 @@ Status Compaction::do_inverted_index_compaction() {
     // src index files
     // format: rowsetId_segmentId
     std::vector<std::string> src_index_files(src_segment_num);
-    std::vector<RowsetId> src_rowset_ids;
     for (const auto& m : src_seg_to_id_map) {
         std::pair<RowsetId, uint32_t> p = m.first;
         src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
-        src_rowset_ids.push_back(p.first);
     }
 
     // dest index files
@@ -671,9 +669,8 @@ Status Compaction::do_inverted_index_compaction() {
         // if index properties are different, index compaction maybe needs to be skipped.
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
-        for (const auto& rowset_id : src_rowset_ids) {
-            auto rowset_ptr = _tablet->get_rowset(rowset_id);
-            const auto* tablet_index = rowset_ptr->tablet_schema()->get_inverted_index(col);
+        for (const auto& rowset : _input_rowsets) {
+            const auto* tablet_index = rowset->tablet_schema()->get_inverted_index(col);
             const auto& properties = tablet_index->properties();
             if (!first_properties.has_value()) {
                 first_properties = properties;

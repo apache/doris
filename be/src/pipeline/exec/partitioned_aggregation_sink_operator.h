@@ -17,7 +17,7 @@
 
 #pragma once
 #include "aggregation_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -294,7 +294,7 @@ public:
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {
 public:
     PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                const DescriptorTbl& descs);
+                                const DescriptorTbl& descs, bool require_bucket_distribution);
     ~PartitionedAggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",

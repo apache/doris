@@ -17,19 +17,20 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
-#include <string_view>
+#include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
-#include "exec/operator.h"
-#include "pipeline.h"
-#include "runtime/workload_group/workload_group.h"
+#include "pipeline/dependency.h"
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -116,59 +117,35 @@ inline bool is_final_state(PipelineTaskState idx) {
 
 class TaskQueue;
 class PriorityTaskQueue;
+class Dependency;
 
-// The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, OperatorPtr& sink,
-                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
+    PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                 std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                         std::shared_ptr<Dependency>>>
+                         le_state_map,
+                 int task_idx);
 
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
-                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
-    virtual ~PipelineTask() = default;
+    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
+                   QueryContext* query_ctx);
 
-    virtual Status prepare(RuntimeState* state);
-
-    virtual Status execute(bool* eos);
+    Status execute(bool* eos);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close(Status exec_status);
+    Status close(Status exec_status);
 
-    void put_in_runnable_queue() {
-        _schedule_time++;
-        _wait_worker_watcher.start();
-    }
-    void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    PipelineTaskState get_state() const { return _cur_state; }
-    void set_state(PipelineTaskState state);
-
-    virtual bool is_pending_finish() {
-        bool source_ret = _source->is_pending_finish();
-        if (source_ret) {
+    Status close_sink(Status exec_status);
+    bool source_can_read() {
+        if (_dry_run) {
             return true;
-        } else {
-            this->set_src_pending_finish_time();
         }
-
-        bool sink_ret = _sink->is_pending_finish();
-        if (sink_ret) {
-            return true;
-        } else {
-            this->set_dst_pending_finish_time();
-        }
-        return false;
+        return _read_blocked_dependency() == nullptr;
     }
 
-    virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
-
-    virtual bool runtime_filters_are_ready_or_timeout() {
-        return _source->runtime_filters_are_ready_or_timeout();
-    }
-
-    virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
-
-    virtual void finalize() {}
+    bool sink_can_write() { return _write_blocked_dependency() == nullptr; }
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -189,11 +166,62 @@ public:
         _previous_schedule_id = id;
     }
 
-    virtual bool has_dependency();
+    void finalize();
 
-    OperatorPtr get_root() { return _root; }
+    bool is_finished() const { return _finished.load(); }
 
-    virtual std::string debug_string();
+    std::string debug_string();
+
+    bool is_pending_finish() { return _finish_blocked_dependency() != nullptr; }
+
+    std::shared_ptr<BasicSharedState> get_source_shared_state() {
+        return _op_shared_states.contains(_source->operator_id())
+                       ? _op_shared_states[_source->operator_id()]
+                       : nullptr;
+    }
+
+    void inject_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
+        if (!shared_state) {
+            return;
+        }
+        // Shared state is created by upstream task's sink operator and shared by source operator of this task.
+        for (auto& op : _operators) {
+            if (shared_state->related_op_ids.contains(op->operator_id())) {
+                _op_shared_states.insert({op->operator_id(), shared_state});
+                return;
+            }
+        }
+        if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
+            DCHECK(_sink_shared_state == nullptr);
+            _sink_shared_state = shared_state;
+        }
+    }
+
+    std::shared_ptr<BasicSharedState> get_sink_shared_state() { return _sink_shared_state; }
+
+    BasicSharedState* get_op_shared_state(int id) {
+        if (!_op_shared_states.contains(id)) {
+            return nullptr;
+        }
+        return _op_shared_states[id].get();
+    }
+
+    void wake_up();
+
+    DataSinkOperatorXPtr sink() const { return _sink; }
+
+    OperatorXPtr source() const { return _source; }
+
+    OperatorXs operatorXs() { return _operators; }
+
+    int task_id() const { return _index; };
+
+    void clear_blocking_state() {
+        if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
+            _blocked_dep->set_ready();
+            _blocked_dep = nullptr;
+        }
+    }
 
     void set_task_queue(TaskQueue* task_queue);
     TaskQueue* get_task_queue() { return _task_queue; }
@@ -214,47 +242,26 @@ public:
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
 
-    void set_begin_execute_time() {
-        if (!_is_first_time_to_execute) {
-            _begin_execute_time = _pipeline_task_watcher.elapsed_time();
-            _is_first_time_to_execute = true;
+    bool has_dependency() {
+        _blocked_dep = _execution_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            static_cast<Dependency*>(_blocked_dep)->start_watcher();
+            return true;
         }
+        return false;
     }
 
-    void set_eos_time() {
-        if (!_is_eos) {
-            _eos_time = _pipeline_task_watcher.elapsed_time();
-            _is_eos = true;
-        }
+    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
+
+    void put_in_runnable_queue() {
+        _schedule_time++;
+        _wait_worker_watcher.start();
     }
 
-    void set_src_pending_finish_time() {
-        if (!_is_src_pending_finish_over) {
-            _src_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
-            _is_src_pending_finish_over = true;
-        }
-    }
-
-    void set_dst_pending_finish_time() {
-        if (!_is_dst_pending_finish_over) {
-            _dst_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
-            _is_dst_pending_finish_over = true;
-        }
-    }
-
-    virtual void set_close_pipeline_time() {
-        if (!_is_close_pipeline) {
-            _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
-            _is_close_pipeline = true;
-            COUNTER_SET(_close_pipeline_timer, _close_pipeline_time);
-        }
-    }
-
+    void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
+    PipelineTaskState get_state() const { return _cur_state; }
+    void set_state(PipelineTaskState state);
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
-
-    void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
-
-    virtual bool is_pipelineX() const { return false; }
 
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
@@ -289,16 +296,56 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
-protected:
-    void _finish_p_dependency() {
-        for (const auto& p : _pipeline->_parents) {
-            p.second.lock()->finish_one_dependency(p.first, _previous_schedule_id);
+private:
+    friend class RuntimeFilterDependency;
+    Dependency* _write_blocked_dependency() {
+        for (auto* op_dep : _write_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
         }
+        return nullptr;
     }
 
-    virtual Status _open();
-    virtual void _init_profile();
-    virtual void _fresh_profile_counter();
+    Dependency* _finish_blocked_dependency() {
+        for (auto* fin_dep : _finish_dependencies) {
+            _blocked_dep = fin_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
+    Dependency* _read_blocked_dependency() {
+        for (auto* op_dep : _read_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
+    Dependency* _runtime_filter_blocked_dependency() {
+        for (auto* op_dep : _filter_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
+    Status _extract_dependencies();
+    void _init_profile();
+    void _fresh_profile_counter();
+    Status _open();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -342,12 +389,10 @@ protected:
     RuntimeProfile::Counter* _block_by_sink_counts = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;
     MonotonicStopWatch _wait_source_watcher;
-    RuntimeProfile::Counter* _wait_source_timer = nullptr;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer = nullptr;
     RuntimeProfile::Counter* _wait_bf_counts = nullptr;
     MonotonicStopWatch _wait_sink_watcher;
-    RuntimeProfile::Counter* _wait_sink_timer = nullptr;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer = nullptr;
     RuntimeProfile::Counter* _wait_dependency_counts = nullptr;
@@ -356,43 +401,34 @@ protected:
     RuntimeProfile::Counter* _yield_counts = nullptr;
     RuntimeProfile::Counter* _core_change_times = nullptr;
 
-    // The monotonic time of the entire lifecycle of the pipelinetask, almost synchronized with the pipfragmentctx
-    // There are several important time points:
-    // 1 first time pipelinetask to execute
-    // 2 task eos
-    // 3 src pending finish over
-    // 4 dst pending finish over
-    // 5 close pipeline time, we mark this beacause pending finish state may change
     MonotonicStopWatch _pipeline_task_watcher;
-    // time 1
-    bool _is_first_time_to_execute = false;
-    RuntimeProfile::Counter* _begin_execute_timer = nullptr;
-    int64_t _begin_execute_time = 0;
-    // time 2
-    bool _is_eos = false;
-    RuntimeProfile::Counter* _eos_timer = nullptr;
-    int64_t _eos_time = 0;
-    //time 3
-    bool _is_src_pending_finish_over = false;
-    RuntimeProfile::Counter* _src_pending_finish_over_timer = nullptr;
-    int64_t _src_pending_finish_over_time = 0;
-    // time 4
-    bool _is_dst_pending_finish_over = false;
-    RuntimeProfile::Counter* _dst_pending_finish_over_timer = nullptr;
-    int64_t _dst_pending_finish_over_time = 0;
-    // time 5
-    bool _is_close_pipeline = false;
-    RuntimeProfile::Counter* _close_pipeline_timer = nullptr;
-    int64_t _close_pipeline_time = 0;
 
-    RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
+    OperatorXs _operators; // left is _source, right is _root
+    OperatorXPtr _source;
+    OperatorXPtr _root;
+    DataSinkOperatorXPtr _sink;
 
-private:
-    Operators _operators; // left is _source, right is _root
-    OperatorPtr _source;
-    OperatorPtr _root;
-    OperatorPtr _sink;
+    std::vector<Dependency*> _read_dependencies;
+    std::vector<Dependency*> _write_dependencies;
+    std::vector<Dependency*> _finish_dependencies;
+    std::vector<Dependency*> _filter_dependencies;
+
+    // All shared states of this pipeline task.
+    std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
+    std::shared_ptr<BasicSharedState> _sink_shared_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
+            _le_state_map;
+    int _task_idx;
+    bool _dry_run = false;
+
+    Dependency* _blocked_dep = nullptr;
+
+    Dependency* _execution_dep = nullptr;
+
+    std::atomic<bool> _finished {false};
+    std::mutex _release_lock;
 
     std::atomic<bool> _running {false};
 };
+
 } // namespace doris::pipeline

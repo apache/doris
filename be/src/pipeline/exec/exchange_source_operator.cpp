@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exprs/vexpr_context.h"
@@ -29,16 +30,6 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, SourceOperator)
-
-bool ExchangeSourceOperator::can_read() {
-    return _node->_stream_recvr->ready_to_read();
-}
-
-bool ExchangeSourceOperator::is_pending_finish() const {
-    return false;
-}
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
@@ -149,6 +140,11 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer is_eos([&]() {
+        if (*eos) {
+            local_state.stream_recvr->set_sink_dep_always_ready();
+        }
+    });
     SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(

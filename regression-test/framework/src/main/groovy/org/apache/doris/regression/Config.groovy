@@ -69,13 +69,13 @@ class Config {
     public String realDataPath
     public String cacheDataPath
     public boolean enableCacheData
-    public boolean enableStorageVault
     public String pluginPath
     public String sslCertificatePath
     public String dorisComposePath
     public String image
     public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
+    public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
 
     public String testGroups
@@ -164,7 +164,6 @@ class Config {
             String realDataPath,
             String cacheDataPath,
             Boolean enableCacheData,
-            Boolean enableStorageVault,
             String testGroups,
             String excludeGroups,
             String testSuites, 
@@ -217,7 +216,6 @@ class Config {
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
         this.enableCacheData = enableCacheData
-        this.enableStorageVault = enableStorageVault
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -272,11 +270,11 @@ class Config {
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, config.enableCacheData.toString()))
-        config.enableStorageVault = Boolean.parseBoolean(cmd.getOptionValue(enableStorageVaultOpt, config.enableStorageVault.toString()))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -496,7 +494,6 @@ class Config {
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
             configToBoolean(obj.enableCacheData),
-            configToBoolean(obj.enableStorageVault),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -532,6 +529,7 @@ class Config {
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
@@ -719,11 +717,6 @@ class Config {
         if (config.enableCacheData == null) {
             config.enableCacheData = true
             log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
-        }
-
-        if (config.enableStorageVault == null) {
-            config.enableStorageVault = true
-            log.info("Set enableStorageVault to '${config.enableStorageVault}' because not specify.".toString())
         }
 
         if (config.pluginPath == null) {

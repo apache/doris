@@ -48,7 +48,7 @@ public class CacheHotspotManagerUtils {
             FeConstants.INTERNAL_DB_NAME, FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
     // TODO(yuejing): 如何加字段
     private static final String CREATE_CACHE_TABLE =
-            "create table " + TABLE_NAME + " IF NOT EXISTS (\n"
+            "create table " + TABLE_NAME + " (\n"
                 + "    cluster_id varchar(65530),\n"
                 + "    backend_id bigint,\n"
                 + "    table_id bigint,\n"

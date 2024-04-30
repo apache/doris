@@ -474,6 +474,13 @@ DECLARE_mInt32(compaction_task_num_per_fast_disk);
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
 
+// Not compact the invisible versions, but with some limitations:
+// if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
+// if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
+DECLARE_mInt32(compaction_keep_invisible_version_timeout_sec);
+DECLARE_mInt32(compaction_keep_invisible_version_min_count);
+DECLARE_mInt32(compaction_keep_invisible_version_max_count);
+
 // Threshold to logging compaction trace, in seconds.
 DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
@@ -715,6 +722,9 @@ DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 DECLARE_Int32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_Int32(high_priority_flush_thread_num_per_store);
+// number of threads = min(flush_thread_num_per_store * num_store,
+//                         max_flush_thread_num_per_cpu * num_cpu)
+DECLARE_Int32(max_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1022,6 +1032,7 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
+DECLARE_mBool(enable_read_cache_file_directly);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1070,9 +1081,8 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt64(s3_write_buffer_size);
-DECLARE_mInt32(s3_task_check_interval);
-// The timeout config for S3 buffer allocation
-DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
+// Log interval when doing s3 upload task
+DECLARE_mInt32(s3_file_writer_log_interval_second);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
@@ -1291,10 +1301,27 @@ DECLARE_mInt64(hive_sink_max_file_size);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
+// http scheme in S3Client to use. E.g. http or https
+DECLARE_String(s3_client_http_scheme);
+
 // enable injection point in regression-test
 DECLARE_mBool(enable_injection_point);
 
 DECLARE_mBool(ignore_schema_change_check);
+
+/** Only use in fuzzy test **/
+DECLARE_mInt64(string_overflow_size);
+
+// The min thread num for BufferedReaderPrefetchThreadPool
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
+// The max thread num for BufferedReaderPrefetchThreadPool
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
+// The min thread num for S3FileUploadThreadPool
+DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
+// The max thread num for S3FileUploadThreadPool
+DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
+// The max ratio for ttl cache's size
+DECLARE_mInt64(max_ttl_cache_ratio);
 
 #ifdef BE_TEST
 // test s3

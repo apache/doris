@@ -39,6 +39,7 @@ suite("alter_policy") {
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
             "AWS_SECRET_KEY" = "aaaa",
+            "AWS_TOKEN" = "session_token",
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
@@ -68,6 +69,10 @@ suite("alter_policy") {
 
         def alter_result_succ_7 = try_sql """
             ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_REQUEST_TIMEOUT_MS" = "7777");
+        """
+
+        def alter_result_succ_8 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_TOKEN" = "new_session_token");
         """
 
         // errCode = 2, detailMessage = current not support modify property : AWS_REGION
@@ -112,6 +117,7 @@ suite("alter_policy") {
         // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
         // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
         // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
+        // [has_resouce_policy_alter, s3, AWS_TOKEN, ******],
         // [has_resouce_policy_alter, s3, id, {id}],
         // [has_resouce_policy_alter, s3, type, s3]
         // [has_resouce_policy_alter, s3, version, {version}]]
@@ -133,6 +139,8 @@ suite("alter_policy") {
         assertEquals(show_alter_result[8][3], "10101010")
         // AWS_SECRET_KEY
         assertEquals(show_alter_result[9][3], "******")
+        // AWS_SECRET_KEY
+        assertEquals(show_alter_result[10][3], "******")
     }
 
     def check_alter_resource_result_with_policy = { resource_name ->
@@ -151,6 +159,7 @@ suite("alter_policy") {
         // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
         // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
         // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
+        // [has_resouce_policy_alter, s3, AWS_TOKEN, ******],
         // [has_resouce_policy_alter, s3, id, {id}],
         // [has_resouce_policy_alter, s3, type, s3]
         // [has_resouce_policy_alter, s3, version, {version}]]
@@ -172,6 +181,8 @@ suite("alter_policy") {
         assertEquals(show_alter_result[8][3], "path/to/rootaaaa")
         // AWS_SECRET_KEY
         assertEquals(show_alter_result[9][3], "******")
+        // AWS_SECRET_KEY
+        assertEquals(show_alter_result[10][3], "******")
     }
 
 

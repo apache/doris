@@ -175,19 +175,20 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
         } else {
             code = cast_as<ErrCategory::READ>(err);
         }
-        msg = fmt::format("failed to get tablet_idx, err={} tablet_id={} ", err, tablet_id);
+        msg = fmt::format("failed to get tablet_idx, err={} tablet_id={} key={}", err, tablet_id,
+                          hex(key));
         return;
     }
     if (!tablet_idx.ParseFromString(val)) [[unlikely]] {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("malformed tablet index value, key={}", hex(key));
+        msg = fmt::format("malformed tablet index value, tablet_id={} key={}", tablet_id, hex(key));
         return;
     }
     if (tablet_id != tablet_idx.tablet_id()) [[unlikely]] {
         code = MetaServiceCode::UNDEFINED_ERR;
         msg = "internal error";
         LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
-                     << " idx_pb_tablet_id=" << tablet_idx.tablet_id();
+                     << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
         return;
     }
 }

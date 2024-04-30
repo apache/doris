@@ -138,6 +138,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -595,17 +596,14 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    // FIXME: Force fallback for:
-                    //  1. group commit because nereids does not support it (see the following `isGroupCommit` variable)
-                    //  Skip force fallback for:
-                    //  1. Transaction insert because nereids support `insert into select` while legacy does not
-                    //  2. Nereids support insert into external table while legacy does not
+                    // FIXME: Force fallback for group commit because nereids does not support it
                     boolean isInsertCommand = parsedStmt != null
                             && parsedStmt instanceof LogicalPlanAdapter
                             && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     boolean isGroupCommit = (Config.wait_internal_group_commit_finish
                             || context.sessionVariable.isEnableInsertGroupCommit()) && isInsertCommand;
                     if (e instanceof NereidsException
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)
                             && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !isGroupCommit) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
@@ -727,9 +725,14 @@ public class StmtExecutor {
             }
             try {
                 ((Command) logicalPlan).run(context, this);
+            } catch (MustFallbackException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                }
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.setState(e.getQueryState());
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
@@ -737,7 +740,7 @@ public class StmtExecutor {
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
@@ -745,7 +748,7 @@ public class StmtExecutor {
             } catch (Exception e) {
                 // Maybe our bug
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
@@ -1243,6 +1246,9 @@ public class StmtExecutor {
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
             if (selectStmt != null) {
+                // Need to set origin stmt for new "parsedStmt"(which is selectStmt here)
+                // Otherwise, the log printing may result in NPE
+                selectStmt.setOrigStmt(parsedStmt.getOrigStmt());
                 setParsedStmt(selectStmt);
             }
         }
@@ -2916,6 +2922,14 @@ public class StmtExecutor {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
             if (!(parsedStmt instanceof AnalyzeStmt)) {
                 context.getState().setOk();
+            }
+            // copy into used
+            if (context.getState().getResultSet() != null) {
+                if (isProxy) {
+                    proxyShowResultSet = context.getState().getResultSet();
+                    return;
+                }
+                sendResultSet(context.getState().getResultSet());
             }
         } catch (QueryStateException e) {
             LOG.warn("", e);

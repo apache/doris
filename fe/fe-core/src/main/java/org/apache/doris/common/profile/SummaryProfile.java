@@ -103,6 +103,8 @@ public class SummaryProfile {
     public static final String FILESYSTEM_OPT_TIME = "FileSystem Operator Time";
     public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Count";
     public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Count";
+
+    public static final String FILESYSTEM_OPT_DELETE_FILE_CNT = "Delete File Count";
     public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Count";
     public static final String HMS_ADD_PARTITION_TIME = "HMS Add Partition Time";
     public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
@@ -187,6 +189,7 @@ public class SummaryProfile {
             .put(FILESYSTEM_OPT_TIME, 1)
             .put(FILESYSTEM_OPT_RENAME_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_RENAME_DIR_CNT, 2)
+            .put(FILESYSTEM_OPT_DELETE_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_DELETE_DIR_CNT, 2)
             .put(HMS_ADD_PARTITION_TIME, 1)
             .put(HMS_ADD_PARTITION_CNT, 2)
@@ -300,6 +303,9 @@ public class SummaryProfile {
     private long filesystemRenameDirCnt = 0;
     @SerializedName(value = "filesystemDeleteDirCnt")
     private long filesystemDeleteDirCnt = 0;
+    @SerializedName(value = "filesystemDeleteFileCnt")
+    private long filesystemDeleteFileCnt = 0;
+    @SerializedName(value = "transactionType")    
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
     public static SummaryProfile read(DataInput input) throws IOException {
@@ -447,6 +453,8 @@ public class SummaryProfile {
                     getPrettyCount(filesystemRenameFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_RENAME_DIR_CNT,
                     getPrettyCount(filesystemRenameDirCnt));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_FILE_CNT,
+                    getPrettyCount(filesystemDeleteFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_DIR_CNT,
                     getPrettyCount(filesystemDeleteDirCnt));
 
@@ -812,5 +820,9 @@ public class SummaryProfile {
 
     public void incDeleteDirRecursiveCnt() {
         this.filesystemDeleteDirCnt += 1;
+    }
+
+    public void incDeleteFileCnt() {
+        this.filesystemDeleteFileCnt += 1;
     }
 }

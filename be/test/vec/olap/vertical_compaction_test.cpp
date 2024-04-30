@@ -97,10 +97,6 @@ protected:
         auto engine = std::make_unique<StorageEngine>(options);
         engine_ref = engine.get();
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
-        io::FileCacheSettings cache_setting;
-        ASSERT_TRUE(io::FileCacheFactory::instance()
-                            ->create_file_cache(absolute_dir + "/tablet_path", cache_setting)
-                            .ok());
 
         _data_dir = new DataDir(*engine_ref, absolute_dir, 100000000);
         static_cast<void>(_data_dir->init());

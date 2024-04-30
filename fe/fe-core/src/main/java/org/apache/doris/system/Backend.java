@@ -93,6 +93,8 @@ public class Backend implements Writable {
     @SerializedName("disksRef")
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
+    private Long lastPublishTaskAccumulatedNum = 0L;
+
     private String heartbeatErrMsg = "";
 
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
@@ -734,7 +736,7 @@ public class Backend implements Writable {
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", tags: " + tagMap + "]";
+                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]";
     }
 
     public String getHealthyStatus() {
@@ -929,6 +931,14 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public Long getPublishTaskLastTimeAccumulated() {
+        return this.lastPublishTaskAccumulatedNum;
+    }
+
+    public void setPublishTaskLastTimeAccumulated(Long accumulatedNum) {
+        this.lastPublishTaskAccumulatedNum = accumulatedNum;
     }
 
 }

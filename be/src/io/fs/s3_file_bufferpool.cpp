@@ -90,24 +90,6 @@ FileBuffer::~FileBuffer() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->s3_file_buffer_tracker());
     _inner_data.reset();
 }
-/**
- * 0. check if file cache holder allocated
- * 1. update the cache's type to index cache
- */
-void UploadFileBuffer::set_index_offset(size_t offset) {
-    _index_offset = offset;
-    if (_holder) {
-        bool change_to_index_cache = false;
-        for (auto iter = _holder->file_blocks.begin(); iter != _holder->file_blocks.end(); ++iter) {
-            if (iter == _cur_file_block) {
-                change_to_index_cache = true;
-            }
-            if (change_to_index_cache) {
-                static_cast<void>((*iter)->change_cache_type_self(FileCacheType::INDEX));
-            }
-        }
-    }
-}
 
 /**
  * 0. when there is memory preserved, directly write data to buf
@@ -222,9 +204,6 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
         size_t block_size = block->range().size();
         size_t append_size = std::min(data_remain_size, block_size);
         if (block->state() == FileBlock::State::EMPTY) {
-            if (_index_offset != 0 && block->range().right >= _index_offset) {
-                static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
-            }
             block->get_or_set_downloader();
             // Another thread may have started downloading due to a query
             // Just skip putting to cache from UploadFileBuffer
@@ -279,7 +258,7 @@ Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
     if (_type == BufferType::UPLOAD) {
         RETURN_IF_CATCH_EXCEPTION(*buf = std::make_shared<UploadFileBuffer>(
                                           std::move(_upload_cb), std::move(state), _offset,
-                                          std::move(_alloc_holder_cb), _index_offset));
+                                          std::move(_alloc_holder_cb)));
         return Status::OK();
     }
     if (_type == BufferType::DOWNLOAD) {

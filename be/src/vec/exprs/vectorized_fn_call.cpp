@@ -141,6 +141,31 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
+Status VectorizedFnCall::eval_inverted_index(
+        VExprContext* context,
+        const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+                                                     segment_v2::InvertedIndexIterator*>>&
+                colid_to_inverted_index_iter,
+        uint32_t num_rows, roaring::Roaring* bitmap) const {
+    DCHECK_GE(get_num_children(), 1);
+    if (get_child(0)->is_slot_ref()) {
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
+            iter != colid_to_inverted_index_iter.end()) {
+            const auto& pair = iter->second;
+            return _function->eval_inverted_index(context->fn_context(_fn_context_index),
+                                                  pair.first, pair.second, num_rows, bitmap);
+        } else {
+            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
+                                        column_slot_ref->column_id());
+        }
+    } else {
+        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
+                                    get_child(0)->expr_name());
+    }
+    return Status::OK();
+}
+
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      std::vector<size_t>& args) {

@@ -981,6 +981,14 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * publish version queue's size in be, report it to fe,
+     * if publish task in be exceed direct_publish_limit_number,
+     * fe will direct publish task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_version_queued_limit_number = 1000;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -1475,11 +1483,11 @@ public class Config extends ConfigBase {
     public static int default_max_query_instances = -1;
 
     /*
-     * One master daemon thread will update global partition in memory
-     * info every partition_in_memory_update_interval_secs
+     * One master daemon thread will update global partition info, include in memory and visible version
+     * info every partition_info_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static int partition_in_memory_update_interval_secs = 300;
+    public static int partition_info_update_interval_secs = 60;
 
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
@@ -1613,7 +1621,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -2694,6 +2702,40 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    /**
+     * Default number of waiting copy jobs for the whole cluster
+     */
+    @ConfField(mutable = true)
+    public static int cluster_max_waiting_copy_jobs = 100;
+
+    /**
+     * Default number of max file num for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_file_num_per_copy_into_job = 50;
+
+    /**
+     * Default number of max meta size for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_meta_size_per_copy_into_job = 51200;
+
+    // 0 means no limit
+    @ConfField(mutable = true)
+    public static int cloud_max_copy_job_per_table = 10000;
+
+    @ConfField(mutable = true)
+    public static int cloud_filter_copy_file_num_limit = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_delete_loaded_internal_stage_files = false;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_txn_conflict_error_retry_num = 5;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_into_statement_submitter_threads_num = 64;
+
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
@@ -2725,7 +2767,7 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = false;
+    public static boolean enable_cloud_warm_up_for_rebalance = true;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -2767,6 +2809,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long batch_insert_cluster_cache_hotspot_num = 50;
 
+    /**
+     * intervals between be status checks for CloudUpgradeMgr
+     */
+    @ConfField(mutable = true)
+    public static int cloud_upgrade_mgr_interval_second = 15;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_running_txn_check = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

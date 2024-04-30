@@ -148,16 +148,21 @@ public class MaterializedViewUtils {
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
-            structInfoMap.refresh(ownerGroup);
+            // Refresh struct info in current level plan from top to bottom
+            structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
+            structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
                 for (BitSet queryTableSet : queryTableSets) {
+                    // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
                     if (!materializedViewTableSet.isEmpty()
-                            && !StructInfo.containsAll(materializedViewTableSet, queryTableSet)) {
+                            && !materializedViewTableSet.equals(queryTableSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(queryTableSet, queryTableSet, ownerGroup, plan);
+                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext.getMemo(),
+                            queryTableSet, ownerGroup, plan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
@@ -198,9 +203,8 @@ public class MaterializedViewUtils {
             CascadesContext cascadesContext,
             Function<CascadesContext, Plan> planRewriter,
             Plan rewrittenPlan, Plan originPlan) {
-        List<Slot> originOutputs = originPlan.getOutput();
-        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
-            return null;
+        if (originPlan.getOutputSet().size() != rewrittenPlan.getOutputSet().size()) {
+            return rewrittenPlan;
         }
         // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
         // origin plan slot order
