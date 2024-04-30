@@ -31,50 +31,56 @@ suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
     }
 
     def tbl = 'test_schema_change_fail'
-
-    def beId = backends[0].BackendId.toLong()
-    def beHost = backends[0].Host
-    def beHttpPort = backends[0].HttpPort.toInteger()
     def injectName = 'SchemaChangeJob.process_alter_tablet.alter_fail'
+    def injectBe = null
 
     def checkReplicaBad = { ->
         def tabletId = sql_return_maparray("SHOW TABLETS FROM ${tbl}")[0].TabletId.toLong()
         def replicas = sql_return_maparray(sql_return_maparray("SHOW TABLET ${tabletId}").DetailCmd)
-        assertEquals(backends.size(), replicas.size())
+        int badReplicaNum = 0
         for (def replica : replicas) {
-            if (replica.BackendId.toLong() == beId) {
+            if (replica.BackendId.toLong() == injectBe.BackendId.toLong()) {
                 assertEquals(true, replica.IsBad.toBoolean())
+                badReplicaNum++
+            } else {
+                assertEquals(false, replica.IsBad.toBoolean())
             }
         }
+        assertEquals(1, badReplicaNum)
     }
 
     def followFe = frontends.stream().filter(fe -> !fe.IsMaster.toBoolean()).findFirst().orElse(null)
     def followFeUrl =  "jdbc:mysql://${followFe.Host}:${followFe.QueryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
     followFeUrl = context.config.buildUrlWithDb(followFeUrl, context.dbName)
 
-    sql "DROP TABLE IF EXISTS ${tbl} FORCE"
-    sql """
-        CREATE TABLE ${tbl}
-        (
-            `a` TINYINT NOT NULL,
-            `b` TINYINT NULL
-        )
-        UNIQUE KEY (`a`)
-        DISTRIBUTED BY HASH(`a`) BUCKETS 1
-        PROPERTIES
-        (
-            'replication_num' = '${backends.size()}',
-            'light_schema_change' = 'false'
-        )
-    """
-
-    sql "INSERT INTO ${tbl} VALUES (1, 2), (3, 4)"
-
     try {
-        DebugPoint.enableDebugPoint(beHost, beHttpPort, NodeType.BE, injectName)
         setFeConfig('disable_tablet_scheduler', true)
 
-        sleep(1000)
+        sleep(3000)
+
+        sql "DROP TABLE IF EXISTS ${tbl} FORCE"
+        sql """
+            CREATE TABLE ${tbl}
+            (
+                `a` TINYINT NOT NULL,
+                `b` TINYINT NULL
+            )
+            UNIQUE KEY (`a`)
+            DISTRIBUTED BY HASH(`a`) BUCKETS 1
+            PROPERTIES
+            (
+                'replication_num' = '${backends.size()}',
+                'light_schema_change' = 'false'
+            )
+        """
+
+        def injectBeId = sql_return_maparray("SHOW TABLETS FROM ${tbl}")[0].BackendId.toLong()
+        injectBe = backends.stream().filter(be -> be.BackendId.toLong() == injectBeId).findFirst().orElse(null)
+        assertNotNull(injectBe)
+
+        sql "INSERT INTO ${tbl} VALUES (1, 2), (3, 4)"
+
+        DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
         sql "ALTER TABLE ${tbl} MODIFY COLUMN b DOUBLE"
         sleep(5 * 1000)
 
@@ -87,8 +93,10 @@ suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
             checkReplicaBad()
         }
     } finally {
-        DebugPoint.disableDebugPoint(beHost, beHttpPort, NodeType.BE, injectName)
         setFeConfig('disable_tablet_scheduler', false)
+        if (injectBe != null) {
+            DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
+        }
         sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     }
 }
