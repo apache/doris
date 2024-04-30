@@ -473,7 +473,7 @@ public:
     void atomic_add(std::string_view key, int64_t to_add) override;
     // TODO: min max or and xor cmp_and_clear set_ver_value
 
-    bool decode_atomic_int(std::string_view data, int64_t *val) override;
+    bool decode_atomic_int(std::string_view data, int64_t* val) override;
 
     void remove(std::string_view key) override;
 
