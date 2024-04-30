@@ -77,12 +77,12 @@ suite("test_single_replica_compaction", "p2") {
             return out
         } 
 
-        def triggerFullCompaction = { be_host, be_http_port, table_id ->
+        def triggerSingleCompaction = { be_host, be_http_port, tablet_id ->
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run?table_id=")
-            sb.append(table_id)
-            sb.append("&compact_type=full")
+            sb.append("/api/compaction/run?tablet_id=")
+            sb.append(tablet_id)
+            sb.append("&compact_type=cumulative&remote=true")
 
             String command = sb.toString()
             logger.info(command)
@@ -149,36 +149,33 @@ suite("test_single_replica_compaction", "p2") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "3", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false" );
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false" );
         """
 
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // wait for update replica infos
-        // be.conf: update_replica_infos_interval_seconds
-        Thread.sleep(20000)
+        // be.conf: update_replica_infos_interval_seconds + 2s
+        Thread.sleep(62000)
         
         // find the master be for single replica compaction
         Boolean found = false
         String master_backend_id;
         List<String> follower_backend_id = new ArrayList<>()
-        // The test table only has one bucket with 3 replicas,
-        // and `show tablets` will return 3 different replicas with the same tablet.
+        // The test table only has one bucket with 2 replicas,
+        // and `show tablets` will return 2 different replicas with the same tablet.
         // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
         String tablet_id = tablets[0].TabletId
         def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
         logger.info("tablet: " + tablet_info)
-        def table_id = tablet_info[0].TableId
         for (def tablet in tablets) {
             String trigger_backend_id = tablet.BackendId
             def tablet_status = getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
-            def fetchFromPeerValue = tablet_status."fetch from peer"
-
-            if (found && fetchFromPeerValue.contains("-1")) {
-                logger.warn("multipe master");
-                assertTrue(false)
-            }
-            if (fetchFromPeerValue.contains("-1")) {
+            if (!tablet_status.containsKey("single replica compaction status")) {
+                if (found) {
+                    logger.warn("multipe master");
+                    assertTrue(false)
+                }
                 found = true
                 master_backend_id = trigger_backend_id
             } else {
@@ -207,15 +204,14 @@ suite("test_single_replica_compaction", "p2") {
         sql """ INSERT INTO ${tableName} VALUES (3, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (3, "b", 100); """
 
-        // trigger master be to do cum compaction
+        // trigger master be to do cumu compaction
         assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
                     "cumulative", tablet_id).contains("Success")); 
         waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
         // trigger follower be to fetch compaction result
         for (String id in follower_backend_id) {
-            assertTrue(triggerCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id],
-                    "cumulative", tablet_id).contains("Success")); 
+            assertTrue(triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id).contains("Success")); 
             waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
         }
 
@@ -223,21 +219,20 @@ suite("test_single_replica_compaction", "p2") {
         checkCompactionResult.call()
 
         sql """ INSERT INTO ${tableName} VALUES (4, "a", 100); """
-        sql """ DELETE FROM ${tableName} WHERE id = 4; """
         sql """ INSERT INTO ${tableName} VALUES (5, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (6, "a", 100); """
+        sql """ DELETE FROM ${tableName} WHERE id = 4; """
         sql """ INSERT INTO ${tableName} VALUES (7, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (8, "a", 100); """
 
-        // trigger master be to do cum compaction with delete
+        // trigger master be to do cumu compaction with delete
         assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
                     "cumulative", tablet_id).contains("Success")); 
         waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
         // trigger follower be to fetch compaction result
         for (String id in follower_backend_id) {
-            assertTrue(triggerFullCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], 
-                        table_id).contains("Success")); 
+            assertTrue(triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id).contains("Success")); 
             waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
         }
 
@@ -249,10 +244,9 @@ suite("test_single_replica_compaction", "p2") {
                     "base", tablet_id).contains("Success")); 
         waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
-        // // trigger follower be to fetch compaction result
+        // trigger follower be to fetch compaction result
         for (String id in follower_backend_id) {
-            assertTrue(triggerFullCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id],
-                        table_id).contains("Success")); 
+            assertTrue(triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id).contains("Success")); 
             waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
         }
 

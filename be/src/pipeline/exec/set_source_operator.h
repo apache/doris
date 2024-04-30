@@ -21,37 +21,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-template <bool is_intersect>
-class SetSourceOperatorBuilder
-        : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
-private:
-    constexpr static auto builder_name =
-            is_intersect ? "IntersectSourceOperator" : "ExceptSourceOperator";
-
-public:
-    SetSourceOperatorBuilder(int32_t id, ExecNode* set_node);
-    [[nodiscard]] bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-template <bool is_intersect>
-class SetSourceOperator : public SourceOperator<vectorized::VSetOperationNode<is_intersect>> {
-public:
-    SetSourceOperator(OperatorBuilderBase* builder,
-                      vectorized::VSetOperationNode<is_intersect>* set_node);
-
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-};
 
 template <bool is_intersect>
 class SetSourceOperatorX;

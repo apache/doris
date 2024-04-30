@@ -112,7 +112,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     // Convert the results into the iovec vector to request
     // and calculate the total bytes requested.
     size_t bytes_req = 0;
-    struct iovec iov[data_cnt];
+    std::vector<iovec> iov(data_cnt);
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;
@@ -125,9 +125,9 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         // Never request more than IOV_MAX in one request.
         size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t res;
-        RETRY_ON_EINTR(res,
-                       SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov + completed_iov, iov_count),
-                                                    "LocalFileWriter::writev", _fd));
+        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(
+                                    ::writev(_fd, iov.data() + completed_iov, iov_count),
+                                    "LocalFileWriter::writev", _fd));
         if (UNLIKELY(res < 0)) {
             return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }

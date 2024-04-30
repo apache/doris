@@ -63,6 +63,8 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
     }
     hdfs_file_writer_total << 1;
     hdfs_file_being_written << 1;
+
+    TEST_SYNC_POINT("HdfsFileWriter");
 }
 
 HdfsFileWriter::~HdfsFileWriter() {
@@ -87,12 +89,14 @@ Status HdfsFileWriter::close() {
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hsync_latency);
 #ifdef USE_LIBHDFS3
-            ret = hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+            ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                               "HdfsFileWriter::close::hdfsHSync");
 #else
-            ret = hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file);
+            ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                               "HdfsFileWriter::close::hdfsHSync");
 #endif
         }
-        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfeSync",
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync",
                                                Status::InternalError("failed to sync hdfs file"));
 
         if (ret != 0) {
@@ -106,13 +110,13 @@ Status HdfsFileWriter::close() {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         // The underlying implementation will invoke `hdfsHFlush` to flush buffered data and wait for
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
-        ret = hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+        ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                           "HdfsFileWriter::close::hdfsCloseFile");
     }
     _hdfs_file = nullptr;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
-        std::string err_msg = hdfs_error();
         return Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
@@ -159,9 +163,6 @@ void HdfsFileWriter::_write_into_local_file_cache() {
         size_t block_size = block->range().size();
         size_t append_size = std::min(data_remain_size, block_size);
         if (block->state() == FileBlock::State::EMPTY) {
-            if (_index_offset != 0 && block->range().right >= _index_offset) {
-                static_cast<void>(block->change_cache_type_self(FileCacheType::INDEX));
-            }
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 Slice s(_batch_buffer.data() + pos, append_size);
@@ -185,14 +186,15 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
         {
             TEST_INJECTION_POINT_CALLBACK("HdfsFileWriter::append_hdfs_file_delay");
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_write_latency);
-            written_bytes =
-                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size());
+            written_bytes = SYNC_POINT_HOOK_RETURN_VALUE(
+                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size()),
+                    "HdfsFileWriter::append_hdfs_file::hdfsWrite", content);
             {
-                [[maybe_unused]] Status error_ret = Status::InternalError(
-                        "write hdfs failed. fs_name: {}, path: {}, error: size exceeds", _fs_name,
-                        _path.native());
-                TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::append_hdfs_file_error",
-                                                       error_ret);
+                TEST_INJECTION_POINT_RETURN_WITH_VALUE(
+                        "HdfsFileWriter::append_hdfs_file_error",
+                        Status::InternalError(
+                                "write hdfs failed. fs_name: {}, path: {}, error: inject error",
+                                _fs_name, _path.native()));
             }
         }
         if (written_bytes < 0) {
@@ -265,7 +267,8 @@ Status HdfsFileWriter::finalize() {
     }
 
     // Flush buffered data to HDFS without waiting for HDFS response
-    int ret = hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file);
+    int ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                           "HdfsFileWriter::finalize::hdfsFlush");
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsFlush",
                                            Status::InternalError("failed to flush hdfs file"));
     if (ret != 0) {
@@ -281,6 +284,21 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
+#ifdef USE_LIBHDFS3
+    std::string hdfs_dir = path.parent_path().string();
+    int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
+    if (exists != 0) {
+        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
+        if (ret != 0) {
+            std::stringstream ss;
+            ss << "create dir failed. "
+               << " fs_name: " << fs_name << " path: " << hdfs_dir << ", err: " << hdfs_error();
+            LOG(WARNING) << ss.str();
+            return ResultError(Status::InternalError(ss.str()));
+        }
+    }
+#endif
     // open file
     hdfsFile hdfs_file = nullptr;
     {

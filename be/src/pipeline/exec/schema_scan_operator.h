@@ -21,33 +21,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vschema_scan_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-class SchemaScanOperatorBuilder : public OperatorBuilder<vectorized::VSchemaScanNode> {
-public:
-    SchemaScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class SchemaScanOperator : public SourceOperator<vectorized::VSchemaScanNode> {
-public:
-    SchemaScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
-
-    bool can_read() override { return true; }
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
 
 class SchemaScanOperatorX;
 class SchemaScanLocalState final : public PipelineXLocalState<> {

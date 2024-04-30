@@ -187,6 +187,7 @@ Status VScanner::_filter_output_block(Block* block) {
 
 Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
+    SCOPED_RAW_TIMER(&_projection_timer);
 
     const size_t rows = origin_block->rows();
     if (rows == 0) {

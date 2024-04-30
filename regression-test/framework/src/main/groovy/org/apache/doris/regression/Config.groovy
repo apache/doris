@@ -69,7 +69,6 @@ class Config {
     public String realDataPath
     public String cacheDataPath
     public boolean enableCacheData
-    public boolean enableStorageVault
     public String pluginPath
     public String sslCertificatePath
     public String dorisComposePath
@@ -165,7 +164,6 @@ class Config {
             String realDataPath,
             String cacheDataPath,
             Boolean enableCacheData,
-            Boolean enableStorageVault,
             String testGroups,
             String excludeGroups,
             String testSuites, 
@@ -218,7 +216,6 @@ class Config {
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
         this.enableCacheData = enableCacheData
-        this.enableStorageVault = enableStorageVault
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -273,7 +270,6 @@ class Config {
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, config.enableCacheData.toString()))
-        config.enableStorageVault = Boolean.parseBoolean(cmd.getOptionValue(enableStorageVaultOpt, config.enableStorageVault.toString()))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
@@ -498,7 +494,6 @@ class Config {
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
             configToBoolean(obj.enableCacheData),
-            configToBoolean(obj.enableStorageVault),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -724,14 +719,9 @@ class Config {
             log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
         }
 
-        if (config.enableStorageVault == null) {
-            config.enableStorageVault = true
-            log.info("Set enableStorageVault to '${config.enableStorageVault}' because not specify.".toString())
-        }
-
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -864,6 +854,8 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())

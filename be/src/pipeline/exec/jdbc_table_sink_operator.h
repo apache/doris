@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 #include "vec/sink/writer/vjdbc_table_writer.h"
 

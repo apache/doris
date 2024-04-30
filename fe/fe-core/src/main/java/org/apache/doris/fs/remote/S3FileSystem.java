@@ -107,8 +107,4 @@ public class S3FileSystem extends ObjFileSystem {
         }
         return Status.OK;
     }
-
-    public Status deleteDirectory(String absolutePath) {
-        return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
-    }
 }

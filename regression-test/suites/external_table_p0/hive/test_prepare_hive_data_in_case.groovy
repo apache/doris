@@ -24,7 +24,7 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
     }
 
     for (String hivePrefix : ["hive2", "hive3"]) {
-    setHivePrefix(hivePrefix)
+        setHivePrefix(hivePrefix)
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")

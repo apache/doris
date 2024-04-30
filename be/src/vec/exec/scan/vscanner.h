@@ -109,6 +109,7 @@ public:
 
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
+    int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
     bool is_init() const { return _is_init; }
@@ -237,6 +238,7 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+    int64_t _projection_timer = 0;
 
     bool _should_stop = false;
 };

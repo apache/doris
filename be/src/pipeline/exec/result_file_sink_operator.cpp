@@ -25,24 +25,8 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 #include "vec/sink/vdata_stream_sender.h"
-#include "vec/sink/vresult_file_sink.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
-
-ResultFileSinkOperatorBuilder::ResultFileSinkOperatorBuilder(int32_t id, DataSink* sink)
-        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
-
-OperatorPtr ResultFileSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ResultFileSinkOperator>(this, _sink);
-}
-
-ResultFileSinkOperator::ResultFileSinkOperator(OperatorBuilderBase* operator_builder,
-                                               DataSink* sink)
-        : DataSinkOperator(operator_builder, sink) {};
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)

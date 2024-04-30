@@ -215,4 +215,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         }
         return slotSet.build();
     }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate any equal pair
+    }
 }
