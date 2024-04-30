@@ -38,6 +38,11 @@ under the License.
             <groupId>com.vesoft</groupId>
             <artifactId>client</artifactId>
         </dependency>
+        <!--vesoft client need bcprov-jdk18on-->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>

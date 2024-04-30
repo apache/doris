@@ -668,20 +668,11 @@ under the License.
         <dependency>
             <groupId>com.aliyun.datalake</groupId>
             <artifactId>metastore-client-hive3</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-openapi</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-util</artifactId>
-                </exclusion>
-            </exclusions>
+        </dependency>
+        <!--metastore-client need bouncycastle-->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
         </dependency>
 
         <!-- for fe recognize files stored on gcs -->

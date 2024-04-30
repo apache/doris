@@ -353,6 +353,8 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <!--bcpix jdk18-->
+        <bcpkix-jdk18.version>1.78.1</bcpkix-jdk18.version>
     </properties>
     <profiles>
         <profile>
@@ -1686,9 +1688,32 @@ under the License.
                 <version>${mariadb-java-client.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bcpkix-jdk18.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.aliyun.datalake</groupId>
                 <artifactId>metastore-client-hive3</artifactId>
                 <version>${dlf-metastore-client-hive.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.bouncycastle</groupId>
+                        <artifactId>bcpkix-jdk15on</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.aliyun</groupId>
+                        <artifactId>tea</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.aliyun</groupId>
+                        <artifactId>tea-openapi</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.aliyun</groupId>
+                        <artifactId>tea-util</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hive</groupId>
@@ -1763,6 +1788,12 @@ under the License.
                 <groupId>com.vesoft</groupId>
                 <artifactId>client</artifactId>
                 <version>${vesoft.client.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.bouncycastle</groupId>
+                        <artifactId>bcpkix-jdk15on</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
         </dependencies>
     </dependencyManagement>
