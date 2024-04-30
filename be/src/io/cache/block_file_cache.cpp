@@ -66,6 +66,17 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _cur_disposable_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_disposable_queue_cache_size", 0);
 
+    _queue_evict_size_metrics[0] = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_index_queue_evict_size");
+    _queue_evict_size_metrics[1] = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_normal_queue_evict_size");
+    _queue_evict_size_metrics[2] = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disposable_queue_evict_size");
+    _queue_evict_size_metrics[3] = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
+    _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_total_evict_size");
+
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
     _index_queue = LRUQueue(cache_settings.index_queue_size, cache_settings.index_queue_elements,
@@ -1124,6 +1135,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         auto& queue = get_queue(file_block->cache_type());
         queue.remove(*cell->queue_iterator, cache_lock);
     }
+    *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
+            << file_block->range().size();
+    *_total_evict_size_metrics << file_block->range().size();
     if (cell->file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
         FileCacheKey key;
         key.hash = hash;
@@ -1316,8 +1330,8 @@ void BlockFileCache::check_disk_resource_limit(const std::string& path) {
         return;
     }
     auto [capacity_percentage, inode_percentage] = percent;
-    auto inode_is_insufficient = [](const int& inode_remain) {
-        return inode_remain >= config::file_cache_enter_disk_resource_limit_mode_percent;
+    auto inode_is_insufficient = [](const int& inode_percentage) {
+        return inode_percentage >= config::file_cache_enter_disk_resource_limit_mode_percent;
     };
     DCHECK(capacity_percentage >= 0 && capacity_percentage <= 100);
     DCHECK(inode_percentage >= 0 && inode_percentage <= 100);

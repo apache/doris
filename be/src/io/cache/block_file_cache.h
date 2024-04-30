@@ -419,6 +419,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
 };
 
 } // namespace doris::io
