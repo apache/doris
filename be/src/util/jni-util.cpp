@@ -153,7 +153,7 @@ const std::string GetDorisJNIClasspathOption() {
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
-        
+
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
@@ -207,8 +207,9 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
     jclass cls = env->FindClass("java/lang/management/MemoryPoolMXBean");
-    jmethodID mid = env->GetStaticMethodID(cls, "getPlatformMXBean", 
-                       "(Ljavax/management/MBeanServerConnection;)Ljava/lang/management/MemoryPoolMXBean;");
+    jmethodID mid = env->GetStaticMethodID(
+            cls, "getPlatformMXBean",
+            "(Ljavax/management/MBeanServerConnection;)Ljava/lang/management/MemoryPoolMXBean;");
     jobject bean = env->CallStaticObjectMethod(cls, mid, NULL);
 
     jclass beanClass = env->GetObjectClass(bean);
