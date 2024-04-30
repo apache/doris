@@ -352,7 +352,7 @@ public class RuntimeFilterContext {
     }
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
-        return joinToTargetExprId.get(join);
+        return joinToTargetExprId.getOrDefault(join, Lists.newArrayList());
     }
 
     /**
