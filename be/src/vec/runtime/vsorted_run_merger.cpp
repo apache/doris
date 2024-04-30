@@ -98,120 +98,127 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
 }
 
 Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
-    ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
-    // Only have one receive data queue of data, no need to do merge and
-    // copy the data of block.
-    // return the data in receive data directly
+    try {
+        ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
+        // Only have one receive data queue of data, no need to do merge and
+        // copy the data of block.
+        // return the data in receive data directly
 
-    if (_pending_cursor != nullptr) {
-        MergeSortCursor cursor(_pending_cursor);
-        if (has_next_block(cursor)) {
-            _priority_queue.push(cursor);
-        }
-        _pending_cursor = nullptr;
-    }
-
-    if (_priority_queue.empty()) {
-        *eos = true;
-        return Status::OK();
-    } else if (_priority_queue.size() == 1) {
-        auto current = _priority_queue.top();
-        while (_offset != 0 && current->block_ptr() != nullptr) {
-            if (_offset >= current->rows - current->pos) {
-                _offset -= (current->rows - current->pos);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                has_next_block(current);
-            } else {
-                current->pos += _offset;
-                _offset = 0;
+        if (_pending_cursor != nullptr) {
+            MergeSortCursor cursor(_pending_cursor);
+            if (has_next_block(cursor)) {
+                _priority_queue.push(cursor);
             }
+            _pending_cursor = nullptr;
         }
 
-        if (current->isFirst()) {
-            if (current->block_ptr() != nullptr) {
-                current->block_ptr()->swap(*output_block);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                *eos = !has_next_block(current);
-            } else {
-                *eos = true;
-            }
-        } else {
-            if (current->block_ptr() != nullptr) {
-                for (int i = 0; i < current->all_columns.size(); i++) {
-                    auto& column_with_type = current->block_ptr()->get_by_position(i);
-                    column_with_type.column = column_with_type.column->cut(
-                            current->pos, current->rows - current->pos);
-                }
-                current->block_ptr()->swap(*output_block);
-                if (_pipeline_engine_enabled) {
-                    _pending_cursor = current.impl;
-                    _priority_queue.pop();
-                    return Status::OK();
-                }
-                *eos = !has_next_block(current);
-            } else {
-                *eos = true;
-            }
-        }
-    } else {
-        size_t num_columns = _empty_block.columns();
-        MutableBlock m_block =
-                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
-        MutableColumns& merged_columns = m_block.mutable_columns();
-
-        if (num_columns != merged_columns.size()) {
-            throw Exception(
-                    ErrorCode::INTERNAL_ERROR,
-                    "num_columns!=merged_columns.size(), num_columns={}, merged_columns.size()={}",
-                    num_columns, merged_columns.size());
-        }
-
-        /// Take rows from queue in right order and push to 'merged'.
-        size_t merged_rows = 0;
-        while (!_priority_queue.empty()) {
-            auto current = _priority_queue.top();
-            _priority_queue.pop();
-
-            if (_offset > 0) {
-                _offset--;
-            } else {
-                for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
-                }
-                ++merged_rows;
-            }
-
-            // In pipeline engine, needs to check if the sender is readable before the next reading.
-            if (!next_heap(current)) {
-                return Status::OK();
-            }
-
-            if (merged_rows == _batch_size) {
-                break;
-            }
-        }
-        output_block->set_columns(std::move(merged_columns));
-
-        if (merged_rows == 0) {
+        if (_priority_queue.empty()) {
             *eos = true;
             return Status::OK();
-        }
-    }
+        } else if (_priority_queue.size() == 1) {
+            auto current = _priority_queue.top();
+            while (_offset != 0 && current->block_ptr() != nullptr) {
+                if (_offset >= current->rows - current->pos) {
+                    _offset -= (current->rows - current->pos);
+                    if (_pipeline_engine_enabled) {
+                        _pending_cursor = current.impl;
+                        _priority_queue.pop();
+                        return Status::OK();
+                    }
+                    has_next_block(current);
+                } else {
+                    current->pos += _offset;
+                    _offset = 0;
+                }
+            }
 
-    _num_rows_returned += output_block->rows();
-    if (_limit != -1 && _num_rows_returned >= _limit) {
-        output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
-        *eos = true;
+            if (current->isFirst()) {
+                if (current->block_ptr() != nullptr) {
+                    current->block_ptr()->swap(*output_block);
+                    if (_pipeline_engine_enabled) {
+                        _pending_cursor = current.impl;
+                        _priority_queue.pop();
+                        return Status::OK();
+                    }
+                    *eos = !has_next_block(current);
+                } else {
+                    *eos = true;
+                }
+            } else {
+                if (current->block_ptr() != nullptr) {
+                    for (int i = 0; i < current->all_columns.size(); i++) {
+                        auto& column_with_type = current->block_ptr()->get_by_position(i);
+                        column_with_type.column = column_with_type.column->cut(
+                                current->pos, current->rows - current->pos);
+                    }
+                    current->block_ptr()->swap(*output_block);
+                    if (_pipeline_engine_enabled) {
+                        _pending_cursor = current.impl;
+                        _priority_queue.pop();
+                        return Status::OK();
+                    }
+                    *eos = !has_next_block(current);
+                } else {
+                    *eos = true;
+                }
+            }
+        } else {
+            size_t num_columns = _empty_block.columns();
+            MutableBlock m_block =
+                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+            MutableColumns& merged_columns = m_block.mutable_columns();
+
+            if (num_columns != merged_columns.size()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "num_columns!=merged_columns.size(), "
+                                "num_columns={}, merged_columns.size()={}",
+                                num_columns, merged_columns.size());
+            }
+
+            /// Take rows from queue in right order and push to 'merged'.
+            size_t merged_rows = 0;
+            while (!_priority_queue.empty()) {
+                auto current = _priority_queue.top();
+                _priority_queue.pop();
+
+                if (_offset > 0) {
+                    _offset--;
+                } else {
+                    for (size_t i = 0; i < num_columns; ++i) {
+                        merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                    }
+                    ++merged_rows;
+                }
+
+                // In pipeline engine, needs to check if the sender is readable
+                // before the next reading.
+                if (!next_heap(current)) {
+                    return Status::OK();
+                }
+
+                if (merged_rows == _batch_size) {
+                    break;
+                }
+            }
+            output_block->set_columns(std::move(merged_columns));
+
+            if (merged_rows == 0) {
+                *eos = true;
+                return Status::OK();
+            }
+        }
+
+        _num_rows_returned += output_block->rows();
+        if (_limit != -1 && _num_rows_returned >= _limit) {
+            output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
+            *eos = true;
+        }
+        return Status::OK();
+    } catch (const std::runtime_error& e) {
+        return Status::RuntimeError(e.what());
+    } catch (...) {
+        throw;
     }
-    return Status::OK();
 }
 
 bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
