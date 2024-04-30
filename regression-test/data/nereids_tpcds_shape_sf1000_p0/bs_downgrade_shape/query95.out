@@ -6,10 +6,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales] apply RFs: RF0
+------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF7
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
-------------PhysicalOlapScan[web_sales]
+------------PhysicalOlapScan[web_sales] apply RFs: RF7
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalTopN[LOCAL_SORT]
@@ -19,17 +19,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------hashAgg[GLOBAL]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF4 ws_order_number->[wr_order_number]
+--------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF6 ws_order_number->[wr_order_number,ws_order_number]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number)) otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF5 wr_order_number->[ws_order_number]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5 RF6
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_returns] apply RFs: RF4
+--------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
 ----------------------PhysicalProject
-------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=()
+------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number)) otherCondition=() build RFs:RF7 ws_order_number->[ws_order_number,ws_order_number]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
