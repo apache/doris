@@ -696,8 +696,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '" + tableId + "' in "
-                    + db.getFullName());
+            throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '"
+                    + tableId + "' in " + db.getFullName());
         }
 
         innerRecoverTable(db, table, tableName, newTableName, null, false);
