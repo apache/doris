@@ -356,7 +356,7 @@ DEFINE_mBool(enable_ordered_data_compaction, "true");
 // In vertical compaction, column number for every group
 DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
-DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
+DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "1024");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 
@@ -989,6 +989,7 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1133,6 +1134,8 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
+
+DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 

@@ -145,7 +145,7 @@ public:
         return _query_ctxs.size();
     }
 
-    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
 
     void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
 

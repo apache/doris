@@ -481,7 +481,7 @@ private:
     uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
-    vector<uint16_t> _sel_rowid_idx;
+    std::vector<uint16_t> _sel_rowid_idx;
 
     std::unique_ptr<ObjectPool> _pool;
 
@@ -492,6 +492,8 @@ private:
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;
+
+    std::vector<uint8_t> _ret_flags;
 };
 
 } // namespace segment_v2

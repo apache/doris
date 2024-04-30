@@ -101,6 +101,7 @@ suite("iceberg_position_delete", "p2,external,iceberg,external_remote,external_r
         qt_parquet_19 """ select count(*) from iceberg_position_parquet where  name != 'final entryxxxxxx' ;""" 
         qt_parquet_20 """ select count(*) from iceberg_position_parquet; """ 
 
+        sql """drop catalog ${catalog_name}"""
     }
 }
 /*

@@ -539,8 +539,8 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
                                                                   local_state._mem_tracker.get()));
     }
 
-    std::vector<uint32_t> partition_indexes[_partition_count];
-    auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
+    std::vector<std::vector<uint32_t>> partition_indexes(_partition_count);
+    const auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
     for (uint32_t i = 0; i != rows; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
     }
@@ -556,8 +556,8 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
             partitioned_blocks[i] =
                     vectorized::MutableBlock::create_unique(input_block->clone_empty());
         }
-        partitioned_blocks[i]->add_rows(input_block, &(partition_indexes[i][0]),
-                                        &(partition_indexes[i][count]));
+        partitioned_blocks[i]->add_rows(input_block, partition_indexes[i].data(),
+                                        partition_indexes[i].data() + count);
 
         if (partitioned_blocks[i]->rows() > 2 * 1024 * 1024 ||
             (eos && partitioned_blocks[i]->rows() > 0)) {

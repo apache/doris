@@ -25,6 +25,7 @@ suite("test_leading") {
 
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
+    sql "set ignore_shape_nodes='PhysicalProject'"
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
 

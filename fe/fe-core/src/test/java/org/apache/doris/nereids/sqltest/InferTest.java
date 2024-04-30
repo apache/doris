@@ -46,13 +46,12 @@ public class InferTest extends SqlTestBase {
                 .rewrite()
                 .printlnTree()
                 .matches(
-                    logicalProject(
-                        innerLogicalJoin(
-                            logicalOlapScan(),
-                            logicalFilter().when(
-                                    f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))"))
-                        )
+                    innerLogicalJoin(
+                        logicalOlapScan(),
+                        logicalFilter().when(
+                                f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))"))
                     )
+
                 );
     }
 

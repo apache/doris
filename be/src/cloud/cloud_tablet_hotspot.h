@@ -52,11 +52,10 @@ using HotspotCounterPtr = std::shared_ptr<HotspotCounter>;
 
 class TabletHotspot {
 public:
-    static TabletHotspot* instance();
     TabletHotspot();
     ~TabletHotspot();
     // When query the tablet, count it
-    void count(const BaseTabletSPtr& tablet);
+    void count(const BaseTablet& tablet);
     void get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables);
 
 private:

@@ -4369,13 +4369,13 @@ show_param ::=
         RESULT = new ShowDataSkewStmt(table_ref);
     :}
     /* Show data statement: used to show data size of specified range */
-     | KW_DATA order_by_clause:orderByClause
+     | KW_DATA order_by_clause:orderByClause opt_properties:prop
     {:
-        RESULT = new ShowDataStmt(null, orderByClause);
+        RESULT = new ShowDataStmt(null, orderByClause, prop);
     :}
     | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName, orderByClause);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause, null);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
