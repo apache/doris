@@ -258,10 +258,6 @@ TEST_F(LocalFileSystemTest, AbnormalFileWriter) {
 
 TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("LocalFileWriter::writev");
-        sp->clear_call_back("LocalFileReader::pread");
-    }};
     sp->enable_processing();
 
     // Test EIO
@@ -269,28 +265,35 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
     io::FileWriterPtr file_writer;
     auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
     ASSERT_TRUE(st.ok()) << st;
-    sp->set_call_back("LocalFileWriter::writev", [](auto&& args) {
-        auto* ret = try_any_cast_ret<ssize_t>(args);
-        ret->first = -1;
-        ret->second = true;
-        errno = EIO;
-    });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "LocalFileWriter::writev",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<ssize_t>(args);
+                ret->first = -1;
+                ret->second = true;
+                errno = EIO;
+            },
+            &guard1);
     st = file_writer->append("abc");
     ASSERT_FALSE(st.ok()) << st;
 
     // Test EINTR
     int retry = 2;
-    sp->set_call_back("LocalFileWriter::writev", [&retry](auto&& args) {
-        if (retry-- > 0) {
-            auto* ret = try_any_cast_ret<ssize_t>(args);
-            ret->first = -1;
-            ret->second = true;
-            errno = EINTR;
-        } else {
-            auto* ret = try_any_cast_ret<ssize_t>(args);
-            ret->second = false;
-        }
-    });
+    sp->set_call_back(
+            "LocalFileWriter::writev",
+            [&retry](auto&& args) {
+                if (retry-- > 0) {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->first = -1;
+                    ret->second = true;
+                    errno = EINTR;
+                } else {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->second = false;
+                }
+            },
+            &guard1);
     st = file_writer->append("abc");
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(file_writer->bytes_appended(), 3);
@@ -303,14 +306,17 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
             {{content[2].data, 4}},
             {{content[2].data + 4, 3}, {content[3].data, 5}}};
     size_t idx = 0;
-    sp->set_call_back("LocalFileWriter::writev", [&partial_content, &idx](auto&& args) {
-        // Mock partial write
-        auto fd = try_any_cast<int>(args[0]);
-        auto* ret = try_any_cast_ret<ssize_t>(args);
-        ret->first = ::writev(fd, partial_content[idx].data(), partial_content[idx].size());
-        ret->second = true;
-        ++idx;
-    });
+    sp->set_call_back(
+            "LocalFileWriter::writev",
+            [&partial_content, &idx](auto&& args) {
+                // Mock partial write
+                auto fd = try_any_cast<int>(args[0]);
+                auto* ret = try_any_cast_ret<ssize_t>(args);
+                ret->first = ::writev(fd, partial_content[idx].data(), partial_content[idx].size());
+                ret->second = true;
+                ++idx;
+            },
+            &guard1);
     st = file_writer->appendv(content.data(), content.size());
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(file_writer->bytes_appended(), 26);
@@ -329,28 +335,35 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
     EXPECT_EQ(std::string_view(buf, 26), "abcdefghijklmnopqrstuvwxyz");
 
     // Test EIO
-    sp->set_call_back("LocalFileReader::pread", [](auto&& args) {
-        auto* ret = try_any_cast_ret<ssize_t>(args);
-        ret->first = -1;
-        ret->second = true;
-        errno = EIO;
-    });
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "LocalFileReader::pread",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<ssize_t>(args);
+                ret->first = -1;
+                ret->second = true;
+                errno = EIO;
+            },
+            &guard2);
     st = file_reader->read_at(0, {buf, 26}, &bytes_read);
     ASSERT_FALSE(st.ok()) << st;
 
     // Test EINTR
     retry = 2;
-    sp->set_call_back("LocalFileReader::pread", [&retry](auto&& args) {
-        if (retry-- > 0) {
-            auto* ret = try_any_cast_ret<ssize_t>(args);
-            ret->first = -1;
-            ret->second = true;
-            errno = EINTR;
-        } else {
-            auto* ret = try_any_cast_ret<ssize_t>(args);
-            ret->second = false;
-        }
-    });
+    sp->set_call_back(
+            "LocalFileReader::pread",
+            [&retry](auto&& args) {
+                if (retry-- > 0) {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->first = -1;
+                    ret->second = true;
+                    errno = EINTR;
+                } else {
+                    auto* ret = try_any_cast_ret<ssize_t>(args);
+                    ret->second = false;
+                }
+            },
+            &guard2);
     memset(buf, 0, sizeof(buf));
     st = file_reader->read_at(0, {buf, 26}, &bytes_read);
     ASSERT_TRUE(st.ok()) << st;
@@ -359,15 +372,18 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
 
     // Test partial read
     size_t offset = 0;
-    sp->set_call_back("LocalFileReader::pread", [&offset](auto&& args) {
-        // Mock partial read
-        auto fd = try_any_cast<int>(args[0]);
-        auto* buf = try_any_cast<char*>(args[1]);
-        auto* ret = try_any_cast_ret<ssize_t>(args);
-        ret->first = ::pread(fd, buf, 5, offset);
-        ret->second = true;
-        offset += ret->first;
-    });
+    sp->set_call_back(
+            "LocalFileReader::pread",
+            [&offset](auto&& args) {
+                // Mock partial read
+                auto fd = try_any_cast<int>(args[0]);
+                auto* buf = try_any_cast<char*>(args[1]);
+                auto* ret = try_any_cast_ret<ssize_t>(args);
+                ret->first = ::pread(fd, buf, 5, offset);
+                ret->second = true;
+                offset += ret->first;
+            },
+            &guard2);
     memset(buf, 0, sizeof(buf));
     st = file_reader->read_at(0, {buf, 26}, &bytes_read);
     ASSERT_TRUE(st.ok()) << st;
