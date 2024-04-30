@@ -68,11 +68,11 @@ public:
 #ifdef USE_LIBHDFS3
         return Status::OK();
 #endif
-        for (int retry_time = config::hsfs_jni_write_max_retry_time; retry_time != 0;
+        for (int retry_time = config::hdfs_jni_write_max_retry_time; retry_time != 0;
              retry_time--) {
             if (cur_memory_comsuption + memory_size > max_usage()) {
                 std::this_thread::sleep_for(
-                        std::chrono::milliseconds(config::max_hdfs_jni_write_sleep_milliseconds));
+                        std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds));
                 continue;
             }
             cur_memory_comsuption.fetch_add(memory_size);
