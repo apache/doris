@@ -1187,7 +1187,8 @@ public class HMSTransaction implements Transaction {
             String writePath = tableAndMore.getCurrentLocation();
             if (!targetPath.equals(writePath)) {
                 Path path = new Path(targetPath);
-                String oldTablePath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+                String oldTablePath = new Path(
+                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
                 Status status = wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldTablePath,
@@ -1342,7 +1343,8 @@ public class HMSTransaction implements Transaction {
 
             if (!targetPath.equals(writePath)) {
                 Path path = new Path(targetPath);
-                String oldPartitionPath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+                String oldPartitionPath = new Path(
+                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
                 Status status = wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldPartitionPath,
