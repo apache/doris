@@ -146,39 +146,6 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     }
 
     @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
-            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        boolean pushedDown = false;
-        int projIndex = -1;
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-        if (probeSlot == null) {
-            return false;
-        }
-        List<NamedExpression> output = getOutputs();
-        for (int j = 0; j < output.size(); j++) {
-            NamedExpression expr = output.get(j);
-            if (expr.getName().equals(probeSlot.getName())) {
-                projIndex = j;
-                break;
-            }
-        }
-        if (projIndex == -1) {
-            return false;
-        }
-        for (int i = 0; i < this.children().size(); i++) {
-            Map<Expression, Expression> map = Maps.newHashMap();
-            // probeExpr only has one input slot
-            map.put(probeExpr.getInputSlots().iterator().next(), regularChildrenOutputs.get(i).get(projIndex));
-            Expression newProbeExpr = probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-            AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
-            pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
-                        newProbeExpr, type, buildSideNdv, exprOrder);
-        }
-        return pushedDown;
-    }
-
-    @Override
     public List<Slot> computeOutput() {
         return outputs.stream()
                 .map(NamedExpression::toSlot)

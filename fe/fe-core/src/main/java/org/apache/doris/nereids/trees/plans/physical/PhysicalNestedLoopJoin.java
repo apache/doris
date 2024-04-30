@@ -244,18 +244,4 @@ public class PhysicalNestedLoopJoin<
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
                 null, physicalProperties, statistics, left(), right());
     }
-
-    @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin<?, ?> builderNode, Expression srcExpr,
-                                         Expression probeExpr, TRuntimeFilterType type, long buildSideNdv,
-                                         int exprOrder) {
-        EqualPredicate equal = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
-        if (equal instanceof NullSafeEqual && this.joinType.isOuterJoin()) {
-            return false;
-        }
-
-        return super.pushDownRuntimeFilter(context, generator, builderNode, srcExpr, probeExpr, type, buildSideNdv,
-                exprOrder);
-    }
 }

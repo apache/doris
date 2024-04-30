@@ -348,18 +348,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             } else {
                 bitmapContains = (BitmapContains) bitmapRuntimeFilterCondition;
             }
-            Set<Slot> targetSlots = bitmapContains.child(1).getInputSlots();
-            for (Slot targetSlot : targetSlots) {
-                if (!checkProbeSlot(ctx, targetSlot)) {
-                    continue;
-                }
-                RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
-                        RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForBitMapFilter(
-                                bitmapContains.child(0), bitmapContains.child(1), ctx, generator, join,
-                                -1, i, isNot);
-                if (pushDownContext.isValid()) {
-                    join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
-                }
+            RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                    RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForBitMapFilter(
+                            bitmapContains.child(0), bitmapContains.child(1), ctx, generator, join,
+                            -1, i, isNot);
+            if (pushDownContext.isValid()) {
+                join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
             }
         }
     }
@@ -616,17 +610,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot)
         );
         return window;
-    }
-
-    /**
-     * Check runtime filter push down project/distribute pre-conditions.
-     */
-    public static boolean checkPushDownPreconditionsForProjectOrDistribute(RuntimeFilterContext ctx, Slot slot) {
-        if (slot == null || !ctx.aliasTransferMapContains(slot)) {
-            return false;
-        } else {
-            return true;
-        }
     }
 
     /**
