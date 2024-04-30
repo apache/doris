@@ -223,7 +223,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return tWorkloadGroups;
     }
 
-    public List<TPipelineWorkloadGroup> getWorkloadGroupByUser(UserIdentity user) throws UserException {
+    public List<TPipelineWorkloadGroup> getWorkloadGroupByUser(UserIdentity user, boolean checkAuth)
+            throws UserException {
         String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
         List<TPipelineWorkloadGroup> ret = new ArrayList<>();
         WorkloadGroup wg = null;
@@ -240,6 +241,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     throw new UserException(
                             "can not find workload group " + groupName + " for user " + user.getQualifiedUser());
                 }
+            }
+            if (checkAuth && !Env.getCurrentEnv().getAccessManager()
+                    .checkWorkloadGroupPriv(user, wg.getName(), PrivPredicate.USAGE)) {
+                ErrorReport.reportAnalysisException(
+                        "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'."
+                                + " used id=(%s)",
+                        ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", wg.getName(), user.toString());
             }
             ret.add(wg.toThrift());
         } finally {
