@@ -108,30 +108,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (transactionState.hasSendTask()) {
                 continue;
             }
-            /*List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
-            for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
-                try {
-                    beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
-                } catch (MetaNotFoundException e) {
-                    LOG.warn("exception occur when trying to get rollup tablets info", e);
-                }
-            }
-
-            List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
-            for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
-                        commitInfo.getVersion(), 0);
-                partitionVersionInfos.add(versionInfo);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}]",
-                            commitInfo.getPartitionId(),
-                            commitInfo.getVersion());
-                }
-            }*/
-
-            genPublishTask(allBackends, transactionState,
-                    createPublishVersionTaskTime, beIdToBaseTabletIds, batchTask);
+            genPublishTask(allBackends, transactionState, createPublishVersionTaskTime, beIdToBaseTabletIds, batchTask);
         }
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
@@ -139,9 +116,7 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void genPublishTask(List<Long> allBackends, TransactionState transactionState,
-                                       long createPublishVersionTaskTime,
-                                       Map<Long, Set<Long>> beIdToBaseTabletIds, AgentBatchTask batchTask) {
-        // Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+            long createPublishVersionTaskTime, Map<Long, Set<Long>> beIdToBaseTabletIds, AgentBatchTask batchTask) {
         Set<Long> publishBackends = Sets.newHashSet(transactionState.getPublishVersionTasks().keySet());
         publishBackends.addAll(transactionState.getInvolvedBackends());
         // public version tasks are not persisted in catalog, so publishBackends may be empty.
