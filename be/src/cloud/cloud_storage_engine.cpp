@@ -32,10 +32,13 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -183,7 +186,16 @@ Status CloudStorageEngine::open() {
             std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
-    return Status::OK();
+    _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
+
+    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+
+    _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+            .set_max_threads(config::sync_load_for_tablets_thread)
+            .set_min_threads(config::sync_load_for_tablets_thread)
+            .build(&_sync_load_for_tablets_thread_pool);
 }
 
 void CloudStorageEngine::stop() {

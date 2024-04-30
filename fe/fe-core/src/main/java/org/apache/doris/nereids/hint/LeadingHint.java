@@ -55,7 +55,7 @@ public class LeadingHint extends Hint {
 
     private List<String> parameters;
     private final List<String> tablelist = new ArrayList<>();
-    private final List<Integer> levellist = new ArrayList<>();
+    private final List<Integer> levelList = new ArrayList<>();
 
     private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
 
@@ -120,9 +120,37 @@ public class LeadingHint extends Hint {
                 }
             } else {
                 tablelist.add(parameter);
-                levellist.add(level);
+                levelList.add(level);
             }
             lastParameter = parameter;
+        }
+        normalizeLevelList();
+    }
+
+    private void removeGap(int left, int right, int gap) {
+        for (int i = left; i <= right; i++) {
+            levelList.set(i, levelList.get(i) - (gap - 1));
+        }
+    }
+
+    // when we write leading like: leading(t1 {{t2 t3} {t4 t5}} t6)
+    // levelList would like 0 2 2 3 3 0, it could be reduced to 0 1 1 2 2 0 like leading(t1 {t2 t3 {t4 t5}} t6)
+    // gap is like 0 to 2 or 3 to 0 in upper example, and this function is to remove gap when we use a lot of braces
+    private void normalizeLevelList() {
+        int leftIndex = 0;
+        // at lease two tables were needed
+        for (int i = 1; i < levelList.size(); i++) {
+            if ((levelList.get(i) - levelList.get(leftIndex)) > 1) {
+                int rightIndex = i;
+                for (int j = i; j < levelList.size(); j++) {
+                    if ((levelList.get(rightIndex) - levelList.get(j)) > 1) {
+                        removeGap(i, rightIndex, Math.min(levelList.get(i) - levelList.get(leftIndex),
+                                levelList.get(rightIndex) - levelList.get(j)));
+                    }
+                    rightIndex = j;
+                }
+            }
+            leftIndex = i;
         }
     }
 
@@ -130,8 +158,8 @@ public class LeadingHint extends Hint {
         return tablelist;
     }
 
-    public List<Integer> getLevellist() {
-        return levellist;
+    public List<Integer> getLevelList() {
+        return levelList;
     }
 
     public Map<RelationId, LogicalPlan> getRelationIdToScanMap() {
@@ -485,10 +513,10 @@ public class LeadingHint extends Hint {
         }
         logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
         assert (logicalPlan != null);
-        stack.push(Pair.of(getLevellist().get(index), Pair.of(logicalPlan, index)));
-        int stackTopLevel = getLevellist().get(index++);
+        stack.push(Pair.of(getLevelList().get(index), Pair.of(logicalPlan, index)));
+        int stackTopLevel = getLevelList().get(index++);
         while (index < getTablelist().size()) {
-            int currentLevel = getLevellist().get(index);
+            int currentLevel = getLevelList().get(index);
             if (currentLevel == stackTopLevel) {
                 // should return error if can not found table
                 logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
@@ -531,7 +559,7 @@ public class LeadingHint extends Hint {
                     logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second.first), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
                         if (index < getTablelist().size()) {
-                            if (stackTopLevel > getLevellist().get(index)) {
+                            if (stackTopLevel > getLevelList().get(index)) {
                                 stackTopLevel--;
                             }
                         } else {
