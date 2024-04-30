@@ -117,25 +117,42 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
-        Set<Expression> needToSlots = collectNeedToSlotExpressions(repeat);
-        NormalizeToSlotContext context = buildContext(repeat, needToSlots);
+        Set<Expression> needToSlotsGroupingExpr = collectNeedToSlotGroupingExpr(repeat);
+        Set<Expression> needToSlotsArgs = collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(repeat);
+        NormalizeToSlotContext groupingExprContext = buildContext(repeat, needToSlotsGroupingExpr);
+        Map<Expression, NormalizeToSlotTriplet> groupingExprMap = groupingExprContext.getNormalizeToSlotMap();
+        Set<Alias> existsAlias = Sets.newHashSet();
+        Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
+        existsAlias.addAll(aliases);
+        for (NormalizeToSlotTriplet triplet : groupingExprMap.values()) {
+            if (triplet.pushedExpr instanceof Alias) {
+                Alias alias = (Alias) triplet.pushedExpr;
+                existsAlias.add(alias);
+            }
+        }
+
+        NormalizeToSlotContext argsContext = NormalizeToSlotContext.buildContext(existsAlias, needToSlotsArgs);
+
+        // Set<Expression> needToSlots = collectNeedToSlotExpressions(repeat);
+        // NormalizeToSlotContext context = buildContext(repeat, needToSlots);
 
         // normalize grouping sets to List<List<Slot>>
         List<List<Slot>> normalizedGroupingSets = repeat.getGroupingSets()
                 .stream()
-                .map(groupingSet -> (List<Slot>) (List) context.normalizeToUseSlotRef(groupingSet))
+                .map(groupingSet -> (List<Slot>) (List) groupingExprContext.normalizeToUseSlotRef(groupingSet))
                 .collect(ImmutableList.toImmutableList());
 
         // replace the arguments of grouping scalar function to virtual slots
         // replace some complex expression to slot, e.g. `a + 1`
         List<NamedExpression> normalizedAggOutput = repeat.getOutputExpressions().stream()
                 .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
-                        e -> normalizeGroupingScalarFunction(context, e)))
+                        e -> normalizeGroupingScalarFunction(argsContext, e)))
                 .collect(Collectors.toList());
         normalizedAggOutput = normalizedAggOutput.stream()
                 .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
-                        e -> normalizeAggFunctionChildren(context, e)))
+                        e -> normalizeAggFunctionChildren(argsContext, e)))
                 .collect(Collectors.toList());
+        normalizedAggOutput = groupingExprContext.normalizeToUseSlotRef(normalizedAggOutput);
         Set<VirtualSlotReference> virtualSlotsInFunction =
                 ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
 
@@ -161,7 +178,11 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(allVirtualSlots)
                 .build();
 
-        Set<NamedExpression> pushedProject = context.pushDownToNamedExpression(needToSlots);
+        Set<Expression> needToSlots = Sets.union(needToSlotsArgs, needToSlotsGroupingExpr);
+        NormalizeToSlotContext fullContext = groupingExprContext.mergeContext(argsContext);
+        Set<NamedExpression> pushedProject = fullContext.pushDownToNamedExpression(needToSlots);
+        // Set<NamedExpression> pushedProject = context.pushDownToNamedExpression(needToSlots);
+
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
@@ -211,6 +232,43 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(argumentsOfAggregateFunction)
                 .build();
         return needPushDown;
+    }
+
+    private Set<Expression> collectNeedToSlotGroupingExpr(LogicalRepeat<Plan> repeat) {
+        // grouping sets should be pushed down, e.g. grouping sets((k + 1)),
+        // we should push down the `k + 1` to the bottom plan
+        return ImmutableSet.copyOf(
+                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+    }
+
+    private Set<Expression> collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(LogicalRepeat<Plan> repeat) {
+        Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils.collect(
+                repeat.getOutputExpressions(), GroupingScalarFunction.class::isInstance);
+
+        ImmutableSet<Expression> argumentsOfGroupingScalarFunction = groupingScalarFunctions.stream()
+                .flatMap(function -> function.getArguments().stream())
+                .collect(ImmutableSet.toImmutableSet());
+
+        List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs.collect(repeat.getOutputExpressions());
+
+        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
+                .collect(ImmutableSet.toImmutableSet());
+
+        return ImmutableSet.<Expression>builder()
+                // grouping sets should be pushed down, e.g. grouping sets((k + 1)),
+                // we should push down the `k + 1` to the bottom plan
+                // e.g. grouping_id(k + 1), we should push down the `k + 1` to the bottom plan
+                .addAll(argumentsOfGroupingScalarFunction)
+                // e.g. sum(k + 1), we should push down the `k + 1` to the bottom plan
+                .addAll(argumentsOfAggregateFunction)
+                .build();
     }
 
     private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
