@@ -287,7 +287,7 @@ suite("test_array_with_inverted_index_all_type"){
         if (i % 2 == 0) {
             // array_contains
             for (String col : colNameArr) {
-                def res = sql """select ${col}[32] from ${indexTblName}"""
+                def res = sql """select ${col}[32] from ${indexTblName} order by k1"""
                 logger.info("res ${res}[1]")
                 def param = res[1][0]
                 qt_sql_array_contains """ select k1, array_position($col, '$param') from ${indexTblName} where array_contains(${col}, '${param}') order by k1; """
@@ -296,7 +296,7 @@ suite("test_array_with_inverted_index_all_type"){
         } else {
             // array_contains
             for (String col : colNameArrAgg) {
-                def res = sql """select ${col}[32] from ${indexTblName}"""
+                def res = sql """select ${col}[32] from ${indexTblName} order by k1"""
                 logger.info("res ${res}[1]")
                 def param = res[1][0]
                 qt_sql_array_contains """ select k1, array_position($col, '$param') from ${indexTblName} where array_contains($col, '$param') order by k1; """
@@ -304,7 +304,7 @@ suite("test_array_with_inverted_index_all_type"){
             }
         }
         // date
-        def result = sql """select c_date[7] from ${indexTblName}"""
+        def result = sql """select c_date[7] from ${indexTblName} order by k1"""
         logger.info("result ${result}[1]")
         def param = result[1][0]
         // or | and | not cases
