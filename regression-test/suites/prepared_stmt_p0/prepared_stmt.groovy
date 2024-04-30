@@ -17,13 +17,14 @@
 
 import java.math.BigDecimal;
 
-suite("test_prepared_stmt") {
+suite("test_prepared_stmt", "nonConcurrent") {
     def tableName = "tbl_prepared_stmt"
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
     // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
+    sql "set global enable_server_side_prepared_statement = true"
     def insert_prepared = { stmt, k1 , k2, k3, k4, k5, k6, k7, k8, k9 ->
         java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         if (k1 == null) {
@@ -164,4 +165,6 @@ suite("test_prepared_stmt") {
      assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
      qe_select5 stmt_read
     }
+
+    sql "set global enable_server_side_prepared_statement = false"
 }

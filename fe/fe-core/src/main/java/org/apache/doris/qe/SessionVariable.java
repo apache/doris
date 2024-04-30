@@ -1348,7 +1348,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
-    public boolean enableServeSidePreparedStatement = true;
+    public boolean enableServeSidePreparedStatement = false;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
