@@ -20,9 +20,11 @@
 #include <fcntl.h>
 #include <fmt/core.h>
 
+#include <chrono>
 #include <filesystem>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "common/logging.h"
@@ -36,6 +38,7 @@
 #include "io/hdfs_util.h"
 #include "service/backend_options.h"
 #include "util/bvar_helper.h"
+#include "util/jni-util.h"
 
 namespace doris::io {
 
@@ -45,6 +48,52 @@ bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
 
 static constexpr size_t MB = 1024 * 1024;
+
+// In practice, we've found that if the import frequency to HDFS is too fast,
+// it can cause an OutOfMemoryError (OOM) in the JVM started by the JNI.
+// For this, we should have a method to monitor how much JVM memory is currently being used.
+// The HdfsWriteRateLimit class increments a recorded value during hdfsWrite when writing to HDFS.
+// When hdfsCloseFile is called, all related memory in the JVM will be invalidated, so the recorded value can be decreased at that time.
+// If the current usage exceeds the maximum set by the user, the current write will sleep.
+// If the number of sleeps exceeds the number specified by the user, then the current write is considered to have failed
+class HdfsWriteRateLimit {
+public:
+    HdfsWriteRateLimit()
+            : max_jvm_heap_size(JniUtil::get_max_jni_heap_memory_size()),
+              cur_memory_comsuption(0) {}
+    size_t max_usage() const {
+        return static_cast<size_t>(max_jvm_heap_size * config::max_hdfs_jni_heap_usage_ratio);
+    }
+    Status do_rate_limit(size_t memory_size) {
+#ifdef USE_LIBHDFS3
+        return Status::OK();
+#endif
+        for (int retry_time = config::hsfs_jni_write_max_retry_time; retry_time != 0;
+             retry_time--) {
+            if (cur_memory_comsuption + memory_size > max_usage()) {
+                std::this_thread::sleep_for(
+                        std::chrono::milliseconds(config::max_hdfs_jni_write_sleep_milliseconds));
+                continue;
+            }
+            cur_memory_comsuption.fetch_add(memory_size);
+            return Status::OK();
+        }
+        return Status::InternalError("Run out of Jni jvm heap space");
+    }
+
+    void release_jni_memory(size_t memory_size) {
+#ifdef USE_LIBHDFS3
+        return;
+#endif
+        cur_memory_comsuption.fetch_sub(memory_size);
+    }
+
+private:
+    size_t max_jvm_heap_size;
+    std::atomic_uint64_t cur_memory_comsuption;
+};
+
+static HdfsWriteRateLimit g_hdfs_write_rate_limiter;
 
 HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -71,6 +120,7 @@ HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+        g_hdfs_write_rate_limiter.release_jni_memory(bytes_appended());
     }
 
     hdfs_file_being_written << -1;
@@ -181,6 +231,7 @@ void HdfsFileWriter::_write_into_local_file_cache() {
 }
 
 Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
+    RETURN_IF_ERROR(g_hdfs_write_rate_limiter.do_rate_limit(content.size()));
     while (!content.empty()) {
         int64_t written_bytes;
         {

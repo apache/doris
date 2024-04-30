@@ -153,6 +153,7 @@ const std::string GetDorisJNIClasspathOption() {
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
+        
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
@@ -204,6 +205,21 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     return Status::OK();
 }
 
+void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
+    jclass cls = env->FindClass("java/lang/management/MemoryPoolMXBean");
+    jmethodID mid = env->GetStaticMethodID(cls, "getPlatformMXBean", 
+                       "(Ljavax/management/MBeanServerConnection;)Ljava/lang/management/MemoryPoolMXBean;");
+    jobject bean = env->CallStaticObjectMethod(cls, mid, NULL);
+
+    jclass beanClass = env->GetObjectClass(bean);
+    mid = env->GetMethodID(beanClass, "getUsage", "()Ljava/lang/management/MemoryUsage;");
+    jobject mu = env->CallObjectMethod(bean, mid);
+
+    jclass muClass = env->GetObjectClass(mu);
+    jfieldID max = env->GetFieldID(muClass, "max", "J");
+    max_jvm_heap_memory_size_ = env->GetLongField(mu, max);
+}
+
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
@@ -222,6 +238,9 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;
+    if (tls_env_ != nullptr) {
+        parse_max_heap_memory_size_from_jvm(tls_env_);
+    }
     return Status::OK();
 }
 

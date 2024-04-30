@@ -1332,6 +1332,12 @@ DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
 // The max ratio for ttl cache's size
 DECLARE_mInt64(max_ttl_cache_ratio);
+// The maximum jvm heap usage ratio for hdfs write workload
+DECLARE_mDouble(max_hdfs_jni_heap_usage_ratio);
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
+// The max retry times when hdfs write failed
+DECLARE_mInt64(hdfs_jni_write_max_retry_time);
 
 #ifdef BE_TEST
 // test s3
