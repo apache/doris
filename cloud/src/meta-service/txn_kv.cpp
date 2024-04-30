@@ -18,8 +18,8 @@
 #include "txn_kv.h"
 
 #include <bthread/countdown_event.h>
-#include <endian.h>
 #include <byteswap.h>
+#include <endian.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
