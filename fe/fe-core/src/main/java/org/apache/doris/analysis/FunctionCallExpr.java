@@ -808,11 +808,6 @@ public class FunctionCallExpr extends Expr {
         return fn instanceof AggregateFunction && !isAnalyticFnCall;
     }
 
-    public boolean isBuiltin() {
-        Preconditions.checkState(fn != null);
-        return fn instanceof BuiltinAggregateFunction && !isAnalyticFnCall;
-    }
-
     /**
      * Returns true if this is a call to an aggregate function that returns
      * non-null on an empty input (e.g. count).
