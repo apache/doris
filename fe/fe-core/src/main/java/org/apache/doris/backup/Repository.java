@@ -697,9 +697,8 @@ public class Repository implements Writable {
         Map<String, String> properties = new HashMap();
         properties.putAll(this.getRemoteFileSystem().getProperties());
         // WE should not return the acturl secret key to user for safety consideration
-        List<String> secretKeys = List.of(S3Properties.SECRET_KEY, S3Properties.Env.SECRET_KEY);
-        secretKeys.stream()
-                .forEach(s -> properties.replace(s, "xxxxxx"));
+        properties.replace(S3Properties.SECRET_KEY, "xxxxxx");
+        properties.replace(S3Properties.Env.SECRET_KEY, "xxxxxx");
         stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
