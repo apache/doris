@@ -234,7 +234,7 @@ Status S3FileWriter::close() {
 
     if (_pending_buf != nullptr) {
         _countdown_event.add_count();
-        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
+        RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
     }
 
@@ -321,7 +321,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                 }
                 _cur_part_num++;
                 _countdown_event.add_count();
-                RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
+                RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
                 _pending_buf = nullptr;
             }
             _bytes_appended += data_size_to_append;
@@ -471,7 +471,7 @@ Status S3FileWriter::finalize() {
             RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
         }
         _countdown_event.add_count();
-        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
+        RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
     }
     _wait_until_finish("finalize");
