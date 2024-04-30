@@ -251,8 +251,16 @@ public class PhysicalHashJoin<
         Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
         Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);
-        // when probeExpr is output slot of setOperator, targetPair is null
-        PhysicalRelation target1 = (targetPair == null) ? null : targetPair.first;
+        if (targetPair == null) {
+            /* cases for "targetPair is null"
+             1. when probeExpr is output slot of setOperator, targetPair is null
+             2. join (topn(table1), table2)
+                when aliasTransferMap goes through topn, all slots from table1
+                are cleared to avoid generate rf(table2->table1)
+            */
+            return false;
+        }
+        PhysicalRelation target1 = targetPair.first;
         PhysicalRelation target2 = null;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!this.equals(builderNode)
