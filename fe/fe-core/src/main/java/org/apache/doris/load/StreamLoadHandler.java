@@ -109,8 +109,9 @@ public class StreamLoadHandler {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(),
-                request.getUserIp());
+        String userIp = request.getUserIp();
+        String host = (StringUtils.isEmpty(userIp) || userIp.equals("null")) ? "%" : userIp;
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), host);
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setBackendId(request.getBackendId());
