@@ -3266,20 +3266,12 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
 }
 
 std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
-        const RowsetIdUnorderedSet* specified_rowset_ids, bool include_stale) {
+        const RowsetIdUnorderedSet* specified_rowset_ids) {
     std::vector<RowsetSharedPtr> rowsets;
     for (auto& rs : _rs_version_map) {
         if (!specified_rowset_ids ||
             specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
             rowsets.push_back(rs.second);
-        }
-    }
-    if (include_stale && specified_rowset_ids != nullptr &&
-        rowsets.size() != specified_rowset_ids->size()) {
-        for (auto& rs : _stale_rs_version_map) {
-            if (specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
-                rowsets.push_back(rs.second);
-            }
         }
     }
     std::sort(rowsets.begin(), rowsets.end(), [](RowsetSharedPtr& lhs, RowsetSharedPtr& rhs) {
