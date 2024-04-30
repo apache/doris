@@ -185,7 +185,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
     }
 
-    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table, boolean executeFirstTime) {
+    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table,
+            String nowPartitionName, boolean executeFirstTime) {
         // if execute first time, all partitions no contain data
         if (!table.isAutoBucket() || executeFirstTime) {
             return property.getBuckets();
@@ -199,20 +200,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
             Partition partition = table.getPartition(idToItem.getKey());
-            if (partition != null && partition.getVisibleVersion() >= 2) {
+            // exclude current partition because its data isn't enough one week/day/hour.
+            if (partition != null && partition.getName() != nowPartitionName && artition.getVisibleVersion() >= 2) {
                 partitionSizeArray.add(partition.getAllDataSize(true));
             }
         }
 
         // no exist history partition data
-        if (partitionSizeArray.size() <= 2) {
+        if (partitionSizeArray.isEmpty()) {
             return property.getBuckets();
         }
-
-        // the first and last partitions's data is not full day or full hour, need exclude them.
-        int lastIndex = partitionSizeArray.size() - 1;
-        partitionSizeArray.remove(lastIndex);
-        partitionSizeArray.remove(0);
 
         // plus 5 for uncompressed data
         long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
@@ -242,6 +239,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
         String storagePolicyName = dynamicPartitionProperty.getStoragePolicy();
+
+        String nowPartitionPrevBorder = DynamicPartitionUtil.getPartitionRangeString(
+                dynamicPartitionProperty, now, 0, partitionFormat);
+        String nowPartitionName = dynamicPartitionProperty.getPrefix()
+                + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
+                nowPartitionPrevBorder, dynamicPartitionProperty.getTimeUnit());
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
@@ -316,7 +319,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable, executeFirstTime);
+            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable, nowPartitionName, executeFirstTime);
             if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<String> distColumnNames = new ArrayList<>();
