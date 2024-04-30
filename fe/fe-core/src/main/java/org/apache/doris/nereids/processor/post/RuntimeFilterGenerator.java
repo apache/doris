@@ -553,7 +553,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     break;
                 }
             }
-            Preconditions.checkState(targetExpr != null);
+            Preconditions.checkState(targetExpr != null,
+                    "cannot find runtime filter cte.target: "
+                            + cteSlot + "in project " + project.toString());
             if (targetExpr instanceof SlotReference && checkCanPushDownIntoBasicTable(project)) {
                 Map<Slot, PhysicalRelation> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
                         (SlotReference) targetExpr, ctx);

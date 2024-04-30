@@ -254,8 +254,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Pair<PhysicalRelation, Slot> srcPair = ctx.rfContext.getAliasTransferMap().get(ctx.srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
         Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeExpr);
-        // when probeExpr is output slot of setOperator, targetPair is null
-        PhysicalRelation target1 = (targetPair == null) ? null : targetPair.first;
+        if (targetPair == null) {
+            /* cases for "targetPair is null"
+             1. when probeExpr is output slot of setOperator, targetPair is null
+             2. join (topn(table1), table2)
+                when aliasTransferMap goes through topn, all slots from table1
+                are cleared to avoid generate rf(table2->table1)
+            */
+            return false;
+        }
+        PhysicalRelation target1 = targetPair.first;
         PhysicalRelation target2 = null;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!join.equals(ctx.builderNode)
@@ -377,7 +385,17 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             map.put(ctx.probeExpr.getInputSlots().iterator().next(),
                     setOperation.getRegularChildrenOutputs().get(i).get(projIndex));
             Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-            pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
+            PushDownContext childPushDownContext = ctx.withNewProbeExpression(newProbeExpr);
+            if (childPushDownContext.isValid()) {
+                /**
+                 * childPushDownContext is not valid, for example:
+                 * setop
+                 *   +--->scan t1(A, B)
+                 *   +--->select 0, 0
+                 * push down context for "select 0, 0" is invalid
+                 */
+                pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
+            }
         }
         return pushedDown;
     }
