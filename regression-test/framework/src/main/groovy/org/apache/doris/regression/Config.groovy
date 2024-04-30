@@ -33,6 +33,12 @@ import static org.apache.doris.regression.ConfigOptions.*
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+enum RunMode {
+    UNKNOWN,
+    NOT_CLOUD,
+    CLOUD
+}
+
 @Slf4j
 @CompileStatic
 class Config {
@@ -63,6 +69,8 @@ class Config {
     public String cloudUniqueId
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
+
+    public RunMode isCloudMode = RunMode.UNKNOWN
 
     public String suitePath
     public String dataPath

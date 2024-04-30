@@ -43,6 +43,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.RunMode
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -1123,7 +1124,12 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+        logger.info("get mode {}", context.config.isCloudMode)
+        if (context.config.isCloudMode == RunMode.UNKNOWN) {
+            context.config.isCloudMode = getFeConfig("cloud_unique_id").isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            logger.info("set runmode : {} and cache it", context.config.isCloudMode)
+        }
+        return context.config.isCloudMode == RunMode.CLOUD
     }
 
     boolean enableStoragevault() {
@@ -1131,7 +1137,9 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+        def ret = sql_return_maparray_impl("SHOW FRONTEND CONFIG LIKE '${key}'", context.getConnection('root', ''))
+        logger.info("ret = {}", ret)
+        return ret[0].Value
     }
 
     void setFeConfig(String key, Object value) {

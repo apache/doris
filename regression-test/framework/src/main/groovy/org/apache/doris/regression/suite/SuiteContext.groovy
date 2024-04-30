@@ -139,13 +139,13 @@ class SuiteContext implements Closeable {
     }
 
     // jdbc:mysql
-    Connection getConnection() {
+    Connection getConnection(String userName = '', String password = '') {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
             threadConnInfo.conn = config.getConnectionByDbName(dbName)
-            threadConnInfo.username = config.jdbcUser
-            threadConnInfo.password = config.jdbcPassword
+            threadConnInfo.username = userName == '' ? config.jdbcUser : userName
+            threadConnInfo.password = password == '' ? config.jdbcPassword : password
             threadLocalConn.set(threadConnInfo)
         }
         return threadConnInfo.conn
