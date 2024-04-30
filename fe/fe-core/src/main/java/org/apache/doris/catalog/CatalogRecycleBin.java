@@ -641,14 +641,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
             RecycleTableInfo tableInfo = entry.getValue();
             if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
-                    || !tableIds.contains(tableInfo.getTable().getId())
-                    || tableInfo.getTable().getType() == TableType.MATERIALIZED_VIEW) {
+                    || !tableIds.contains(tableInfo.getTable().getId())) {
                 continue;
             }
 
             Table table = tableInfo.getTable();
-            db.registerTable(table);
-            LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            if (table.getType() == TableType.OLAP) {
+                db.registerTable(table);
+                LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            } else {
+                LOG.info("ignore recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
             tableNames.remove(table.getName());
