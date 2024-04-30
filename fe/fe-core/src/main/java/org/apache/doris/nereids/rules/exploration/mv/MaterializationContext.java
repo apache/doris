@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -27,9 +26,12 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -38,10 +40,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -100,7 +101,7 @@ public abstract class MaterializationContext {
                 new BitSet());
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
-                this.mvScanPlan.getExpressions());
+                this.mvScanPlan.getOutput());
         // copy the plan from cache, which the plan in cache may change
         List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
                 mvPlan, cascadesContext, new BitSet());
@@ -125,9 +126,9 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * Try to generate scan plan for materialized view
-     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
-     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * Try to generate scan plan for materialization
+     * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
+     * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
     public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
@@ -139,9 +140,28 @@ public abstract class MaterializationContext {
         }
     }
 
+    /**
+     * Try to generate scan plan for materialization
+     * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
+     * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * should be different
+     */
     abstract Plan doGenerateMvPlan(CascadesContext cascadesContext);
 
+    /**
+     * Get materialization unique qualifier which identify it
+     */
     abstract List<String> getMaterializationQualifier();
+
+    /**
+     * Get String info which is used for to string
+     */
+    abstract String getStringInfo();
+
+    /**
+     * Calc the relation is chosen finally or not
+     */
+    abstract boolean isFinalChosen(Relation relation);
 
     public Plan getMvPlan() {
         return mvPlan;
@@ -212,61 +232,52 @@ public abstract class MaterializationContext {
 
     @Override
     public String toString() {
-        StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
-        for (Map.Entry<ObjectId, Collection<Pair<String, String>>> reasonEntry : this.failReason.asMap().entrySet()) {
-            failReasonBuilder
-                    .append("\n")
-                    .append("ObjectId : ").append(reasonEntry.getKey()).append(".\n");
-            for (Pair<String, String> reason : reasonEntry.getValue()) {
-                failReasonBuilder.append("Summary : ").append(reason.key()).append(".\n")
-                        .append("Reason : ").append(reason.value()).append(".\n");
-            }
-        }
-        failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
-                "rewriteSuccess", this.success,
-                "failReason", failReasonBuilder.toString());
+        return getStringInfo();
     }
 
     /**
-     * toString, this contains summary and detail info.
-     */
-    public static String toDetailString(List<MaterializationContext> materializationContexts) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("materializationContexts:").append("\n");
-        for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n").append(ctx).append("\n");
-        }
-        return builder.toString();
-    }
-
-    /**
-     * toSummaryString, this contains only summary info.
+     * ToSummaryString, this contains only summary info.
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            List<MTMV> chosenMaterializationNames) {
+            PhysicalPlan physicalPlan) {
         if (materializationContexts.isEmpty()) {
             return "";
         }
-        Set<String> materializationChosenNameSet = chosenMaterializationNames.stream()
-                .map(MTMV::getName)
+        Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
+        Set<List<String>> chosenMaterializationQualifiers = new HashSet<>();
+        physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
+            @Override
+            public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
+                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
+                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
+                        chosenMaterializationQualifiers.add(rewrittenContext.getMaterializationQualifier());
+                    }
+                }
+                return null;
+            }
+        }, null);
+
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
-        if (!materializationChosenNameSet.isEmpty()) {
-            builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
+        if (!chosenMaterializationQualifiers.isEmpty()) {
+            builder.append("  Names: ");
+            chosenMaterializationQualifiers.forEach(chosenMaterializationQualifier ->
+                    builder.append(String.join("-", chosenMaterializationQualifier)).append(", "));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<String> rewriteSuccessButNotChoseNameSet = materializationContexts.stream()
-                .filter(materializationContext -> materializationContext.isSuccess()
-                        && !materializationChosenNameSet.contains(materializationContext.getMaterializationQualifier()))
-                .map(context -> context.getMaterializationQualifier().toString())
+        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
+                .map(MaterializationContext::getMaterializationQualifier)
+                .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
-        if (!rewriteSuccessButNotChoseNameSet.isEmpty()) {
-            builder.append("  Names: ").append(String.join(", ", rewriteSuccessButNotChoseNameSet));
+        if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
+            builder.append("  Names: ");
+            rewriteSuccessButNotChoseQualifiers.forEach(chosenMaterializationQualifier ->
+                    builder.append(String.join("-", chosenMaterializationQualifier)).append(", "));
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -281,5 +292,22 @@ public abstract class MaterializationContext {
             }
         }
         return builder.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MaterializationContext context = (MaterializationContext) o;
+        return getMaterializationQualifier().equals(context.getMaterializationQualifier());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getMaterializationQualifier());
     }
 }
