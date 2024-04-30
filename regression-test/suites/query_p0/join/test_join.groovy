@@ -20,7 +20,7 @@ suite("test_join", "query,p0") {
 
 
     sql"drop view if exists test_join_empty_view"
-    sql"create view empty as select * from baseall where k1 = 0"
+    sql"create view test_join_empty_view as select * from baseall where k1 = 0"
 
     order_sql """select j.*, d.* from baseall j full outer join test d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
