@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://11.91.162.209:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://11.91.162.209:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
-syncerAddress = "127.0.0.1:9190"
+feSourceThriftAddress = "11.91.162.209:9020"
+feTargetThriftAddress = "11.91.162.209:9020"
+syncerAddress = "11.91.162.209:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "11.91.162.209:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -96,7 +96,7 @@ customConf1 = "test_custom_conf_value"
 
 // for test csv with header
 enableHdfs=false // set to true if hdfs is ready
-hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsFs = "hdfs://11.91.162.209:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
@@ -198,7 +198,7 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 //arrow flight sql test config
-extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlHost = "11.91.162.209"
 extArrowFlightSqlPort = 9090
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
@@ -215,4 +215,4 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-externalEnvIp="127.0.0.1"
+externalEnvIp="11.91.162.209"

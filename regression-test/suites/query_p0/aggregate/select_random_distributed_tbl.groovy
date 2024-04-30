@@ -40,58 +40,71 @@ suite("select_random_distributed_tbl") {
     
     sql "insert into ${tableName} values (1,'2024-01-01','beijing',10,1,10,50,200);"
     sql "insert into ${tableName} values (1,'2024-01-01','beijing',10,1,20,200,80);"
-
     sql "insert into ${tableName} values (2,'2024-01-02','shanghai',10,1,5,40,20);"
     sql "insert into ${tableName} values (2,'2024-01-02','shanghai',10,1,30,90,120);"
 
-    // test legacy planner
-    sql "set enable_nereids_planner = false;"
+    for (int i = 0; i < 2; ++i) {
+        if (i == 0) {
+            // test legacy planner
+            sql "set enable_nereids_planner = false;"
+        } else if (i == 1) {
+            // test nereids planner
+            sql "set enable_nereids_planner = true;"
+        }
 
-    def sql1 = "select * from ${tableName} order by user_id, date, city, age, sex;"
-    qt_sql "${sql1}"
-    def res1 = sql """ explain ${sql1} """
-    assertTrue(res1.toString().contains("VAGGREGATE"))
+        def whereStr = ""
+        for (int j = 0; j < 2; ++j) {
+            if (j == 1) {
+                // test with filter
+                whereStr = "where user_id > 0"
+            }
+            def sql1 = "select * from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            qt_sql "${sql1}"
+            def res1 = sql """ explain ${sql1} """
+            assertTrue(res1.toString().contains("VAGGREGATE"))
 
-    def sql2 = "select user_id, date, city, age, sex, cost, max_dwell_time, min_dwell_time from ${tableName} order by user_id, date, city, age, sex;"
-    qt_sql "${sql2}"
-    def res2 = sql """ explain ${sql2} """
-    assertTrue(res2.toString().contains("VAGGREGATE"))
+            def sql2 = "select user_id, date, city, age, sex, cost, max_dwell_time, min_dwell_time from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            qt_sql "${sql2}"
+            def res2 = sql """ explain ${sql2} """
+            assertTrue(res2.toString().contains("VAGGREGATE"))
 
-    def sql3 = "select user_id+1, date, city, age, sex, cost from ${tableName} order by user_id, date, city, age, sex;"
-    qt_sql "${sql3}"
-    def res3 = sql """ explain ${sql3} """
-    assertTrue(res3.toString().contains("VAGGREGATE"))
+            def sql3 = "select user_id+1, date, city, age, sex, cost from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            qt_sql "${sql3}"
+            def res3 = sql """ explain ${sql3} """
+            assertTrue(res3.toString().contains("VAGGREGATE"))
 
-    def sql4 = "select user_id, date, city, age, sex, cost+1 from ${tableName} order by user_id, date, city, age, sex;"
-    qt_sql "${sql4}"
-    def res4 = sql """ explain ${sql4} """
-    assertTrue(res4.toString().contains("VAGGREGATE"))
+            def sql4 = "select user_id, date, city, age, sex, cost+1 from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            qt_sql "${sql4}"
+            def res4 = sql """ explain ${sql4} """
+            assertTrue(res4.toString().contains("VAGGREGATE"))
 
-    def sql5 =  "select user_id, sum(cost), max(max_dwell_time), min(min_dwell_time) from ${tableName} group by user_id order by user_id;"
-    qt_sql "${sql5}"
+            def sql5 =  "select user_id, sum(cost), max(max_dwell_time), min(min_dwell_time) from ${tableName} ${whereStr} group by user_id order by user_id;"
+            qt_sql "${sql5}"
 
-    def sql6 = "select count(1) from ${tableName}"
-    qt_sql "${sql6}"
+            def sql6 = "select count(1) from ${tableName} ${whereStr}"
+            qt_sql "${sql6}"
 
-    def sql7 = "select count(*) from ${tableName}"
-    qt_sql "${sql7}"
+            def sql7 = "select count(*) from ${tableName} ${whereStr}"
+            qt_sql "${sql7}"
 
-    def sql8 = "select max(user_id) from ${tableName}"
-    qt_sql "${sql8}"
-    def res8 = sql """ explain ${sql8} """
-    // no pre agg
-    assertFalse(res8.toString().contains("sum"))
+            def sql8 = "select max(user_id) from ${tableName} ${whereStr}"
+            qt_sql "${sql8}"
+            def res8 = sql """ explain ${sql8} """
+            // no pre agg
+            assertFalse(res8.toString().contains("sum"))
 
-    def sql9 = "select max(cost) from ${tableName}"
-    qt_sql "${sql9}"
-    def res9 = sql """ explain ${sql9} """
-    assertTrue(res9.toString().contains("sum"))
+            def sql9 = "select max(cost) from ${tableName} ${whereStr}"
+            qt_sql "${sql9}"
+            def res9 = sql """ explain ${sql9} """
+            assertTrue(res9.toString().contains("sum"))
 
-    def sql10 = "select sum(max_dwell_time) from ${tableName}"
-    qt_sql "${sql10}"
+            def sql10 = "select sum(max_dwell_time) from ${tableName} ${whereStr}"
+            qt_sql "${sql10}"
 
-    def sql11 = "select sum(min_dwell_time) from ${tableName}"
-    qt_sql "${sql11}"
+            def sql11 = "select sum(min_dwell_time) from ${tableName} ${whereStr}"
+            qt_sql "${sql11}"
+        }
+    }
 
     sql "drop table ${tableName};"
 }
