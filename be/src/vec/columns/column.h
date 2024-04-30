@@ -77,14 +77,13 @@ private:
     /// If you want to copy column for modification, look at 'mutate' method.
     virtual MutablePtr clone() const = 0;
 
-protected:
+public:
     // 64bit offsets now only Array type used, so we make it protected
     // to avoid use IColumn::Offset64 directly.
     // please use ColumnArray::Offset64 instead if we need.
     using Offset64 = UInt64;
     using Offsets64 = PaddedPODArray<Offset64>;
 
-public:
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -99,6 +98,11 @@ public:
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
       */
     virtual Ptr convert_to_full_column_if_const() const { return get_ptr(); }
+
+    /** If in join. the StringColumn size may overflow uint32_t, we need convert to uint64_t to ColumnString64
+  * The Column: ColumnString, ColumnNullable, ColumnArray, ColumnStruct need impl the code
+  */
+    virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
     /// If column isn't ColumnLowCardinality, return itself.
     /// If column is ColumnLowCardinality, transforms is to full column.
@@ -222,6 +226,14 @@ public:
     /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
+    /// Appends range of elements from other column with the same type.
+    /// Do not need throw execption in ColumnString overflow uint32, only
+    /// use in join
+    virtual void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                   size_t length) {
+        insert_range_from(src, start, length);
+    }
+
     /// Appends one element from other column with the same type multiple times.
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
@@ -327,22 +339,26 @@ public:
     virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                size_t max_row_byte_size) const {
         LOG(FATAL) << "serialize_vec not supported";
+        __builtin_unreachable();
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
         LOG(FATAL) << "deserialize_vec not supported";
+        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -640,6 +656,8 @@ public:
 
     virtual bool is_column_string() const { return false; }
 
+    virtual bool is_column_string64() const { return false; }
+
     virtual bool is_column_decimal() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
@@ -652,8 +670,6 @@ public:
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
-
-    virtual bool low_cardinality() const { return false; }
 
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,

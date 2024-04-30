@@ -203,23 +203,27 @@ public:
     virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
                             doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
                                      doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_negative";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                                      const doris::vectorized::NullMap& null_map,
                                      doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable";
+        __builtin_unreachable();
     }
 
     virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                               const doris::vectorized::NullMap& null_map,
                                               doris::vectorized::ColumnUInt8::Container& results) {
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
+        __builtin_unreachable();
     }
 
     class IteratorBase {
@@ -418,26 +422,39 @@ public:
         }
     }
 
+    void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
+                                  size_t end) {
+        for (size_t i = start; i < end; i++) {
+            if (nullmap == nullptr || !nullmap[i]) {
+                _set.insert(col.get_data_at(i).to_string());
+            } else {
+                _contains_null = true;
+            }
+        }
+    }
+
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
             const auto& nullmap =
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
-
-            for (size_t i = start; i < nullable->size(); i++) {
-                if (!nullmap[i]) {
-                    _set.insert(col.get_data_at(i).to_string());
-                } else {
-                    _contains_null = true;
-                }
+            if (nullable->get_nested_column().is_column_string64()) {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
+                                                 nullable->get_nested_column()),
+                                         nullmap.data(), start, nullmap.size());
+            } else {
+                _insert_fixed_len_string(
+                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
             }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < col->size(); i++) {
-                _set.insert(col->get_data_at(i).to_string());
+            if (column->is_column_string64()) {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
+                                         nullptr, start, column->size());
+            } else {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
+                                         nullptr, start, column->size());
             }
         }
     }
@@ -567,26 +584,39 @@ public:
         }
     }
 
+    void _insert_fixed_len_string(const auto& col, const uint8_t* __restrict nullmap, size_t start,
+                                  size_t end) {
+        for (size_t i = start; i < end; i++) {
+            if (nullmap == nullptr || !nullmap[i]) {
+                _set.insert(col.get_data_at(i));
+            } else {
+                _contains_null = true;
+            }
+        }
+    }
+
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
             const auto& nullmap =
                     assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
                             .get_data();
-
-            for (size_t i = start; i < nullable->size(); i++) {
-                if (!nullmap[i]) {
-                    _set.insert(col.get_data_at(i));
-                } else {
-                    _contains_null = true;
-                }
+            if (nullable->get_nested_column().is_column_string64()) {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
+                                                 nullable->get_nested_column()),
+                                         nullmap.data(), start, nullmap.size());
+            } else {
+                _insert_fixed_len_string(
+                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
             }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < col->size(); i++) {
-                _set.insert(col->get_data_at(i));
+            if (column->is_column_string64()) {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
+                                         nullptr, start, column->size());
+            } else {
+                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
+                                         nullptr, start, column->size());
             }
         }
     }

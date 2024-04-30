@@ -254,6 +254,9 @@ public:
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
 
+    void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
+                    GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
+
     // ATTN: If you add a new method, please also add the corresponding implementation in `MetaServiceProxy`.
 
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
@@ -583,6 +586,11 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
                   done);
+    }
+
+    void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
+                    GetTxnIdResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_txn_id, controller, request, response, done);
     }
 
 private:

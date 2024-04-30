@@ -36,6 +36,12 @@ public:
                           PAlterVaultSyncResponse* response,
                           google::protobuf::Closure* done) override;
 
+    // Get messages (filename, offset, size) about the tablet data in cache
+    void get_file_cache_meta_by_tablet_id(google::protobuf::RpcController* controller,
+                                          const PGetFileCacheMetaRequest* request,
+                                          PGetFileCacheMetaResponse* response,
+                                          google::protobuf::Closure* done) override;
+
 private:
     [[maybe_unused]] CloudStorageEngine& _engine;
 };

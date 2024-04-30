@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,15 +38,20 @@ public class FunctionalDependencies {
 
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
             = new FunctionalDependencies(new NestedSet().toImmutable(),
-                    new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build());
+                    new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
+                    ImmutableEqualSet.empty());
     private final NestedSet uniqueSet;
     private final NestedSet uniformSet;
     private final ImmutableSet<FdItem> fdItems;
 
-    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems) {
+    private final ImmutableEqualSet<Slot> equalSet;
+
+    private FunctionalDependencies(
+            NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems, ImmutableEqualSet<Slot> equalSet) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
         this.fdItems = fdItems;
+        this.equalSet = equalSet;
     }
 
     public boolean isEmpty() {
@@ -87,13 +94,26 @@ public class FunctionalDependencies {
         return slotSet.stream().noneMatch(Slot::nullable) && isUniform(slotSet);
     }
 
+    public boolean isNullSafeEqual(Slot l, Slot r) {
+        return equalSet.isEqual(l, r);
+    }
+
+    public boolean isEqualAndNotNotNull(Slot l, Slot r) {
+        return equalSet.isEqual(l, r) && !l.nullable() && !r.nullable();
+    }
+
+    public List<Set<Slot>> calAllEqualSet() {
+        return equalSet.calEqualSetList();
+    }
+
     public ImmutableSet<FdItem> getFdItems() {
         return fdItems;
     }
 
     @Override
     public String toString() {
-        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s]", uniformSet, uniqueSet, fdItems);
+        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s, equalSet:%s]",
+                uniformSet, uniqueSet, fdItems, equalSet);
     }
 
     /**
@@ -103,17 +123,21 @@ public class FunctionalDependencies {
         private final NestedSet uniqueSet;
         private final NestedSet uniformSet;
         private ImmutableSet<FdItem> fdItems;
+        private final ImmutableEqualSet.Builder<Slot> equalSetBuilder;
 
         public Builder() {
             uniqueSet = new NestedSet();
             uniformSet = new NestedSet();
             fdItems = new ImmutableSet.Builder<FdItem>().build();
+            equalSetBuilder = new ImmutableEqualSet.Builder<>();
         }
 
         public Builder(FunctionalDependencies other) {
             this.uniformSet = new NestedSet(other.uniformSet);
             this.uniqueSet = new NestedSet(other.uniqueSet);
             this.fdItems = ImmutableSet.copyOf(other.fdItems);
+            equalSetBuilder = new ImmutableEqualSet.Builder<>(other.equalSet);
+
         }
 
         public void addUniformSlot(Slot slot) {
@@ -147,11 +171,20 @@ public class FunctionalDependencies {
         public void addFunctionalDependencies(FunctionalDependencies fd) {
             uniformSet.add(fd.uniformSet);
             uniqueSet.add(fd.uniqueSet);
+            equalSetBuilder.addEqualSet(fd.equalSet);
+        }
+
+        public void addEqualPair(Slot l, Slot r) {
+            equalSetBuilder.addEqualPair(l, r);
+        }
+
+        public void addEqualSet(FunctionalDependencies functionalDependencies) {
+            equalSetBuilder.addEqualSet(functionalDependencies.equalSet);
         }
 
         public FunctionalDependencies build() {
             return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable(),
-                    ImmutableSet.copyOf(fdItems));
+                    ImmutableSet.copyOf(fdItems), equalSetBuilder.build());
         }
 
         public void pruneSlots(Set<Slot> outputSlots) {
@@ -162,6 +195,7 @@ public class FunctionalDependencies {
         public void replace(Map<Slot, Slot> replaceMap) {
             uniformSet.replace(replaceMap);
             uniqueSet.replace(replaceMap);
+            equalSetBuilder.replace(replaceMap);
         }
     }
 

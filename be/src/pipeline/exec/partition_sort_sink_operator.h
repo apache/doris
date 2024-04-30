@@ -22,33 +22,9 @@
 #include <cstdint>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/common/sort/partition_sorter.h"
-#include "vec/exec/vpartition_sort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class PartitionSortSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSinkOperatorBuilder(int32_t id, ExecNode* sort_node)
-            : OperatorBuilder(id, "PartitionSortSinkOperator", sort_node) {}
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class PartitionSortSinkOperator final : public StreamingOperator<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
-            : StreamingOperator(operator_builder, sort_node) {};
-
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class PartitionSortSinkOperatorX;
 class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
@@ -128,5 +104,4 @@ private:
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

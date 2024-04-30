@@ -228,12 +228,12 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 namespace doris::config {
 extern bool enable_injection_point;
 }
-# define TEST_INJECTION_POINT(x) if (doris::config::enable_injection_point) { SYNC_POINT(x); }
-# define TEST_IDX_INJECTION_POINT(x, index) if (doris::config::enable_injection_point) { IDX_SYNC_POINT(x, index); }
-# define TEST_INJECTION_POINT_CALLBACK(x, ...) if (doris::config::enable_injection_point) { SYNC_POINT_CALLBACK(x, __VA_ARGS__); }
-# define TEST_INJECTION_POINT_SINGLETON() if (doris::config::enable_injection_point) { SYNC_POINT_SINGLETON(); }
-# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) if (doris::config::enable_injection_point) { SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__); }
-# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...) if (doris::config::enable_injection_point) { SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__); }
+# define TEST_INJECTION_POINT(x) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT(x); }
+# define TEST_IDX_INJECTION_POINT(x, index) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); IDX_SYNC_POINT(x, index); }
+# define TEST_INJECTION_POINT_CALLBACK(x, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_CALLBACK(x, __VA_ARGS__); }
+# define TEST_INJECTION_POINT_SINGLETON() if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_SINGLETON(); }
+# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__); }
+# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__); }
 #endif // ENABLE_INJECTION_POINT
 
 // clang-format on

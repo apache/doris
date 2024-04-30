@@ -33,11 +33,11 @@ Usage: $0 <options>
      [no option]        start all components
      --help,-h          show this usage
      -c mysql           start MySQL
-     -c mysql,hive      start MySQL and Hive
+     -c mysql,hive3      start MySQL and Hive3
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
         fi
     fi
 fi
@@ -125,7 +125,7 @@ RUN_PG=0
 RUN_ORACLE=0
 RUN_SQLSERVER=0
 RUN_CLICKHOUSE=0
-RUN_HIVE=0
+RUN_HIVE2=0
 RUN_HIVE3=0;
 RUN_ES=0
 RUN_ICEBERG=0
@@ -149,8 +149,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_CLICKHOUSE=1
     elif [[ "${element}"x == "es"x ]]; then
         RUN_ES=1
-    elif [[ "${element}"x == "hive"x ]]; then
-        RUN_HIVE=1
+    elif [[ "${element}"x == "hive2"x ]]; then
+        RUN_HIVE2=1
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
@@ -301,7 +301,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     fi
 fi
 
-if [[ "${RUN_HIVE}" -eq 1 ]]; then
+if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value

@@ -274,60 +274,47 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalUnion
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------filter((t1.id > 100))
-------------------PhysicalOlapScan[t1]
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------filter((t2.id > 100))
-------------------PhysicalOlapScan[t2]
+------PhysicalUnion
+--------PhysicalLimit[LOCAL]
+----------filter((cast(msg as DOUBLE) > 100.0))
+------------PhysicalOlapScan[t1]
+--------PhysicalLimit[LOCAL]
+----------filter((t2.id > 100))
+------------PhysicalOlapScan[t2]
 
 -- !limit_union_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalUnion
+------PhysicalUnion
+--------PhysicalLimit[LOCAL]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------PhysicalOlapScan[t1]
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------------PhysicalOlapScan[t1]
---------------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalOlapScan[t3]
-------------------PhysicalOlapScan[t4]
+--------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t4]
 
 -- !limit_union_window --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalUnion
-------------PhysicalLimit[LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalWindow
---------------------PhysicalQuickSort[MERGE_SORT]
-----------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------PhysicalOlapScan[t1]
-------------PhysicalLimit[LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalWindow
---------------------PhysicalQuickSort[MERGE_SORT]
-----------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------PhysicalOlapScan[t2]
+------PhysicalUnion
+--------PhysicalLimit[LOCAL]
+----------PhysicalWindow
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalPartitionTopN
+------------------PhysicalOlapScan[t1]
+--------PhysicalLimit[LOCAL]
+----------PhysicalWindow
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalPartitionTopN
+------------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_join_filter --
 PhysicalResultSink
@@ -354,17 +341,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalUnion
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------filter((t1.id > 100))
-------------------PhysicalOlapScan[t1]
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------filter((t2.id > 100))
-------------------PhysicalOlapScan[t2]
+------PhysicalUnion
+--------PhysicalLimit[LOCAL]
+----------filter((t1.id > 100))
+------------PhysicalOlapScan[t1]
+--------PhysicalLimit[LOCAL]
+----------filter((t2.id > 100))
+------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_union_join --
 PhysicalResultSink

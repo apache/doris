@@ -98,6 +98,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -117,6 +119,14 @@ public class MetadataGenerator {
             routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
+        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_schedule_policy").getFullSchema();
+        for (int i = 0; i < policyColList.size(); i++) {
+            policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
+        }
+        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
+
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -156,9 +166,6 @@ public class MetadataGenerator {
             case TASKS:
                 result = taskMetadataResult(params);
                 break;
-            case WORKLOAD_SCHED_POLICY:
-                result = workloadSchedPolicyMetadataResult(params);
-                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -191,6 +198,10 @@ public class MetadataGenerator {
             case ROUTINES_INFO:
                 result = routineInfoMetadataResult(schemaTableParams);
                 columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
+                break;
+            case WORKLOAD_SCHEDULE_POLICY:
+                result = workloadSchedPolicyMetadataResult(schemaTableParams);
+                columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -469,7 +480,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TMetadataTableRequestParams params) {
+    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
@@ -488,6 +499,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(4)))); // priority
             trow.addToColumnValue(new TCell().setBoolVal(Boolean.valueOf(policyRow.get(5)))); // enabled
             trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(6)))); // version
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(7))); // workload group id
             dataBatch.add(trow);
         }
 
@@ -715,7 +727,7 @@ public class MetadataGenerator {
                 }
                 MTMV mv = (MTMV) table;
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("mv: " + mv);
+                    LOG.debug("mv: " + mv.toInfoString());
                 }
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));

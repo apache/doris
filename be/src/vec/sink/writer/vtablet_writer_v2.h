@@ -114,6 +114,13 @@ public:
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
+#ifndef BE_TEST
+private:
+#endif
+    static Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                                      std::shared_ptr<LoadStreamMap> load_stream_map,
+                                      int num_replicas);
+
 private:
     Status _init_row_distribution();
 

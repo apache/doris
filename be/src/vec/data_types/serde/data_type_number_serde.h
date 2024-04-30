@@ -312,6 +312,7 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
         result.SetDouble(data[row_num]);
     } else {
         LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+        __builtin_unreachable();
     }
     return Status::OK();
 }

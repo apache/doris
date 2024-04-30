@@ -240,6 +240,16 @@ suite("test_auto_partition_behavior") {
         exception "AUTO RANGE PARTITION doesn't support NULL column"
     }
 
+    sql "drop table if exists test_dynamic"
+    sql """
+            create table test_dynamic(
+                k0 DATE not null
+            )
+            auto partition by range (date_trunc(k0, 'year')) ()
+            DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+            properties("replication_num" = "1");
+        """
+
     // PROHIBIT different timeunit of interval when use both auto & dynamic partition
     sql "set experimental_enable_nereids_planner=true;"
     test{
@@ -263,7 +273,19 @@ suite("test_auto_partition_behavior") {
                 "dynamic_partition.buckets" = "8"
             ); 
         """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
+        exception "Can't use Dynamic Partition and Auto Partition at the same time"
+    }
+    test {
+        sql """
+            ALTER TABLE test_dynamic set (
+                "dynamic_partition.enable" = "true", 
+                "dynamic_partition.time_unit" = "DAY", 
+                "dynamic_partition.end" = "3", 
+                "dynamic_partition.prefix" = "p", 
+                "dynamic_partition.buckets" = "32"
+            );
+        """
+        exception "Can't use Dynamic Partition and Auto Partition at the same time"
     }
 
     sql "set experimental_enable_nereids_planner=false;"
@@ -288,7 +310,19 @@ suite("test_auto_partition_behavior") {
                 "dynamic_partition.buckets" = "8"
             ); 
         """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
+        exception "Can't use Dynamic Partition and Auto Partition at the same time"
+    }
+    test {
+        sql """
+            ALTER TABLE test_dynamic set (
+                "dynamic_partition.enable" = "true", 
+                "dynamic_partition.time_unit" = "DAY", 
+                "dynamic_partition.end" = "3", 
+                "dynamic_partition.prefix" = "p", 
+                "dynamic_partition.buckets" = "32"
+            );
+        """
+        exception "Can't use Dynamic Partition and Auto Partition at the same time"
     }
 
     // prohibit too long value for partition column
@@ -358,5 +392,20 @@ suite("test_auto_partition_behavior") {
             properties("replication_num" = "1");
         """
         exception "partition expr date_trunc is illegal!"
+    }
+    sql "set experimental_enable_nereids_planner=false;"
+    test{
+        sql """
+            create table illegal(
+                k0 datetime(6) NOT null,
+                k1 int NOT null
+            )
+            auto partition by range (date_trunc(k1, 'hour'))
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "Auto range partition needs Date/DateV2/Datetime/DatetimeV2 column as partition column"
     }
 }

@@ -76,7 +76,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
 
     // prepare catalog
-    String hms_port = context.config.otherConfigs.get("hms_port")
+    String hms_port = context.config.otherConfigs.get("hive2HmsPort")
     String catalog_name = "hive_test_mv_rewrite"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 

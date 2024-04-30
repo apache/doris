@@ -223,6 +223,8 @@ enum TTaskType {
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
     GC_BINLOG,
+    CLEAN_TRASH,
+    UPDATE_VISIBLE_VERSION,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -381,6 +383,7 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  14: optional bool is_udtf_function = false
 }
 
 enum TJdbcOperation {

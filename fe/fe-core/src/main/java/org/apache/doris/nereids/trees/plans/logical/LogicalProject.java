@@ -23,6 +23,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -41,7 +42,9 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -277,6 +280,24 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
                 if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(inputs)) {
                     fdBuilder.addUniformSlot(proj.toSlot());
+                }
+            }
+        }
+        fdBuilder.pruneSlots(getOutputSet());
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+        for (NamedExpression expr : getProjects()) {
+            if (expr instanceof Alias) {
+                if (aliasMap.containsKey(expr.child(0))) {
+                    fdBuilder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
+                }
+                aliasMap.put(expr.child(0), expr);
+                if (expr.child(0).isSlot()) {
+                    fdBuilder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
                 }
             }
         }

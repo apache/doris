@@ -42,7 +42,7 @@ CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
           _cal_delete_bitmap_req(cal_delete_bitmap_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablet_ids(succ_tablet_ids) {
-    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                     "CloudEngineCalcDeleteBitmapTask");
 }
 
@@ -134,7 +134,7 @@ CloudTabletCalcDeleteBitmapTask::CloudTabletCalcDeleteBitmapTask(
           _transaction_id(transaction_id),
           _version(version) {
     _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            MemTrackerLimiter::Type::OTHER,
             fmt::format("CloudTabletCalcDeleteBitmapTask#_transaction_id={}", _transaction_id));
 }
 

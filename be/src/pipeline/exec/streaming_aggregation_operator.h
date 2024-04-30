@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -183,7 +183,7 @@ private:
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
     std::vector<vectorized::AggregateDataPtr> _values;
-    bool _init = false;
+    bool _opened = false;
 
     void _destroy_agg_status(vectorized::AggregateDataPtr data);
 
@@ -243,6 +243,7 @@ private:
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace pipeline

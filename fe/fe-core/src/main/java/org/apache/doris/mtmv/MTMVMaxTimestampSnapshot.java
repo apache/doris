@@ -56,4 +56,12 @@ public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
     public int hashCode() {
         return Objects.hashCode(partitionId, timestamp);
     }
+
+    @Override
+    public String toString() {
+        return "MTMVMaxTimestampSnapshot{"
+                + "partitionId=" + partitionId
+                + ", timestamp=" + timestamp
+                + '}';
+    }
 }

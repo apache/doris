@@ -43,6 +43,8 @@ import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTxnIdRequest;
+import org.apache.doris.cloud.proto.Cloud.GetTxnIdResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
@@ -51,6 +53,7 @@ import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
+import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -90,6 +93,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionIdGenerator;
+import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -248,7 +252,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     throw new DuplicatedRequestException(DebugUtil.printId(requestId),
                             beginTxnResponse.getDupTxnId(), beginTxnResponse.getStatus().getMsg());
                 case TXN_LABEL_ALREADY_USED:
-                    throw new LabelAlreadyUsedException(label);
+                    throw new LabelAlreadyUsedException(beginTxnResponse.getStatus().getMsg(), false);
                 default:
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_TXN_REJECT.increase(1L);
@@ -381,12 +385,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         for (Table table : tableList) {
             OlapTable olapTable = (OlapTable) table;
-            olapTable.getPartitions().stream()
-                    .map(Partition::getBaseIndex)
-                    .map(MaterializedIndex::getTablets)
-                    .flatMap(Collection::stream)
-                    .map(Tablet::getId)
-                    .forEach(baseTabletIds::add);
+            try {
+                olapTable.readLock();
+                olapTable.getPartitions().stream()
+                        .map(Partition::getBaseIndex)
+                        .map(MaterializedIndex::getTablets)
+                        .flatMap(Collection::stream)
+                        .map(Tablet::getId)
+                        .forEach(baseTabletIds::add);
+            } finally {
+                olapTable.readUnlock();
+            }
         }
         Set<Long> tabletIds = tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).collect(Collectors.toSet());
         baseTabletIds.retainAll(tabletIds);
@@ -482,6 +491,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             internalMsgBuilder.append(" code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
+        }
+        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
@@ -883,7 +895,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         throw new UserException("Disallow to call finishTransaction()");
     }
 
@@ -1103,7 +1116,39 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)
             throws UserException {
-        throw new UserException(NOT_SUPPORTED_MSG);
+        LOG.info("try to get transaction id by label, dbId:{}, label:{}", dbId, label);
+        GetTxnIdRequest.Builder builder = GetTxnIdRequest.newBuilder();
+        builder.setDbId(dbId);
+        builder.setLabel(label);
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        for (TransactionStatus status : statusList) {
+            if (status == TransactionStatus.PREPARE) {
+                builder.addTxnStatus(TxnStatusPB.TXN_STATUS_PREPARED);
+            } else if (status == TransactionStatus.PRECOMMITTED) {
+                builder.addTxnStatus(TxnStatusPB.TXN_STATUS_PRECOMMITTED);
+            } else if (status == TransactionStatus.COMMITTED) {
+                builder.addTxnStatus(TxnStatusPB.TXN_STATUS_COMMITTED);
+            }
+        }
+
+        final GetTxnIdRequest getTxnIdRequest = builder.build();
+        GetTxnIdResponse getTxnIdResponse = null;
+        try {
+            LOG.info("getTxnRequest:{}", getTxnIdRequest);
+            getTxnIdResponse = MetaServiceProxy
+                    .getInstance().getTxnId(getTxnIdRequest);
+            LOG.info("getTxnIdReponse: {}", getTxnIdResponse);
+        } catch (RpcException e) {
+            LOG.info("getTransactionId exception: {}", e.getMessage());
+            throw new TransactionNotFoundException("transaction not found, label=" + label);
+        }
+
+        if (getTxnIdResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.info("getTransactionState exception: {}, {}", getTxnIdResponse.getStatus().getCode(),
+                    getTxnIdResponse.getStatus().getMsg());
+            throw new TransactionNotFoundException("transaction not found, label=" + label);
+        }
+        return getTxnIdResponse.getTxnId();
     }
 
     @Override

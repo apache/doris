@@ -100,3 +100,7 @@ services:
 networks:
   default:
     name: ${CONTAINER_UID}hive3-default
+    ipam:
+      driver: default
+      config: 
+        - subnet: 168.59.0.0/24

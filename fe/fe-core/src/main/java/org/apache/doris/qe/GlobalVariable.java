@@ -57,6 +57,8 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
+    public static final String READ_ONLY = "read_only";
+    public static final String SUPER_READ_ONLY = "super_read_only";
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
@@ -135,7 +137,17 @@ public final class GlobalVariable {
                             + "Getting file list may be a time-consuming operation. "
                             + "If you don't need to estimate the number of rows in the table "
                             + "or it affects performance, you can disable this feature."})
-    public static boolean enable_get_row_count_from_file_list = true;
+    public static boolean enable_get_row_count_from_file_list = false;
+
+    @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
+            description = {"仅用于兼容MySQL生态，暂无实际意义",
+                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+    public static boolean read_only = true;
+
+    @VariableMgr.VarAttr(name = SUPER_READ_ONLY, flag = VariableMgr.GLOBAL,
+            description = {"仅用于兼容MySQL生态，暂无实际意义",
+                    "Only for compatibility with MySQL ecosystem, no practical meaning"})
+    public static boolean super_read_only = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {

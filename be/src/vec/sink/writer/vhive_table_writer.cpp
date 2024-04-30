@@ -256,26 +256,30 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
         if (existing_table == false) {   // new table
             update_mode = TUpdateMode::NEW;
             if (_partition_columns_input_index.empty()) { // new unpartitioned table
-                write_info = {write_location.write_path, write_location.target_path,
-                              write_location.file_type};
+                write_info = {write_location.write_path, write_location.original_write_path,
+                              write_location.target_path, write_location.file_type};
             } else { // a new partition in a new partitioned table
                 auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
+                auto original_write_path =
+                        fmt::format("{}/{}", write_location.original_write_path, partition_name);
                 auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-                write_info = {std::move(write_path), std::move(target_path),
-                              write_location.file_type};
+                write_info = {std::move(write_path), std::move(original_write_path),
+                              std::move(target_path), write_location.file_type};
             }
         } else { // a new partition in an existing partitioned table, or an existing unpartitioned table
             if (_partition_columns_input_index.empty()) { // an existing unpartitioned table
                 update_mode =
                         !hive_table_sink.overwrite ? TUpdateMode::APPEND : TUpdateMode::OVERWRITE;
-                write_info = {write_location.write_path, write_location.target_path,
-                              write_location.file_type};
+                write_info = {write_location.write_path, write_location.original_write_path,
+                              write_location.target_path, write_location.file_type};
             } else { // a new partition in an existing partitioned table
                 update_mode = TUpdateMode::NEW;
                 auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
+                auto original_write_path =
+                        fmt::format("{}/{}", write_location.original_write_path, partition_name);
                 auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-                write_info = {std::move(write_path), std::move(target_path),
-                              write_location.file_type};
+                write_info = {std::move(write_path), std::move(original_write_path),
+                              std::move(target_path), write_location.file_type};
             }
             // need to get schema from existing table ?
         }
@@ -285,16 +289,21 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
         if (!hive_table_sink.overwrite) {
             update_mode = TUpdateMode::APPEND;
             auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
+            auto original_write_path =
+                    fmt::format("{}/{}", write_location.original_write_path, partition_name);
             auto target_path = fmt::format("{}", existing_partition->location.target_path);
-            write_info = {std::move(write_path), std::move(target_path),
-                          existing_partition->location.file_type};
+            write_info = {std::move(write_path), std::move(original_write_path),
+                          std::move(target_path), existing_partition->location.file_type};
             file_format_type = existing_partition->file_format;
             write_compress_type = hive_table_sink.compression_type;
         } else {
             update_mode = TUpdateMode::OVERWRITE;
             auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
+            auto original_write_path =
+                    fmt::format("{}/{}", write_location.original_write_path, partition_name);
             auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-            write_info = {std::move(write_path), std::move(target_path), write_location.file_type};
+            write_info = {std::move(write_path), std::move(original_write_path),
+                          std::move(target_path), write_location.file_type};
             file_format_type = hive_table_sink.file_format;
             write_compress_type = hive_table_sink.compression_type;
             // need to get schema from existing table ?

@@ -199,6 +199,7 @@ public:
             }
         } else {
             LOG(FATAL) << "double column not support insert_range_of_integer";
+            __builtin_unreachable();
         }
     }
 

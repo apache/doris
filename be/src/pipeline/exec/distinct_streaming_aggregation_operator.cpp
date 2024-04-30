@@ -100,6 +100,7 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
     } else {
         _init_hash_method(_probe_expr_ctxs);
     }
+    _opened = true;
     return Status::OK();
 }
 
@@ -533,13 +534,13 @@ bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) co
 }
 
 Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
-    if (_closed) {
+    if (!_opened || _closed) {
         return Status::OK();
     }
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     /// _hash_table_size_counter may be null if prepare failed.
-    if (_hash_table_size_counter) {
+    if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {
         std::visit(
                 [&](auto&& agg_method) {
                     COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.hash_table->size()));

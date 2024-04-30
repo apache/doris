@@ -17,6 +17,9 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
@@ -25,6 +28,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -246,6 +250,7 @@ public abstract class ConnectProcessor {
                 && CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
+        Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
@@ -273,13 +278,14 @@ public abstract class ConnectProcessor {
                     // Because ParseException means the sql is not supported by Nereids.
                     // It should be parsed by old parser, so not setting nereidsParseException to avoid
                     // suppressing the exception thrown by old parser.
+                    nereidsParseException = e;
                 } catch (Exception e) {
                     // TODO: We should catch all exception here until we support all query syntax.
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Nereids parse sql failed with other exception. Reason: {}. Statement: \"{}\".",
                                 e.getMessage(), convertedStmt);
                     }
-                    nereidsParseException = e;
+                    nereidsSyntaxException = e;
                 }
             }
         }
@@ -292,13 +298,42 @@ public abstract class ConnectProcessor {
                 // if NereidsParser and oldParser both failed,
                 // prove is a new feature implemented only on the nereids,
                 // so an error message for the new nereids is thrown
-                if (nereidsParseException != null) {
-                    throwable = nereidsParseException;
+                if (nereidsSyntaxException != null) {
+                    throwable = nereidsSyntaxException;
                 }
                 // Parse sql failed, audit it and return
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
+        }
+
+        if (mysqlCommand == MysqlCommand.COM_QUERY
+                && ctx.getSessionVariable().isEnableNereidsPlanner()
+                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
+                && stmts.stream().allMatch(s -> s instanceof QueryStmt
+                || s instanceof InsertStmt
+                || s instanceof UpdateStmt
+                || s instanceof DeleteStmt
+                || s instanceof CreateTableAsSelectStmt
+                || s instanceof CreateTableStmt)) {
+            String errMsg;
+            Throwable exception = null;
+            if (nereidsParseException != null) {
+                errMsg = nereidsParseException.getMessage();
+                exception = nereidsParseException;
+            } else if (nereidsSyntaxException != null) {
+                errMsg = nereidsSyntaxException.getMessage();
+                exception = nereidsSyntaxException;
+            } else {
+                errMsg = "Nereids parse DQL failed. " + originStmt;
+            }
+            if (exception == null) {
+                exception = new AnalysisException(errMsg);
+            } else {
+                exception = new AnalysisException(errMsg, exception);
+            }
+            handleQueryException(exception, originStmt, null, null);
+            return;
         }
 
         List<String> origSingleStmtList = null;

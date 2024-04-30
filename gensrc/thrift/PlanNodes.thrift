@@ -1303,6 +1303,8 @@ struct TPlanNode {
   // Intermediate projections will not materialize into the output block.
   104: optional list<list<Exprs.TExpr>> intermediate_projections_list
   105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
+
+  106: optional list<i32> topn_filter_source_node_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

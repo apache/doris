@@ -52,9 +52,10 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion")
-            .add("VersionCount").add("QueryHits").add("PathHash").add("Path")
+            .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
             .add("MetaUrl").add("CompactionStatus")
-            .add("CooldownReplicaId").add("CooldownMetaId").build();
+            .add("CooldownReplicaId").add("CooldownMetaId")
+            .build();
 
     private Table table;
     private MaterializedIndex index;
@@ -113,7 +114,8 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // lst consistency check time
                     tabletInfo.add(-1); // check version
                     tabletInfo.add(-1); // check version hash
-                    tabletInfo.add(-1); // version count
+                    tabletInfo.add(-1); // visible version count
+                    tabletInfo.add(-1); // total version count
                     tabletInfo.add(0L); // query hits
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add(FeConstants.null_string); // path
@@ -147,7 +149,8 @@ public class TabletsProcDir implements ProcDirInterface {
 
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
-                        tabletInfo.add(replica.getVersionCount());
+                        tabletInfo.add(replica.getVisibleVersionCount());
+                        tabletInfo.add(replica.getTotalVersionCount());
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
                         tabletInfo.add(replica.getPathHash());
                         tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));

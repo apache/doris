@@ -124,10 +124,18 @@ db2_11_port=50000
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
-hms_port=9083
-hdfs_port=8020
-hiveServerPort=10000
-hive_pg_port=5432
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container

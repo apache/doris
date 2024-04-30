@@ -97,6 +97,7 @@ suite("alter_ttl_1") {
     }
 
     load_customer_ttl_once("customer_ttl")
+    sql """ select count(*) from customer_ttl """
     sleep(30000)
     long ttl_cache_size = 0
     getMetricsMethod.call() {
