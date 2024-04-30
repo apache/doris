@@ -3927,7 +3927,7 @@ public class Env {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -6010,7 +6010,7 @@ public class Env {
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 

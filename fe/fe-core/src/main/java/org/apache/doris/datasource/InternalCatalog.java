@@ -1400,7 +1400,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Table table = db.getTableOrDdlException(tableName);
 
-            if (table.getType() != TableType.OLAP && table.getType() != TableType.MATERIALIZED_VIEW) {
+            if (!table.isManagedTable()) {
                 throw new DdlException("Only support create partition from a OLAP table");
             }
 

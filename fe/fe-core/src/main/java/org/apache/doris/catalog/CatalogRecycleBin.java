@@ -913,7 +913,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // idToTable
         for (RecycleTableInfo tableInfo : idToTable.values()) {
             Table table = tableInfo.getTable();
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 

@@ -307,7 +307,7 @@ public class ShowAction extends RestBaseController {
             // sort by table name
             List<Table> tables = db.getTables();
             for (Table table : tables) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 table.readLock();
