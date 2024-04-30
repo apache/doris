@@ -387,7 +387,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
             PushDownContext childPushDownContext = ctx.withNewProbeExpression(newProbeExpr);
             if (childPushDownContext.isValid()) {
-                /**
+                /*
                  * childPushDownContext is not valid, for example:
                  * setop
                  *   +--->scan t1(A, B)
