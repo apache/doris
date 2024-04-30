@@ -28,7 +28,7 @@ HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
 HIVE_SITE_CONF_metastore_storage_schema_reader_impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader
 
-CORE_CONF_fs_defaultFS=hdfs://0.0.0.0:${FS_PORT}
+CORE_CONF_fs_defaultFS=hdfs://${IP_HOST}:${FS_PORT}
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
 CORE_CONF_hadoop_proxyuser_hue_groups=*
