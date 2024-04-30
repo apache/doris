@@ -721,7 +721,7 @@ class Config {
 
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -854,6 +854,8 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
