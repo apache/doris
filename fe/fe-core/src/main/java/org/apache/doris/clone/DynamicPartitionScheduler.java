@@ -201,7 +201,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
             Partition partition = table.getPartition(idToItem.getKey());
             // exclude current partition because its data isn't enough one week/day/hour.
-            if (partition != null && partition.getName() != nowPartitionName && artition.getVisibleVersion() >= 2) {
+            if (partition != null && !partition.getName().equals(nowPartitionName)
+                    && partition.getVisibleVersion() >= 2) {
                 partitionSizeArray.add(partition.getAllDataSize(true));
             }
         }
