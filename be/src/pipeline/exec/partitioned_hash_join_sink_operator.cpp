@@ -314,8 +314,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
 
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     SCOPED_TIMER(_partition_shuffle_timer);
-    auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
-    std::vector<uint32_t> partition_indexes[p._partition_count];
+    const auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
+    std::vector<std::vector<uint32_t>> partition_indexes(p._partition_count);
     DCHECK_LT(begin, end);
     for (size_t i = begin; i != end; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
@@ -332,8 +332,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
             partitioned_blocks[i] =
                     vectorized::MutableBlock::create_unique(in_block->clone_empty());
         }
-        partitioned_blocks[i]->add_rows(in_block, &(partition_indexes[i][0]),
-                                        &(partition_indexes[i][count]));
+        partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
+                                        partition_indexes[i].data() + count);
     }
 
     return Status::OK();

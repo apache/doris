@@ -566,20 +566,20 @@ template <InvertedIndexQueryType QT>
 Status BkdIndexReader::construct_bkd_query_value(const void* query_value,
                                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                                  InvertedIndexVisitor<QT>* visitor) {
-    char tmp[r->bytes_per_dim_];
+    std::vector<char> tmp(r->bytes_per_dim_);
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_max);
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_min);
     } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY ||
                          QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_max);
-        _type_info->set_to_min(tmp);
-        _value_key_coder->full_encode_ascending(tmp, &visitor->query_min);
+        _type_info->set_to_min(tmp.data());
+        _value_key_coder->full_encode_ascending(tmp.data(), &visitor->query_min);
     } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY ||
                          QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_min);
-        _type_info->set_to_max(tmp);
-        _value_key_coder->full_encode_ascending(tmp, &visitor->query_max);
+        _type_info->set_to_max(tmp.data());
+        _value_key_coder->full_encode_ascending(tmp.data(), &visitor->query_max);
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "invalid query type when query bkd index");
