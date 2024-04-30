@@ -110,7 +110,7 @@ public class StreamLoadHandler {
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(),
-                "%");
+                request.getUserIp());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setBackendId(request.getBackendId());
