@@ -641,7 +641,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
             RecycleTableInfo tableInfo = entry.getValue();
             if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
-                    || !tableIds.contains(tableInfo.getTable().getId())) {
+                    || !tableIds.contains(tableInfo.getTable().getId())
+                    || tableInfo.getTable().getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
             }
 
@@ -692,6 +693,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (table == null) {
             throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
                 + db.getFullName());
+        }
+
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '" + tableId + "' in "
+                    + db.getFullName());
         }
 
         innerRecoverTable(db, table, tableName, newTableName, null, false);
@@ -767,6 +773,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName,
             long partitionIdToRecover, String newPartitionName) throws DdlException {
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            throw new DdlException("Can not recover partition in materialized view: " + table.getName());
+        }
+
         long recycleTime = -1;
         // make sure to get db write lock
         RecyclePartitionInfo recoverPartitionInfo = null;
