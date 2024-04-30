@@ -306,7 +306,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     void testInvalidHaving() {
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "a2 in having clause should be grouped by.",
+                "a2 should be grouped by",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING a2 > 0"
                 ));
