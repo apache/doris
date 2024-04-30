@@ -119,7 +119,7 @@ using AggregatedDataWithNullableUInt128KeyPhase2 =
         DataWithNullKey<AggregatedDataWithUInt128KeyPhase2>;
 
 using AggregatedMethodVariants = std::variant<
-        MethodSerialized<AggregatedDataWithStringKey>,
+        std::monostate, MethodSerialized<AggregatedDataWithStringKey>,
         MethodOneNumber<UInt8, AggregatedDataWithUInt8Key>,
         MethodOneNumber<UInt16, AggregatedDataWithUInt16Key>,
         MethodOneNumber<UInt32, AggregatedDataWithUInt32Key>,
