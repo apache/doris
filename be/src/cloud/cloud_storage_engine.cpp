@@ -211,30 +211,31 @@ Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id) {
 
 Status CloudStorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "refresh_s3_info_thread",
+            "CloudStorageEngine", "refresh_s3_info",
             [this]() { this->_refresh_storage_vault_info_thread_callback(); },
             &_bg_threads.emplace_back()));
     LOG(INFO) << "refresh s3 info thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "vacuum_stale_rowsets_thread",
+            "CloudStorageEngine", "vacuum_stale_rs",
             [this]() { this->_vacuum_stale_rowsets_thread_callback(); },
             &_bg_threads.emplace_back()));
     LOG(INFO) << "vacuum stale rowsets thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "sync_tablets_thread",
+            "CloudStorageEngine", "sync_tablets",
             [this]() { this->_sync_tablets_thread_callback(); }, &_bg_threads.emplace_back()));
     LOG(INFO) << "sync tablets thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "evict_querying_rowset_thread",
+            "CloudStorageEngine", "evict_qry_rs",
             [this]() { this->_evict_quring_rowset_thread_callback(); },
             &_evict_quering_rowset_thread));
     LOG(INFO) << "evict quering thread started";
 
     // add calculate tablet delete bitmap task thread pool
-    RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+                            .set_abbrev_name("TbltCalcDel")
                             .set_min_threads(1)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
@@ -245,22 +246,24 @@ Status CloudStorageEngine::start_bg_threads() {
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                            .set_abbrev_name("BaseCompact")
                             .set_min_threads(base_thread_num)
                             .set_max_threads(base_thread_num)
                             .build(&_base_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                            .set_abbrev_name("CumuCompact")
                             .set_min_threads(cumu_thread_num)
                             .set_max_threads(cumu_thread_num)
                             .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "compaction_tasks_producer_thread",
+            "StorageEngine", "compact_tsk_pdr",
             [this]() { this->_compaction_tasks_producer_callback(); },
             &_bg_threads.emplace_back()));
     LOG(INFO) << "compaction tasks producer thread started,"
               << " base thread num " << base_thread_num << " cumu thread num " << cumu_thread_num;
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "lease_compaction_thread",
+            "StorageEngine", "lease_compact",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
     LOG(INFO) << "lease compaction thread started";
 

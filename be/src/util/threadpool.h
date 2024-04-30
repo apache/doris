@@ -104,6 +104,7 @@ public:
 
     // Note: We violate the style guide by returning mutable references here
     // in order to provide traditional Builder pattern conveniences.
+    ThreadPoolBuilder& set_abbrev_name(std::string_view name);
     ThreadPoolBuilder& set_min_threads(int min_threads);
     ThreadPoolBuilder& set_max_threads(int max_threads);
     ThreadPoolBuilder& set_max_queue_size(int max_queue_size);
@@ -120,7 +121,7 @@ public:
             pool->reset(new ThreadPoolType(*this));
             RETURN_IF_ERROR((*pool)->init());
         } else if constexpr (std::is_same_v<ThreadPoolType, PriorityThreadPool>) {
-            pool->reset(new ThreadPoolType(_max_threads, _max_queue_size, _name));
+            pool->reset(new ThreadPoolType(_max_threads, _max_queue_size, _abbrev_name));
         } else {
             static_assert(always_false_v<ThreadPoolType>, "Unsupported ThreadPoolType");
         }
@@ -130,6 +131,7 @@ public:
 private:
     friend class ThreadPool;
     const std::string _name;
+    std::string _abbrev_name;
     int _min_threads;
     int _max_threads;
     int _max_queue_size;
@@ -293,6 +295,7 @@ private:
     void release_token(ThreadPoolToken* t);
 
     const std::string _name;
+    const std::string _abbrev_name;
     int _min_threads;
     int _max_threads;
     const int _max_queue_size;

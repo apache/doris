@@ -98,6 +98,7 @@ public:
 
     GlobalAutoIncBuffers() {
         static_cast<void>(ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
+                                  .set_abbrev_name("AutoIncID")
                                   .set_min_threads(config::auto_inc_fetch_thread_num)
                                   .set_max_threads(config::auto_inc_fetch_thread_num)
                                   .set_max_queue_size(std::numeric_limits<int>::max())

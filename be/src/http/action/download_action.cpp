@@ -58,6 +58,7 @@ DownloadAction::DownloadAction(ExecEnv* exec_env,
     if (_num_workers > 0) {
         // for single-replica-load
         static_cast<void>(ThreadPoolBuilder("DownloadThreadPool")
+                                  .set_abbrev_name("Download")
                                   .set_min_threads(num_workers)
                                   .set_max_threads(num_workers)
                                   .build(&_download_workers));

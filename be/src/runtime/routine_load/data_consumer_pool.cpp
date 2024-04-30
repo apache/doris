@@ -128,7 +128,7 @@ void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
 
 Status DataConsumerPool::start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
-            "ResultBufferMgr", "clean_idle_consumer",
+            "ResultBufferMgr", "clean_idle_cum",
             [this]() {
                 do {
                     _clean_idle_consumer_bg();

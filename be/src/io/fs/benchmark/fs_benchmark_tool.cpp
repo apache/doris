@@ -116,6 +116,7 @@ int main(int argc, char** argv) {
     // init s3 write buffer pool
     std::unique_ptr<doris::ThreadPool> s3_file_upload_thread_pool;
     doris::Status st = doris::ThreadPoolBuilder("S3FileUploadThreadPool")
+                               .set_abbrev_name("S3FileUpload")
                                .set_min_threads(num_cores)
                                .set_max_threads(num_cores)
                                .build(&s3_file_upload_thread_pool);

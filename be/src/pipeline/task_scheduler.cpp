@@ -56,6 +56,7 @@ Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
+                            .set_abbrev_name(_abbrev_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
                             .set_max_queue_size(0)

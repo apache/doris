@@ -39,6 +39,7 @@ public:
     BufferedReaderTest() {
         std::unique_ptr<ThreadPool> _pool;
         static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                                  .set_abbrev_name("BuffReadPref")
                                   .set_min_threads(5)
                                   .set_max_threads(10)
                                   .build(&_pool));

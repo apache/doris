@@ -42,6 +42,7 @@ LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
                                        : std::min(segment_file_writer_thread_num,
                                                   num_cpu * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
+                              .set_abbrev_name("SegFileWrite")
                               .set_min_threads(thread_num)
                               .set_max_threads(thread_num)
                               .build(&_file_writer_thread_pool));

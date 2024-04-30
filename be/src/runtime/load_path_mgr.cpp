@@ -74,7 +74,7 @@ Status LoadPathMgr::init() {
     _idx = 0;
     _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
     RETURN_IF_ERROR(Thread::create(
-            "LoadPathMgr", "clean_expired_temp_path",
+            "LoadPathMgr", "clean_exp_temp",
             [this]() {
                 // TODO(zc): add this thread to cgroup for control resource it use
                 while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {

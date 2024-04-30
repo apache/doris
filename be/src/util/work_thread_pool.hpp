@@ -150,7 +150,7 @@ private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
     void work_thread(int thread_id) {
-        Thread::set_self_name(_name);
+        Thread::set_self_name(fmt::format("WP-{}", _name));
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {

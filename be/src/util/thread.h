@@ -32,6 +32,15 @@
 #include "util/countdown_latch.h"
 
 namespace doris {
+/**
+  Maximum name length used for set_thread_name
+  including the terminating NULL character.
+  Linux pthread_setname_np(3) is restricted to 15+1 chars,
+  so we use the same limit on all platforms.
+*/
+constexpr size_t SETNAME_MAX_LENGTH = 16;
+constexpr size_t TG_THREAD_NAME_MAX_LENGTH = SETNAME_MAX_LENGTH - 4;
+
 class WebPageHandler;
 
 class Thread : public RefCountedThreadSafe<Thread> {

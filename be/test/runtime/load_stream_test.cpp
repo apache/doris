@@ -492,8 +492,7 @@ public:
     };
 
     LoadStreamMgrTest()
-            : _heavy_work_pool(4, 32, "load_stream_test_heavy"),
-              _light_work_pool(4, 32, "load_stream_test_light") {}
+            : _heavy_work_pool(4, 32, "ld_test_hvy"), _light_work_pool(4, 32, "ld_test_lgt") {}
 
     void close_load(MockSinkClient& client, uint32_t sender_id = NORMAL_SENDER_ID) {
         butil::IOBuf append_buf;

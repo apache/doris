@@ -103,6 +103,7 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
 
 TEST_F(StorageEngineTest, TestAsyncPublish) {
     auto st = ThreadPoolBuilder("TabletPublishTxnThreadPool")
+                      .set_abbrev_name("TabletPubTxn")
                       .set_min_threads(config::tablet_publish_txn_max_thread)
                       .set_max_threads(config::tablet_publish_txn_max_thread)
                       .build(&_storage_engine->_tablet_publish_txn_thread_pool);

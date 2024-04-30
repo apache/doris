@@ -82,13 +82,14 @@ Status SpillStreamManager::init() {
         store->update_spill_data_usage(spill_data_size);
     }
     static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
+                              .set_abbrev_name("SpillIO")
                               .set_min_threads(config::spill_io_thread_pool_thread_num)
                               .set_max_threads(config::spill_io_thread_pool_thread_num)
                               .set_max_queue_size(config::spill_io_thread_pool_queue_size)
                               .build(&_spill_io_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
-            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
+            "Spill", "spill_gc", [this]() { this->_spill_gc_thread_callback(); },
             &_spill_gc_thread));
     LOG(INFO) << "spill gc thread started";
     return Status::OK();

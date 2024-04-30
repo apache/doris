@@ -67,7 +67,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-
 class ThreadMgr;
 
 __thread Thread* Thread::_tls = nullptr;
@@ -159,6 +158,13 @@ void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     if (tid == getpid()) {
         return;
     }
+
+#ifndef NDEBUG
+    if (name.length() >= SETNAME_MAX_LENGTH) {
+        LOG(FATAL) << "The thread name:" << name << " exceeds max length " << SETNAME_MAX_LENGTH;
+    }
+#endif
+
 #ifdef __APPLE__
     int err = pthread_setname_np(name.c_str());
 #else
@@ -488,7 +494,7 @@ void* Thread::supervise_thread(void* arg) {
     Release_Store(&t->_tid, system_tid);
 
     std::string name = strings::Substitute("$0-$1", t->name(), system_tid);
-    thread_manager->set_thread_name(name, t->_tid);
+    thread_manager->set_thread_name(t->name(), t->_tid);
     thread_manager->add_thread(pthread_self(), name, t->category(), t->_tid);
 
     // FinishThread() is guaranteed to run (even if functor_ throws an

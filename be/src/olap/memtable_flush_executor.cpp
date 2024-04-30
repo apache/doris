@@ -208,6 +208,7 @@ void MemTableFlushExecutor::init(int num_disk) {
                                     : std::min(num_disk * min_threads,
                                                num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
+                              .set_abbrev_name("MemTBFlush")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
@@ -217,6 +218,7 @@ void MemTableFlushExecutor::init(int num_disk) {
                                 : std::min(num_disk * min_threads,
                                            num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
+                              .set_abbrev_name("MemTBHPFlush")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_high_prio_flush_pool));

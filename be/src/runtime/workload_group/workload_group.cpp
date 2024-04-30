@@ -360,9 +360,11 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
             executors_size = CpuInfo::num_cores();
         }
         auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
+        std::string real_name = "Pipe_" + tg_name;
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::TaskScheduler>(exec_env, std::move(task_queue),
-                                                          "Pipe_" + tg_name, cg_cpu_ctl_ptr);
+                std::make_unique<pipeline::TaskScheduler>(
+                        exec_env, std::move(task_queue), real_name,
+                        real_name.substr(0, TG_THREAD_NAME_MAX_LENGTH), cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
@@ -372,9 +374,10 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
     }
 
     if (_scan_task_sched == nullptr) {
+        std::string real_name = "Scan_" + tg_name;
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                std::make_unique<vectorized::SimplifiedScanScheduler>(
+                        real_name, real_name.substr(0, TG_THREAD_NAME_MAX_LENGTH), cg_cpu_ctl_ptr);
         Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
@@ -392,9 +395,10 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         int remote_max_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
         int remote_scan_thread_queue_size =
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
+        std::string real_name = "RScan_" + tg_name;
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                std::make_unique<vectorized::SimplifiedScanScheduler>(
+                        real_name, real_name.substr(0, TG_THREAD_NAME_MAX_LENGTH), cg_cpu_ctl_ptr);
         Status ret = remote_scan_scheduler->start(remote_max_thread_num, remote_max_thread_num,
                                                   remote_scan_thread_queue_size);
         if (ret.ok()) {
@@ -411,7 +415,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
 
     if (_non_pipe_thread_pool == nullptr) {
         std::unique_ptr<ThreadPool> thread_pool = nullptr;
-        auto ret = ThreadPoolBuilder("nonPip_" + tg_name)
+        std::string real_name = "nonPip_" + tg_name;
+        auto ret = ThreadPoolBuilder(real_name)
+                           .set_abbrev_name(real_name.substr(0, TG_THREAD_NAME_MAX_LENGTH))
                            .set_min_threads(1)
                            .set_max_threads(config::fragment_pool_thread_num_max)
                            .set_max_queue_size(config::fragment_pool_queue_size)

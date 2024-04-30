@@ -66,6 +66,7 @@ public:
 
         std::unique_ptr<doris::ThreadPool> _s3_file_upload_thread_pool;
         static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
+                                  .set_abbrev_name("S3FileUpload")
                                   .set_min_threads(16)
                                   .set_max_threads(64)
                                   .build(&_s3_file_upload_thread_pool));

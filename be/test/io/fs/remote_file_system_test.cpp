@@ -411,6 +411,7 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
 TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     std::unique_ptr<ThreadPool> _pool;
     ThreadPoolBuilder("S3FileUploadThreadPool")
+            .set_abbrev_name("S3FileUpload")
             .set_min_threads(5)
             .set_max_threads(10)
             .build(&_pool);

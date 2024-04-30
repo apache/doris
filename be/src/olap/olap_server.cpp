@@ -125,26 +125,26 @@ static int32_t get_single_replica_compaction_threads_num(size_t data_dirs_num) {
 
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "unused_rowset_monitor_thread",
+            "StorageEngine", "unused_rs_mon",
             [this]() { this->_unused_rowset_monitor_thread_callback(); },
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "evict_querying_rowset_thread",
+            "StorageEngine", "evict_qry_rs",
             [this]() { this->_evict_quring_rowset_thread_callback(); },
             &_evict_quering_rowset_thread));
     LOG(INFO) << "evict quering thread started";
 
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "garbage_sweeper_thread",
+            "StorageEngine", "garbage_sweeper",
             [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
     LOG(INFO) << "garbage sweeper thread started";
 
     // start thread for monitoring the tablet with io error
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "disk_stat_monitor_thread",
+            "StorageEngine", "disk_stat_mon",
             [this]() { this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
     LOG(INFO) << "disk stat monitor thread started";
 
@@ -157,39 +157,44 @@ Status StorageEngine::start_bg_threads() {
             get_single_replica_compaction_threads_num(data_dirs.size());
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                            .set_abbrev_name("BaseCompact")
                             .set_min_threads(base_compaction_threads)
                             .set_max_threads(base_compaction_threads)
                             .build(&_base_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                            .set_abbrev_name("CumuCompact")
                             .set_min_threads(cumu_compaction_threads)
                             .set_max_threads(cumu_compaction_threads)
                             .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+                            .set_abbrev_name("SReplCompact")
                             .set_min_threads(single_replica_compaction_threads)
                             .set_max_threads(single_replica_compaction_threads)
                             .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
         RETURN_IF_ERROR(ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                                .set_abbrev_name("SegCompact")
                                 .set_min_threads(config::segcompaction_num_threads)
                                 .set_max_threads(config::segcompaction_num_threads)
                                 .build(&_seg_compaction_thread_pool));
     }
     RETURN_IF_ERROR(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
+                            .set_abbrev_name("CDataCompact")
                             .set_min_threads(config::cold_data_compaction_thread_num)
                             .set_max_threads(config::cold_data_compaction_thread_num)
                             .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "compaction_tasks_producer_thread",
+            "StorageEngine", "compact_tsk_pdr",
             [this]() { this->_compaction_tasks_producer_callback(); },
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "_update_replica_infos_thread",
-            [this]() { this->_update_replica_infos_callback(); }, &_update_replica_infos_thread));
+            "StorageEngine", "upd_repl_info", [this]() { this->_update_replica_infos_callback(); },
+            &_update_replica_infos_thread));
     LOG(INFO) << "tablet replicas info update thread started";
 
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
@@ -197,27 +202,29 @@ Status StorageEngine::start_bg_threads() {
         max_checkpoint_thread_num = data_dirs.size();
     }
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+                            .set_abbrev_name("TabletMetaCP")
                             .set_max_threads(max_checkpoint_thread_num)
                             .build(&_tablet_meta_checkpoint_thread_pool));
 
     RETURN_IF_ERROR(ThreadPoolBuilder("MultiGetTaskThreadPool")
+                            .set_abbrev_name("MultiGet")
                             .set_min_threads(config::multi_get_max_threads)
                             .set_max_threads(config::multi_get_max_threads)
                             .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
+            "StorageEngine", "tablet_cp",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
             &_tablet_checkpoint_tasks_producer_thread));
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "tablet_path_check_thread",
-            [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
+            "StorageEngine", "tablet_path_ck", [this]() { this->_tablet_path_check_callback(); },
+            &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
     // cache clean thread
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
+            "StorageEngine", "cache_clean", [this]() { this->_cache_clean_callback(); },
             &_cache_clean_thread));
     LOG(INFO) << "cache clean thread started";
 
@@ -226,7 +233,7 @@ Status StorageEngine::start_bg_threads() {
         for (auto data_dir : get_stores()) {
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
-                    "StorageEngine", "path_gc_thread",
+                    "StorageEngine", "path_gc",
                     [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
@@ -235,38 +242,40 @@ Status StorageEngine::start_bg_threads() {
     }
 
     RETURN_IF_ERROR(ThreadPoolBuilder("CooldownTaskThreadPool")
+                            .set_abbrev_name("CooldownTask")
                             .set_min_threads(config::cooldown_thread_num)
                             .set_max_threads(config::cooldown_thread_num)
                             .build(&_cooldown_thread_pool));
     LOG(INFO) << "cooldown thread pool started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cooldown_tasks_producer_thread",
+            "StorageEngine", "cldown_task_pdr",
             [this]() { this->_cooldown_tasks_producer_callback(); },
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "remove_unused_remote_files_thread",
+            "StorageEngine", "rm_unused_rfile",
             [this]() { this->_remove_unused_remote_files_callback(); },
             &_remove_unused_remote_files_thread));
     LOG(INFO) << "remove unused remote files thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cold_data_compaction_producer_thread",
+            "StorageEngine", "cld_compact_pdr",
             [this]() { this->_cold_data_compaction_producer_callback(); },
             &_cold_data_compaction_producer_thread));
     LOG(INFO) << "cold data compaction producer thread started";
 
     // add tablet publish version thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletPublishTxnThreadPool")
+                            .set_abbrev_name("TabletPubTxn")
                             .set_min_threads(config::tablet_publish_txn_max_thread)
                             .set_max_threads(config::tablet_publish_txn_max_thread)
                             .build(&_tablet_publish_txn_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "async_publish_version_thread",
-            [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
+            "StorageEngine", "async_pub_ver", [this]() { this->_async_publish_callback(); },
+            &_async_publish_thread));
     LOG(INFO) << "async publish thread started";
 
     LOG(INFO) << "all storage engine's background threads are started.";

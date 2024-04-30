@@ -28,7 +28,7 @@ void WorkloadSchedPolicyMgr::start(ExecEnv* exec_env) {
 
     Status st;
     st = Thread::create(
-            "workload", "workload_scheduler", [this]() { this->_schedule_workload(); }, &_thread);
+            "workload", "workload_sched", [this]() { this->_schedule_workload(); }, &_thread);
     if (!st.ok()) {
         LOG(WARNING) << "create workload scheduler thread failed";
     } else {
