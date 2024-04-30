@@ -74,6 +74,13 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_decimals4 """select * from orc_decimal_table where id > 3 order by id;"""
     }
 
+    // string col dict plain encoding mixed in different stripes
+    def string_col_dict_plain_mixed = {
+       qt_string_col_dict_plain_mixed1 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col1 like '%Test%' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed2 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed3 """select count(col2) from string_col_dict_plain_mixed_orc where col1 like '%Test%';"""
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -95,6 +102,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             search_mix()
             only_partition_col()
             decimals()
+            string_col_dict_plain_mixed()
 
             sql """drop catalog if exists ${catalog_name}"""
 
