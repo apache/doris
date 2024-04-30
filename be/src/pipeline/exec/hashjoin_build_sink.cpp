@@ -536,23 +536,37 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             RETURN_IF_ERROR(local_state._do_evaluate(*in_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
                                                      res_col_ids));
-
-            SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(*in_block));
-            COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
-            local_state._mem_tracker->consume(in_block->bytes());
-            if (local_state._build_side_mutable_block.rows() >
-                std::numeric_limits<uint32_t>::max()) {
+            local_state._build_side_rows += in_block->rows();
+            if (local_state._build_side_rows > std::numeric_limits<uint32_t>::max()) {
                 return Status::NotSupported(
-                        "Hash join do not support build table rows"
-                        " over:" +
+                        "Hash join do not support build table rows over: {}, you should enable "
+                        "join spill to avoid this issue",
                         std::to_string(std::numeric_limits<uint32_t>::max()));
             }
+
+            local_state._mem_tracker->consume(in_block->bytes());
+            COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
+            local_state._build_blocks.emplace_back(std::move(*in_block));
         }
     }
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
+
+        for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
+            column->reserve(local_state._build_side_rows);
+        }
+
+        {
+            SCOPED_TIMER(local_state._build_side_merge_block_timer);
+            for (auto& block : local_state._build_blocks) {
+                RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(block));
+
+                vectorized::Block temp;
+                std::swap(block, temp);
+            }
+        }
+
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
