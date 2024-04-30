@@ -233,13 +233,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             if (groupName == null || groupName.isEmpty()) {
                 wg = nameToWorkloadGroup.get(DEFAULT_GROUP_NAME);
                 if (wg == null) {
-                    throw new RuntimeException("can not find normal workload group for routineload");
+                    throw new RuntimeException("can not find normal workload group for user " + user);
                 }
             } else {
                 wg = nameToWorkloadGroup.get(groupName);
                 if (wg == null) {
                     throw new UserException(
-                            "can not find workload group " + groupName + " for user " + user.getQualifiedUser());
+                            "can not find workload group " + groupName + " for user " + user);
                 }
             }
             if (checkAuth && !Env.getCurrentEnv().getAccessManager()
