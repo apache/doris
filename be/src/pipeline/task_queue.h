@@ -30,10 +30,8 @@
 
 #include "common/status.h"
 #include "pipeline_task.h"
-#include "runtime/workload_group/workload_group.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
 class TaskQueue {
 public:
@@ -145,11 +143,7 @@ public:
 
     Status push_back(PipelineTask* task, size_t core_id) override;
 
-    void update_statistics(PipelineTask* task, int64_t time_spent) override {
-        task->inc_runtime_ns(time_spent);
-        _prio_task_queue_list[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
-                                                                         time_spent);
-    }
+    void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
 private:
     PipelineTask* _steal_take(size_t core_id);
@@ -159,5 +153,4 @@ private:
     std::atomic<bool> _closed;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

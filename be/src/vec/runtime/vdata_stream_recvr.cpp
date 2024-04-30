@@ -558,4 +558,13 @@ void VDataStreamRecvr::PipSenderQueue::add_block(Block* block, bool use_move) {
     }
 }
 
+void VDataStreamRecvr::set_sink_dep_always_ready() const {
+    for (auto* sender_queues : sender_queues()) {
+        auto dep = sender_queues->local_channel_dependency();
+        if (dep) {
+            dep->set_always_ready();
+        }
+    }
+}
+
 } // namespace doris::vectorized

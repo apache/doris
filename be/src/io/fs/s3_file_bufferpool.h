@@ -151,18 +151,10 @@ struct DownloadFileBuffer final : public FileBuffer {
 
 struct UploadFileBuffer final : public FileBuffer {
     UploadFileBuffer(std::function<void(UploadFileBuffer&)> upload_cb, OperationState state,
-                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder,
-                     size_t index_offset)
+                     size_t offset, std::function<FileBlocksHolderPtr()> alloc_holder)
             : FileBuffer(BufferType::UPLOAD, alloc_holder, offset, state),
-              _upload_to_remote(std::move(upload_cb)),
-              _index_offset(index_offset) {}
+              _upload_to_remote(std::move(upload_cb)) {}
     ~UploadFileBuffer() override = default;
-    /**
-    * set the index offset
-    *
-    * @param offset the index offset
-    */
-    void set_index_offset(size_t offset);
     Status append_data(const Slice& s) override;
     /**
     * read the content from local file cache
@@ -206,7 +198,6 @@ private:
     FileBlocksHolderPtr _holder;
     decltype(_holder->file_blocks.begin()) _cur_file_block;
     size_t _append_offset {0};
-    size_t _index_offset {0};
     uint32_t _crc_value = 0;
 };
 
@@ -272,15 +263,6 @@ struct FileBufferBuilder {
         return *this;
     }
     /**
-    * set the index offset of the file buffer
-    *
-    * @param cb 
-    */
-    FileBufferBuilder& set_index_offset(size_t index_offset) {
-        _index_offset = index_offset;
-        return *this;
-    }
-    /**
     * set the callback which write the content into local file cache
     *
     * @param cb 
@@ -309,7 +291,6 @@ struct FileBufferBuilder {
     std::function<Status(Slice&)> _download;
     std::function<void(Slice, size_t)> _write_to_use_buffer;
     size_t _offset;
-    size_t _index_offset;
 };
 } // namespace io
 } // namespace doris

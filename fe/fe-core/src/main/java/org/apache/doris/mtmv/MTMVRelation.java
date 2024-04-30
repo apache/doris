@@ -44,8 +44,8 @@ public class MTMVRelation {
         return baseViews;
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVRelation{"
                 + "baseTables=" + baseTables
                 + ", baseViews=" + baseViews

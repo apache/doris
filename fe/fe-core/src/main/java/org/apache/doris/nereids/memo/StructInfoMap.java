@@ -42,31 +42,32 @@ import javax.annotation.Nullable;
 public class StructInfoMap {
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
-    private boolean refreshed;
+    private long refreshVersion = 0;
 
     /**
      * get struct info according to table map
      *
-     * @param mvTableMap the original table map
-     * @param foldTableMap the fold table map
+     * @param tableMap the original table map
      * @param group the group that the mv matched
      * @return struct info or null if not found
      */
-    public @Nullable StructInfo getStructInfo(BitSet mvTableMap, BitSet foldTableMap, Group group, Plan originPlan) {
-        if (!infoMap.containsKey(mvTableMap)) {
-            if ((groupExpressionMap.containsKey(foldTableMap) || groupExpressionMap.isEmpty())
-                    && !groupExpressionMap.containsKey(mvTableMap)) {
-                refresh(group);
-            }
-            if (groupExpressionMap.containsKey(mvTableMap)) {
-                Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
-                        mvTableMap);
-                StructInfo structInfo = constructStructInfo(groupExpressionBitSetPair.first,
-                        groupExpressionBitSetPair.second, mvTableMap, originPlan);
-                infoMap.put(mvTableMap, structInfo);
-            }
+    public @Nullable StructInfo getStructInfo(Memo memo, BitSet tableMap, Group group, Plan originPlan) {
+        StructInfo structInfo = infoMap.get(tableMap);
+        if (structInfo != null) {
+            return structInfo;
         }
-        return infoMap.get(mvTableMap);
+        if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
+            refresh(group, memo.getRefreshVersion());
+            group.getstructInfoMap().setRefreshVersion(memo.getRefreshVersion());
+        }
+        if (groupExpressionMap.containsKey(tableMap)) {
+            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
+                    tableMap);
+            structInfo = constructStructInfo(groupExpressionBitSetPair.first,
+                    groupExpressionBitSetPair.second, tableMap, originPlan);
+            infoMap.put(tableMap, structInfo);
+        }
+        return structInfo;
     }
 
     public Set<BitSet> getTableMaps() {
@@ -81,12 +82,8 @@ public class StructInfoMap {
         return groupExpressionMap.get(tableMap);
     }
 
-    public boolean isRefreshed() {
-        return refreshed;
-    }
-
-    public void setRefreshed(boolean refreshed) {
-        this.refreshed = refreshed;
+    public void setRefreshVersion(long refreshVersion) {
+        this.refreshVersion = refreshVersion;
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
@@ -114,27 +111,27 @@ public class StructInfoMap {
      *
      * @param group the root group
      *
-     * @return whether groupExpressionMap is updated
      */
-    public boolean refresh(Group group) {
-        Set<Group> refreshedGroup = new HashSet<>();
-        int originSize = groupExpressionMap.size();
+    public void refresh(Group group, long memoVersion) {
+        StructInfoMap structInfoMap = group.getstructInfoMap();
+        if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
+            return;
+        }
+        Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-            List<Set<BitSet>> childrenTableMap = new ArrayList<>();
-            boolean needRefresh = groupExpressionMap.isEmpty();
+            List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression);
-                groupExpressionMap.put(leaf, Pair.of(groupExpression, new ArrayList<>()));
+                groupExpressionMap.put(leaf, Pair.of(groupExpression, new LinkedList<>()));
                 continue;
             }
-
             for (Group child : groupExpression.children()) {
-                if (!refreshedGroup.contains(child) && !child.getstructInfoMap().isRefreshed()) {
-                    StructInfoMap childStructInfoMap = child.getstructInfoMap();
-                    needRefresh |= childStructInfoMap.refresh(child);
-                    childStructInfoMap.setRefreshed(true);
+                StructInfoMap childStructInfoMap = child.getstructInfoMap();
+                if (!refreshedGroup.contains(child.getGroupId().asInt())) {
+                    childStructInfoMap.refresh(child, memoVersion);
+                    childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                refreshedGroup.add(child);
+                refreshedGroup.add(child.getGroupId().asInt());
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
@@ -151,14 +148,12 @@ public class StructInfoMap {
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
             Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
-            if (needRefresh) {
-                for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
-                    groupExpressionMap.putIfAbsent(bitSetWithChild.first,
-                            Pair.of(groupExpression, bitSetWithChild.second));
-                }
+            for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
+                groupExpressionMap.putIfAbsent(bitSetWithChild.first,
+                        Pair.of(groupExpression, bitSetWithChild.second));
             }
+
         }
-        return originSize != groupExpressionMap.size();
     }
 
     private BitSet constructLeaf(GroupExpression groupExpression) {

@@ -20,30 +20,9 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/field.h"
-#include "vec/exec/vsort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class SortSinkOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSinkOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSinkOperator final : public StreamingOperator<vectorized::VSortNode> {
-public:
-    SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
@@ -132,5 +111,4 @@ private:
     const std::vector<TExpr> _partition_exprs;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

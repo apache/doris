@@ -24,6 +24,8 @@
 #include <ostream>
 #include <utility>
 
+#include "bvar/latency_recorder.h"
+#include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/sync_point.h"
@@ -33,6 +35,13 @@
 #include "util/doris_metrics.h"
 
 namespace doris::io {
+
+bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
+bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> hdfs_read_througthput("hdfs_file_reader",
+                                                             "hdfs_read_throughput",
+                                                             &hdfs_bytes_read_total);
+
 namespace {
 
 Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, int64_t mtime,
@@ -148,6 +157,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         has_read += loop_read;
     }
     *bytes_read = has_read;
+    hdfs_bytes_read_total << *bytes_read;
+    hdfs_bytes_per_read << *bytes_read;
     return Status::OK();
 }
 
@@ -206,6 +217,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         has_read += loop_read;
     }
     *bytes_read = has_read;
+    hdfs_bytes_read_total << *bytes_read;
+    hdfs_bytes_per_read << *bytes_read;
     return Status::OK();
 }
 #endif

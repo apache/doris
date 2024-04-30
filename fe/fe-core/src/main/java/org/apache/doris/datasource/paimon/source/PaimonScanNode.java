@@ -161,7 +161,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     List<RawFile> rawFiles = optRawFiles.get();
                     for (RawFile file : rawFiles) {
                         LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
-                        Path finalDataFilePath = locationPath.toScanRangeLocation();
+                        Path finalDataFilePath = locationPath.toStorageLocation();
                         try {
                             splits.addAll(
                                     splitFile(

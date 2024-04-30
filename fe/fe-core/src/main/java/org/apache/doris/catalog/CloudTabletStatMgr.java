@@ -219,10 +219,14 @@ public class CloudTabletStatMgr extends MasterDaemon {
         for (TabletStatsPB stat : response.getTabletStatsList()) {
             if (invertedIndex.getTabletMeta(stat.getIdx().getTabletId()) != null) {
                 List<Replica> replicas = invertedIndex.getReplicasByTabletId(stat.getIdx().getTabletId());
-                if (replicas != null && !replicas.isEmpty() && replicas.get(0) != null) {
-                    replicas.get(0).updateCloudStat(stat.getDataSize(), stat.getNumRowsets(),
-                            stat.getNumSegments(), stat.getNumRows());
+                if (replicas == null || replicas.isEmpty() || replicas.get(0) == null) {
+                    continue;
                 }
+                Replica replica = replicas.get(0);
+                replica.setDataSize(stat.getDataSize());
+                replica.setRowsetCount(stat.getNumRowsets());
+                replica.setSegmentCount(stat.getNumSegments());
+                replica.setRowCount(stat.getNumRows());
             }
         }
     }
