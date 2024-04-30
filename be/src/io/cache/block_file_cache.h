@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 
@@ -369,6 +370,15 @@ private:
     void run_background_operation();
 
     void recycle_deleted_blocks();
+
+    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
+                                                      size_t size, int64_t cur_time,
+                                                      std::lock_guard<std::mutex>& cache_lock);
+
+    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+                                              size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
     // info
     std::string _cache_base_path;
