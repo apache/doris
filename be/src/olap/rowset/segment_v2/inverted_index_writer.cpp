@@ -84,7 +84,11 @@ public:
         _field_name = std::wstring(field_name.begin(), field_name.end());
     }
 
-    ~InvertedIndexColumnWriterImpl() override = default;
+    ~InvertedIndexColumnWriterImpl() override {
+        if (_index_writer != nullptr) {
+            close_on_error();
+        }
+    }
 
     Status init() override {
         try {
@@ -105,6 +109,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
+            _index_writer.reset();
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
