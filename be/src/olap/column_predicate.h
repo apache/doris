@@ -33,7 +33,7 @@ namespace doris {
 class Schema;
 
 struct PredicateParams {
-    std::string value;
+    std::vector<std::string> values;
     bool marked_by_runtime_filter = false;
 };
 

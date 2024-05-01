@@ -39,7 +39,7 @@ public:
 
     void clone(ColumnPredicate** to) const override {
         auto* cloned = new ComparisonPredicateBase(_column_id, _value, _opposite);
-        cloned->predicate_params()->value = _predicate_params->value;
+        cloned->predicate_params()->values = _predicate_params->values;
         cloned->_cache_code_enabled = true;
         cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
