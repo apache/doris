@@ -146,6 +146,13 @@ public:
 
     void disks_compaction_num_increment(int64_t delta);
 
+    double get_usage(int64_t incoming_data_size) const {
+        return _disk_capacity_bytes == 0
+                       ? 0
+                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                 (double)_disk_capacity_bytes;
+    }
+
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
 

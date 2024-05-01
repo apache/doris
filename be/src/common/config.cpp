@@ -1157,6 +1157,12 @@ DEFINE_mString(ca_cert_file_paths,
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
+// consider two high usage disk at the same available level if they do not exceed this diff.
+DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
+
+// create tablet in partition random robin idx lru size, default 10000
+DEFINE_Int32(partition_disk_index_lru_size, "10000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

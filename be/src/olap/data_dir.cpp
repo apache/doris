@@ -851,7 +851,8 @@ Status DataDir::update_capacity() {
     disks_total_capacity->set_value(_disk_capacity_bytes);
     disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
-              << ", available capacity: " << _available_bytes;
+              << ", available capacity: " << _available_bytes << ", usage: " << get_usage(0)
+              << ", in_use: " << is_used();
 
     return Status::OK();
 }
@@ -890,8 +891,7 @@ size_t DataDir::tablet_num() const {
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
-    double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                      (double)_disk_capacity_bytes;
+    double used_pct = get_usage(incoming_data_size);
     int64_t left_bytes = _available_bytes - incoming_data_size;
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
