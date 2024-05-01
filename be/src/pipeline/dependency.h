@@ -207,12 +207,11 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override;
 };
 
-struct CountedFinishDependency final : public FinishDependency {
+struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : FinishDependency(id, node_id, name, query_ctx) {}
-    using Dependency::is_blocked_by;
+            : Dependency(id, node_id, name, query_ctx) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
