@@ -62,9 +62,19 @@ TEST_F(TCountsTest, TotalTest) {
     other1.increment(10, 1);
     other1.increment(99, 2);
 
-    counts.merge(&other1);
+    // deserialize other1
+    cs->clear();
+    other1.serialize(bw);
+    bw.commit();
+    Counts other1_deserialized;
+    vectorized::BufferReadable br1(res);
+    other1_deserialized.unserialize(br1);
+
+    Counts merge_res;
+    merge_res.merge(&other);
+    merge_res.merge(&other1_deserialized);
     // 1 1 1 1 2 5 7 7 9 9 10 19 50 50 50 99 99 100 100 100
-    EXPECT_EQ(counts.terminate(0.3), 6.4);
+    EXPECT_EQ(merge_res.terminate(0.3), 6.4);
 }
 
 } // namespace doris
