@@ -603,6 +603,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
+                task_runtime_state->set_task_num(pipeline->num_tasks());
                 auto task = std::make_unique<PipelineXTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),

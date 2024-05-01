@@ -49,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -243,6 +244,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition Value for partitionId %s", e, partitionId);
         }
+    }
+
+    @Override
+    public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Do not support default column values in PostgreSQLJdbcHMSCachedClient."
+                    + " Will use null values instead.");
+        }
+        return new HashMap<>();
     }
 
     @Override

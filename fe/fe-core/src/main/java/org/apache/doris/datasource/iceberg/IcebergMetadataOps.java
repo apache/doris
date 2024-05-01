@@ -149,7 +149,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
     }

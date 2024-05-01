@@ -37,11 +37,9 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
@@ -57,10 +55,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -78,8 +73,6 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -624,107 +617,6 @@ public class StatisticsUtil {
             return 0;
         }
         return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
-    }
-
-    /**
-     * Estimate hive table row count : totalFileSize/estimatedRowSize
-     *
-     * @param table Hive HMSExternalTable to estimate row count.
-     * @return estimated row count
-     */
-    public static long getRowCountFromFileList(HMSExternalTable table) {
-        if (table.isView()) {
-            return 0;
-        }
-        HiveMetaStoreCache.HivePartitionValues partitionValues = getPartitionValuesForTable(table);
-        int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
-
-        // Get files for all partitions.
-        int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
-                = getFilesForPartitions(table, partitionValues, samplePartitionSize);
-        long totalSize = 0;
-        // Calculate the total file size.
-        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
-            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
-                totalSize += file.getLength();
-            }
-        }
-        // Estimate row count: totalSize/estimatedRowSize
-        long estimatedRowSize = 0;
-        List<Column> partitionColumns = table.getPartitionColumns();
-        for (Column column : table.getFullSchema()) {
-            // Partition column shouldn't count to the row size, because it is not in the data file.
-            if (partitionColumns != null && partitionColumns.contains(column)) {
-                continue;
-            }
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            return 0;
-        }
-        if (samplePartitionSize < totalPartitionSize) {
-            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
-        }
-        return totalSize / estimatedRowSize;
-    }
-
-    public static HiveMetaStoreCache.HivePartitionValues getPartitionValuesForTable(HMSExternalTable table) {
-        if (table.isView()) {
-            return null;
-        }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
-        List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
-        HiveMetaStoreCache.HivePartitionValues partitionValues = null;
-        // Get table partitions from cache.
-        if (!partitionColumnTypes.isEmpty()) {
-            // It is ok to get partition values from cache,
-            // no need to worry that this call will invalid or refresh the cache.
-            // because it has enough space to keep partition info of all tables in cache.
-            partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
-        }
-        return partitionValues;
-    }
-
-    public static List<HiveMetaStoreCache.FileCacheValue> getFilesForPartitions(
-            HMSExternalTable table, HiveMetaStoreCache.HivePartitionValues partitionValues, int sampleSize) {
-        if (table.isView()) {
-            return Lists.newArrayList();
-        }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
-        List<HivePartition> hivePartitions = Lists.newArrayList();
-        if (partitionValues != null) {
-            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            int totalPartitionSize = idToPartitionItem.size();
-            Collection<PartitionItem> partitionItems;
-            List<List<String>> partitionValuesList;
-            // If partition number is too large, randomly choose part of them to estimate the whole table.
-            if (sampleSize > 0 && sampleSize < totalPartitionSize) {
-                List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
-                Collections.shuffle(items);
-                partitionItems = items.subList(0, sampleSize);
-                partitionValuesList = Lists.newArrayListWithCapacity(sampleSize);
-            } else {
-                partitionItems = idToPartitionItem.values();
-                partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
-            }
-            for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
-            }
-            // get partitions without cache, so that it will not invalid the cache when executing
-            // non query request such as `show table status`
-            hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
-                partitionValuesList);
-        } else {
-            hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
-                    table.getRemoteTable().getSd().getInputFormat(),
-                    table.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
-        }
-        // Get files for all partitions.
-        String bindBrokerName = table.getCatalog().bindBrokerName();
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
     }
 
     /**

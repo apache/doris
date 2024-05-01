@@ -182,7 +182,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` STRING COMMENT 'col2'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='parquet')";
         createTable(createSourceExtUTable, true);
         // partitioned table
@@ -193,7 +193,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "PARTITION BY LIST (pt1, pt2) ()\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createSourceExtTable, true);
 
@@ -258,7 +258,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `col2` INT COMMENT 'col2'"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createTableIfNotExists, true);
         createTable(createTableIfNotExists, true);
@@ -288,7 +288,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  `pt2` STRING COMMENT 'pt2'\n"
                 + ")  ENGINE=hive\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createUnPartTable, true);
         dropTable("unpart_tbl", true);
@@ -305,7 +305,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "PARTITION BY LIST (pt1, pt2) ()\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='parquet')";
         createTable(createPartTable, true);
         // check IF NOT EXISTS
@@ -320,7 +320,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 "errCode = 2, detailMessage = errCode = 2,"
@@ -336,7 +336,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + ")  ENGINE=hive\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk1, true);
         dropTable("buck_tbl", true);
@@ -352,7 +352,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "PARTITION BY LIST (pt2) ()\n"
                 + "DISTRIBUTED BY HASH (col2) BUCKETS 16\n"
                 + "PROPERTIES (\n"
-                + "  'location_uri'='hdfs://loc/db/tbl',\n"
+                + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk2, true);
         dropTable("part_buck_tbl", true);
@@ -430,15 +430,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createOlapSrc, true);
         switchHive();
         useDatabase(mockedDbName);
-        String olapCtasErr = "CREATE TABLE no_buck_olap AS SELECT * FROM internal.mockedDb.olap_src";
+        String olapCtasErr = "CREATE TABLE no_buck_olap ENGINE=olap AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasErrPlan = nereidsParser.parseSingle(olapCtasErr);
         Assertions.assertTrue(olapCtasErrPlan instanceof CreateTableCommand);
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 "Cannot create olap table out of internal catalog."
-                        + "Make sure 'engine' type is specified when use the catalog: hive",
+                        + " Make sure 'engine' type is specified when use the catalog: hive",
                 () -> ((CreateTableCommand) olapCtasErrPlan).run(connectContext, null));
 
-        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap"
+        String olapCtasOk = "CREATE TABLE internal.mockedDb.no_buck_olap ENGINE=olap"
                 + " PROPERTIES('replication_num' = '1')"
                 + " AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOkPlan = createTablesAndReturnPlans(true, olapCtasOk).get(0);

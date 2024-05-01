@@ -484,6 +484,8 @@ struct TReportExecStatusParams {
   25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 }
 
 struct TFeResult {

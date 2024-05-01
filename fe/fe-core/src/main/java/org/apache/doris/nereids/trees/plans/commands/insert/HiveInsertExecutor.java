@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
@@ -34,9 +35,12 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionManager;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,6 +57,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
     private final TransactionManager transactionManager;
     private final String catalogName;
+    private Optional<SummaryProfile> summaryProfile = Optional.empty();
 
     /**
      * constructor
@@ -63,6 +68,10 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx);
         catalogName = table.getCatalog().getName();
         transactionManager = table.getCatalog().getTransactionManager();
+
+        if (ConnectContext.get().getExecutor() != null) {
+            summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
+        }
     }
 
     public long getTxnId() {
@@ -90,6 +99,13 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
     @Override
     protected void beforeExec() {
         // check params
+        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
+        Preconditions.checkArgument(insertCtx.isPresent(), "insert context must be present");
+        HiveInsertCommandContext ctx = (HiveInsertCommandContext) insertCtx.get();
+        TUniqueId tUniqueId = ConnectContext.get().queryId();
+        Preconditions.checkArgument(tUniqueId != null, "query id shouldn't be null");
+        ctx.setQueryId(DebugUtil.printId(tUniqueId));
+        transaction.beginInsertTable(ctx);
     }
 
     @Override
@@ -102,7 +118,9 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
             String dbName = ((HMSExternalTable) table).getDbName();
             String tbName = table.getName();
             transaction.finishInsertTable(dbName, tbName);
+            summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(TransactionType.HMS));
             transactionManager.commit(txnId);
+            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
             Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(
                     dbName,
@@ -135,7 +153,7 @@ public class HiveInsertExecutor extends AbstractInsertExecutor {
         sb.append("{");
         sb.append("'status':'")
                 .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
-        // sb.append("', 'txnId':'").append(txnId).append("'");
+        sb.append("', 'txnId':'").append(txnId).append("'");
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }

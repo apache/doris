@@ -1142,13 +1142,13 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        // If any error happends in update profile, we should ignore this error
+        // If any error happened in update profile, we should ignore this error
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
-            LOG.warn("failed to update profile, ingore this error", t);
+            LOG.warn("failed to update profile, ignore this error", t);
         }
     }
 

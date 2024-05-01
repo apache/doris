@@ -624,6 +624,10 @@ public:
 
     int task_id() const { return _task_id; }
 
+    void set_task_num(int task_num) { _task_num = task_num; }
+
+    int task_num() const { return _task_num; }
+
 private:
     Status create_error_log_file();
 
@@ -734,6 +738,7 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+    int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
