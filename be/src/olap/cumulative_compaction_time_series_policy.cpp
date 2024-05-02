@@ -74,9 +74,13 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
 
     // If there is a continuous set of empty rowsets, prioritize merging.
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+    std::vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> candidate_rowsets =
+            tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    tablet->calc_consecutive_empty_rowsets(
+            &input_rowsets, candidate_rowsets,
             tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
-    if (!consecutive_empty_rowsets.empty()) {
+    if (!input_rowsets.empty()) {
         return score;
     }
 
@@ -214,17 +218,16 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     if (tablet->tablet_state() == TABLET_NOTREADY) {
         return 0;
     }
+    input_rowsets->clear();
 
     // If their are many empty rowsets, maybe should be compacted
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+    tablet->calc_consecutive_empty_rowsets(
+            input_rowsets, candidate_rowsets,
             tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
-    if (!consecutive_empty_rowsets.empty()) {
+    if (!input_rowsets->empty()) {
         VLOG_NOTICE << "tablet is " << tablet->tablet_id()
                     << ", there are too many consecutive empty rowsets, size is "
-                    << consecutive_empty_rowsets.size();
-        input_rowsets->clear();
-        input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
-                              consecutive_empty_rowsets.end());
+                    << input_rowsets->size();
         return 0;
     }
 
@@ -233,7 +236,6 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
 
     int transient_size = 0;
     *compaction_score = 0;
-    input_rowsets->clear();
     int64_t total_size = 0;
 
     // when single replica compaction is enabled and BE1 fetchs merged rowsets from BE2, and then BE2 goes offline.
