@@ -663,4 +663,15 @@ public class TableProperty implements Writable {
     public void setStorageVaultName(String storageVaultName) {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
+
+    public String getPropertiesString() {
+        StringBuilder str = new StringBuilder("");
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (str.length() != 0) {
+                str.append(", ");
+            }
+            str.append(entry.getKey() + " = " + entry.getValue());
+        }
+        return str.toString();
+    }
 }
