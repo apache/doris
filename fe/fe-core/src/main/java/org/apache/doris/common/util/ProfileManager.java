@@ -538,7 +538,7 @@ public class ProfileManager extends MasterDaemon {
             ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
             if (element == null) {
                 LOG.debug("Profile {} does not exist, already finished or does not enable profile",
-                    DebugUtil.printId(queryId));
+                        DebugUtil.printId(queryId));
                 return;
             }
             element.profile.markisFinished(System.currentTimeMillis());
