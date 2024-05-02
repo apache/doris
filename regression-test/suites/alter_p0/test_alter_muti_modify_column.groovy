@@ -39,12 +39,20 @@ suite('test_alter_muti_modify_column') {
         (3, 30, 'pqr', 'lmn');
     """
 
+    def expectedResults = [
+        [1, 10, 'abc', 'def'],
+        [2, 20, 'xyz', 'uvw'],
+        [3, 30, 'pqr', 'lmn']
+    ]
+
     // Check data before ALTER TABLE
     def resultBefore = sql """ SELECT * FROM ${tbl} ORDER BY id """
-    assertEquals(3, resultBefore.size())
-    assertEquals([1, 10, 'abc', 'def'], resultBefore[0])
-    assertEquals([2, 20, 'xyz', 'uvw'], resultBefore[1])
-    assertEquals([3, 30, 'pqr', 'lmn'], resultBefore[2])
+    assertEquals(expectedResults.size(), resultBefore.size())
+    for (int i = 0; i < expectedResults.size(); i++) {
+        for (int j = 0; j < expectedResults[i].size(); j++) {
+            assertEquals(expectedResults[i][j], resultBefore[i][j])
+        }
+    }
 
     sql """
         ALTER TABLE ${tbl} 
@@ -63,10 +71,12 @@ suite('test_alter_muti_modify_column') {
 
     // Check data after ALTER TABLE
     def resultAfter = sql """ SELECT * FROM ${tbl} ORDER BY id """
-    assertEquals(3, resultAfter.size())
-    assertEquals([1, 10, 'abc', 'def'], resultAfter[0])
-    assertEquals([2, 20, 'xyz', 'uvw'], resultAfter[1])
-    assertEquals([3, 30, 'pqr', 'lmn'], resultAfter[2])
+    assertEquals(expectedResults.size(), resultAfter.size())
+    for (int i = 0; i < expectedResults.size(); i++) {
+        for (int j = 0; j < expectedResults[i].size(); j++) {
+            assertEquals(expectedResults[i][j], resultAfter[i][j])
+        }
+    }
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 }
