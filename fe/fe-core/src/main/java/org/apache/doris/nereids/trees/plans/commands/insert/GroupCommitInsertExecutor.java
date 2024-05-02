@@ -162,7 +162,6 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
         List<String> columnNames = physicalOlapTableSink.getTargetTable().getFullSchema().stream()
                 .map(Column::getName)
                 .map(n -> n.replace("`", "``"))
-                .map(n -> "`" + n + "`")
                 .collect(Collectors.toList());
         for (List<NamedExpression> row : constantExprsList) {
             rows.add(InsertUtils.getRowStringValue(row));
