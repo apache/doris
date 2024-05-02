@@ -2603,7 +2603,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
-    // The max number of profiles that can be stored in storage.
+    // The max number of profiles that can be stored to storage.
     @ConfField
     public static int max_profile_on_storage = 500;
 
