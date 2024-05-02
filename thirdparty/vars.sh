@@ -508,6 +508,12 @@ BASE64_NAME="v0.5.2.tar.gz"
 BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
+# azure blob
+AZURE_DOWNLOAD="https://github.com/Azure/azure-storage-cpp/archive/refs/tags/v7.5.0.tar.gz"
+AZURE_NAME="v7.5.0.tar.gz"
+AZURE_SOURCE="azure-storage-cpp-7.5.0"
+AZURE_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +589,7 @@ export TP_ARCHIVES=(
     'LIBUUID'
     'ALI_SDK'
     'BASE64'
+    'AZURE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
