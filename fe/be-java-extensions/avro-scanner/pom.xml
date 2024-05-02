@@ -40,6 +40,12 @@ under the License.
             <groupId>org.apache.avro</groupId>
             <artifactId>avro-mapred</artifactId>
             <version>${avro.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>avro-ipc-jetty</artifactId>
+                    <groupId>org.apache.avro</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>

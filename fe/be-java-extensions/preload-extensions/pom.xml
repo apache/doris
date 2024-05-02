@@ -47,7 +47,7 @@ under the License.
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
-            <version>1.10.1</version>
+            <version>1.13.1</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
@@ -72,6 +72,13 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-spark-common_${scala.binary.version}</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-common</artifactId>
+                </exclusion>
+            </exclusions>
+            
         </dependency>
         <dependency>
             <groupId>org.apache.avro</groupId>
