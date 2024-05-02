@@ -185,11 +185,17 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
                                 std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
@@ -254,11 +260,17 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             CloudSchemaChangeJob job(engine,
                                      std::to_string(agent_task_req.alter_tablet_req_v2.job_id),

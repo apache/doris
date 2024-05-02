@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -138,6 +139,8 @@ public class ProfileManager extends MasterDaemon {
     // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
+
+    private final ExecutorService fetchRealTimeProfileExecutor;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -321,6 +324,51 @@ public class ProfileManager extends MasterDaemon {
             readLock.unlock();
         }
         return result;
+    }
+
+    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
+            TUniqueId queryID, TNetworkAddress targetBackend) {
+        TGetRealtimeExecStatusResponse resp = null;
+        BackendService.Client client = null;
+
+        try {
+            client = ClientPool.backendPool.borrowObject(targetBackend);
+        } catch (Exception e) {
+            LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
+            return resp;
+        }
+
+        try {
+            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
+            req.setId(queryID);
+            resp = client.getRealtimeExecStatus(req);
+        } catch (TException e) {
+            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
+                    DebugUtil.printId(queryID), targetBackend.toString(), e);
+            ClientPool.backendPool.invalidateObject(targetBackend, client);
+        } finally {
+            ClientPool.backendPool.returnObject(targetBackend, client);
+        }
+
+        if (!resp.isSetStatus()) {
+            LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}",
+                    DebugUtil.printId(queryID));
+            return null;
+        }
+
+        if (resp.getStatus().status_code != TStatusCode.OK) {
+            LOG.warn("Failed to get realtime query exec status, query {} error msg {}",
+                    DebugUtil.printId(queryID), resp.getStatus().toString());
+            return null;
+        }
+
+        if (!resp.isSetReportExecStatusParams()) {
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+                    DebugUtil.printId(queryID));
+            return null;
+        }
+
+        return resp;
     }
 
     public String getProfile(String queryID) {

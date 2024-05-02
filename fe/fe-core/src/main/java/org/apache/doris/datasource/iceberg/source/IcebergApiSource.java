@@ -61,8 +61,14 @@ public class IcebergApiSource implements IcebergSource {
 
     @Override
     public String getFileFormat() {
-        return originTable.properties()
-            .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        Map<String, String> properties = originTable.properties();
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        if (properties.containsKey(FLINK_WRITE_FORMAT)) {
+            return properties.get(FLINK_WRITE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
     }
 
     @Override

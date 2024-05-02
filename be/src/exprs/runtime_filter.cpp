@@ -1302,16 +1302,16 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependency) {
+void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
     _dependency = dependency;
-    _dependency->add();
+    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        _dependency->sub();
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
     }
 }
 
