@@ -140,8 +140,6 @@ public class ProfileManager extends MasterDaemon {
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
-    private final ExecutorService fetchRealTimeProfileExecutor;
-
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
             synchronized (ProfileManager.class) {
@@ -161,51 +159,8 @@ public class ProfileManager extends MasterDaemon {
         writeLock = lock.writeLock();
         queryIdToProfileMap = Maps.newHashMap();
         queryIdToExecutionProfiles = Maps.newHashMap();
-        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(10, 100,
-                "fetch-realtime-profile-pool", true);
-    }
-
-    private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(TUniqueId queryID,
-            TNetworkAddress targetBackend) {
-        TGetRealtimeExecStatusResponse resp = null;
-        BackendService.Client client = null;
-
-        try {
-            client = ClientPool.backendPool.borrowObject(targetBackend);
-        } catch (Exception e) {
-            LOG.warn("Fetch a agent client failed, address: {}", targetBackend.toString());
-            return resp;
-        }
-
-        try {
-            TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
-            req.setId(queryID);
-            resp = client.getRealtimeExecStatus(req);
-        } catch (TException e) {
-            LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}", DebugUtil.printId(queryID),
-                    targetBackend.toString(), e);
-            ClientPool.backendPool.invalidateObject(targetBackend, client);
-        } finally {
-            ClientPool.backendPool.returnObject(targetBackend, client);
-        }
-
-        if (!resp.isSetStatus()) {
-            LOG.warn("Broken GetRealtimeExecStatusResponse response, query {}", DebugUtil.printId(queryID));
-            return null;
-        }
-
-        if (resp.getStatus().status_code != TStatusCode.OK) {
-            LOG.warn("Failed to get realtime query exec status, query {} error msg {}", DebugUtil.printId(queryID),
-                    resp.getStatus().toString());
-            return null;
-        }
-
-        if (!resp.isSetReportExecStatusParams()) {
-            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}", DebugUtil.printId(queryID));
-            return null;
-        }
-
-        return resp;
+        fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                10, 100, "fetch-realtime-profile-pool", true);
     }
 
     private ProfileElement createElement(Profile profile) {
