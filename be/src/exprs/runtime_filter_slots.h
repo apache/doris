@@ -42,7 +42,7 @@ public:
     }
 
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                            pipeline::CountedFinishDependency* dependency) {
+                            std::shared_ptr<pipeline::Dependency> dependency) {
         if (_runtime_filters.empty()) {
             return Status::OK();
         }

@@ -571,7 +571,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
                 state, local_state._shared_state->build_block->rows(),
-                (CountedFinishDependency*)(local_state._finish_dependency.get())));
+                local_state._finish_dependency));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
