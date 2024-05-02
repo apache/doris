@@ -62,9 +62,10 @@ public:
             : max_jvm_heap_size(JniUtil::get_max_jni_heap_memory_size()),
               cur_memory_comsuption(0) {}
     size_t max_usage() const {
-        return static_cast<size_t>(max_jvm_heap_size * config::max_hdfs_jni_heap_usage_ratio);
+        return static_cast<size_t>(max_jvm_heap_size *
+                                   config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
-    Status do_rate_limit(size_t memory_size) {
+    Status acquire_memory(size_t memory_size) {
 #ifdef USE_LIBHDFS3
         return Status::OK();
 #endif
@@ -78,10 +79,11 @@ public:
             cur_memory_comsuption.fetch_add(memory_size);
             return Status::OK();
         }
-        return Status::InternalError("Run out of Jni jvm heap space");
+        return Status::InternalError("Run out of Jni jvm heap space, current limit size is {}",
+                                     max_usage());
     }
 
-    void release_jni_memory(size_t memory_size) {
+    void release_memory(size_t memory_size) {
 #ifdef USE_LIBHDFS3
         return;
 #endif
@@ -120,7 +122,7 @@ HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
-        g_hdfs_write_rate_limiter.release_jni_memory(bytes_appended());
+        g_hdfs_write_rate_limiter.release_memory(bytes_appended());
     }
 
     hdfs_file_being_written << -1;
@@ -231,7 +233,7 @@ void HdfsFileWriter::_write_into_local_file_cache() {
 }
 
 Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
-    RETURN_IF_ERROR(g_hdfs_write_rate_limiter.do_rate_limit(content.size()));
+    RETURN_IF_ERROR(g_hdfs_write_rate_limiter.acquire_memory(content.size()));
     while (!content.empty()) {
         int64_t written_bytes;
         {
