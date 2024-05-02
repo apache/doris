@@ -64,6 +64,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -390,6 +391,11 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            // currently stream load not support ip based auth, so normal should not auth temporary
+            // need remove later
+            if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+                return true;
+            }
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
                     return true;
