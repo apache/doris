@@ -36,6 +36,7 @@ under the License.
         <sparkbundle.version>3.2</sparkbundle.version>
         <janino.version>3.0.16</janino.version>
         <avro.version>1.11.2</avro.version>
+        <hbase.version>2.5.8</hbase.version>
     </properties>
     
     <dependencyManagement>
@@ -77,6 +78,12 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-spark-common_${scala.binary.version}</artifactId>
             <version>${hudi.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-server</artifactId>
+            <version>${hbase.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

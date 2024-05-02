@@ -119,6 +119,11 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-annotations</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-core_${scala.binary.version}</artifactId>
             <exclusions>
@@ -233,7 +238,7 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-cos</artifactId>
-            <version>3.3.5</version>
+            <version>${hadoop.version}</version>
         </dependency>
         <!-- For BE Paimon OSS/S3 Access -->
         <dependency>
