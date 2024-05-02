@@ -657,4 +657,15 @@ public class TableProperty implements Writable {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
     }
+
+    public String getPropertiesString() {
+        StringBuilder str = new StringBuilder("");
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (str.length() != 0) {
+                str.append(", ");
+            }
+            str.append(entry.getKey() + " = " + entry.getValue());
+        }
+        return str.toString();
+    }
 }
