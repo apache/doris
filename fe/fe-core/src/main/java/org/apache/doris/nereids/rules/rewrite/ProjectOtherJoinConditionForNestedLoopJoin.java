@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -49,12 +51,14 @@ import java.util.Set;
 public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalJoin().when(
-                join -> join.getHashJoinConjuncts().isEmpty()
+        return logicalJoin()
+                .when(join -> join.getHashJoinConjuncts().isEmpty()
                         && !join.isMarkJoin()
-                        && !join.getOtherJoinConjuncts().isEmpty()
-        ).then(
-                join -> {
+                        && !join.getOtherJoinConjuncts().isEmpty())
+                .whenNot(join -> ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable()
+                        .allowedRuntimeFilterType(TRuntimeFilterType.BITMAP))
+                .then(join -> {
                     List<Expression> otherConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> newOtherConjuncts = new ArrayList<>();
                     Set<Slot> leftSlots = join.child(0).getOutputSet();

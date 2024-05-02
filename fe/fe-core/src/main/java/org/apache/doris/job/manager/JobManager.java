@@ -29,8 +29,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobStatus;
@@ -267,8 +265,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      **/
     public void replayUpdateJob(T job) {
         jobMap.put(job.getJobId(), job);
-        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
-                .add("msg", "replay update scheduler job").build());
+        job.logUpdateOperation();
     }
 
     /**

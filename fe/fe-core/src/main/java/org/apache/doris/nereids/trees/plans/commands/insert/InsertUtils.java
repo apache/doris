@@ -250,21 +250,25 @@ public class InsertUtils {
                     && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
+
                 if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    throw new AnalysisException("Partial update is only allowed on "
-                            + "unique table with merge-on-write enabled.");
-                }
-                if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
-                    if (unboundLogicalSink.getColNames().isEmpty()) {
-                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                + "updating partial columns using the INSERT statement.");
-                    }
-                    for (Column col : olapTable.getFullSchema()) {
-                        Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
-                                .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                        if (col.isKey() && !insertCol.isPresent()) {
-                            throw new AnalysisException("Partial update should include all key columns, missing: "
-                                    + col.getName());
+                    // when enable_unique_key_partial_update = true,
+                    // only unique table with MOW insert with target columns can consider be a partial update,
+                    // and unique table without MOW, insert will be like a normal insert.
+                    ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                } else {
+                    if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
+                        if (unboundLogicalSink.getColNames().isEmpty()) {
+                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                                    + "updating partial columns using the INSERT statement.");
+                        }
+                        for (Column col : olapTable.getFullSchema()) {
+                            Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
+                                    .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                            if (col.isKey() && !insertCol.isPresent()) {
+                                throw new AnalysisException("Partial update should include all key columns, missing: "
+                                        + col.getName());
+                            }
                         }
                     }
                 }

@@ -59,8 +59,14 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        return hmsTable.getRemoteTable().getParameters()
-            .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        Map<String, String> properties = hmsTable.getRemoteTable().getParameters();
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        if (properties.containsKey(FLINK_WRITE_FORMAT)) {
+            return properties.get(FLINK_WRITE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {

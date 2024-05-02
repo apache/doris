@@ -182,6 +182,16 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    size_t approximate_bytes() const override { return approximate_bytes_; }
+
+    size_t num_del_keys() const override { return num_del_keys_; }
+
+    size_t num_put_keys() const override { return num_put_keys_; }
+
+    size_t delete_bytes() const override { return delete_bytes_; }
+
+    size_t put_bytes() const override { return put_bytes_; }
+
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
@@ -201,6 +211,12 @@ private:
 
     int64_t committed_version_ = -1;
     int64_t read_version_ = -1;
+
+    size_t approximate_bytes_ {0};
+    size_t num_del_keys_ {0};
+    size_t num_put_keys_ {0};
+    size_t delete_bytes_ {0};
+    size_t put_bytes_ {0};
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {

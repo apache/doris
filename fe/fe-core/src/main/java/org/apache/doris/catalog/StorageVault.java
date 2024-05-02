@@ -63,6 +63,7 @@ public abstract class StorageVault {
     protected StorageVaultType type;
     protected String id;
     private boolean ifNotExists;
+    private boolean setAsDefault;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -85,10 +86,11 @@ public abstract class StorageVault {
     public StorageVault() {
     }
 
-    public StorageVault(String name, StorageVaultType type, boolean ifNotExists) {
+    public StorageVault(String name, StorageVaultType type, boolean ifNotExists, boolean setAsDefault) {
         this.name = name;
         this.type = type;
         this.ifNotExists = ifNotExists;
+        this.setAsDefault = setAsDefault;
     }
 
     public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException, UserException {
@@ -97,6 +99,10 @@ public abstract class StorageVault {
 
     public boolean ifNotExists() {
         return this.ifNotExists;
+    }
+
+    public boolean setAsDefault() {
+        return this.setAsDefault;
     }
 
 
@@ -120,17 +126,18 @@ public abstract class StorageVault {
         StorageVaultType type = stmt.getStorageVaultType();
         String name = stmt.getStorageVaultName();
         boolean ifNotExists = stmt.isIfNotExists();
+        boolean setAsDefault = stmt.setAsDefault();
         StorageVault vault;
         switch (type) {
             case HDFS:
-                vault = new HdfsStorageVault(name, ifNotExists);
+                vault = new HdfsStorageVault(name, ifNotExists, setAsDefault);
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
-                vault = new S3StorageVault(name, ifNotExists, resourceStmt);
+                vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceStmt);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);

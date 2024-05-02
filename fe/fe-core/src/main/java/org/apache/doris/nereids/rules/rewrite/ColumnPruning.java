@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -82,6 +85,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     /**
      * collect all columns used in expressions, which should not be pruned
+     * the purpose to collect keys are:
+     * 1. used for count(*), '*' is replaced by the smallest(data type in byte size) column
+     * 2. for StatsDerive, only when col-stats of keys are not available, we fall back to no-stats algorithm
      */
     public static class KeyColumnCollector
             extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
@@ -104,6 +110,20 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             }
             return plan;
         }
+
+        @Override
+        public LogicalAggregate<? extends Plan> visitLogicalAggregate(LogicalAggregate<? extends Plan> agg,
+                JobContext jobContext) {
+            agg.child().accept(this, jobContext);
+            for (Expression expression : agg.getExpressions()) {
+                if (expression instanceof SlotReference) {
+                    keys.add((Slot) expression);
+                } else {
+                    keys.addAll(expression.getInputSlots());
+                }
+            }
+            return agg;
+        }
     }
 
     @Override
@@ -111,6 +131,18 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
         plan.accept(keyColumnCollector, jobContext);
         keys = keyColumnCollector.keys;
+        if (ConnectContext.get() != null) {
+            StatementContext stmtContext = ConnectContext.get().getStatementContext();
+            // in ut, stmtContext is null
+            if (stmtContext != null) {
+                for (Slot key : keys) {
+                    if (key instanceof SlotReference) {
+                        ((SlotReference) key).getColumn().ifPresent(stmtContext::addKeyColumn);
+                    }
+                }
+            }
+        }
+
         return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
     }
 
@@ -200,13 +232,21 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneAggregate(repeat, context);
     }
 
-    private Plan pruneAggregate(Aggregate agg, PruneContext context) {
+    @Override
+    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(cteProducer);
+    }
+
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, PruneContext context) {
+        return super.visitLogicalCTEConsumer(cteConsumer, context);
+    }
+
+    private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {
         // first try to prune group by and aggregate functions
-        Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
-
-        Aggregate fillUpAggr = fillUpGroupByAndOutput(prunedOutputAgg);
-
-        return pruneChildren(fillUpAggr);
+        Aggregate<? extends Plan> prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
+        Aggregate<?> fillUpAggregate = fillUpGroupByAndOutput(prunedOutputAgg);
+        return pruneChildren(fillUpAggregate);
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
@@ -217,7 +257,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(plan, requireAllOutputOfChildren.build());
     }
 
-    private static Aggregate<Plan> fillUpGroupByAndOutput(Aggregate<Plan> prunedOutputAgg) {
+    private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {
         List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
         List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
 
@@ -239,12 +279,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         ImmutableList.Builder<Expression> newGroupByExprList
                 = ImmutableList.builderWithExpectedSize(newOutputList.size());
         for (NamedExpression e : newOutputList) {
-            if (!(aggregateFunctions.contains(e)
-                    || (e instanceof Alias && aggregateFunctions.contains(e.child(0))))) {
+            if (!(e instanceof Alias && aggregateFunctions.contains(e.child(0)))) {
                 newGroupByExprList.add(e);
             }
         }
-        return ((LogicalAggregate<Plan>) prunedOutputAgg).withGroupByAndOutput(
+        return ((LogicalAggregate<? extends Plan>) prunedOutputAgg).withGroupByAndOutput(
                 newGroupByExprList.build(), newOutputList);
     }
 
@@ -369,11 +408,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
         }
         return prunedChild;
-    }
-
-    @Override
-    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(cteProducer);
     }
 
     /** PruneContext */

@@ -586,11 +586,7 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    // FIXME: Force fallback for:
-                    //  1. group commit because nereids does not support it (see the following `isGroupCommit` variable)
-                    //  Skip force fallback for:
-                    //  1. Transaction insert because nereids support `insert into select` while legacy does not
-                    //  2. Nereids support insert into external table while legacy does not
+                    // FIXME: Force fallback for group commit because nereids does not support it
                     boolean isInsertCommand = parsedStmt != null
                             && parsedStmt instanceof LogicalPlanAdapter
                             && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;

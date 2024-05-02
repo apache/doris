@@ -63,7 +63,7 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail(String msg) throws JobException {
+    public void onFail() throws JobException {
         status = TaskStatus.FAILED;
         if (!isCallable()) {
             return;
@@ -72,12 +72,13 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail() throws JobException {
+    public void onFail(String errMsg) throws JobException {
         if (TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.FAILED;
         setFinishTimeMs(System.currentTimeMillis());
+        setErrMsg(errMsg);
         if (!isCallable()) {
             return;
         }

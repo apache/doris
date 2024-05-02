@@ -65,7 +65,9 @@ public:
                   decode_value_time(0),
                   decode_dict_time(0),
                   decode_level_time(0),
-                  decode_null_map_time(0) {}
+                  decode_null_map_time(0),
+                  skip_page_header_num(0),
+                  parse_page_header_num(0) {}
 
         Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
                    int64_t null_map_time)
@@ -79,7 +81,9 @@ public:
                   decode_value_time(cs.decode_value_time),
                   decode_dict_time(cs.decode_dict_time),
                   decode_level_time(cs.decode_level_time),
-                  decode_null_map_time(null_map_time) {}
+                  decode_null_map_time(null_map_time),
+                  skip_page_header_num(cs.skip_page_header_num),
+                  parse_page_header_num(cs.parse_page_header_num) {}
 
         int64_t read_time;
         int64_t read_calls;
@@ -92,6 +96,8 @@ public:
         int64_t decode_dict_time;
         int64_t decode_level_time;
         int64_t decode_null_map_time;
+        int64_t skip_page_header_num;
+        int64_t parse_page_header_num;
 
         void merge(Statistics& statistics) {
             read_time += statistics.read_time;
@@ -105,6 +111,8 @@ public:
             decode_dict_time += statistics.decode_dict_time;
             decode_level_time += statistics.decode_level_time;
             decode_null_map_time += statistics.decode_null_map_time;
+            skip_page_header_num += statistics.skip_page_header_num;
+            parse_page_header_num += statistics.parse_page_header_num;
         }
     };
 
@@ -134,7 +142,7 @@ public:
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size);
+                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -160,9 +168,12 @@ class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges,
-                       const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz,
+                       const tparquet::ColumnChunk& chunk_meta,
+                       const tparquet::OffsetIndex* offset_index, cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
-            : ParquetColumnReader(row_ranges, ctz, io_ctx), _chunk_meta(chunk_meta) {}
+            : ParquetColumnReader(row_ranges, ctz, io_ctx),
+              _chunk_meta(chunk_meta),
+              _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
@@ -182,6 +193,7 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
+    const tparquet::OffsetIndex* _offset_index;
     std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;

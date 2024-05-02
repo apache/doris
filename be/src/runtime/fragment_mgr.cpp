@@ -42,7 +42,6 @@
 #include <atomic>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
@@ -845,7 +844,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     _setup_shared_hashtable_for_broadcast_join(params, query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
-            std::make_shared<pipeline::PipelineXFragmentContext>(
+            std::make_shared<pipeline::PipelineFragmentContext>(
                     query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                     std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                       this, std::placeholders::_1, std::placeholders::_2));
@@ -892,7 +891,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         g_fragment_last_active_time.set_value(now);
         std::lock_guard<std::mutex> lock(_lock);
         std::vector<TUniqueId> ins_ids;
-        reinterpret_cast<pipeline::PipelineXFragmentContext*>(context.get())->instance_ids(ins_ids);
+        context->instance_ids(ins_ids);
         // TODO: simplify this mapping
         for (const auto& ins_id : ins_ids) {
             _pipeline_map.insert({ins_id, context});
@@ -1029,8 +1028,7 @@ void FragmentMgr::cancel_worker() {
             for (auto& pipeline_itr : _pipeline_map) {
                 if (pipeline_itr.second->is_timeout(now)) {
                     std::vector<TUniqueId> ins_ids;
-                    reinterpret_cast<pipeline::PipelineXFragmentContext*>(pipeline_itr.second.get())
-                            ->instance_ids(ins_ids);
+                    pipeline_itr.second->instance_ids(ins_ids);
                     for (auto& ins_id : ins_ids) {
                         to_cancel.push_back(ins_id);
                     }
@@ -1558,7 +1556,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
         }
 
         *exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_non_pipeline(
-                query_id, instance_profiles, load_channel_profiles);
+                query_id, instance_profiles, load_channel_profiles, /*is_done=*/false);
     }
 
     return Status::OK();

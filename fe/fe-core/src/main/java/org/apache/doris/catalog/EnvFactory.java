@@ -29,7 +29,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
-import org.apache.doris.load.loadv2.CleanCopyJobScheduler;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -157,11 +156,6 @@ public class EnvFactory {
 
     public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
         return new LoadManager(loadJobScheduler);
-    }
-
-    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler,
-                                        CleanCopyJobScheduler cleanCopyJobScheduler) {
-        return new LoadManager(loadJobScheduler, cleanCopyJobScheduler);
     }
 
     public MasterDaemon createTabletStatMgr() {

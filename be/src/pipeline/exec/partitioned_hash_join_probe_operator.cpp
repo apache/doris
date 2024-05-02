@@ -17,7 +17,7 @@
 
 #include "partitioned_hash_join_probe_operator.h"
 
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 #include "util/mem_info.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -335,10 +335,11 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     auto read_func = [this, state, &spilled_stream, &mutable_block, execution_context,
                       submit_timer] {
         auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock) {
-            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+        if (!execution_context_lock || state->is_cancelled()) {
+            LOG(INFO) << "execution_context released, maybe query was canceled.";
             return;
         }
+
         SCOPED_ATTACH_TASK(state);
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_recovery_build_timer);
@@ -361,6 +362,11 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
 
             if (block.empty()) {
                 continue;
+            }
+
+            if (UNLIKELY(state->is_cancelled())) {
+                LOG(INFO) << "recovery build block when canceled.";
+                break;
             }
 
             DCHECK_EQ(mutable_block->columns(), block.columns());
@@ -533,8 +539,8 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
                                                                   local_state._mem_tracker.get()));
     }
 
-    std::vector<uint32_t> partition_indexes[_partition_count];
-    auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
+    std::vector<std::vector<uint32_t>> partition_indexes(_partition_count);
+    const auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
     for (uint32_t i = 0; i != rows; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
     }
@@ -550,8 +556,8 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
             partitioned_blocks[i] =
                     vectorized::MutableBlock::create_unique(input_block->clone_empty());
         }
-        partitioned_blocks[i]->add_rows(input_block, &(partition_indexes[i][0]),
-                                        &(partition_indexes[i][count]));
+        partitioned_blocks[i]->add_rows(input_block, partition_indexes[i].data(),
+                                        partition_indexes[i].data() + count);
 
         if (partitioned_blocks[i]->rows() > 2 * 1024 * 1024 ||
             (eos && partitioned_blocks[i]->rows() > 0)) {
@@ -790,7 +796,7 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state, bo
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     const auto revocable_size = revocable_mem_size(state);
-    if (PipelineXTask::should_revoke_memory(state, revocable_size)) {
+    if (PipelineTask::should_revoke_memory(state, revocable_size)) {
         return true;
     }
     if (local_state._shared_state->need_to_spill) {

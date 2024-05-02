@@ -18,7 +18,6 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {

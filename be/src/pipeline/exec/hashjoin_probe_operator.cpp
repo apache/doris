@@ -22,10 +22,7 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 
-namespace doris {
-namespace pipeline {
-
-OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
+namespace doris::pipeline {
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
@@ -634,5 +631,4 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

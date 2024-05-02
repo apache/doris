@@ -296,18 +296,19 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     auto total = *n;
     size_t read_count = 0;
-    int32_t data[total];
+    _buffer.resize(total);
     for (size_t i = 0; i < total; ++i) {
         ordinal_t ord = rowids[i] - page_first_ordinal;
         if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
             break;
         }
 
-        data[read_count++] = data_array[ord];
+        _buffer[read_count++] = data_array[ord];
     }
 
     if (LIKELY(read_count > 0)) {
-        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
+        dst->insert_many_dict_data(_buffer.data(), 0, _dict_word_info, read_count,
+                                   _dict_decoder->_num_elems);
     }
     *n = read_count;
     return Status::OK();

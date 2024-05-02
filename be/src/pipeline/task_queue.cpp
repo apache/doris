@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 namespace pipeline {
@@ -202,6 +203,12 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task, size_t core_id) {
     DCHECK(core_id < _core_size);
     task->put_in_runnable_queue();
     return _prio_task_queue_list[core_id].push(task);
+}
+
+void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
+    task->inc_runtime_ns(time_spent);
+    _prio_task_queue_list[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
+                                                                     time_spent);
 }
 
 } // namespace pipeline

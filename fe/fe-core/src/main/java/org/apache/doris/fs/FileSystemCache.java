@@ -23,8 +23,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import org.apache.hadoop.mapred.JobConf;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 
@@ -44,7 +44,7 @@ public class FileSystemCache {
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        return FileSystemFactory.getRemoteFileSystem(key.type, key.conf, key.bindBrokerName);
+        return FileSystemFactory.getRemoteFileSystem(key.type, key.properties, key.bindBrokerName);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -55,13 +55,14 @@ public class FileSystemCache {
         private final FileSystemType type;
         // eg: hdfs://nameservices1
         private final String fsIdent;
-        private final JobConf conf;
+        private final Map<String, String> properties;
         private final String bindBrokerName;
 
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs, JobConf conf, String bindBrokerName) {
+        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
+                Map<String, String> properties, String bindBrokerName) {
             this.type = fs.first;
             this.fsIdent = fs.second;
-            this.conf = conf;
+            this.properties = properties;
             this.bindBrokerName = bindBrokerName;
         }
 
@@ -75,7 +76,7 @@ public class FileSystemCache {
             }
             boolean equalsWithoutBroker = type.equals(((FileSystemCacheKey) obj).type)
                     && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
-                    && conf == ((FileSystemCacheKey) obj).conf;
+                    && properties == ((FileSystemCacheKey) obj).properties;
             if (bindBrokerName == null) {
                 return equalsWithoutBroker;
             }
@@ -85,9 +86,9 @@ public class FileSystemCache {
         @Override
         public int hashCode() {
             if (bindBrokerName == null) {
-                return Objects.hash(conf, fsIdent, type);
+                return Objects.hash(properties, fsIdent, type);
             }
-            return Objects.hash(conf, fsIdent, type, bindBrokerName);
+            return Objects.hash(properties, fsIdent, type, bindBrokerName);
         }
     }
 }

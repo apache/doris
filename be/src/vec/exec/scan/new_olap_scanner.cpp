@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -51,6 +52,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -184,7 +186,12 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
-            TabletHotspot::instance()->count(tablet);
+
+            if (config::is_cloud_mode()) {
+                // FIXME(plat1ko): Avoid pointer cast
+                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+            }
+
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
                                                  &read_source.rs_splits,
                                                  _state->skip_missing_version());
@@ -688,6 +695,12 @@ void NewOlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(_compressed_bytes_read);
     tablet->query_scan_rows->increment(_raw_rows_read);
     tablet->query_scan_count->increment(1);
+    if (_query_statistics) {
+        _query_statistics->add_scan_bytes_from_local_storage(
+                stats.file_cache_stats.bytes_read_from_local);
+        _query_statistics->add_scan_bytes_from_remote_storage(
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
 }
 
 } // namespace doris::vectorized

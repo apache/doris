@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -43,8 +44,8 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
-import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -303,7 +304,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             topic("Eliminate GroupBy",
                     topDown(new EliminateGroupBy(),
-                            new MergeAggregate())
+                            new MergeAggregate(),
+                            // need to adjust min/max/sum nullable attribute after merge aggregate
+                            new AdjustAggregateNullableForEmptySet())
             ),
 
             topic("Eager aggregation",
@@ -415,9 +418,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Push project and filter on cte consumer to cte producer",
                     topDown(
                             new CollectFilterAboveConsumer(),
-                            new CollectProjectAboveConsumer()
+                            new CollectCteConsumerOutput()
                     )
-            )
+            ),
+            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new))
     );
 
     private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS

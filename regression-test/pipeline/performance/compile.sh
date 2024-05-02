@@ -135,7 +135,6 @@ sudo docker run -i --rm \
                     && export CCACHE_REMOTE_STORAGE=file:///root/ccache \
                     && export EXTRA_CXX_FLAGS=-O3 \
                     && export USE_JEMALLOC='ON' \
-                    && export USE_JEMALLOC_HOOK='OFF' \
 					&& export ENABLE_PCH=OFF ${jdk17_str}\
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
