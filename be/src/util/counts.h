@@ -17,20 +17,23 @@
 
 #pragma once
 
+#include <pdqsort.h>
+
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
-#include <vector>
 
 #include "udf/udf.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
-class Counts {
+class OldCounts {
 public:
-    Counts() = default;
+    OldCounts() = default;
 
-    inline void merge(const Counts* other) {
+    inline void merge(const OldCounts* other) {
         if (other == nullptr || other->_counts.empty()) {
             return;
         }
@@ -133,6 +136,71 @@ public:
 
 private:
     std::unordered_map<int64_t, uint32_t> _counts;
+};
+
+// #TODO use template to reduce the Counts memery. Eg: Int do not need use int64_t
+class Counts {
+public:
+    Counts() = default;
+
+    void merge(Counts* other) {
+        if (other == nullptr || other->_nums.empty()) {
+            return;
+        }
+
+        if (_nums.empty()) {
+            _nums = std::move(other->_nums);
+        } else {
+            decltype(_nums) res(_nums.size() + other->_nums.size());
+            std::merge(_nums.begin(), _nums.end(), other->_nums.begin(), other->_nums.end(),
+                       res.begin());
+            _nums = std::move(res);
+        }
+    }
+
+    void increment(int64_t key, uint32_t i) {
+        auto old_size = _nums.size();
+        _nums.resize(_nums.size() + i);
+        for (uint32_t j = 0; j < i; ++j) {
+            _nums[old_size + j] = key;
+        }
+    }
+
+    void serialize(vectorized::BufferWritable& buf) {
+        pdqsort(_nums.begin(), _nums.end());
+        size_t size = _nums.size();
+        write_binary(size, buf);
+        buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(int64_t) * size);
+    }
+
+    void unserialize(vectorized::BufferReadable& buf) {
+        size_t size;
+        read_binary(size, buf);
+        _nums.resize(size);
+        auto buff = buf.read(sizeof(int64_t) * size);
+        memcpy(_nums.data(), buff.data, buff.size);
+    }
+
+    double terminate(double quantile) {
+        if (_nums.empty()) {
+            // Although set null here, but the value is 0.0 and the call method just
+            // get val in aggregate_function_percentile_approx.h
+            return 0.0;
+        }
+        if (quantile == 1 || _nums.size() == 1) {
+            return _nums.back();
+        }
+        if (UNLIKELY(!std::is_sorted(_nums.begin(), _nums.end()))) {
+            pdqsort(_nums.begin(), _nums.end());
+        }
+
+        double u = (_nums.size() - 1) * quantile;
+        auto index = static_cast<uint32_t>(u);
+        return _nums[index] + (u - static_cast<double>(index)) * (_nums[index + 1] - _nums[index]);
+    }
+
+private:
+    vectorized::PODArray<int64_t> _nums;
 };
 
 } // namespace doris
