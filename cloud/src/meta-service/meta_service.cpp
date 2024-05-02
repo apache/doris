@@ -254,7 +254,12 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
     if (err == TxnErrorCode::TXN_OK) {
         if (is_table_version) {
-            int64_t version = *reinterpret_cast<const int64_t*>(ver_val.data());
+            int64_t version = 0;
+            if (!txn->decode_atomic_int(ver_val, &version)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed table version value";
+                return;
+            }
             response->set_version(version);
         } else {
             VersionPB version_pb;
@@ -369,12 +374,12 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
                 } else if (is_table_version) {
-                    if (value->size() != sizeof(int64_t)) {
+                    int64_t version = 0;
+                    if (!txn->decode_atomic_int(*value, &version)) {
                         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                         msg = "malformed table version value";
                         break;
                     }
-                    int64_t version = *reinterpret_cast<const int64_t*>(value->data());
                     response->add_versions(version);
                 } else {
                     VersionPB version_pb;

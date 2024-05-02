@@ -100,12 +100,23 @@ public:
     virtual void atomic_set_ver_value(std::string_view key, std::string_view val) = 0;
 
     /**
-     * Adds a value to database
+     * Adds a value to database.
+     *
+     * The default value is zero if no such key exists before.
+     *
      * @param to_add positive for addition, negative for substraction
      * @return 0 for success otherwise error
      */
     virtual void atomic_add(std::string_view key, int64_t to_add) = 0;
     // TODO: min max or and xor cmp_and_clear set_ver_value
+
+    /**
+     * Decode the atomic value written by `atomic_add`.
+     *
+     * @param data the data to decode
+     * @return true for success, otherwise the data format is invalid.
+     */
+    virtual bool decode_atomic_int(std::string_view data, int64_t* val) = 0;
 
     virtual void remove(std::string_view key) = 0;
 
@@ -461,6 +472,8 @@ public:
      */
     void atomic_add(std::string_view key, int64_t to_add) override;
     // TODO: min max or and xor cmp_and_clear set_ver_value
+
+    bool decode_atomic_int(std::string_view data, int64_t* val) override;
 
     void remove(std::string_view key) override;
 
