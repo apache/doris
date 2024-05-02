@@ -54,7 +54,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -132,13 +131,15 @@ public class ProfileManager extends MasterDaemon {
     private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
-    private final ExecutorService fetchRealTimeProfileExecutor;
+
     // profile id is long string for brocker load
     // is TUniqueId for others.
     private Map<String, ProfileElement> queryIdToProfileMap;
     // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
+
+    private final ExecutorService fetchRealTimeProfileExecutor;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
