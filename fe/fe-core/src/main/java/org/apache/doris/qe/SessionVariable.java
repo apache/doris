@@ -464,6 +464,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
+    public static final String ENABLE_INVERTED_INDEX_COMPOUND_INLIST = "enable_inverted_index_compound_inlist";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1365,6 +1367,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "the system will adjust the concurrency of this operator to 1 "
                             + "to reduce the fan-out of simple queries"})
     public long limitRowsForSingleInstance = 10000;
+
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_COMPOUND_INLIST,
+            description = {"让compound inlist条件可以使用倒排索引",
+                    "Let the compound inlist condition use an inverted index"})
+    public boolean enableInvertedIndexCompoundInlist = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
@@ -2574,6 +2581,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setEnableInvertedIndexCompoundInlist(enableInvertedIndexCompoundInlist);
 
         return tResult;
     }
