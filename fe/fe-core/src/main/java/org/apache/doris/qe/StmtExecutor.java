@@ -123,7 +123,6 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
-import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -158,12 +157,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
-import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
@@ -3343,10 +3340,6 @@ public class StmtExecutor {
             httpStreamParams.setDb(insertExecutor.getDatabase());
             httpStreamParams.setTable(insertExecutor.getTable());
             httpStreamParams.setLabel(insertExecutor.getLabelName());
-
-            PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
-                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
