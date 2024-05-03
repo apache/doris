@@ -145,6 +145,12 @@ public:
 
     InvertedIndexReaderType type() override;
 
+    static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                         const std::map<string, string>& properties);
+
+    static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                             const std::map<string, string>& properties);
+
 private:
     Status normal_index_search(OlapReaderStatistics* stats, InvertedIndexQueryType query_type,
                                const IndexSearcherPtr& index_searcher,
@@ -273,6 +279,11 @@ public:
 
     InvertedIndexReaderType type() override;
     Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>* reader);
+
+    static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                         const std::map<string, string>& properties);
+    static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                             const std::map<string, string>& properties);
 
 private:
     const TypeInfo* _type_info {};
