@@ -43,6 +43,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.RunMode
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -1123,7 +1124,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isCloudMode() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+        return context.config.fetchRunMode()
     }
 
     boolean enableStoragevault() {
