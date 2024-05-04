@@ -135,12 +135,20 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (StringUtils.isEmpty(maskType)) {
             return Optional.empty();
         }
-        String transformer = policy.getMaskTypeDef().getTransformer();
-        if (StringUtils.isEmpty(transformer)) {
-            return Optional.empty();
+        switch (maskType) {
+            case "MASK_NULL":
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, "NULL"));
+            case "MASK_NONE":
+                return Optional.empty();
+            default:
+                String transformer = policy.getMaskTypeDef().getTransformer();
+                if (StringUtils.isEmpty(transformer)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
         }
-        return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
     }
 
     protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);
