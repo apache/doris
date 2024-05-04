@@ -17,25 +17,6 @@
 
 #include "vec/functions/round.h"
 
-#include <cstddef>
-#include <functional>
-#include <type_traits>
-#include <utility>
-
-#include "common/exception.h"
-#include "common/status.h"
-#include "olap/olap_common.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/call_on_type_index.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -43,16 +24,16 @@ namespace doris::vectorized {
 // We split round funcs from register_function_math() in math.cpp to here,
 // so that to speed up compile time and make code more readable.
 void register_function_round(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                        \
-    factory.register_function<FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc,    \
-                                               TieBreakingMode::Auto>>();                     \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
-    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,   \
+#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                           \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>(); \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>();    \
+    factory.register_function<                                                                   \
+            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
+    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
                                                TieBreakingMode::Bankers>>();
 
     REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)

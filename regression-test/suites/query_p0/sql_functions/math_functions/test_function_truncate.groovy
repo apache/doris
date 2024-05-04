@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_function_truncate") {
+    // this single parameter test should has the same result as before
+    qt_sql """SELECT truncate(10.12345), truncate(cast(10.12345 as decimal(7, 5)));"""
+
     qt_sql """
         SELECT number, truncate(123.345 , 1) FROM numbers("number"="10");
     """

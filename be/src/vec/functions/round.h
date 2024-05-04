@@ -851,64 +851,6 @@ public:
     }
 };
 
-struct TruncateFloatOneArgImpl {
-    static constexpr auto name = "truncate";
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
-};
-
-struct TruncateFloatTwoArgImpl {
-    static constexpr auto name = "truncate";
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeInt32>()};
-    }
-};
-
-struct TruncateDecimalOneArgImpl {
-    static constexpr auto name = "truncate";
-    static DataTypes get_variadic_argument_types() {
-        // All Decimal types are named Decimal, and real scale will be passed as type argument for execute function
-        // So we can just register Decimal32 here
-        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)};
-    }
-};
-
-struct TruncateDecimalTwoArgImpl {
-    static constexpr auto name = "truncate";
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0),
-                std::make_shared<DataTypeInt32>()};
-    }
-};
-
-struct FloorFloatOneArgImpl {
-    static constexpr auto name = "floor";
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
-};
-
-struct FloorFloatTwoArgImpl {
-    static constexpr auto name = "floor";
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeInt32>()};
-    }
-};
-
-struct FloorDecimalOneArgImpl {
-    static constexpr auto name = "floor";
-    static DataTypes get_variadic_argument_types() {
-        // All Decimal types are named Decimal, and real scale will be passed as type argument for execute function
-        // So we can just register Decimal32 here
-        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)};
-    }
-};
-
-struct FloorDecimalTwoArgImpl {
-    static constexpr auto name = "floor";
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal32>>(9, 0),
-                std::make_shared<DataTypeInt32>()};
-    }
-};
-
 struct TruncateName {
     static constexpr auto name = "truncate";
 };
