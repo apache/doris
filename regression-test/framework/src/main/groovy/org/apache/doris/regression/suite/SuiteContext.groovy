@@ -144,7 +144,7 @@ class SuiteContext implements Closeable {
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
             threadConnInfo.conn = config.getConnectionByDbName(dbName)
-            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.username = config.jdbcUser 
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }

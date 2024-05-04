@@ -41,7 +41,8 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
-import org.junit.jupiter.api.Assertions
+import org.apache.doris.regression.RunMode
+
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
@@ -1164,8 +1165,9 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudCluster() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+    boolean isCloudMode() {
+        // APPR: in 2.1 branch not have cloud, so just return false
+        return false
     }
 
     String getFeConfig(String key) {
