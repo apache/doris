@@ -141,6 +141,13 @@ public abstract class RangerAccessController implements CatalogAccessController 
                         policy.getPolicyVersion(), maskType, "NULL"));
             case "MASK_NONE":
                 return Optional.empty();
+            case "CUSTOM":
+                String maskedValue = policy.getMaskedValue();
+                if (StringUtils.isEmpty(maskedValue)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, maskedValue.replace("{col}", col)));
             default:
                 String transformer = policy.getMaskTypeDef().getTransformer();
                 if (StringUtils.isEmpty(transformer)) {
