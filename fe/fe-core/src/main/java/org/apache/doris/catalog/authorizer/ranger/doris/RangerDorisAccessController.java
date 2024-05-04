@@ -24,6 +24,7 @@ import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -157,6 +158,10 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        // For compatibility with older versions, it is not needed to check the privileges of the default group.
+        if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
