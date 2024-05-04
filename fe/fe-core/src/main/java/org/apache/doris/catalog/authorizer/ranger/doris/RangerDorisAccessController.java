@@ -26,6 +26,7 @@ import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
@@ -43,7 +44,7 @@ import java.util.stream.Collectors;
 
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
-    private RangerDorisPlugin dorisPlugin;
+    private RangerBasePlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
@@ -53,6 +54,11 @@ public class RangerDorisAccessController extends RangerAccessController {
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+    }
+
+    @VisibleForTesting
+    public RangerDorisAccessController(RangerBasePlugin plugin) {
+        dorisPlugin = plugin;
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, DorisAccessType accessType) {

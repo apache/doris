@@ -68,7 +68,6 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
-
     public static void checkRequestResults(Collection<RangerAccessResult> results, String name)
             throws AuthorizationException {
         for (RangerAccessResult result : results) {
@@ -82,7 +81,8 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), name,
-                        result.getAccessRequest().getResource().getAsString().replaceAll("/", ".")));
+                        Optional.ofNullable(result.getAccessRequest().getResource().getAsString())
+                                .orElse("unknown resource").replaceAll("/", ".")));
             }
         }
     }
