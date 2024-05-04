@@ -119,6 +119,10 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        if (res) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
                 ClusterNamespace.getNameFromFullName(db));
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -126,6 +130,11 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        if (res) {
+            return true;
+        }
+
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -134,6 +143,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        if (res) {
+            return;
+        }
+
         List<RangerDorisResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
