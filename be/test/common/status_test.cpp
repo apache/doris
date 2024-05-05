@@ -72,7 +72,8 @@ TEST_F(StatusTest, TStatusCodeWithStatus) {
     }
     // Check all code in Status_types.h in status.h
     for (auto& tstatus_st : _TStatusCode_VALUES_TO_NAMES) {
-        std::cout << "TStatusCode info " << tstatus_st.first << "," << tstatus_st.second;
+        std::cout << "TStatusCode info " << tstatus_st.first << "," << tstatus_st.second
+                  << std::endl;
         EXPECT_TRUE(tstatus_st.first < ErrorCode::MAX_ERROR_CODE_DEFINE_NUM);
         EXPECT_TRUE(ErrorCode::error_states[tstatus_st.first].description.compare(
                             tstatus_st.second) == 0);

@@ -63,6 +63,8 @@ namespace ErrorCode {
     TStatusError(BINLOG_TOO_NEW_COMMIT_SEQ, false);       \
     TStatusError(BINLOG_NOT_FOUND_DB, false);             \
     TStatusError(BINLOG_NOT_FOUND_TABLE, false);          \
+    TStatusError(NETWORK_ERROR, false);                   \
+    TStatusError(ILLEGAL_STATE, false);                   \
     TStatusError(SNAPSHOT_NOT_EXIST, true);               \
     TStatusError(HTTP_ERROR, true);                       \
     TStatusError(TABLET_MISSING, true);                   \
@@ -114,7 +116,6 @@ namespace ErrorCode {
     E(STL_ERROR, -246, true);                                \
     E(MUTEX_ERROR, -247, true);                              \
     E(PTHREAD_ERROR, -248, true);                            \
-    E(NETWORK_ERROR, -249, true);                            \
     E(UB_FUNC_ERROR, -250, true);                            \
     E(COMPRESS_ERROR, -251, true);                           \
     E(DECOMPRESS_ERROR, -252, true);                         \
