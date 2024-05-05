@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <utility>
 
 #include "geo/geo_common.h"
@@ -44,20 +45,47 @@ struct StPoint {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
 
-        auto column_x =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto column_y =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        const auto size = column_x->size();
+        const auto size = std::max(left_column->size(), right_column->size());
 
         MutableColumnPtr res = return_type->create_column();
 
+        if (left_const) {
+            const_vector(left_column, right_column, res, size);
+        } else if (right_const) {
+            vector_const(left_column, right_column, res, size);
+        } else {
+            GeoPoint point;
+            std::string buf;
+            for (int row = 0; row < size; ++row) {
+                auto cur_res = point.from_coord(left_column->operator[](row).get<Float64>(),
+                                                right_column->operator[](row).get<Float64>());
+                if (cur_res != GEO_PARSE_OK) {
+                    res->insert_data(nullptr, 0);
+                    continue;
+                }
+
+                buf.clear();
+                point.encode_to(&buf);
+                res->insert_data(buf.data(), buf.size());
+            }
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, const size_t size) {
+        double x = left_column->operator[](0).get<Float64>();
         GeoPoint point;
         std::string buf;
         for (int row = 0; row < size; ++row) {
-            auto cur_res = point.from_coord(column_x->operator[](row).get<Float64>(),
-                                            column_y->operator[](row).get<Float64>());
+            auto cur_res = point.from_coord(x, right_column->operator[](row).get<Float64>());
             if (cur_res != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -67,9 +95,24 @@ struct StPoint {
             point.encode_to(&buf);
             res->insert_data(buf.data(), buf.size());
         }
+    }
 
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
+    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, const size_t size) {
+        double y = right_column->operator[](0).get<Float64>();
+        GeoPoint point;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto cur_res = point.from_coord(right_column->operator[](row).get<Float64>(), y);
+            if (cur_res != GEO_PARSE_OK) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            buf.clear();
+            point.encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
     }
 };
 
@@ -304,22 +347,62 @@ struct StAzimuth {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto p1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto p2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        const auto size = p1->size();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
+        const auto size = std::max(left_column->size(), right_column->size());
+
+        if (left_const) {
+            const_vector(left_column, right_column, res, size);
+        } else if (right_const) {
+            vector_const(left_column, right_column, res, size);
+        } else {
+            GeoPoint point1;
+            GeoPoint point2;
+
+            for (int row = 0; row < size; ++row) {
+                auto shape_value1 = left_column->get_data_at(row);
+                auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+                if (!pt1) {
+                    res->insert_default();
+                    continue;
+                }
+
+                auto shape_value2 = right_column->get_data_at(row);
+                auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+                if (!pt2) {
+                    res->insert_default();
+                    continue;
+                }
+
+                double angle = 0;
+                if (!GeoPoint::ComputeAzimuth(&point1, &point2, &angle)) {
+                    res->insert_default();
+                    continue;
+                }
+                res->insert_data(const_cast<const char*>((char*)&angle), 0);
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, size_t size) {
         GeoPoint point1;
         GeoPoint point2;
 
+        auto shape_value1 = left_column->get_data_at(0);
+        auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
         for (int row = 0; row < size; ++row) {
-            auto shape_value1 = p1->get_data_at(row);
-            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
                 res->insert_default();
                 continue;
             }
 
-            auto shape_value2 = p2->get_data_at(row);
+            auto shape_value2 = right_column->get_data_at(row);
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
                 res->insert_default();
@@ -333,8 +416,34 @@ struct StAzimuth {
             }
             res->insert_data(const_cast<const char*>((char*)&angle), 0);
         }
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
+    }
+
+    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, size_t size) {
+        GeoPoint point1;
+        GeoPoint point2;
+
+        auto shape_value2 = right_column->get_data_at(0);
+        auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = left_column->get_data_at(0);
+            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt1) {
+                res->insert_default();
+                continue;
+            }
+            if (!pt2) {
+                res->insert_default();
+                continue;
+            }
+
+            double angle = 0;
+            if (!GeoPoint::ComputeAzimuth(&point1, &point2, &angle)) {
+                res->insert_default();
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&angle), 0);
+        }
     }
 };
 
@@ -463,17 +572,52 @@ struct StContains {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
-        auto shape1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto shape2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        const auto size = shape1->size();
+        const auto size = std::max(left_column->size(), right_column->size());
+
         MutableColumnPtr res = return_type->create_column();
 
+        if (left_const) {
+            const_vector(left_column, right_column, res, size);
+        } else if (right_const) {
+            vector_const(left_column, right_column, res, size);
+        } else {
+            int i;
+            std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+            for (int row = 0; row < size; ++row) {
+                auto lhs_value = left_column->get_data_at(row);
+                auto rhs_value = right_column->get_data_at(row);
+                StringRef* strs[2] = {&lhs_value, &rhs_value};
+                for (i = 0; i < 2; ++i) {
+                    shapes[i] = std::shared_ptr<GeoShape>(
+                            GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+                    if (shapes[i] == nullptr) {
+                        res->insert_default();
+                        break;
+                    }
+                }
+
+                if (i == 2) {
+                    auto contains_value = shapes[0]->contains(shapes[1].get());
+                    res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
+                }
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, const size_t size) {
         int i;
+        auto lhs_value = left_column->get_data_at(0);
         std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
         for (int row = 0; row < size; ++row) {
-            auto lhs_value = shape1->get_data_at(row);
-            auto rhs_value = shape2->get_data_at(row);
+            auto rhs_value = right_column->get_data_at(row);
             StringRef* strs[2] = {&lhs_value, &rhs_value};
             for (i = 0; i < 2; ++i) {
                 shapes[i] = std::shared_ptr<GeoShape>(
@@ -489,8 +633,30 @@ struct StContains {
                 res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
             }
         }
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
+    }
+
+    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             MutableColumnPtr& res, const size_t size) {
+        int i;
+        auto rhs_value = right_column->get_data_at(0);
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = left_column->get_data_at(row);
+            StringRef* strs[2] = {&lhs_value, &rhs_value};
+            for (i = 0; i < 2; ++i) {
+                shapes[i] = std::shared_ptr<GeoShape>(
+                        GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+                if (shapes[i] == nullptr) {
+                    res->insert_default();
+                    break;
+                }
+            }
+
+            if (i == 2) {
+                auto contains_value = shapes[0]->contains(shapes[1].get());
+                res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
+            }
+        }
     }
 
     static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
@@ -638,7 +804,7 @@ struct StAsBinary {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col = block.get_by_position(arguments[0]).column;
         const auto size = col->size();
 
         std::unique_ptr<GeoShape> shape;
