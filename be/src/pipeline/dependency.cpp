@@ -180,28 +180,33 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            [&](auto&& agg_method) {
-                auto& hash_table = *agg_method.hash_table;
-                using HashTableType = std::decay_t<decltype(hash_table)>;
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto& agg_method) {
+                        auto& hash_table = *agg_method.hash_table;
+                        using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                agg_method.reset();
+                        agg_method.reset();
 
-                hash_table.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
+                        hash_table.for_each_mapped([&](auto& mapped) {
+                            if (mapped) {
+                                static_cast<void>(_destroy_agg_status(mapped));
+                                mapped = nullptr;
+                            }
+                        });
 
-                aggregate_data_container.reset(new vectorized::AggregateDataContainer(
-                        sizeof(typename HashTableType::key_type),
-                        ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                         align_aggregate_states) *
-                                align_aggregate_states));
-                agg_method.hash_table.reset(new HashTableType());
-                agg_arena_pool.reset(new vectorized::Arena);
-                return Status::OK();
-            },
+                        aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                                sizeof(typename HashTableType::key_type),
+                                ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                                 align_aggregate_states) *
+                                        align_aggregate_states));
+                        agg_method.hash_table.reset(new HashTableType());
+                        agg_arena_pool.reset(new vectorized::Arena);
+                        return Status::OK();
+                    }},
             agg_data->method_variant);
 }
 
