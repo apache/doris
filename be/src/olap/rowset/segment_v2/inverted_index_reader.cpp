@@ -872,15 +872,6 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     std::string query_str;
     _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-    // InvertedIndexQueryCache::CacheKey cache_key {_file_full_path, column_name, query_type,
-    //                                              query_str};
-    // auto cache = InvertedIndexQueryCache::instance();
-    // InvertedIndexQueryCacheHandle cache_handler;
-    // auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
-    // if (cache_status.ok()) {
-    //     return Status::OK();
-    // }
-
     try {
         auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
         if (!st.ok()) {
@@ -898,7 +889,6 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
 
     std::shared_ptr<roaring::Roaring> query_bitmap = std::make_shared<roaring::Roaring>(*bit_map);
     query_bitmap->runOptimize();
-    cache->insert(cache_key, query_bitmap, &cache_handler);
 
     VLOG_DEBUG << "BKD index search column: " << column_name
                << " result: " << bit_map->cardinality();
