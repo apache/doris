@@ -65,26 +65,26 @@ public:
     void start_binary_row(uint32_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
-    int push_tinyint(int8_t data);
-    int push_smallint(int16_t data);
-    int push_int(int32_t data);
-    int push_bigint(int64_t data);
-    int push_unsigned_bigint(uint64_t data);
-    int push_largeint(int128_t data);
-    int push_float(float data);
-    int push_double(double data);
-    int push_time(double data);
-    int push_timev2(double data, int scale);
+    void push_tinyint(int8_t data);
+    void push_smallint(int16_t data);
+    void push_int(int32_t data);
+    void push_bigint(int64_t data);
+    void push_unsigned_bigint(uint64_t data);
+    void push_largeint(int128_t data);
+    void push_float(float data);
+    void push_double(double data);
+    void push_time(double data);
+    void push_timev2(double data, int scale);
     template <typename DateType>
-    int push_datetime(const DateType& data);
-    int push_decimal(const DecimalV2Value& data, int round_scale);
-    int push_ipv4(const IPv4Value& ipv4_val);
-    int push_ipv6(const IPv6Value& ipv6_val);
-    int push_string(const char* str, int64_t length);
-    int push_null();
+    void push_datetime(const DateType& data);
+    void push_decimal(const DecimalV2Value& data, int round_scale);
+    void push_ipv4(const IPv4Value& ipv4_val);
+    void push_ipv6(const IPv6Value& ipv6_val);
+    void push_string(const char* str, int64_t length);
+    void push_null();
 
     template <typename DateType>
-    int push_vec_datetime(DateType& data);
+    void push_vec_datetime(DateType& data);
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.
@@ -131,13 +131,13 @@ public:
     void set_faster_float_convert(bool faster) { _faster_float_convert = faster; }
 
 private:
-    int reserve(int64_t size);
+    void reserve(int64_t size);
 
     // append data into buffer
-    int append(const char* data, int64_t len);
+    void append(const char* data, int64_t len);
     // the same as mysql net_store_data
     // the first few bytes is length, followed by data
-    int append_var_string(const char* data, int64_t len);
+    void append_var_string(const char* data, int64_t len);
 
     char* _pos = nullptr;
     char* _buf = nullptr;

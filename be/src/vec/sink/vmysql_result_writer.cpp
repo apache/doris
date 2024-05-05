@@ -179,9 +179,9 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
 
         for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
-                        *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const));
+                arguments[col_idx].serde->write_column_to_mysql(*(arguments[col_idx].column),
+                                                                row_buffer, row_idx,
+                                                                arguments[col_idx].is_const);
             }
 
             // copy MysqlRowBuffer to Thrift

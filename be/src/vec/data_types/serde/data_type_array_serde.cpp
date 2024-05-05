@@ -308,63 +308,48 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 }
 
 template <bool is_binary_format>
-Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx_of_mysql, bool col_const) const {
+void DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
+                                                MysqlRowBuffer<is_binary_format>& result,
+                                                int row_idx_of_mysql, bool col_const) const {
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
     auto& data = column_array.get_data();
     bool is_nested_string = data.is_column_string();
     const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
     result.open_dynamic_mode();
-
-    if (0 != result.push_string("[", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
+    result.push_string("[", 1);
 
     const auto begin_arr_element = offsets[row_idx_of_col_arr - 1];
     const auto end_arr_element = offsets[row_idx_of_col_arr];
     for (int j = begin_arr_element; j < end_arr_element; ++j) {
         if (j != begin_arr_element) {
-            if (0 != result.push_string(", ", 2)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
+            result.push_string(", ", 2);
         }
         if (data.is_null_at(j)) {
-            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
-                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
+            result.push_string(NULL_IN_COMPLEX_TYPE.c_str(), strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
             if (is_nested_string) {
-                if (0 != result.push_string("\"", 1)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
-                if (0 != result.push_string("\"", 1)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
+                result.push_string("\"", 1);
+                nested_serde->write_column_to_mysql(data, result, j, false);
+                result.push_string("\"", 1);
             } else {
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
+                nested_serde->write_column_to_mysql(data, result, j, false);
             }
         }
     }
-    if (0 != result.push_string("]", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
+    result.push_string("]", 1);
     result.close_dynamic_mode();
-    return Status::OK();
 }
 
-Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                 bool col_const) const {
+void DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
+                                               MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                               bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                 bool col_const) const {
+void DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
+                                               MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                               bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 

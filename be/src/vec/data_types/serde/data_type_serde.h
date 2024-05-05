@@ -250,11 +250,11 @@ public:
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
-    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+    virtual void write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                       int row_idx, bool col_const) const = 0;
 
-    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+    virtual void write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                       int row_idx, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
     // JSON serializer and deserializer

@@ -105,8 +105,7 @@ static void serialization_checker(UInt32 scale, const std::string& input,
     EXPECT_TRUE(rt.ok());
     auto serde = std::dynamic_pointer_cast<DataTypeDateTimeV2SerDe>(datetime_ptr->get_serde());
     MysqlRowBuffer<false> mysql_rb;
-    rt = serde->write_column_to_mysql(*column, mysql_rb, 0, false);
-    EXPECT_TRUE(rt.ok());
+    serde->write_column_to_mysql(*column, mysql_rb, 0, false);
     auto elem_size = static_cast<uint8_t>(*mysql_rb.buf());
     if (elem_size != expected.size()) {
         std::cerr << "Left size " << elem_size << " right size " << expected.size() << " left str "

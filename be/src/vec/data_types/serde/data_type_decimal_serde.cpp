@@ -205,37 +205,32 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 
 template <typename T>
 template <bool is_binary_format>
-Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
-                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                       int row_idx, bool col_const) const {
+void DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
+                                                     MysqlRowBuffer<is_binary_format>& result,
+                                                     int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (IsDecimalV2<T>) {
         DecimalV2Value decimal_val(data[col_index]);
         auto decimal_str = decimal_val.to_string(scale);
-        if (UNLIKELY(0 != result.push_string(decimal_str.c_str(), decimal_str.size()))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_string(decimal_str.c_str(), decimal_str.size());
     } else {
         auto length = data[col_index].to_string(buf, scale, scale_multiplier);
-        if (UNLIKELY(0 != result.push_string(buf, length))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_string(buf, length);
     }
-    return Status::OK();
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                      bool col_const) const {
+void DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                    bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<false>& row_buffer,
-                                                      int row_idx, bool col_const) const {
+void DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                    bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
