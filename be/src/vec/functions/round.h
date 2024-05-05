@@ -21,7 +21,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -557,7 +556,7 @@ struct Dispatcher {
 
     static ColumnPtr apply_const_vec(const ColumnConst* const_col_general,
                                      const IColumn* col_scale) {
-        const ColumnInt32& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
+        const auto& col_scale_i32 = assert_cast<const ColumnInt32&>(*col_scale);
         const size_t input_rows_count = col_scale->size();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -685,6 +684,7 @@ public:
     // should NOT behave like two column arguments, so we can not use const column default implementation
     bool use_default_implementation_for_constants() const override { return false; }
 
+    // we moved the execute logic of function_truncate.h from PR#32746 and make it suitable for all functions
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
@@ -744,7 +744,7 @@ public:
             if (arguments.size() == 2) {
                 RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
             } else if (is_column_const(*column_general.column)) {
-                // if we only have one ColumnConst
+                // if we only have one ColumnConst, we should cast it, otherwise it would cause BE crash
                 col_general = assert_cast<const ColumnConst&>(*column_general.column)
                                       .get_data_column_ptr();
             }

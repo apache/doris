@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/round.h"
+#include "round.h"
 
 #include "vec/functions/simple_function_factory.h"
 
@@ -40,6 +40,10 @@ void register_function_round(SimpleFunctionFactory& factory) {
     REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
+
+    factory.register_alias("ceil", "dceil");
+    factory.register_alias("ceil", "ceiling");
+    factory.register_alias("floor", "dfloor");
     factory.register_alias("round", "dround");
 }
 

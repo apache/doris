@@ -36,6 +36,12 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/round.h"
 
+/**
+ This BE UT focus on enhancement of round based function, which enables them 
+ to use column as scale argument. We test truncate/floor/ceil/round/round_bankers 
+ together by moving test cases of function_truncate_test.cpp here.
+*/
+
 namespace doris::vectorized {
 // {precision, scale} -> {input, scale_arg, expectation}
 using DecimalTestDataSet =

@@ -15,29 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
-#include <string.h>
+#include <cstdint>
+#include <cstring>
 
-#include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <algorithm>
 #include <cmath>
-#include <memory>
 #include <string>
 #include <type_traits>
-#include <utility>
 
 #include "common/status.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
@@ -337,8 +328,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
-    factory.register_alias("ceil", "dceil");
-    factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
     factory.register_function<FunctionLog>();
@@ -357,7 +346,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionTanh>();
-    factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");

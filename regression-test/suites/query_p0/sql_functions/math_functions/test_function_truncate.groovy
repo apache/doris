@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_function_truncate") {
-    // this single parameter test should has the same result as before
+    // NOTICE: This single const argument test should never cause BE crash,
+    // like branch2.0's behavior, so we added it to check.
     qt_sql """SELECT truncate(10.12345), truncate(cast(10.12345 as decimal(7, 5)));"""
 
     qt_sql """
