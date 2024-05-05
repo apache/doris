@@ -74,7 +74,7 @@ TEST_F(StatusTest, TStatusCodeWithStatus) {
     for (auto& tstatus_st : _TStatusCode_VALUES_TO_NAMES) {
         // std::cout << "TStatusCode info " << tstatus_st.first << "," << tstatus_st.second
         //          << std::endl;
-        if (status_st.first < 1) {
+        if (tstatus_st.first < 1) {
             // OK with error code == 0, is not defined with tstatus, ignore it.
             continue;
         }
