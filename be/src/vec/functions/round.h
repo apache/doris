@@ -516,7 +516,7 @@ struct Dispatcher {
         } else if constexpr (IsDecimalNumber<T>) {
             const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
 
-            // For truncate, ALWAYS use SAME scale with source Decimal column
+            // ALWAYS use SAME scale with source Decimal column
             const Int32 input_scale = decimal_col->get_scale();
             auto col_res = ColumnDecimal<T>::create(input_row_count, input_scale);
 
@@ -679,171 +679,69 @@ public:
         return Status::OK();
     }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
-    // SELECT number, func(123.345, 1) FROM numbers("number"="10")
-    // should NOT behave like two column arguments, so we can not use const column default implementation
-    bool use_default_implementation_for_constants() const override { return false; }
-
-    // we moved the execute logic of function_truncate.h from PR#32746 and make it suitable for all functions
+    //// We moved and optimized the execute_impl logic of function_truncate.h from PR#32746,
+    //// as well as make it suitable for all functions.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
+        const auto* col_general = column_general.column.get();
         ColumnPtr res;
 
-        // potential argument types:
-        // 0. func(ColumnConst, ColumnConst)
-        // 1. func(Column), func(ColumnConst), func(Column, ColumnConst)
-        // 2. func(Column, Column)
-        // 3. func(ColumnConst, Column)
+        /// potential argument types(optimized from four types in previous PR to two):
+        /// if the SECOND argument is MISSING(would be considered as ZERO const) or CONST, then we have 1st type:
+        ///    1. func(Column), func(ColumnConst), func(Column, ColumnConst), func(ColumnConst, ColumnConst)
+        /// otherwise, the SECOND arugment is COLUMN, we have another type:
+        ///    2. func(Column, Column), func(ColumnConst, Column)
 
-        if (arguments.size() == 2 && is_column_const(*block.get_by_position(arguments[0]).column) &&
-            is_column_const(*block.get_by_position(arguments[1]).column)) {
-            // func(ColumnConst, ColumnConst)
-            auto col_general =
-                    assert_cast<const ColumnConst&>(*column_general.column).get_data_column_ptr();
-            Int16 scale_arg = 0;
-            RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
+        auto call = [&](const auto& types) -> bool {
+            using Types = std::decay_t<decltype(types)>;
+            using DataType = typename Types::LeftType;
 
-            auto call = [&](const auto& types) -> bool {
-                using Types = std::decay_t<decltype(types)>;
-                using DataType = typename Types::LeftType;
-
-                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                    using FieldType = typename DataType::FieldType;
+            if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
+                using FieldType = typename DataType::FieldType;
+                // the SECOND argument is MISSING or CONST
+                if (arguments.size() == 1 ||
+                    is_column_const(*block.get_by_position(arguments[1]).column)) {
+                    Int16 scale_arg = 0;
+                    if (arguments.size() == 2) {
+                        RETURN_IF_ERROR(
+                                get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
+                    }
                     res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
                             col_general, scale_arg);
-                    return true;
+                } else {
+                    // the SECOND arugment is COLUMN
+                    if (is_column_const(*column_general.column)) {
+                        const auto& const_col_general =
+                                assert_cast<const ColumnConst&>(*column_general.column);
+                        res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
+                                apply_const_vec(&const_col_general,
+                                                block.get_by_position(arguments[1]).column.get());
+                    } else {
+                        res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
+                                apply_vec_vec(col_general,
+                                              block.get_by_position(arguments[1]).column.get());
+                    }
                 }
+                return true;
+            }
 
-                return false;
-            };
+            return false;
+        };
 
 #if !defined(__SSE4_1__) && !defined(__aarch64__)
-            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
-            /// Actually it is by default. But we will set it just in case.
-
-            if constexpr (rounding_mode == RoundingMode::Round) {
-                if (0 != fesetround(FE_TONEAREST)) {
-                    return Status::InvalidArgument("Cannot set floating point rounding mode");
-                }
+        /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
+        /// Actually it is by default. But we will set it just in case.
+        if constexpr (rounding_mode == RoundingMode::Round) {
+            if (0 != fesetround(FE_TONEAREST)) {
+                return Status::InvalidArgument("Cannot set floating point rounding mode");
             }
+        }
 #endif
 
-            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
-                return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                               column_general.type->get_name(), get_name());
-            }
-            // Important, make sure the result column has the same size as the input column
-            res = ColumnConst::create(std::move(res), input_rows_count);
-        } else if (arguments.size() == 1 ||
-                   (arguments.size() == 2 &&
-                    is_column_const(*block.get_by_position(arguments[1]).column))) {
-            // func(Column) or func(ColumnConst) or func(Column, ColumnConst)
-            Int16 scale_arg = 0;
-            const auto* col_general = column_general.column.get();
-            if (arguments.size() == 2) {
-                RETURN_IF_ERROR(get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
-            } else if (is_column_const(*column_general.column)) {
-                // if we only have one ColumnConst, we should cast it, otherwise it would cause BE crash
-                col_general = assert_cast<const ColumnConst&>(*column_general.column)
-                                      .get_data_column_ptr();
-            }
-
-            auto call = [&](const auto& types) -> bool {
-                using Types = std::decay_t<decltype(types)>;
-                using DataType = typename Types::LeftType;
-
-                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                    using FieldType = typename DataType::FieldType;
-                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
-                            col_general, scale_arg);
-                    return true;
-                }
-
-                return false;
-            };
-#if !defined(__SSE4_1__) && !defined(__aarch64__)
-            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
-            /// Actually it is by default. But we will set it just in case.
-
-            if constexpr (rounding_mode == RoundingMode::Round) {
-                if (0 != fesetround(FE_TONEAREST)) {
-                    return Status::InvalidArgument("Cannot set floating point rounding mode");
-                }
-            }
-#endif
-
-            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
-                return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                               column_general.type->get_name(), get_name());
-            }
-
-        } else if (is_column_const(*block.get_by_position(arguments[0]).column)) {
-            // func(ColumnConst, Column)
-            const ColumnWithTypeAndName& column_scale = block.get_by_position(arguments[1]);
-            const auto& const_col_general = assert_cast<const ColumnConst&>(*column_general.column);
-
-            auto call = [&](const auto& types) -> bool {
-                using Types = std::decay_t<decltype(types)>;
-                using DataType = typename Types::LeftType;
-
-                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                    using FieldType = typename DataType::FieldType;
-                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_const_vec(
-                            &const_col_general, column_scale.column.get());
-                    return true;
-                }
-
-                return false;
-            };
-
-#if !defined(__SSE4_1__) && !defined(__aarch64__)
-            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
-            /// Actually it is by default. But we will set it just in case.
-
-            if constexpr (rounding_mode == RoundingMode::Round) {
-                if (0 != fesetround(FE_TONEAREST)) {
-                    return Status::InvalidArgument("Cannot set floating point rounding mode");
-                }
-            }
-#endif
-
-            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
-                return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                               column_general.type->get_name(), get_name());
-            }
-        } else {
-            // func(Column, Column)
-            const ColumnWithTypeAndName& column_scale = block.get_by_position(arguments[1]);
-
-            auto call = [&](const auto& types) -> bool {
-                using Types = std::decay_t<decltype(types)>;
-                using DataType = typename Types::LeftType;
-
-                if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                    using FieldType = typename DataType::FieldType;
-                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_vec(
-                            column_general.column.get(), column_scale.column.get());
-                    return true;
-                }
-                return false;
-            };
-
-#if !defined(__SSE4_1__) && !defined(__aarch64__)
-            /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
-            /// Actually it is by default. But we will set it just in case.
-
-            if constexpr (rounding_mode == RoundingMode::Round) {
-                if (0 != fesetround(FE_TONEAREST)) {
-                    return Status::InvalidArgument("Cannot set floating point rounding mode");
-                }
-            }
-#endif
-
-            if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
-                return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                               column_general.type->get_name(), get_name());
-            }
+        if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+            return Status::InvalidArgument("Invalid argument type {} for function {}",
+                                           column_general.type->get_name(), get_name());
         }
 
         block.replace_by_position(result, std::move(res));
