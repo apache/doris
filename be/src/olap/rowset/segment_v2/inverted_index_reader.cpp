@@ -872,14 +872,14 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     std::string query_str;
     _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-    InvertedIndexQueryCache::CacheKey cache_key {_file_full_path, column_name, query_type,
-                                                 query_str};
-    auto cache = InvertedIndexQueryCache::instance();
-    InvertedIndexQueryCacheHandle cache_handler;
-    auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
-    if (cache_status.ok()) {
-        return Status::OK();
-    }
+    // InvertedIndexQueryCache::CacheKey cache_key {_file_full_path, column_name, query_type,
+    //                                              query_str};
+    // auto cache = InvertedIndexQueryCache::instance();
+    // InvertedIndexQueryCacheHandle cache_handler;
+    // auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
+    // if (cache_status.ok()) {
+    //     return Status::OK();
+    // }
 
     try {
         auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
@@ -1124,21 +1124,21 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
                                                        InvertedIndexQueryType query_type,
                                                        uint32_t segment_num_rows,
                                                        roaring::Roaring* bit_map, bool skip_try) {
-    if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
-        if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
-            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
-            auto query_bkd_limit_percent =
-                    _runtime_state->query_options().inverted_index_skip_threshold;
-            uint32_t hit_count = 0;
-            RETURN_IF_ERROR(
-                    try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
-            if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
-                        hit_count, query_bkd_limit_percent, segment_num_rows);
-            }
-        }
-    }
+    // if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
+    //     if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+    //         _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+    //         auto query_bkd_limit_percent =
+    //                 _runtime_state->query_options().inverted_index_skip_threshold;
+    //         uint32_t hit_count = 0;
+    //         RETURN_IF_ERROR(
+    //                 try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+    //         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
+    //             return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+    //                     "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+    //                     hit_count, query_bkd_limit_percent, segment_num_rows);
+    //         }
+    //     }
+    // }
 
     RETURN_IF_ERROR(
             _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));

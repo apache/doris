@@ -831,7 +831,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                           pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
                           pred_type == PredicateType::MATCH;
-        if (_opts.runtime_state->query_options().enable_inverted_index_compound_inlist) {
+        if (true) {
             is_support |= (pred_type == PredicateType::IN_LIST ||
                            pred_type == PredicateType::NOT_IN_LIST);
         }
