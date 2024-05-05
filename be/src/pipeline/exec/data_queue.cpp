@@ -119,10 +119,13 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             }
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
+            if (_cur_blocks_nums_in_queue[_flag_queue_idx] == 0 &&
+                _sink_dependencies[_flag_queue_idx] != nullptr) {
+                _sink_dependencies[_flag_queue_idx]->set_ready();
+            }
             auto old_value = _cur_blocks_total_nums.fetch_sub(1);
             if (old_value == 1 && _source_dependency) {
                 set_source_block();
-                _sink_dependencies[_flag_queue_idx]->set_ready();
             }
         } else {
             if (_is_finished[_flag_queue_idx]) {
@@ -142,6 +145,11 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
+
+        if (_cur_blocks_nums_in_queue[child_idx] > _max_blocks_in_sub_queue &&
+            _sink_dependencies[child_idx] != nullptr) {
+            _sink_dependencies[child_idx]->block();
+        }
         _cur_blocks_total_nums++;
         if (_source_dependency) {
             set_source_ready();
