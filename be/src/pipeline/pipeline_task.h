@@ -157,13 +157,12 @@ public:
     }
 
     void set_previous_core_id(int id) {
-        if (id == _previous_schedule_id) {
-            return;
+        if (id != _previous_schedule_id) {
+            if (_previous_schedule_id != -1) {
+                COUNTER_UPDATE(_core_change_times, 1);
+            }
+            _previous_schedule_id = id;
         }
-        if (_previous_schedule_id != -1) {
-            COUNTER_UPDATE(_core_change_times, 1);
-        }
-        _previous_schedule_id = id;
     }
 
     void finalize();

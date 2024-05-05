@@ -38,7 +38,7 @@ struct ScheduleRecord {
     uint64_t thread_id;
     uint64_t start_time;
     uint64_t end_time;
-    std::string state_name;
+    std::string_view state_name;
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
     std::string to_string(uint64_t append_value) const {

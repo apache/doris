@@ -531,10 +531,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    std::stringstream ss;
-    ss << '[' << code_as_string() << ']';
-    ss << msg();
-    return ss.str();
+    return fmt::format("[{}] {}", code_as_string(), msg());
 }
 
 // some generally useful macros
