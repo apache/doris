@@ -793,14 +793,14 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablet_to_compaction(
     };
 
     for_each_tablet(handler, filter_all_tablets);
-    std::vector<TabletSharedPtr> res;
+    std::vector<TabletSharedPtr> picked_tablet;
     if (best_tablet != nullptr) {
         VLOG_CRITICAL << "Found the best tablet for compaction. "
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
                       << ", highest_score=" << highest_score
                       << ", fetch from peer: " << best_tablet->should_fetch_from_peer();
-        res.emplace_back(std::move(best_tablet));
+        picked_tablet.emplace_back(std::move(best_tablet));
     }
 
     if (best_single_compact_tablet != nullptr) {
@@ -810,11 +810,11 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablet_to_compaction(
                       << ", path=" << data_dir->path()
                       << ", highest_score=" << single_compact_highest_score << ", fetch from peer: "
                       << best_single_compact_tablet->should_fetch_from_peer();
-        res.emplace_back(std::move(best_single_compact_tablet));
+        picked_tablet.emplace_back(std::move(best_single_compact_tablet));
     }
     *score = highest_score > single_compact_highest_score ? highest_score
                                                           : single_compact_highest_score;
-    return res;
+    return picked_tablet;
 }
 
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,

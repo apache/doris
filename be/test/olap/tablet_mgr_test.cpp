@@ -420,13 +420,6 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         create_tablet(id, false, rowset_size++);
     }
 
-    // create 10 tablets enable single compact
-    // 5 tablets do cumu compaction, 5 tablets do single compaction
-    // if BE_TEST is defined, tablet_id % 2 == 0 means that tablet needs to do single compact
-    for (int64_t id = 11; id <= 20; ++id) {
-        create_tablet(id, true, rowset_size++);
-    }
-
     std::unordered_set<TTabletId> cumu_set;
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
             cumulative_compaction_policies;
@@ -438,6 +431,20 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
                     CUMULATIVE_TIME_SERIES_POLICY);
     uint32_t score = 0;
     auto compact_tablets = _tablet_mgr->find_best_tablet_to_compaction(
+            CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+            cumulative_compaction_policies);
+    EXPECT_TRUE(compact_tablets.size() == 1);
+    EXPECT_TRUE(compact_tablets[0]->tablet_id() == 10);
+    EXPECT_TRUE(score == 13);
+
+    // create 10 tablets enable single compact
+    // 5 tablets do cumu compaction, 5 tablets do single compaction
+    // if BE_TEST is defined, tablet_id % 2 == 0 means that tablet needs to do single compact
+    for (int64_t id = 11; id <= 20; ++id) {
+        create_tablet(id, true, rowset_size++);
+    }
+
+    compact_tablets = _tablet_mgr->find_best_tablet_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
     EXPECT_TRUE(compact_tablets.size() == 2);
