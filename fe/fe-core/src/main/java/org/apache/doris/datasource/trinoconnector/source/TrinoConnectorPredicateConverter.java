@@ -66,58 +66,63 @@ public class TrinoConnectorPredicateConverter {
         this.trinoConnectorColumnMetadataMap = columnMetadataMap;
     }
 
-    public Constraint convertToTrinoConnectorExpr(List<Expr> conjuncts) {
+    public Constraint convertToTrinoConstraint(List<Expr> conjuncts) {
         if (conjuncts.isEmpty()) {
             return Constraint.alwaysTrue();
         }
         TupleDomain<ColumnHandle> summary = TupleDomain.all();
         for (int i = 0; i < conjuncts.size(); ++i) {
-            TupleDomain<ColumnHandle> tmpSummary = convertToTrinoConnectorExpr(conjuncts.get(i));
-            summary = summary.intersect(tmpSummary);
+            summary = summary.intersect(convertExprToTrinoTupleDomain(conjuncts.get(i)));
         }
         return new Constraint(summary);
     }
 
-    private TupleDomain<ColumnHandle> convertToTrinoConnectorExpr(Expr predicate) {
-        if (predicate instanceof CompoundPredicate) {
-            return compoundPredicateDesc((CompoundPredicate) predicate);
-        } else if (predicate instanceof InPredicate) {
-            return inPredicateDesc((InPredicate) predicate);
-        } else if (predicate instanceof BinaryPredicate) {
-            return binaryPredicateDesc((BinaryPredicate) predicate);
-        } else if (predicate instanceof IsNullPredicate) {
-            return isNullPredicateDesc((IsNullPredicate) predicate);
-        } else {
+    private TupleDomain<ColumnHandle> convertExprToTrinoTupleDomain(Expr predicate) {
+        try {
+            if (predicate instanceof CompoundPredicate) {
+                return compoundPredicateConverter((CompoundPredicate) predicate);
+            } else if (predicate instanceof InPredicate) {
+                return inPredicateConverter((InPredicate) predicate);
+            } else if (predicate instanceof BinaryPredicate) {
+                return binaryPredicateConverter((BinaryPredicate) predicate);
+            } else if (predicate instanceof IsNullPredicate) {
+                return isNullPredicateConverter((IsNullPredicate) predicate);
+            } else {
+                return TupleDomain.all();
+            }
+        } catch (AnalysisException e) {
+            LOG.warn("Can not convert Expr to trino tuple domain, exception: {}", e.getMessage());
             return TupleDomain.all();
         }
     }
 
-    private TupleDomain<ColumnHandle> compoundPredicateDesc(CompoundPredicate compoundPredicate) {
-        TupleDomain<ColumnHandle> left = convertToTrinoConnectorExpr(compoundPredicate.getChild(0));
+    private TupleDomain<ColumnHandle> compoundPredicateConverter(CompoundPredicate compoundPredicate)
+            throws AnalysisException {
+        TupleDomain<ColumnHandle> left = convertExprToTrinoTupleDomain(compoundPredicate.getChild(0));
         Objects.requireNonNull(left, "left tupleDomain is null.");
         switch (compoundPredicate.getOp()) {
             case AND: {
-                TupleDomain<ColumnHandle> right = convertToTrinoConnectorExpr(compoundPredicate.getChild(1));
-                Objects.requireNonNull(right, "left tupleDomain is null.");
+                TupleDomain<ColumnHandle> right = convertExprToTrinoTupleDomain(compoundPredicate.getChild(1));
+                Objects.requireNonNull(right, "right tupleDomain is null.");
                 return left.intersect(right);
             }
             case OR: {
-                TupleDomain<ColumnHandle> right = convertToTrinoConnectorExpr(compoundPredicate.getChild(1));
-                Objects.requireNonNull(right, "left tupleDomain is null.");
+                TupleDomain<ColumnHandle> right = convertExprToTrinoTupleDomain(compoundPredicate.getChild(1));
+                Objects.requireNonNull(right, "right tupleDomain is null.");
                 return TupleDomain.columnWiseUnion(left, right);
             }
             case NOT:
-                return TupleDomain.all();
             default:
-                return TupleDomain.all();
+                throw new AnalysisException("Do not support convert compound predicate [" + compoundPredicate.getOp()
+                        + "] to TupleDomain.");
         }
     }
 
-    private TupleDomain<ColumnHandle> inPredicateDesc(InPredicate predicate) {
+    private TupleDomain<ColumnHandle> inPredicateConverter(InPredicate predicate) throws AnalysisException {
         // Make sure the col slot is always first
         SlotRef slotRef = convertExprToSlotRef(predicate.getChild(0));
         if (slotRef == null) {
-            return TupleDomain.all();
+            throw new AnalysisException("slotRef is null in inPredicateConverter.");
         }
         String colName = slotRef.getColumnName();
         Type type = trinoConnectorColumnMetadataMap.get(colName).getType();
@@ -125,15 +130,9 @@ public class TrinoConnectorPredicateConverter {
         for (int i = 1; i < predicate.getChildren().size(); i++) {
             LiteralExpr literalExpr = convertExprToLiteral(predicate.getChild(i));
             if (literalExpr == null) {
-                return TupleDomain.all();
+                throw new AnalysisException("literalExpr of InPredicate's children is null in inPredicateConverter.");
             }
-            try {
-                ranges.add(Range.equal(type,
-                        convertLiteralToDomainValues(type.getClass(), literalExpr)));
-            } catch (Exception e) {
-                LOG.warn("Can not convert literal to domain values, exception: {}", e.getMessage());
-                return TupleDomain.all();
-            }
+            ranges.add(Range.equal(type, convertLiteralToDomainValues(type.getClass(), literalExpr)));
         }
         Domain domain = Domain.create(ValueSet.ofRanges(ranges), false);
         TupleDomain<ColumnHandle> tupleDomain = TupleDomain.withColumnDomains(
@@ -141,70 +140,64 @@ public class TrinoConnectorPredicateConverter {
         return tupleDomain;
     }
 
-    private TupleDomain<ColumnHandle> binaryPredicateDesc(BinaryPredicate predicate) {
+    private TupleDomain<ColumnHandle> binaryPredicateConverter(BinaryPredicate predicate) throws AnalysisException {
         // Make sure the col slot is always first
         SlotRef slotRef = convertExprToSlotRef(predicate.getChild(0));
         if (slotRef == null) {
-            return TupleDomain.all();
+            throw new AnalysisException("slotRef is null in binaryPredicateConverter.");
         }
         LiteralExpr literalExpr = convertExprToLiteral(predicate.getChild(1));
         // literalExpr == null means predicate.getChild(1) is not a LiteralExpr or CastExpr
-        // such as where A.a < A.b
-        // predicate.getChild(1) is SlotRef, so we should return TupleDomain.all()
+        // such as 'where A.a < A.b'，predicate.getChild(1) is SlotRef
         if (literalExpr == null) {
-            return TupleDomain.all();
+            throw new AnalysisException("literalExpr of BinaryPredicate's child is null in binaryPredicateConverter.");
         }
 
         String colName = slotRef.getColumnName();
         Type type = trinoConnectorColumnMetadataMap.get(colName).getType();
-        try {
-            Domain domain = null;
-            TExprOpcode opcode = predicate.getOpcode();
-            switch (opcode) {
-                case EQ:
-                    domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
-                    break;
-                case EQ_FOR_NULL:
-                    domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), true);
-                    break;
-                case NE:
-                    domain = Domain.create(ValueSet.all(type).subtract(ValueSet.ofRanges(Range.equal(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr)))), false);
-                    break;
-                case LT:
-                    domain = Domain.create(ValueSet.ofRanges(Range.lessThan(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
-                    break;
-                case LE:
-                    domain = Domain.create(ValueSet.ofRanges(Range.lessThanOrEqual(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
-                    break;
-                case GT:
-                    domain = Domain.create(ValueSet.ofRanges(Range.greaterThan(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
-                    break;
-                case GE:
-                    domain = Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(type,
-                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
-                    break;
-                case INVALID_OPCODE:
-                default:
-                    return TupleDomain.all();
-            }
-            return TupleDomain.withColumnDomains(ImmutableMap.of(trinoConnectorColumnHandleMap.get(colName), domain));
-        } catch (AnalysisException e) {
-            LOG.warn("Can not convert doris literal expr to trino domain values, exception = {}.", e.getMessage());
-            return TupleDomain.all();
+        Domain domain = null;
+        TExprOpcode opcode = predicate.getOpcode();
+        switch (opcode) {
+            case EQ:
+                domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                break;
+            case EQ_FOR_NULL:
+                domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), true);
+                break;
+            case NE:
+                domain = Domain.create(ValueSet.all(type).subtract(ValueSet.ofRanges(Range.equal(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr)))), false);
+                break;
+            case LT:
+                domain = Domain.create(ValueSet.ofRanges(Range.lessThan(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                break;
+            case LE:
+                domain = Domain.create(ValueSet.ofRanges(Range.lessThanOrEqual(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                break;
+            case GT:
+                domain = Domain.create(ValueSet.ofRanges(Range.greaterThan(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                break;
+            case GE:
+                domain = Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(type,
+                        convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                break;
+            case INVALID_OPCODE:
+            default:
+                throw new AnalysisException("Do not support opcode [" + opcode + "] in binaryPredicateConverter.");
         }
+        return TupleDomain.withColumnDomains(ImmutableMap.of(trinoConnectorColumnHandleMap.get(colName), domain));
     }
 
-    private TupleDomain<ColumnHandle> isNullPredicateDesc(IsNullPredicate predicate) {
+    private TupleDomain<ColumnHandle> isNullPredicateConverter(IsNullPredicate predicate) throws AnalysisException {
         Objects.requireNonNull(predicate.getChild(0), "The first child of IsNullPredicate is null.");
         SlotRef slotRef = convertExprToSlotRef(predicate.getChild(0));
         if (slotRef == null) {
-            return TupleDomain.all();
+            throw new AnalysisException("slotRef is null in IsNullPredicate.");
         }
         String colName = slotRef.getColumnName();
         Type type = trinoConnectorColumnMetadataMap.get(colName).getType();
@@ -244,8 +237,8 @@ public class TrinoConnectorPredicateConverter {
         ArrayType                                io.trino.spi.block.Block
         MapType                                  io.trino.spi.block.SqlMap
         RowType                                  io.trino.spi.block.SqlRow*/
-    private Object convertLiteralToDomainValues(Class<? extends Type> type, LiteralExpr literalExpr) throws
-            AnalysisException {
+    private Object convertLiteralToDomainValues(Class<? extends Type> type, LiteralExpr literalExpr)
+            throws AnalysisException {
         switch (type.getSimpleName()) {
             case "BooleanType":
                 return literalExpr.getRealValue();
@@ -301,7 +294,8 @@ public class TrinoConnectorPredicateConverter {
             case "MapType":
             case "RowType":
             default:
-                return null;
+                return new AnalysisException("Do not support convert trino type [" + type.getSimpleName()
+                        + "] to domain values.");
         }
     }
 

@@ -45,7 +45,6 @@ import org.apache.doris.trinoconnector.TrinoColumnMetadata;
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.concurrent.MoreFutures;
 import io.airlift.concurrent.Threads;
@@ -58,7 +57,6 @@ import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.HandleResolver;
 import io.trino.metadata.InternalBlockEncodingSerde;
-import io.trino.plugin.base.TypeDeserializer;
 import io.trino.spi.block.Block;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -73,9 +71,7 @@ import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.LimitApplicationResult;
-import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.transaction.IsolationLevel;
-import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.BufferingSplitSource;
 import io.trino.split.ConnectorAwareSplitSource;
@@ -124,7 +120,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         TrinoConnectorPredicateConverter trinoConnectorPredicateConverter = new TrinoConnectorPredicateConverter(
                 source.getTargetTable().getColumnHandleMap(),
                 source.getTargetTable().getColumnMetadataMap());
-        constraint = trinoConnectorPredicateConverter.convertToTrinoConnectorExpr(conjuncts);
+        constraint = trinoConnectorPredicateConverter.convertToTrinoConstraint(conjuncts);
     }
 
     @Override
@@ -173,7 +169,12 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
             }
         }
 
-        // push down projection
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("The TrinoConnectorTableHandle is " + source.getTrinoConnectorTableHandle()
+                    + "after pushing down.");
+        }
+
+        // TODO(ftw): push down projection
         // Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
         // Map<String, ColumnHandle> assignments = Maps.newHashMap();
         // if (source.getTargetTable().getName().equals("customer")) {
@@ -302,9 +303,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                 typeManager);
         objectMapperProvider.setJsonSerializers(ImmutableMap.of(Block.class,
                 new BlockJsonSerde.Serializer(blockEncodingSerde)));
-        objectMapperProvider.setJsonDeserializers(ImmutableMap.of(
-                Type.class, new TypeDeserializer(typeManager),
-                Block.class, new BlockJsonSerde.Deserializer(blockEncodingSerde)));
         return objectMapperProvider;
     }
 
@@ -327,22 +325,11 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
         Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
         List<ColumnHandle> columnHandles = new ArrayList<>();
-        // used for pushing down projection
-        Map<String, ColumnHandle> assignments = Maps.newHashMap();
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
             String colName = slotDescriptor.getColumn().getName();
-            assignments.put(colName, columnHandleMap.get(colName));
             if (columnMetadataMap.containsKey(colName)) {
                 columnHandles.add(columnHandleMap.get(colName));
             }
-        }
-
-        ConnectorSession connectorSession = source.getTrinoSession().toConnectorSession(source.getCatalogHandle());
-        Optional<ProjectionApplicationResult<ConnectorTableHandle>> projectionResult
-                = connectorMetadata.applyProjection(connectorSession, source.getTrinoConnectorTableHandle(),
-                Lists.newArrayList(), assignments);
-        if (projectionResult.isPresent()) {
-            source.setTrinoConnectorTableHandle(projectionResult.get().getHandle());
         }
 
         for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
@@ -350,8 +337,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
             for (TFileRangeDesc tFileRangeDesc : ranges) {
                 tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorColumnHandles(
                         encodeObjectToString(columnHandles, objectMapperProvider));
-                tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorTableHandle(
-                        encodeObjectToString(source.getTrinoConnectorTableHandle(), objectMapperProvider));
             }
         }
     }
