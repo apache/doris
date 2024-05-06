@@ -637,8 +637,8 @@ public class Config extends ConfigBase {
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "对于 DUPLICATE KEY 表启用 shuffle 的最小 tablet 数量",
-            "Minimum tablet num for enable shuffle on DUPLICATE KEY tables"},
+            "对于 tablet 数量小于该数目的 DUPLICATE KEY 表，将不会启用 shuffle",
+            "Shuffle won't be enabled for DUPLICATE KEY tables if its tablet num is lower than this number"},
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int min_tablets_for_dup_table_shuffle = 64;
 
