@@ -802,7 +802,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
-        if (!is_fixed_range && state->hybrid_set->contain_null()) {
+        if (state->hybrid_set->contain_null()) {
             _eos = true;
             _scan_dependency->set_ready();
         }
