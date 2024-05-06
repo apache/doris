@@ -21,6 +21,6 @@ suite("distinct_streaming_agg") {
     sql """ use test_query_db; """
 
     qt_select """
-        select k6 from baseall union select k6 from bigtable order by 1;
+        select * from (select k6 from baseall union select k6 from bigtable) t order by 1 desc;
     """
 }
