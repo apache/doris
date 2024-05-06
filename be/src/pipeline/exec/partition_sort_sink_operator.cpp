@@ -224,7 +224,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
 }
 
 void PartitionSortSinkLocalState::_init_hash_method() {
-    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, false);
+    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true);
 }
 
 } // namespace doris::pipeline

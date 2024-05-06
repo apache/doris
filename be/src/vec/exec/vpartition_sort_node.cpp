@@ -398,7 +398,7 @@ void VPartitionSortNode::release_resource(RuntimeState* state) {
 }
 
 void VPartitionSortNode::_init_hash_method() {
-    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, false);
+    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true);
 }
 
 void VPartitionSortNode::debug_profile() {
