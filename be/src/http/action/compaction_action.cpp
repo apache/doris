@@ -41,6 +41,7 @@
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/full_compaction.h"
 #include "olap/olap_define.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "util/doris_metrics.h"
@@ -116,6 +117,15 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
+    // "remote" = "true" means tablet should do single replica compaction to fetch rowset from peer
+    bool fetch_from_remote = false;
+    std::string param_remote = req->param(PARAM_COMPACTION_REMOTE);
+    if (param_remote == "true") {
+        fetch_from_remote = true;
+    } else if (!param_remote.empty() && param_remote != "false") {
+        return Status::NotSupported("The remote = '{}' is not supported", param_remote);
+    }
+
     if (tablet_id == 0 && table_id != 0) {
         std::vector<TabletSharedPtr> tablet_vec =
                 StorageEngine::instance()->tablet_manager()->get_all_tablet(
@@ -133,9 +143,13 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
         }
 
+        if (fetch_from_remote && !tablet->should_fetch_from_peer()) {
+            return Status::NotSupported("tablet should do compaction locally");
+        }
+
         // 3. execute compaction task
-        std::packaged_task<Status()> task([this, tablet, compaction_type]() {
-            return _execute_compaction_callback(tablet, compaction_type);
+        std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
+            return _execute_compaction_callback(tablet, compaction_type, fetch_from_remote);
         });
         std::future<Status> future_obj = task.get_future();
         std::thread(std::move(task)).detach();
@@ -241,7 +255,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 }
 
 Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
-                                                      const std::string& compaction_type) {
+                                                      const std::string& compaction_type,
+                                                      bool fetch_from_remote) {
     MonotonicStopWatch timer;
     timer.start();
 
@@ -261,17 +276,28 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CumulativeCompaction cumulative_compaction(tablet);
-        res = cumulative_compaction.compact();
-        if (!res) {
-            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
-                            << "tablet=" << tablet->tablet_id();
-            } else {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+        if (fetch_from_remote) {
+            SingleReplicaCompaction single_compaction(tablet,
+                                                      CompactionType::CUMULATIVE_COMPACTION);
+            res = single_compaction.compact();
+            if (!res) {
+                LOG(WARNING) << "failed to do single compaction. res=" << res
                              << ", table=" << tablet->tablet_id();
+            }
+        } else {
+            CumulativeCompaction cumulative_compaction(tablet);
+            res = cumulative_compaction.compact();
+            if (!res) {
+                if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+                    // Ignore this error code.
+                    VLOG_NOTICE
+                            << "failed to init cumulative compaction due to no suitable version,"
+                            << "tablet=" << tablet->tablet_id();
+                } else {
+                    DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                    LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                                 << ", table=" << tablet->tablet_id();
+                }
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {
@@ -288,7 +314,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     }
-
     timer.stop();
     LOG(INFO) << "Manual compaction task finish, status=" << res
               << ", compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
