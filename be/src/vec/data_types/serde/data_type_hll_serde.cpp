@@ -153,9 +153,9 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 }
 
 template <bool is_binary_format>
-Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const) const {
+void DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
+                                              MysqlRowBuffer<is_binary_format>& result, int row_idx,
+                                              bool col_const) const {
     auto& data_column = assert_cast<const ColumnHLL&>(column);
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
@@ -163,26 +163,21 @@ Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
         size_t size = hyperLogLog.max_serialized_size();
         std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
         hyperLogLog.serialize((uint8*)buf.get());
-        if (UNLIKELY(0 != result.push_string(buf.get(), size))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_string(buf.get(), size);
     } else {
-        if (UNLIKELY(0 != result.push_null())) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_null();
     }
-    return Status::OK();
 }
 
-Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                               bool col_const) const {
+void DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
+                                             MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                             bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                               bool col_const) const {
+void DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
+                                             MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                             bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 

@@ -152,10 +152,10 @@ public:
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+    void write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer, int row_idx,
+                               bool col_const) const override;
+    void write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                               int row_idx, bool col_const) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -173,12 +173,12 @@ private:
     std::optional<size_t> try_get_position_by_name(const String& name) const;
 
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    void _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+                                int start, int end, bool col_const) const;
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+    void _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                int row_idx, bool col_const) const;
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;

@@ -173,9 +173,9 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
 }
 
 template <bool is_binary_format>
-Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
-                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                       int row_idx, bool col_const) const {
+void DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
+                                                     MysqlRowBuffer<is_binary_format>& result,
+                                                     int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     char buf[64];
@@ -185,30 +185,23 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
     if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_string("\"", 1);
     }
-    if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
+    result.push_string(buf, pos - buf - 1);
     if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_string("\"", 1);
     }
-    return Status::OK();
 }
 
-Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                      bool col_const) const {
+void DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                    bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<false>& row_buffer,
-                                                      int row_idx, bool col_const) const {
+void DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                    bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 

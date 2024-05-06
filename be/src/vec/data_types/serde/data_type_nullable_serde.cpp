@@ -285,33 +285,29 @@ void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow:
 }
 
 template <bool is_binary_format>
-Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<is_binary_format>& result,
-                                                     int row_idx, bool col_const) const {
+void DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& result,
+                                                   int row_idx, bool col_const) const {
     auto& col = assert_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     col_const = col_const || is_column_const(nested_col);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
-        if (UNLIKELY(0 != result.push_null())) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
+        result.push_null();
     } else {
-        RETURN_IF_ERROR(
-                nested_serde->write_column_to_mysql(nested_col, result, col_index, col_const));
+        nested_serde->write_column_to_mysql(nested_col, result, col_index, col_const);
     }
-    return Status::OK();
 }
 
-Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
-                                                    MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                    bool col_const) const {
+void DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
-                                                    MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                    bool col_const) const {
+void DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
