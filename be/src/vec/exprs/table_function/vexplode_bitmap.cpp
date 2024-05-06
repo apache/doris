@@ -78,12 +78,12 @@ void VExplodeBitmapTableFunction::get_same_many_values(MutableColumnPtr& column,
         if (_is_nullable) {
             assert_cast<ColumnInt64*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->fill(**_cur_iter, length);
+                    ->insert_many_vals(**_cur_iter, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt64*>(column.get())->fill(**_cur_iter, length);
+            assert_cast<ColumnInt64*>(column.get())->insert_many_vals(**_cur_iter, length);
         }
     }
 }
