@@ -56,7 +56,7 @@ suite("test_env_db_dropped_mtmv") {
     waitingMTMVTaskFinished(jobName)
 
     sql """
-        DROP REFRESH MATERIALIZED VIEW ${dbName2}.${mvName};
+        DROP MATERIALIZED VIEW ${dbName2}.${mvName};
     """
 
     sql """create database `${dbName1}`"""
