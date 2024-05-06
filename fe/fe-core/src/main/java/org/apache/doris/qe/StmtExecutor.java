@@ -157,7 +157,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -3346,8 +3345,7 @@ public class StmtExecutor {
             httpStreamParams.setLabel(insertExecutor.getLabelName());
 
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode
-                    || planRoot instanceof ExchangeNode,
+            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
                     "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
