@@ -61,9 +61,9 @@ bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
         [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
-std::atomic<int64_t> MemInfo::_s_physical_mem = -1;
-std::atomic<int64_t> MemInfo::_s_mem_limit = -1;
-std::atomic<int64_t> MemInfo::_s_soft_mem_limit = -1;
+std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
+std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
+std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
@@ -406,13 +406,15 @@ void MemInfo::refresh_proc_meminfo() {
         physical_mem = std::min(physical_mem, cgroup_mem_limit);
     }
 
-    // 2. if physical_mem changed, refresh mem limit and gc size.
-    if (_s_physical_mem.load(std::memory_order_relaxed) != physical_mem) {
-        _s_physical_mem.store(physical_mem);
+    if (physical_mem <= 0) {
+        LOG(WARNING)
+                << "Could not determine amount of physical memory on this machine, physical_mem: "
+                << physical_mem;
+    }
 
-        if (_s_physical_mem == -1) {
-            LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
-        }
+    // 2. if physical_mem changed, refresh mem limit and gc size.
+    if (physical_mem > 0 && _s_physical_mem.load(std::memory_order_relaxed) != physical_mem) {
+        _s_physical_mem.store(physical_mem);
 
         bool is_percent = true;
         _s_mem_limit.store(
@@ -451,7 +453,7 @@ void MemInfo::refresh_proc_meminfo() {
     }
     if (mem_available < 0) {
         LOG(WARNING) << "Failed to get available memory, set MAX_INT.";
-        mem_available = 9223372036854775807LL;
+        mem_available = std::numeric_limits<int64_t>::max();
     }
     if (_s_sys_mem_available.load(std::memory_order_relaxed) != mem_available) {
         _s_sys_mem_available.store(mem_available);
