@@ -22,8 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,15 +32,26 @@ import java.util.Map.Entry;
 import java.util.Set;
 
 /**
- * Function dependence items Direct Graph
+ * Represents a direct graph where each node corresponds to a set of slots in a table,
+ * and each directed edge denotes a dependency where the child node depends on its parent node.
+ * e.g.
+ * if we have a = b, and we can get b -> a and b -> a. The DG is as follows:
+ *      a → b
+ *      ↑___↓
  */
 public class FuncDepsDG {
+    /**
+     * Represents an item in the dependency graph.
+     */
     static class DGItem {
-        Set<Slot> slots;
-        int index;
-        Set<Integer> parents;
-        Set<Integer> children;
+        Set<Slot> slots;        // The set of slots that this node represents
+        int index;              // The index of this node in the graph
+        Set<Integer> parents;   // Indices of parent nodes in the graph
+        Set<Integer> children;  // Indices of child nodes in the graph
 
+        /**
+         * Constructs a new DGItem with specified slots and index.
+         */
         public DGItem(Set<Slot> slots, int index) {
             this.index = index;
             this.slots = ImmutableSet.copyOf(slots);
@@ -50,28 +59,37 @@ public class FuncDepsDG {
             this.children = new HashSet<>();
         }
 
+        /**
+         * Copy constructor for DGItem.
+         */
         public DGItem(DGItem dgItem) {
             this.index = dgItem.index;
             this.slots = ImmutableSet.copyOf(dgItem.slots);
-            this.parents = Sets.newHashSet(parents);
-            this.children = Sets.newHashSet(children);
+            this.parents = new HashSet<>(dgItem.parents);
+            this.children = new HashSet<>(dgItem.children);
         }
     }
 
-    private final Map<Set<Slot>, Integer> itemMap;
-    private List<DGItem> dgItems;
+    private final Map<Set<Slot>, Integer> itemMap; // Maps sets of slots to their indices in the dgItems list
+    private List<DGItem> dgItems;                  // List of all DGItems in the graph
 
+    /**
+     * Constructs a new FuncDepsDG from a map of slot sets to indices and a list of DGItems.
+     */
     FuncDepsDG(Map<Set<Slot>, Integer> itemMap, List<DGItem> dgItems) {
         this.itemMap = ImmutableMap.copyOf(itemMap);
         this.dgItems = ImmutableList.copyOf(dgItems);
     }
 
+    /**
+     * Checks if the graph is empty.
+     */
     public boolean isEmpty() {
         return dgItems.isEmpty();
     }
 
     /**
-     * find all func deps
+     * Finds all functional dependencies that are applicable to a given set of valid slots.
      */
     public FuncDeps findValidFuncDeps(Set<Slot> validSlot) {
         FuncDeps res = new FuncDeps();
@@ -90,21 +108,25 @@ public class FuncDepsDG {
         return res;
     }
 
+    /**
+     * Helper method to recursively collect all child nodes of a given root node
+     * that are valid according to the specified slots.
+     */
     private void collectAllChildren(Set<Slot> validSlot, DGItem root,
             Set<DGItem> visited, Set<DGItem> children) {
         for (int childIdx : root.children) {
             DGItem child = dgItems.get(childIdx);
-            if (visited.contains(child)) {
-                continue;
-            }
-            if (validSlot.containsAll(child.slots)) {
+            if (!visited.contains(child) && validSlot.containsAll(child.slots)) {
                 children.add(child);
+                visited.add(child);
+                collectAllChildren(validSlot, child, visited, children);
             }
-            visited.add(child);
-            collectAllChildren(validSlot, child, visited, children);
         }
     }
 
+    /**
+     * Builder class for FuncDepsDG.
+     */
     static class Builder {
         private List<DGItem> dgItems;
         private Map<Set<Slot>, Integer> itemMap;
@@ -115,11 +137,11 @@ public class FuncDepsDG {
         }
 
         public Builder(FuncDepsDG funcDepsDG) {
-            itemMap = Maps.newHashMap(funcDepsDG.itemMap);
-            dgItems = new ArrayList<>();
+            this();
             for (DGItem dgItem : funcDepsDG.dgItems) {
                 dgItems.add(new DGItem(dgItem));
             }
+            this.itemMap = new HashMap<>(funcDepsDG.itemMap);
         }
 
         public FuncDepsDG build() {
@@ -134,8 +156,8 @@ public class FuncDepsDG {
 
         public void addDeps(FuncDepsDG funcDepsDG) {
             for (DGItem dgItem : funcDepsDG.dgItems) {
-                for (int i : dgItem.children) {
-                    addDeps(dgItem.slots, funcDepsDG.dgItems.get(i).slots);
+                for (int childIdx : dgItem.children) {
+                    addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
                 }
             }
         }

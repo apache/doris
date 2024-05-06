@@ -72,9 +72,11 @@ public interface LogicalPlan extends Plan {
         fdBuilder.addFdItems(fdItems);
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
+            // all slot dependents unique slot
             for (Set<Slot> uniqueSlot : fdBuilder.getAllUnique()) {
                 fdBuilder.addDeps(uniqueSlot, o);
             }
+            // uniform slot dependents all unique slot
             for (Set<Slot> uniformSlot : fdBuilder.getAllUniform()) {
                 fdBuilder.addDeps(o, uniformSlot);
             }

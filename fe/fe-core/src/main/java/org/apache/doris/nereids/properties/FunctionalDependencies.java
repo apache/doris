@@ -198,7 +198,8 @@ public class FunctionalDependencies {
         }
 
         /**
-         * add equal set in func deps
+         * add equal set in func deps.
+         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
          */
         public void addDepsByEqualSet(Set<Slot> equalSet) {
             if (equalSet.size() < 2) {

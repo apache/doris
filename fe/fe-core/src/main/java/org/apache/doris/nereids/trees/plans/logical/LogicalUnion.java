@@ -226,17 +226,25 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         if (children.isEmpty()) {
             return;
         }
-        List<Set<Slot>> childEqualSlotsList =
-                child(0).getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+
+        // Get the list of equal slot sets and their corresponding index mappings for the first child
+        List<Set<Slot>> childEqualSlotsList = child(0).getLogicalProperties()
+                .getFunctionalDependencies().calAllEqualSet();
         List<BitSet> childEqualSlotsIndicesList = mapSlotToIndex(child(0), childEqualSlotsList);
         List<BitSet> unionEqualSlotIndicesList = new ArrayList<>(childEqualSlotsIndicesList);
+
+        // Traverse all children and find the equal sets that exist in all children
         for (int i = 1; i < children.size(); i++) {
             Plan child = children.get(i);
-            childEqualSlotsList =
-                    child.getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+
+            // Get the equal slot sets for the current child
+            childEqualSlotsList = child.getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+
+            // Map slots to indices for the current child
             childEqualSlotsIndicesList = mapSlotToIndex(child, childEqualSlotsList);
-            // Only all child of union has the equal pair, we keep the equal pair.
-            // It means we should calculate the intersection of all child
+
+            // Only keep the equal pairs that exist in all children of the union
+            // This is done by calculating the intersection of all children's equal slot indices
             for (BitSet unionEqualSlotIndices : unionEqualSlotIndicesList) {
                 BitSet intersect = new BitSet();
                 for (BitSet childEqualSlotIndices : childEqualSlotsIndicesList) {
@@ -247,9 +255,10 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 }
                 unionEqualSlotIndices.and(intersect);
             }
-
         }
-        List<Slot> ouputList = getOutput();
+
+        // Build the functional dependencies for the output slots
+        List<Slot> outputList = getOutput();
         for (BitSet equalSlotIndices : unionEqualSlotIndicesList) {
             if (equalSlotIndices.cardinality() <= 1) {
                 continue;
@@ -257,7 +266,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             int first = equalSlotIndices.nextSetBit(0);
             int next = equalSlotIndices.nextSetBit(first + 1);
             while (next > 0) {
-                fdBuilder.addEqualPair(ouputList.get(first), ouputList.get(next));
+                fdBuilder.addEqualPair(outputList.get(first), outputList.get(next));
                 next = equalSlotIndices.nextSetBit(next + 1);
             }
         }
