@@ -100,7 +100,7 @@ suite("test_update_mow", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName4}"
 
 
-    sql "set experimental_enable_nereids_planner=false;"
+    // test legacy planner
     sql "set enable_nereids_planner=false"
     sql "sync"
     def tableName5 = "test_update_mow_5"
@@ -130,6 +130,7 @@ suite("test_update_mow", "p0") {
 
     sql "DROP TABLE IF EXISTS ${tableName5}"
 
+    // test nereids planner
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql "sync"
