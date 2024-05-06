@@ -68,7 +68,11 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
                             {{Null(), (double)5}, Null()},
                             {{(double)5, Null()}, Null()}};
 
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
     {
         InputTypeSet input_types = {TypeIndex::Float64, Consted {TypeIndex::Float64}};
@@ -82,8 +86,11 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
         DataSet data_set = {{{(double)24.7, (double)56.7}, buf},
                             {{Null(), (double)5}, Null()},
                             {{(double)5, Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
@@ -269,7 +276,11 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf2}, Null()}};
 
-        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
     {
         InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
@@ -290,7 +301,11 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf2}, Null()}};
 
-        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
@@ -356,7 +371,11 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf3}, Null()}};
 
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
     {
         InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
@@ -387,7 +406,11 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf3}, Null()}};
 
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
