@@ -477,7 +477,7 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 }
 
 void WorkloadGroup::try_stop_schedulers() {
-    std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
     }
