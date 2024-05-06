@@ -725,7 +725,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablet_to_compaction(
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     uint32_t highest_score = 0;
-    // find the
+    // find the single compaction tablet
     uint32_t single_compact_highest_score = 0;
     TabletSharedPtr best_tablet;
     TabletSharedPtr best_single_compact_tablet;
