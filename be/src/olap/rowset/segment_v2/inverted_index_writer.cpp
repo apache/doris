@@ -222,6 +222,7 @@ public:
                 break;
             }
             setup_analyzer_lowercase(analyzer);
+            setup_analyzer_use_stopwords(analyzer);
             return Status::OK();
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -231,10 +232,19 @@ public:
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
         auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
-        if (lowercase == "true") {
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
             analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
             analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
         }
     }
 

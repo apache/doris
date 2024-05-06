@@ -288,12 +288,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     get_parser_mode_string_from_properties(_index_meta.properties()),
                     get_parser_char_filter_map_from_properties(_index_meta.properties()));
             auto analyzer = create_analyzer(inverted_index_ctx.get());
-            auto lowercase = get_parser_lowercase_from_properties(_index_meta.properties());
-            if (lowercase == "true") {
-                analyzer->set_lowercase(true);
-            } else if (lowercase == "false") {
-                analyzer->set_lowercase(false);
-            }
+            setup_analyzer_lowercase(analyzer, _index_meta.properties());
+            setup_analyzer_use_stopwords(analyzer, _index_meta.properties());
             inverted_index_ctx->analyzer = analyzer.get();
             auto reader = create_reader(inverted_index_ctx.get(), search_str);
             get_analyse_result(query_info.terms, reader.get(), analyzer.get(), column_name,
@@ -380,6 +376,28 @@ Status FullTextIndexReader::match_index_search(
 
 InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
+}
+
+void FullTextIndexReader::setup_analyzer_lowercase(
+        std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+        const std::map<string, string>& properties) {
+    auto lowercase = get_parser_lowercase_from_properties(properties);
+    if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
+        analyzer->set_lowercase(true);
+    } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
+        analyzer->set_lowercase(false);
+    }
+}
+
+void FullTextIndexReader::setup_analyzer_use_stopwords(
+        std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+        const std::map<string, string>& properties) {
+    auto stop_words = get_parser_stopwords_from_properties(properties);
+    if (stop_words == "none") {
+        analyzer->set_stopwords(nullptr);
+    } else {
+        analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+    }
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(
