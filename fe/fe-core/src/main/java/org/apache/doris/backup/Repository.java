@@ -747,7 +747,7 @@ public class Repository implements Writable {
         Map<String, String> properties = new HashMap();
         properties.putAll(this.getRemoteFileSystem().getProperties());
         // WE should not return the acturl secret key to user for safety consideration
-        List<String> secretKeys = List.of(S3Properties.SECRET_KEY, S3Properties.Env.SECRET_KEY,
+        List<String> secretKeys = Lists.newArrayList(S3Properties.SECRET_KEY, S3Properties.Env.SECRET_KEY,
                 AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION,
                         AuthenticationConfig.HADOOP_KERBEROS_AUTHORIZATION);
         secretKeys.stream()
