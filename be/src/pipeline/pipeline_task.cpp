@@ -58,7 +58,6 @@ PipelineTask::PipelineTask(
           _opened(false),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
-          _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
           _operators(pipeline->operator_xs()),
