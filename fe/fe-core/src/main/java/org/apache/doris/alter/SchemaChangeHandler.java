@@ -672,52 +672,51 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 List<Column> schema = entry.getValue();
                 for (Column column : schema) {
-                    if (column.getName().equalsIgnoreCase(modColumn.getName())) {
+                    String columnName = column.getName();
+                    if (column.isMaterializedViewColumn()) {
+                        columnName = columnName.substring(columnName.indexOf('_') + 1);
+                    }
+                    if (columnName.equalsIgnoreCase(modColumn.getName())) {
                         otherIndexIds.add(entry.getKey());
                         break;
                     }
                 }
             }
-
-            if (KeysType.AGG_KEYS == olapTable.getKeysType() || KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-                for (Long otherIndexId : otherIndexIds) {
-                    List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
-                    modColIndex = -1;
-                    for (int i = 0; i < otherIndexSchema.size(); i++) {
-                        if (otherIndexSchema.get(i).getName().equalsIgnoreCase(modColumn.getName())) {
-                            modColIndex = i;
-                            break;
-                        }
+            for (Long otherIndexId : otherIndexIds) {
+                List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
+                modColIndex = -1;
+                Column otherCol = null;
+                for (int i = 0; i < otherIndexSchema.size(); i++) {
+                    Column col = otherIndexSchema.get(i);
+                    String columnName = col.getName();
+                    if (col.isMaterializedViewColumn()) {
+                        columnName = columnName.substring(columnName.indexOf('_') + 1);
                     }
-                    Preconditions.checkState(modColIndex != -1);
-                    // replace the old column
-                    otherIndexSchema.set(modColIndex, modColumn);
-                } //  end for other indices
-            } else {
-                // DUPLICATE data model has a little
-                for (Long otherIndexId : otherIndexIds) {
-                    List<Column> otherIndexSchema = indexSchemaMap.get(otherIndexId);
-                    modColIndex = -1;
-                    for (int i = 0; i < otherIndexSchema.size(); i++) {
-                        if (otherIndexSchema.get(i).getName().equalsIgnoreCase(modColumn.getName())) {
-                            modColIndex = i;
-                            break;
-                        }
+                    if (columnName.equalsIgnoreCase(modColumn.getName())) {
+                        modColIndex = i;
+                        otherCol = new Column(modColumn);
+                        otherCol.setName(col.getName());
+                        otherCol.setDefineExpr(col.getDefineExpr());
+                        break;
                     }
-
-                    Preconditions.checkState(modColIndex != -1);
-                    // replace the old column
+                }
+                Preconditions.checkState(modColIndex != -1);
+                Preconditions.checkState(otherCol != null);
+                // replace the old column
+                if (KeysType.AGG_KEYS != olapTable.getKeysType() && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
                     Column oldCol = otherIndexSchema.get(modColIndex);
-                    Column otherCol = new Column(modColumn);
                     otherCol.setIsKey(oldCol.isKey());
                     if (null != oldCol.getAggregationType()) {
                         otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
                     } else {
                         otherCol.setAggregationType(null, oldCol.isAggregationTypeImplicit());
                     }
-                    otherIndexSchema.set(modColIndex, otherCol);
                 }
-            }
+                if (typeChanged && !lightSchemaChange) {
+                    otherCol.setName(SHADOW_NAME_PREFIX + otherCol.getName());
+                }
+                otherIndexSchema.set(modColIndex, otherCol);
+            } //  end for other indices
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
