@@ -85,6 +85,10 @@ public:
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
         std::lock_guard<std::mutex> lock(_mutex);
+        if (!_dependencies.contains(node_id)) {
+            _dependencies.insert({node_id, {}});
+            _finish_dependencies.insert({node_id, {}});
+        }
         _dependencies[node_id].push_back(dep);
         _finish_dependencies[node_id].push_back(finish_dep);
     }

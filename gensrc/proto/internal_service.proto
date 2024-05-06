@@ -227,6 +227,7 @@ enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
     VERSION_3 = 3;  // multi TPipelineFragmentParams in request
+    VERSION_4 = 4;  // multi TPipelineFragmentParams with optimized common fields in request
 };
 
 message PExecPlanFragmentRequest {

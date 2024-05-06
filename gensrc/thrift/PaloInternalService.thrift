@@ -750,11 +750,26 @@ struct TPipelineFragmentParams {
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
   40: optional bool is_nereids = true;
+  41: optional list<i32> topn_filter_source_node_ids
 
   // For cloud
   1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {
-    1: optional list<TPipelineFragmentParams> params_list;
+  1: optional list<TPipelineFragmentParams> params_list;
+  2: optional Descriptors.TDescriptorTable desc_tbl;
+  // scan node id -> scan range params, only for external file scan
+  3: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params;
+  4: optional Types.TNetworkAddress coord;
+  5: optional TQueryGlobals query_globals;
+  6: optional Types.TResourceInfo resource_info;
+  // The total number of fragments on same BE host
+  7: optional i32 fragment_num_on_host
+  8: optional TQueryOptions query_options
+  9: optional bool is_nereids = true;
+  10: optional list<TPipelineWorkloadGroup> workload_groups
+  11: optional Types.TUniqueId query_id
+  12: optional list<i32> topn_filter_source_node_ids
+  13: optional Types.TNetworkAddress runtime_filter_merge_addr
 }

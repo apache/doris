@@ -94,6 +94,10 @@ public:
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
+    Status exec_plan_fragment(const TPipelineFragmentParamsList& t_request, const int i);
+    Status exec_plan_fragment(const TPipelineFragmentParamsList& t_request, const int i,
+                              const FinishCallback& cb);
+
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,
@@ -178,6 +182,9 @@ private:
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
+                          std::shared_ptr<QueryContext>& query_ctx);
+
+    Status _get_query_ctx(const TPipelineFragmentParamsList& t_request, TUniqueId query_id,
                           std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params

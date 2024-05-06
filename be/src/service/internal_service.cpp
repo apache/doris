@@ -553,6 +553,60 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         return Status::OK();
+    } else if (version == PFragmentRequestVersion::VERSION_4) {
+        TPipelineFragmentParamsList t_request;
+        {
+            const auto* buf = (const uint8_t*)ser_request.data();
+            uint32_t len = ser_request.size();
+            RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
+        }
+        const auto& fragment_list = t_request.params_list;
+        if (fragment_list.empty()) {
+            return Status::InternalError("Invalid TPipelineFragmentParamsList!");
+        }
+        MonotonicStopWatch timer;
+        timer.start();
+        const auto num_fragments = fragment_list.size();
+        std::vector<Status> res_status(num_fragments);
+        auto pre_and_submit = [&](int i) {
+            if (cb) {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(t_request, i, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(t_request, i));
+            }
+            return Status::OK();
+        };
+        int prepare_done = 0;
+        std::mutex m;
+        std::condition_variable cv;
+        for (size_t i = 0; i < num_fragments; i++) {
+            RETURN_IF_ERROR(_exec_env->fragment_mgr()->get_thread_pool()->submit_func([&, i]() {
+                res_status[i] = pre_and_submit(i);
+                std::unique_lock<std::mutex> lock(m);
+                prepare_done++;
+                if (prepare_done == num_fragments) {
+                    cv.notify_one();
+                }
+            }));
+        }
+
+        std::unique_lock<std::mutex> lock(m);
+        if (prepare_done != num_fragments) {
+            cv.wait(lock);
+
+            for (size_t i = 0; i < num_fragments; i++) {
+                if (!res_status[i].ok()) {
+                    return res_status[i];
+                }
+            }
+        }
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+        }
+        return Status::OK();
     } else {
         return Status::InternalError("invalid version");
     }

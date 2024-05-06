@@ -126,9 +126,6 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
         _is_local &= state->query_options().enable_local_exchange;
     }
     if (_is_local) {
-        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                              _fragment_instance_id, _dest_node_id, &_local_recvr),
-                      "");
         return Status::OK();
     }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
@@ -149,6 +146,11 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
 
 template <typename Parent>
 Status Channel<Parent>::open(RuntimeState* state) {
+    if (_is_local) {
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+    }
     _be_number = state->be_number();
     _brpc_request = std::make_shared<PTransmitDataParams>();
     // initialize brpc request
@@ -178,11 +180,8 @@ Status Channel<Parent>::open(RuntimeState* state) {
 
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
     if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
-        throw Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "_local_recvr is null: " +
-                        std::to_string(Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()
-                                               ->node_id()));
+        // If downstream exchange operator was stopped earlier, `_local_recvr` will be nullptr here.
+        return nullptr;
     }
     return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
             Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
