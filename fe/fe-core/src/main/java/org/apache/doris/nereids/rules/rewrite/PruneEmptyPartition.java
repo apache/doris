@@ -20,7 +20,11 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.List;
 
 /**
  * Used to prune empty partition.
@@ -32,6 +36,11 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
         return logicalOlapScan().thenApply(ctx -> {
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
+            List<Long> ids = table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds());
+            if (ids.isEmpty()) {
+                return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
+                        scan.getOutput());
+            }
             return scan.withSelectedPartitionIds(table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds()));
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
     }

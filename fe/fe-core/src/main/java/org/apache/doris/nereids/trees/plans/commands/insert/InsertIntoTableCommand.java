@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -162,6 +163,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     // return;
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
+                if (physicalSink.child(0) instanceof PhysicalEmptyRelation) {
+                    return null;
+                }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel() ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx)
@@ -173,6 +177,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
+                if (physicalSink.child(0) instanceof PhysicalEmptyRelation) {
+                    return null;
+                }
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
@@ -203,6 +210,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
+        if (insertExecutor == null) {
+            return;
+        }
         insertExecutor.executeSingleInsert(executor, jobId);
     }
 
