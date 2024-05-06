@@ -15,14 +15,16 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore-postgresql/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
-HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
+HIVE_SITE_CONF_hive_metastore_port=${HMS_PORT}
+HIVE_SITE_CONF_hive_metastore_uris=thrift://${IP_HOST}:${HMS_PORT}
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
-HIVE_SITE_CONF_hive_server2_thrift_port=10000
+HIVE_SITE_CONF_hive_server2_thrift_port=${HS_PORT}
+HIVE_SITE_CONF_hive_server2_webui_port=0
 HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
 HIVE_SITE_CONF_metastore_storage_schema_reader_impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader
