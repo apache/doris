@@ -233,12 +233,7 @@ bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
         return true;
     }
 
-    if (_pipeline_engine_enabled) {
-        // need to check sender is readable again before the next reading.
-        _pending_cursor = current.impl;
-    } else if (has_next_block(current)) {
-        _priority_queue.push(current);
-    }
+    _pending_cursor = current.impl;
     return false;
 }
 
