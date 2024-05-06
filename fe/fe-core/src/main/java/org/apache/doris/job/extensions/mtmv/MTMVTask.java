@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -225,7 +226,14 @@ public class MTMVTask extends AbstractTask {
         ctx.getState().setNereids(true);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
-            throw new JobException(ctx.getState().getErrorMessage());
+            StringBuilder errMsg = new StringBuilder();
+            // when env ctl/db not exist, need give client tips
+            Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
+            if (!pair.first) {
+                errMsg.append(pair.second);
+            }
+            errMsg.append(ctx.getState().getErrorMessage());
+            throw new JobException(errMsg.toString());
         }
     }
 

@@ -19,11 +19,13 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -55,17 +57,43 @@ public class MTMVPlanUtil {
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(mtmv.getEnvInfo().getCtlId());
-        ctx.changeDefaultCatalog(catalog.getName());
-        ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        ctx.getSessionVariable().enableNereidsDML = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
         }
-        ctx.getSessionVariable().enableNereidsDML = true;
+        // switch catalog;
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(mtmv.getEnvInfo().getCtlId());
+        // if catalog not exist, it may not have any impact, so there is no error and it will be returned directly
+        if (catalog == null) {
+            return ctx;
+        }
+        ctx.changeDefaultCatalog(catalog.getName());
+        // use db
+        Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = catalog.getDb(mtmv.getEnvInfo().getDbId());
+        // if db not exist, it may not have any impact, so there is no error and it will be returned directly
+        if (!databaseIf.isPresent()) {
+            return ctx;
+        }
+        ctx.setDatabase(databaseIf.get().getFullName());
         return ctx;
+    }
+
+    public static Pair<Boolean, String> checkEnvInfo(EnvInfo envInfo, ConnectContext ctx) {
+        if (envInfo.getCtlId() != ctx.getCurrentCatalog().getId()) {
+            return Pair.of(false, String.format(
+                    "The catalog selected when creating the materialized view was %s, but now this catalog has been deleted. "
+                            + "Please recreate the materialized view.",
+                    envInfo.getCtlId()));
+        }
+        if (envInfo.getDbId() != ctx.getCurrentDbId()) {
+            return Pair.of(false, String.format(
+                    "The database selected when creating the materialized view was %s, but now this database has been deleted. "
+                            + "Please recreate the materialized view.",
+                    envInfo.getCtlId()));
+        }
+        return  Pair.of(true,"");
     }
 
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
