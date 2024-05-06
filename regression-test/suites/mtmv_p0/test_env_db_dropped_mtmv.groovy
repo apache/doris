@@ -88,5 +88,5 @@ suite("test_env_db_dropped_mtmv") {
         """
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
     def  msg = sql """select ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"""
-    logger.info(msg)
+    logger.info(msg.toString())
 }
