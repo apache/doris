@@ -35,13 +35,13 @@ import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
     public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
-    @SerializedName(value = "state")
+    @SerializedName(value = "s")
     private TEtlState state;
-    @SerializedName(value = "trackingUrl")
+    @SerializedName(value = "tu")
     private String trackingUrl;
-    @SerializedName(value = "stats")
+    @SerializedName(value = "st")
     private Map<String, String> stats;
-    @SerializedName(value = "counters")
+    @SerializedName(value = "c")
     private Map<String, String> counters;
     // not persist
     private Map<String, Long> fileMap;
