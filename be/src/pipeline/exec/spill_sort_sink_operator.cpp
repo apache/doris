@@ -25,7 +25,7 @@ SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, 
         : Base(parent, state) {
     _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                                       parent->get_name() + "_SPILL_DEPENDENCY",
-                                                      state->get_query_ctx());
+                                                      true, state->get_query_ctx());
 }
 
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
