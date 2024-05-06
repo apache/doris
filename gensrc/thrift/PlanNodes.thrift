@@ -327,7 +327,7 @@ struct TPaimonFileDesc {
     9: optional i64 tbl_id
     10: optional i64 last_update_time
     11: optional string file_format
-    12: optional list<TPaimonDeleteFileDesc> delete_files;
+    12: optional TPaimonDeleteFileDesc delete_file;
 }
 
 struct TTrinoConnectorFileDesc {
