@@ -105,7 +105,7 @@ Status DataTypeIPv6SerDe::write_column_to_pb(const IColumn& column, PValues& res
 }
 
 Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     auto old_column_size = column.size();
     col_data.resize(old_column_size + arg.bytes_value_size());
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -117,7 +117,7 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
 void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                               arrow::ArrayBuilder* array_builder, int start,
                                               int end, const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
@@ -134,7 +134,7 @@ void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullM
 void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                int start, int end,
                                                const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnIPv6&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
@@ -159,7 +159,7 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int start,
                                               int end, std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = static_cast<const ColumnIPv6&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
     if (!ptr) {
