@@ -65,6 +65,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging());
+    LOG(INFO) << "Create local recvr by instance " << print_id(state->fragment_instance_id());
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());

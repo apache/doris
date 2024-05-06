@@ -246,7 +246,8 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
+                                        const TQueryOptions& query_options) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -263,14 +264,14 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             .tag("fragment_id", _fragment_id)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    if (request.query_options.__isset.is_report_success) {
-        fragment_context->set_is_report_success(request.query_options.is_report_success);
+    if (query_options.__isset.is_report_success) {
+        fragment_context->set_is_report_success(query_options.is_report_success);
     }
 
     // 1. Set up the global runtime state.
-    _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
-                                                 request.query_options, _query_ctx->query_globals,
-                                                 _exec_env, _query_ctx.get());
+    _runtime_state =
+            RuntimeState::create_unique(request.query_id, request.fragment_id, query_options,
+                                        _query_ctx->query_globals, _exec_env, _query_ctx.get());
 
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
     if (request.__isset.backend_id) {
@@ -286,29 +287,12 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _runtime_state->set_load_job_id(request.load_job_id);
     }
 
-    if (request.is_simplified_param) {
-        _desc_tbl = _query_ctx->desc_tbl;
-    } else {
-        DCHECK(request.__isset.desc_tbl);
-        RETURN_IF_ERROR(
-                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
-    }
+    _desc_tbl = _query_ctx->desc_tbl;
     _runtime_state->set_desc_tbl(_desc_tbl);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
-
-    const auto& local_params = request.local_params[0];
-    if (local_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                local_params.runtime_filter_params);
-    }
-    if (local_params.__isset.topn_filter_source_node_ids) {
-        _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-    } else {
-        _query_ctx->init_runtime_predicates({0});
-    }
 
     _need_local_merge = request.__isset.parallel_instances;
 
@@ -345,7 +329,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
 
     // 5. Build pipeline tasks and initialize local state.
-    RETURN_IF_ERROR(_build_pipeline_tasks(request));
+    RETURN_IF_ERROR(_build_pipeline_tasks(request, query_options));
 
     _init_next_report_time();
 
@@ -353,8 +337,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(
-        const doris::TPipelineFragmentParams& request) {
+Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                                      const TQueryOptions& query_options) {
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
@@ -450,8 +434,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                 // build task runtime state
                 _task_runtime_states.push_back(RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
-                        request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env, _query_ctx.get()));
+                        request.fragment_id, query_options, _query_ctx->query_globals, _exec_env,
+                        _query_ctx.get()));
                 auto& task_runtime_state = _task_runtime_states.back();
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
@@ -1138,8 +1122,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                          ": group by and output is empty");
         }
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
-            request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation &&
+            _runtime_state->query_options().__isset.enable_distinct_streaming_aggregation &&
+            _runtime_state->query_options().enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty()) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));

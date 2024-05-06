@@ -115,7 +115,7 @@ public:
     Status update_filter(const PPublishFilterRequest* request,
                          butil::IOBufAsZeroCopyInputStream* data);
 
-    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
+    void set_runtime_filter_params(const TNetworkAddress& merge_addr);
 
     Status get_merge_addr(TNetworkAddress* addr);
 

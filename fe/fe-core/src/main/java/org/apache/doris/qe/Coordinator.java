@@ -1002,10 +1002,6 @@ public class Coordinator implements CoordInterface {
 
             // 4. send and wait fragments rpc
             // 4.1 serialize fragment
-            // unsetFields() must be called serially.
-            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                ctxs.unsetFields();
-            }
             // serializeFragments() can be called in parallel.
             final AtomicLong compressedSize = new AtomicLong(0);
             beToPipelineExecCtxs.values().parallelStream().forEach(ctxs -> {
@@ -3208,6 +3204,19 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+    public void unsetUnnecessaryFields(TPipelineFragmentParams rpcParams) {
+        rpcParams.unsetDescTbl();
+        rpcParams.unsetFileScanParams();
+        rpcParams.unsetCoord();
+        rpcParams.unsetQueryGlobals();
+        rpcParams.unsetResourceInfo();
+        rpcParams.unsetFragmentNumOnHost();
+        rpcParams.unsetQueryOptions();
+        rpcParams.unsetIsNereids();
+        rpcParams.unsetWorkloadGroups();
+        rpcParams.topn_filter_source_node_ids = null;
+    }
+
     public class PipelineExecContext {
         TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
@@ -3672,7 +3681,21 @@ public class Coordinator implements CoordInterface {
 
         public long serializeFragments() throws TException {
             TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
+            // set common fields
+            paramsList.setDescTbl(ctxs.get(0).rpcParams.getDescTbl());
+            paramsList.setFileScanParams(ctxs.get(0).rpcParams.getFileScanParams());
+            paramsList.setCoord(ctxs.get(0).rpcParams.getCoord());
+            paramsList.setQueryGlobals(ctxs.get(0).rpcParams.getQueryGlobals());
+            paramsList.setResourceInfo(ctxs.get(0).rpcParams.getResourceInfo());
+            paramsList.setFragmentNumOnHost(ctxs.get(0).rpcParams.getFragmentNumOnHost());
+            paramsList.setQueryOptions(ctxs.get(0).rpcParams.getQueryOptions());
+            paramsList.setIsNereids(ctxs.get(0).rpcParams.isIsNereids());
+            paramsList.setWorkloadGroups(ctxs.get(0).rpcParams.getWorkloadGroups());
+            paramsList.setQueryId(ctxs.get(0).rpcParams.getQueryId());
+            paramsList.topn_filter_source_node_ids = ctxs.get(0).rpcParams.topn_filter_source_node_ids;
+            paramsList.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
             for (PipelineExecContext cts : ctxs) {
+                unsetUnnecessaryFields(cts.rpcParams);
                 cts.initiated = true;
                 paramsList.addToParamsList(cts.rpcParams);
             }
@@ -3872,6 +3895,12 @@ public class Coordinator implements CoordInterface {
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
                     }
+                    if (!topnFilterSources.isEmpty()) {
+                        // topn_filter_source_node_ids is used by nereids not by legacy planner.
+                        // if there is no topnFilterSources, do not set it.
+                        // topn_filter_source_node_ids=null means legacy planner
+                        params.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
+                    }
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
@@ -3898,12 +3927,6 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilterSources.isEmpty()) {
-                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
-                    // if there is no topnFilterSources, do not set it.
-                    // topn_filter_source_node_ids=null means legacy planner
-                    localParams.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
-                }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
                             .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());

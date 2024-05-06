@@ -85,7 +85,8 @@ public:
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request);
+    Status prepare(const doris::TPipelineFragmentParams& request,
+                   const TQueryOptions& query_options);
 
     Status submit();
 
@@ -196,7 +197,8 @@ private:
 
     bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                 const TQueryOptions& query_options);
     void _close_fragment_instance();
     void _init_next_report_time();
 

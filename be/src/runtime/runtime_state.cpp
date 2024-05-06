@@ -92,7 +92,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                fragment_exec_params.runtime_filter_params);
+                fragment_exec_params.runtime_filter_params.runtime_filter_merge_addr);
     }
 
     if (_query_ctx) {
