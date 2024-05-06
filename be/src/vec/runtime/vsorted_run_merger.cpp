@@ -174,9 +174,6 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                     num_columns, merged_columns.size());
         }
 
-        _indexs.clear();
-        _block_addrs.clear();
-        _column_addrs.clear();
         _indexs.reserve(_batch_size);
         _block_addrs.reserve(_batch_size);
 
@@ -188,11 +185,14 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 }
                 merged_columns[i]->insert_from_multi_column(_column_addrs, _indexs);
             }
+            _indexs.clear();
+            _block_addrs.clear();
+            _column_addrs.clear();
         };
 
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
-        while (!_priority_queue.empty()) {
+        while (merged_rows != _batch_size && !_priority_queue.empty()) {
             auto current = _priority_queue.top();
             _priority_queue.pop();
 
@@ -204,17 +204,12 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 ++merged_rows;
             }
 
-            // In pipeline engine, needs to check if the sender is readable before the next reading.
             if (!next_heap(current)) {
                 do_insert();
                 return Status::OK();
             }
-
-            if (merged_rows == _batch_size) {
-                do_insert();
-                break;
-            }
         }
+        do_insert();
         output_block->set_columns(std::move(merged_columns));
 
         if (merged_rows == 0) {
@@ -235,14 +230,16 @@ bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
     if (!current->is_last()) {
         current->next();
         _priority_queue.push(current);
-    } else if (_pipeline_engine_enabled) {
+        return true;
+    }
+
+    if (_pipeline_engine_enabled) {
         // need to check sender is readable again before the next reading.
         _pending_cursor = current.impl;
-        return false;
     } else if (has_next_block(current)) {
         _priority_queue.push(current);
     }
-    return true;
+    return false;
 }
 
 inline bool VSortedRunMerger::has_next_block(doris::vectorized::MergeSortCursor& current) {
