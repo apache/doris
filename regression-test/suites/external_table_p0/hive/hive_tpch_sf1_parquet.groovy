@@ -850,7 +850,7 @@ order by
     // cost too much time in p0, disable it temporary
     String enabled = "false";
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 

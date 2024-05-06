@@ -18,7 +18,7 @@
 suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 

@@ -876,7 +876,7 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 

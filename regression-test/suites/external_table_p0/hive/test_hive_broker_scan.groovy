@@ -31,7 +31,7 @@ suite("test_hive_broker_scan", "p0,external,hive,external_docker,external_docker
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 

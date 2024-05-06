@@ -18,7 +18,7 @@
 suite("mv_contain_external_table", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test. then doesn't test mv rewrite")
+        logger.info("disable Hive test. then doesn't test mv rewrite")
         return;
     }
     // prepare table and data in hive
