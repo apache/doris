@@ -41,7 +41,7 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
                         scan.getOutput());
             }
-            return scan.withSelectedPartitionIds(table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds()));
+            return scan.withSelectedPartitionIds(ids);
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
     }
 }
