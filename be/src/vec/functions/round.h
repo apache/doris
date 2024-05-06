@@ -630,9 +630,9 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Unsupported column {} for function truncate",
-                                   const_col_general->get_name());
+            LOG(FATAL) << "__builtin_unreachable";
+            __builtin_unreachable();
+            return nullptr;
         }
     }
 };
@@ -679,16 +679,25 @@ public:
         return Status::OK();
     }
 
+    /// SELECT number, truncate(123.345, 1) FROM number("numbers"="10")
+    /// should NOT behave like two column arguments, so we can not use const column default implementation
+    bool use_default_implementation_for_constants() const override { return false; }
+
     //// We moved and optimized the execute_impl logic of function_truncate.h from PR#32746,
     //// as well as make it suitable for all functions.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
-        const auto* col_general = column_general.column.get();
+        const bool is_col_general_const = is_column_const(*column_general.column);
+        const auto* col_general = is_col_general_const
+                                          ? assert_cast<const ColumnConst&>(*column_general.column)
+                                                    .get_data_column_ptr()
+                                          : column_general.column.get();
+
         ColumnPtr res;
 
-        /// potential argument types(optimized from four types in previous PR to two):
-        /// if the SECOND argument is MISSING(would be considered as ZERO const) or CONST, then we have 1st type:
+        /// potential argument types:
+        /// if the SECOND argument is MISSING(would be considered as ZERO const) or CONST, then we have the following type:
         ///    1. func(Column), func(ColumnConst), func(Column, ColumnConst), func(ColumnConst, ColumnConst)
         /// otherwise, the SECOND arugment is COLUMN, we have another type:
         ///    2. func(Column, Column), func(ColumnConst, Column)
@@ -699,24 +708,29 @@ public:
 
             if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
                 using FieldType = typename DataType::FieldType;
-                // the SECOND argument is MISSING or CONST
                 if (arguments.size() == 1 ||
                     is_column_const(*block.get_by_position(arguments[1]).column)) {
+                    // the SECOND argument is MISSING or CONST
                     Int16 scale_arg = 0;
                     if (arguments.size() == 2) {
                         RETURN_IF_ERROR(
                                 get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
                     }
+
                     res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
                             col_general, scale_arg);
+
+                    if (arguments.size() == 2 && is_col_general_const) {
+                        // Important, make sure the result column has the same size as the input column
+                        res = ColumnConst::create(std::move(res), input_rows_count);
+                    }
                 } else {
                     // the SECOND arugment is COLUMN
-                    if (is_column_const(*column_general.column)) {
-                        const auto& const_col_general =
-                                assert_cast<const ColumnConst&>(*column_general.column);
+                    if (is_col_general_const) {
                         res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
-                                apply_const_vec(&const_col_general,
-                                                block.get_by_position(arguments[1]).column.get());
+                                apply_const_vec(
+                                        &assert_cast<const ColumnConst&>(*column_general.column),
+                                        block.get_by_position(arguments[1]).column.get());
                     } else {
                         res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
                                 apply_vec_vec(col_general,
@@ -741,7 +755,7 @@ public:
 
         if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
             return Status::InvalidArgument("Invalid argument type {} for function {}",
-                                           column_general.type->get_name(), get_name());
+                                           column_general.type->get_name(), name);
         }
 
         block.replace_by_position(result, std::move(res));
