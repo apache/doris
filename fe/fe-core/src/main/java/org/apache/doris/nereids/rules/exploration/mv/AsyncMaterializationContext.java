@@ -90,7 +90,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
         if (!(relation instanceof PhysicalCatalogRelation)) {
             return false;
         }
-       return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
+        return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
     }
 
     public Plan getMvScanPlan() {

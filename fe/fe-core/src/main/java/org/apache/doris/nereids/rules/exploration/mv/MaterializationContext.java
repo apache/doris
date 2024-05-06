@@ -265,8 +265,8 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
             builder.append("  Names: ");
-            chosenMaterializationQualifiers.forEach(chosenMaterializationQualifier ->
-                    builder.append(String.join("-", chosenMaterializationQualifier)).append(", "));
+            chosenMaterializationQualifiers.forEach(materializationQualifier ->
+                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
@@ -276,8 +276,8 @@ public abstract class MaterializationContext {
                 .collect(Collectors.toSet());
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
             builder.append("  Names: ");
-            rewriteSuccessButNotChoseQualifiers.forEach(chosenMaterializationQualifier ->
-                    builder.append(String.join("-", chosenMaterializationQualifier)).append(", "));
+            rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
+                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -286,12 +286,16 @@ public abstract class MaterializationContext {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
-                        .append("  Name: ").append(ctx.getMaterializationQualifier())
+                        .append("  Name: ").append(generateQualifierName(ctx.getMaterializationQualifier()))
                         .append("\n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
         return builder.toString();
+    }
+
+    private static String generateQualifierName(List<String> qualifiers) {
+        return String.join("-", qualifiers);
     }
 
     @Override
