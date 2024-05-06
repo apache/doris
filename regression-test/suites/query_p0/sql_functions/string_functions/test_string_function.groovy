@@ -285,9 +285,6 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
     qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
 
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-
     qt_sql "select elt(0, \"hello\", \"doris\");"
     qt_sql "select elt(1, \"hello\", \"doris\");"
     qt_sql "select elt(2, \"hello\", \"doris\");"
@@ -297,15 +294,10 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 
     // test function char
-    sql 'set enable_nereids_planner=false'
-    def success = false
-    try {
+    test {
         sql """ select char(68 using abc); """
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("only support charset name 'utf8'"), e.getMessage())
+        exception "only support charset name 'utf8'"
     }
-    assertFalse(success)
 
     // const
     qt_sql_func_char_const1 """ select char(68); """
