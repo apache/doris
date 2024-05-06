@@ -165,7 +165,7 @@ public class LogicalExcept extends LogicalSetOperation {
 
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child(0).getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()

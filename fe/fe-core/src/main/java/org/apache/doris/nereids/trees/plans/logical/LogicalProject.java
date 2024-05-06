@@ -285,6 +285,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

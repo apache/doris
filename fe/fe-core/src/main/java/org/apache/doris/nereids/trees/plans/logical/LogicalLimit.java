@@ -189,6 +189,6 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

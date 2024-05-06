@@ -716,10 +716,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public void computeFd(Builder fdBuilder) {
         if (!joinType.isLeftSemiOrAntiJoin()) {
-            fdBuilder.addFuncDepsDAG(right().getLogicalProperties().getFunctionalDependencies());
+            fdBuilder.addFuncDepsDG(right().getLogicalProperties().getFunctionalDependencies());
         }
         if (!joinType.isRightSemiOrAntiJoin()) {
-            fdBuilder.addFuncDepsDAG(left().getLogicalProperties().getFunctionalDependencies());
+            fdBuilder.addFuncDepsDG(left().getLogicalProperties().getFunctionalDependencies());
         }
     }
 }

@@ -25,51 +25,51 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-class FuncDepsDAGTest {
+class FuncDepsDGTest {
     @Test
     void testBasic() {
-        FuncDepsDAG.Builder dag = new FuncDepsDAG.Builder();
+        FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
         Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
         Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        dag.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        FuncDeps res = dag.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
+        dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
+        FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
         Assertions.assertEquals(1, res.size());
     }
 
     @Test
     void testTrans() {
-        FuncDepsDAG.Builder dag = new FuncDepsDAG.Builder();
+        FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
         Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
         Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
         Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
-        dag.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        dag.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
-        FuncDeps res = dag.build().findValidFuncDeps(Sets.newHashSet(s1, s3));
+        dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
+        dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
+        FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s3));
         Assertions.assertEquals(1, res.size());
     }
 
     @Test
     void testCircle() {
-        FuncDepsDAG.Builder dag = new FuncDepsDAG.Builder();
+        FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
         Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
         Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        dag.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        dag.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s1));
-        FuncDeps res = dag.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
+        dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
+        dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s1));
+        FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
         Assertions.assertEquals(2, res.size());
     }
 
     @Test
     void testTree() {
-        FuncDepsDAG.Builder dag = new FuncDepsDAG.Builder();
+        FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
         Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
         Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
         Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
         Slot s4 = new SlotReference("s4", IntegerType.INSTANCE);
-        dag.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        dag.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
-        dag.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s4));
-        FuncDeps res = dag.build().findValidFuncDeps(Sets.newHashSet(s1, s4, s3));
+        dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
+        dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
+        dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s4));
+        FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s4, s3));
         Assertions.assertEquals(2, res.size());
     }
 }

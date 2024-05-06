@@ -151,7 +151,7 @@ public class LogicalIntersect extends LogicalSetOperation {
     @Override
     public void computeFd(Builder fdBuilder) {
         for (Plan child : children) {
-            fdBuilder.addFuncDepsDAG(
+            fdBuilder.addFuncDepsDG(
                     child.getLogicalProperties().getFunctionalDependencies());
             replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
         }

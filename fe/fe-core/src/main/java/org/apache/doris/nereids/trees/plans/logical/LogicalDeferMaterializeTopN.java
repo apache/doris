@@ -212,7 +212,7 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 
     @Override

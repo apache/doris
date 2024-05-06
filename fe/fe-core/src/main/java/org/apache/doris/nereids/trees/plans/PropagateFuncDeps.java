@@ -74,6 +74,6 @@ public interface PropagateFuncDeps extends LogicalPlan {
 
     @Override
     default void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child(0).getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 }

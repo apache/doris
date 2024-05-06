@@ -178,6 +178,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public void computeFd(Builder fdBuilder) {
-        fdBuilder.addFuncDepsDAG(child().getLogicalProperties().getFunctionalDependencies());
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

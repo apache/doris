@@ -41,28 +41,28 @@ public class FunctionalDependencies {
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
             = new FunctionalDependencies(new NestedSet().toImmutable(),
                     new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
-                    ImmutableEqualSet.empty(), new FuncDepsDAG.Builder().build());
+                    ImmutableEqualSet.empty(), new FuncDepsDG.Builder().build());
     private final NestedSet uniqueSet;
     private final NestedSet uniformSet;
     private final ImmutableSet<FdItem> fdItems;
     private final ImmutableEqualSet<Slot> equalSet;
-    private final FuncDepsDAG fdDag;
+    private final FuncDepsDG fdDg;
 
     private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems,
-            ImmutableEqualSet<Slot> equalSet, FuncDepsDAG fdDag) {
+            ImmutableEqualSet<Slot> equalSet, FuncDepsDG fdDg) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
         this.fdItems = fdItems;
         this.equalSet = equalSet;
-        this.fdDag = fdDag;
+        this.fdDg = fdDg;
     }
 
     public boolean isEmpty() {
-        return uniformSet.isEmpty() && uniqueSet.isEmpty() && equalSet.isEmpty() && fdDag.isEmpty();
+        return uniformSet.isEmpty() && uniqueSet.isEmpty() && equalSet.isEmpty() && fdDg.isEmpty();
     }
 
     public boolean isDependent(Set<Slot> dominate, Set<Slot> dependency) {
-        return fdDag.findValidFuncDeps(Sets.union(dependency, dominate))
+        return fdDg.findValidFuncDeps(Sets.union(dependency, dominate))
                 .isFuncDeps(dominate, dependency);
     }
 
@@ -107,7 +107,7 @@ public class FunctionalDependencies {
     }
 
     public FuncDeps getAllValidFuncDeps(Set<Slot> validSlots) {
-        return fdDag.findValidFuncDeps(validSlots);
+        return fdDg.findValidFuncDeps(validSlots);
     }
 
     public boolean isEqualAndNotNotNull(Slot l, Slot r) {
@@ -125,7 +125,7 @@ public class FunctionalDependencies {
     @Override
     public String toString() {
         return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s, equalSet:%s, funcDeps: %s]",
-                uniformSet, uniqueSet, fdItems, equalSet, fdDag);
+                uniformSet, uniqueSet, fdItems, equalSet, fdDg);
     }
 
     /**
@@ -136,14 +136,14 @@ public class FunctionalDependencies {
         private final NestedSet uniformSet;
         private ImmutableSet<FdItem> fdItems;
         private final ImmutableEqualSet.Builder<Slot> equalSetBuilder;
-        private final FuncDepsDAG.Builder fdDagBuilder;
+        private final FuncDepsDG.Builder fdDgBuilder;
 
         public Builder() {
             uniqueSet = new NestedSet();
             uniformSet = new NestedSet();
             fdItems = new ImmutableSet.Builder<FdItem>().build();
             equalSetBuilder = new ImmutableEqualSet.Builder<>();
-            fdDagBuilder = new FuncDepsDAG.Builder();
+            fdDgBuilder = new FuncDepsDG.Builder();
         }
 
         public Builder(FunctionalDependencies other) {
@@ -151,7 +151,7 @@ public class FunctionalDependencies {
             this.uniqueSet = new NestedSet(other.uniqueSet);
             this.fdItems = ImmutableSet.copyOf(other.fdItems);
             equalSetBuilder = new ImmutableEqualSet.Builder<>(other.equalSet);
-            fdDagBuilder = new FuncDepsDAG.Builder(other.fdDag);
+            fdDgBuilder = new FuncDepsDG.Builder(other.fdDg);
         }
 
         public void addUniformSlot(Slot slot) {
@@ -186,15 +186,15 @@ public class FunctionalDependencies {
             uniformSet.add(fd.uniformSet);
             uniqueSet.add(fd.uniqueSet);
             equalSetBuilder.addEqualSet(fd.equalSet);
-            fdDagBuilder.addDeps(fd.fdDag);
+            fdDgBuilder.addDeps(fd.fdDg);
         }
 
-        public void addFuncDepsDAG(FunctionalDependencies fd) {
-            fdDagBuilder.addDeps(fd.fdDag);
+        public void addFuncDepsDG(FunctionalDependencies fd) {
+            fdDgBuilder.addDeps(fd.fdDg);
         }
 
         public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
-            fdDagBuilder.addDeps(dominate, dependency);
+            fdDgBuilder.addDeps(dominate, dependency);
         }
 
         /**
@@ -209,8 +209,8 @@ public class FunctionalDependencies {
 
             while (iterator.hasNext()) {
                 Set<Slot> slotSet = ImmutableSet.of(iterator.next());
-                fdDagBuilder.addDeps(first, slotSet);
-                fdDagBuilder.addDeps(slotSet, first);
+                fdDgBuilder.addDeps(first, slotSet);
+                fdDgBuilder.addDeps(slotSet, first);
             }
         }
 
@@ -250,7 +250,7 @@ public class FunctionalDependencies {
 
         public FunctionalDependencies build() {
             return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable(),
-                    ImmutableSet.copyOf(fdItems), equalSetBuilder.build(), fdDagBuilder.build());
+                    ImmutableSet.copyOf(fdItems), equalSetBuilder.build(), fdDgBuilder.build());
         }
 
         public void pruneSlots(Set<Slot> outputSlots) {
