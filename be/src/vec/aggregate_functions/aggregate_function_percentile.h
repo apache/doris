@@ -283,8 +283,9 @@ public:
     }
 };
 
+template <typename T>
 struct PercentileState {
-    mutable std::vector<Counts> vec_counts;
+    mutable std::vector<Counts<T>> vec_counts;
     std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
 
@@ -317,7 +318,7 @@ struct PercentileState {
         }
     }
 
-    void add(int64_t source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
+    void add(T source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
@@ -346,7 +347,7 @@ struct PercentileState {
             if (vec_quantile[i] == -1.0) {
                 vec_quantile[i] = rhs.vec_quantile[i];
             }
-            vec_counts[i].merge(const_cast<Counts*>(&(rhs.vec_counts[i])));
+            vec_counts[i].merge(const_cast<Counts<T>*>(&(rhs.vec_counts[i])));
         }
     }
 
@@ -366,12 +367,13 @@ struct PercentileState {
     }
 };
 
+template <typename T>
 class AggregateFunctionPercentile final
-        : public IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentile> {
+        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
 public:
-    AggregateFunctionPercentile(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentile>(
-                      argument_types_) {}
+    using ColVecType = ColumnVector<T>;
+    using Base = IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>;
+    AggregateFunctionPercentile(const DataTypes& argument_types_) : Base(argument_types_) {}
 
     String get_name() const override { return "percentile"; }
 
@@ -379,10 +381,10 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& sources = assert_cast<const ColumnVector<Int64>&>(*columns[0]);
+        const auto& sources = assert_cast<const ColVecType&>(*columns[0]);
         const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
-        AggregateFunctionPercentile::data(place).add(sources.get_int(row_num), quantile.get_data(),
-                                                     1);
+        AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
+                                                     quantile.get_data(), 1);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
@@ -409,12 +411,15 @@ public:
     }
 };
 
+template <typename T>
 class AggregateFunctionPercentileArray final
-        : public IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray> {
+        : public IAggregateFunctionDataHelper<PercentileState<T>,
+                                              AggregateFunctionPercentileArray<T>> {
 public:
-    AggregateFunctionPercentileArray(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray>(
-                      argument_types_) {}
+    using ColVecType = ColumnVector<T>;
+    using Base =
+            IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentileArray<T>>;
+    AggregateFunctionPercentileArray(const DataTypes& argument_types_) : Base(argument_types_) {}
 
     String get_name() const override { return "percentile_array"; }
 
@@ -424,7 +429,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& sources = assert_cast<const ColumnVector<Int64>&>(*columns[0]);
+        const auto& sources = assert_cast<const ColVecType&>(*columns[0]);
         const auto& quantile_array = assert_cast<const ColumnArray&>(*columns[1]);
         const auto& offset_column_data = quantile_array.get_offsets();
         const auto& nested_column =
