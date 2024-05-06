@@ -44,6 +44,7 @@ public class TokenManager {
 
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
+    private  String latestToken;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
@@ -60,12 +61,13 @@ public class TokenManager {
     }
 
     private String generateNewToken() {
-        return UUID.randomUUID().toString();
+        latestToken = UUID.randomUUID().toString();
+        return latestToken;
     }
 
     public String acquireToken() throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
-            return tokenQueue.peek();
+            return latestToken;
         } else {
             try {
                 return acquireTokenFromMaster();
