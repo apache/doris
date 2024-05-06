@@ -40,6 +40,8 @@ suite("test_string_function_regexp") {
 
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp '^billie' ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k not regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} where (k regexp '[0]^[0-9]+.{0,1}[0-9]+\$') = 1;"
+
 
     // regexp as function
     qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, '^billie') ORDER BY k;"

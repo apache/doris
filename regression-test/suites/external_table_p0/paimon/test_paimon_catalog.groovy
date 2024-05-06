@@ -169,6 +169,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c100= """select * from array_nested order by c1;"""
 
+            def c102= """select * from row_native_test order by id;"""
+            def c103= """select * from row_jni_test order by id;"""
+
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -266,6 +269,10 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            qt_c102 c102
+            sql """ set force_jni_scanner=true; """
+            qt_c103 c103
+            sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon
             sql """ switch internal """

@@ -66,6 +66,9 @@ Status SingleReplicaCompaction::pick_rowsets_to_compact() {
 }
 
 Status SingleReplicaCompaction::execute_compact_impl() {
+    if (!_tablet->should_fetch_from_peer()) {
+        return Status::Aborted("compaction should be performed locally");
+    }
     std::unique_lock<std::mutex> lock_cumu(_tablet->get_cumulative_compaction_lock(),
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
@@ -114,8 +117,7 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     Version proper_version;
     // 3. find proper version to fetch
     if (!_find_rowset_to_fetch(peer_versions, &proper_version)) {
-        LOG(WARNING) << _tablet->tablet_id() << " tablet don't need to fetch, no matched version";
-        return Status::Aborted("no matched version to fetch");
+        return Status::Cancelled("no matched versions for single replica compaction");
     }
 
     // 4. fetch compaction result
@@ -131,6 +133,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
         _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
+
+    _tablet->set_last_fetched_version(_output_rowset->version());
 
     int64_t current_max_version;
     {
@@ -165,23 +169,19 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        LOG(WARNING) << "get rowset versions from peer: get rpc stub failed, host = " << addr.host
-                     << " port = " << addr.brpc_port;
-        return Status::Cancelled("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed");
     }
 
     brpc::Controller cntl;
     stub->get_tablet_rowset_versions(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
-        LOG(WARNING) << "open brpc connection to " << addr.host << " failed: " << cntl.ErrorText();
-        return Status::Cancelled("open brpc connection failed");
+        return Status::Aborted("open brpc connection failed");
     }
     if (response.status().status_code() != 0) {
-        LOG(WARNING) << "peer " << addr.host << " don't have tablet " << _tablet->tablet_id();
-        return Status::Cancelled("peer don't have tablet");
+        return Status::Aborted("peer don't have tablet");
     }
     if (response.versions_size() == 0) {
-        return Status::Cancelled("no peer version");
+        return Status::Aborted("no peer version");
     }
     for (int i = 0; i < response.versions_size(); ++i) {
         (*peer_versions)

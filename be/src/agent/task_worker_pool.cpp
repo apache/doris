@@ -2015,7 +2015,8 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
                                          storage_medium);
         }
         // get a random store of specified storage medium
-        auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
+        auto stores = StorageEngine::instance()->get_stores_for_create_tablet(
+                tablet->partition_id(), storage_medium);
         if (stores.empty()) {
             return Status::InternalError("failed to get root path for create tablet");
         }

@@ -84,7 +84,11 @@ public:
         _field_name = std::wstring(field_name.begin(), field_name.end());
     }
 
-    ~InvertedIndexColumnWriterImpl() override = default;
+    ~InvertedIndexColumnWriterImpl() override {
+        if (_index_writer != nullptr) {
+            close_on_error();
+        }
+    }
 
     Status init() override {
         try {
@@ -105,6 +109,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
+            _index_writer.reset();
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
@@ -205,12 +210,8 @@ public:
                 // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
                 _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
             }
-            auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
-            if (lowercase == "true") {
-                _analyzer->set_lowercase(true);
-            } else if (lowercase == "false") {
-                _analyzer->set_lowercase(false);
-            }
+            setup_analyzer_lowercase(_analyzer);
+            setup_analyzer_use_stopwords(_analyzer);
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "inverted index create analyzer failed: {}", e.what());
@@ -241,6 +242,24 @@ public:
         }
         _doc->add(*_field);
         return Status::OK();
+    }
+
+    void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
+            analyzer->set_lowercase(true);
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
+            analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+        }
     }
 
     Status add_document() {

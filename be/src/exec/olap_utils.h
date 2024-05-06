@@ -154,6 +154,10 @@ inline SQLFilterOp to_olap_filter_type(const std::string& function_name, bool op
         return opposite ? FILTER_NOT_IN : FILTER_IN;
     } else if (function_name == "ne") {
         return opposite ? FILTER_IN : FILTER_NOT_IN;
+    } else if (function_name == "in_list") {
+        return opposite ? FILTER_IN : FILTER_NOT_IN;
+    } else if (function_name == "not_in_list") {
+        return opposite ? FILTER_NOT_IN : FILTER_IN;
     } else {
         DCHECK(false) << "Function Name: " << function_name;
         return FILTER_IN;
