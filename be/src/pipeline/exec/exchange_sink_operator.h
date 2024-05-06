@@ -60,7 +60,7 @@ public:
               _serializer(this) {
         _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                                           parent->get_name() + "_FINISH_DEPENDENCY",
-                                                          state->get_query_ctx());
+                                                          true, state->get_query_ctx());
     }
 
     std::vector<Dependency*> dependencies() const override {
