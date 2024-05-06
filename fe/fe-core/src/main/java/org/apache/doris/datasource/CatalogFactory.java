@@ -149,7 +149,7 @@ public class CatalogFactory {
 
         // set some default properties if missing when creating catalog.
         // both replaying the creating logic will call this method.
-        catalog.setDefaultPropsIfMissing();
+        catalog.setDefaultPropsIfMissing(isReplay);
 
         if (!isReplay) {
             catalog.checkWhenCreating();

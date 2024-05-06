@@ -100,7 +100,7 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
     // Set default value to false to be compatible with older version meta data.
-    public static final boolean DEFAULT_USE_META_CACHE = true;
+    public static final boolean DEFAULT_USE_META_CACHE = false;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -171,9 +171,11 @@ public abstract class ExternalCatalog
 
     // Will be called when creating catalog(so when as replaying)
     // to add some default properties if missing.
-    public void setDefaultPropsIfMissing() {
+    public void setDefaultPropsIfMissing(boolean isReplay) {
         if (catalogProperty.getOrDefault(USE_META_CACHE, "").isEmpty()) {
-            catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
+            // If not setting USE_META_CACHE in replay logic,
+            // set default value to false to be compatible with older version meta data.
+            catalogProperty.addProperty(USE_META_CACHE, isReplay ? "false" : String.valueOf(DEFAULT_USE_META_CACHE));
         }
         useMetaCache = Optional.of(
                 Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
@@ -256,15 +258,6 @@ public abstract class ExternalCatalog
             }
             initialized = true;
         }
-    }
-
-    protected void setUseMetaCache() {
-        String val = catalogProperty.getOrDefault(USE_META_CACHE, "");
-        if (val.isEmpty()) {
-            catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-            val = String.valueOf(DEFAULT_USE_META_CACHE);
-        }
-        useMetaCache = Optional.of(Boolean.valueOf(val));
     }
 
     protected final void initLocalObjects() {
@@ -692,7 +685,7 @@ public abstract class ExternalCatalog
         }
         this.propLock = new byte[0];
         this.initialized = false;
-        setDefaultPropsIfMissing();
+        setDefaultPropsIfMissing(true);
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
