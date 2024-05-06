@@ -352,7 +352,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = table.getId();
 
                 if (isExpire(tableId, currentTimeMs)) {
-                    if (table.getType() == TableType.OLAP) {
+                    if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
                         Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
                     }
 

@@ -196,6 +196,7 @@ private:
         }
         default:
             LOG(FATAL) << "get error type page cache";
+            __builtin_unreachable();
         }
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();

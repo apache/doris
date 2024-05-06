@@ -107,6 +107,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
@@ -537,27 +538,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             if (!is_dup_mow_key) {
                 break;
             }
-
-            if (_shared_scan_opt) {
-                auto& read_source = tablets_read_source.emplace_back();
-                auto st = tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false);
-                if (!st.ok()) {
-                    LOG(WARNING) << "fail to init reader.res=" << st;
-                    return Status::InternalError(
-                            "failed to initialize storage reader. tablet_id={} : {}",
-                            tablet->tablet_id(), st.to_string());
-                }
-                if (!_state->skip_delete_predicate()) {
-                    read_source.fill_delete_predicates();
-                }
-
-                auto& rs_seg_count = tablet_rs_seg_count.emplace_back();
-                for (const auto& rowset_splits : read_source.rs_splits) {
-                    auto num_segments = rowset_splits.rs_reader->rowset()->num_segments();
-                    rs_seg_count.emplace_back(num_segments);
-                    segment_count += num_segments;
-                }
-            }
         }
     }
 
@@ -624,114 +604,29 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         return Status::OK();
     };
 
-    if (_shared_scan_opt && is_dup_mow_key) {
-        // 2. Split segment evenly to each scanner (e.g. each scanner need to scan `avg_segment_count_per_scanner` segments)
-        const auto avg_segment_count_by_scanner =
-                std::max(segment_count / config::doris_scanner_thread_pool_thread_num, (size_t)1);
-        for (int i = 0; i < _scan_ranges.size(); ++i) {
-            auto&& [tablet, version] = tablets_to_scan[i];
-            std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
-            int num_ranges = ranges->size();
-            std::vector<doris::OlapScanRange*> scanner_ranges(num_ranges);
-            for (int j = 0; j < num_ranges; ++j) {
-                scanner_ranges[j] = (*ranges)[j].get();
-            }
+    for (auto&& [tablet, version] : tablets_to_scan) {
+        std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
+        int size_based_scanners_per_tablet = 1;
 
-            // Segment count in current rowset vector
-            const auto& rs_seg_count = tablet_rs_seg_count[i];
-
-            size_t rowset_idx = 0;
-            size_t segment_idx_to_scan = 0;
-            size_t num_segments_assigned = 0;
-
-            auto& read_source = tablets_read_source[i];
-            std::vector<RowSetSplits> rs_splits;
-
-            while (rowset_idx < rs_seg_count.size()) {
-                // do not generator range of segment (0, 0)
-                if (rs_seg_count[rowset_idx] == 0) {
-                    segment_idx_to_scan = 0;
-                    rowset_idx++;
-                    continue;
-                }
-
-                const auto max_add_seg_nums = rs_seg_count[rowset_idx] - segment_idx_to_scan;
-                auto& split = rs_splits.emplace_back(); // NOLINT(bugprone-use-after-move)
-                split.rs_reader = read_source.rs_splits[rowset_idx].rs_reader->clone();
-
-                // if segments assigned to current scanner are already more than the average count,
-                // this scanner will just scan segments equal to the average count
-                if (num_segments_assigned + max_add_seg_nums > avg_segment_count_by_scanner) {
-                    auto need_add_seg_nums = avg_segment_count_by_scanner - num_segments_assigned;
-                    split.segment_offsets = {
-                            segment_idx_to_scan,
-                            segment_idx_to_scan + need_add_seg_nums}; // only scan need_add_seg_nums
-
-                    RETURN_IF_ERROR(build_new_scanner(
-                            tablet, version, scanner_ranges,
-                            {std::move(rs_splits), read_source.delete_predicates}));
-
-                    segment_idx_to_scan += need_add_seg_nums;
-                    num_segments_assigned = 0;
-                } else if (num_segments_assigned + max_add_seg_nums ==
-                           avg_segment_count_by_scanner) {
-                    split.segment_offsets = {segment_idx_to_scan, rs_seg_count[rowset_idx]};
-                    RETURN_IF_ERROR(build_new_scanner(
-                            tablet, version, scanner_ranges,
-                            {std::move(rs_splits), read_source.delete_predicates}));
-
-                    segment_idx_to_scan = 0;
-                    num_segments_assigned = 0;
-                    rowset_idx++;
-                } else {
-                    split.segment_offsets = {segment_idx_to_scan, rs_seg_count[rowset_idx]};
-
-                    segment_idx_to_scan = 0;
-                    num_segments_assigned += max_add_seg_nums;
-                    rowset_idx++;
-                }
-            }
-
-#ifndef NDEBUG
-            for (const auto& rs_reader_with_segments : rs_splits) {
-                DCHECK_NE(rs_reader_with_segments.segment_offsets.first,
-                          rs_reader_with_segments.segment_offsets.second);
-            }
-#endif
-
-            // dispose some segment tail
-            if (!rs_splits.empty()) {
-                RETURN_IF_ERROR(
-                        build_new_scanner(tablet, version, scanner_ranges,
-                                          {std::move(rs_splits), read_source.delete_predicates}));
-            }
+        if (config::doris_scan_range_max_mb > 0) {
+            size_based_scanners_per_tablet = std::max(
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
-    } else {
-        for (auto&& [tablet, version] : tablets_to_scan) {
-            std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
-            int size_based_scanners_per_tablet = 1;
-
-            if (config::doris_scan_range_max_mb > 0) {
-                size_based_scanners_per_tablet =
-                        std::max(1, (int)(tablet->tablet_footprint() /
-                                          (config::doris_scan_range_max_mb << 20)));
-            }
-            int ranges_per_scanner =
-                    std::max(1, (int)ranges->size() / std::min(scanners_per_tablet,
-                                                               size_based_scanners_per_tablet));
-            int num_ranges = ranges->size();
-            for (int i = 0; i < num_ranges;) {
-                std::vector<doris::OlapScanRange*> scanner_ranges;
+        int ranges_per_scanner =
+                std::max(1, (int)ranges->size() /
+                                    std::min(scanners_per_tablet, size_based_scanners_per_tablet));
+        int num_ranges = ranges->size();
+        for (int i = 0; i < num_ranges;) {
+            std::vector<doris::OlapScanRange*> scanner_ranges;
+            scanner_ranges.push_back((*ranges)[i].get());
+            ++i;
+            for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
+                            (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+                 ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
-                ++i;
-                for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
-                                (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
-                     ++j, ++i) {
-                    scanner_ranges.push_back((*ranges)[i].get());
-                }
-                // Construct `ReadSource` in `NewOlapScanner::init`
-                RETURN_IF_ERROR(build_new_scanner(tablet, version, scanner_ranges, {}));
             }
+            // Construct `ReadSource` in `NewOlapScanner::init`
+            RETURN_IF_ERROR(build_new_scanner(tablet, version, scanner_ranges, {}));
         }
     }
 

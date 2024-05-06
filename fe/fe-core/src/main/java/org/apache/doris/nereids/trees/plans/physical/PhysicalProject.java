@@ -315,9 +315,4 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public void setMultiLayerProjects(List<List<NamedExpression>> multiLayers) {
         this.multiLayerProjects = multiLayers;
     }
-
-    @Override
-    public List<Slot> getOutput() {
-        return computeOutput();
-    }
 }

@@ -98,9 +98,7 @@ public interface Plan extends TreeNode<Plan> {
     /**
      * Get output slot set of the plan.
      */
-    default Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
+    Set<Slot> getOutputSet();
 
     /** getOutputExprIds */
     default List<ExprId> getOutputExprIds() {

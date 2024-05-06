@@ -25,7 +25,7 @@
 #include "util/slice.h"
 
 namespace doris::io {
-
+struct FileCacheAllocatorBuilder;
 class LocalFileWriter final : public FileWriter {
 public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);
@@ -37,6 +37,8 @@ public:
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
     bool closed() const override { return _closed; }
+
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     void _abort();

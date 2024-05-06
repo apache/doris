@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -144,5 +145,10 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
                 || assertNumRowsElement.getAssertion() == Assertion.LE)) {
             getOutput().forEach(fdBuilder::addUniformSlot);
         }
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

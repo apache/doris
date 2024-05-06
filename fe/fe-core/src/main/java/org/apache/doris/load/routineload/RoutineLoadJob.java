@@ -1316,7 +1316,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void replayOnAborted(TransactionState txnState) {
         // attachment may be null if this task is aborted by FE
-        if (txnState.getTxnCommitAttachment() != null) {
+        // it need check commit info before update progress
+        // for follower FE node progress may exceed correct progress
+        // the data will lost if FE leader change at this moment
+        if (txnState.getTxnCommitAttachment() != null
+                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
+                        txnState,
+                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
         this.jobStatistic.abortedTaskNum++;

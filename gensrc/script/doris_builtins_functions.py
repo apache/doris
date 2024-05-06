@@ -1080,6 +1080,8 @@ visible_functions = {
         [['weeks_sub'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_add', 'date_add', 'adddate'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_sub', 'date_sub', 'subdate'], 'DATEV2', ['DATEV2', 'INT'], ''],
+        [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'], ''],
+        [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'], ''],
         [['hours_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['hours_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['minutes_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
@@ -1827,9 +1829,12 @@ visible_functions = {
     #hll function
     "Hll": [
         [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_empty'], 'HLL', [], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['hll_from_base64'], 'HLL', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['hll_from_base64'], 'HLL', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['hll_to_base64'], 'STRING', ['HLL'], '']
     ],
 
 

@@ -36,8 +36,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -61,7 +59,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
-    private final FileSystem fs;
     private final HMSExternalCatalog catalog;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
@@ -74,24 +71,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client) {
         this.catalog = catalog;
         this.client = client;
-        // TODO Currently only supports DFSFileSystem, more types will be supported in the future
-        this.fs = new DFSFileSystem(catalog.getProperties());
     }
-
-    // for test
-    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client, FileSystem fs) {
-        this.catalog = catalog;
-        this.client = client;
-        this.fs = fs;
-    }
-
 
     public HMSCachedClient getClient() {
         return client;
     }
 
-    public FileSystem getFs() {
-        return fs;
+    public HMSExternalCatalog getCatalog() {
+        return catalog;
     }
 
     public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,

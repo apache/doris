@@ -27,11 +27,12 @@ SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, 
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
             state->get_query_ctx());
 }
+
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
                                      doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
 
     _init_counters();
 
@@ -45,6 +46,7 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
     }
     return Status::OK();
 }
+
 void SpillSortSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
@@ -72,10 +74,7 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_merge_block_timer, "MergeBlockTime");
     UPDATE_PROFILE(_sort_blocks_memory_usage, "SortBlocks");
 }
-Status SpillSortSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
-}
+
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
     auto& parent = Base::_parent->template cast<Parent>();
     if (parent._enable_spill) {
@@ -106,9 +105,10 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     auto* sink_local_state = _runtime_state->get_sink_local_state();
     DCHECK(sink_local_state != nullptr);
 
-    _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
+    RETURN_IF_ERROR(sink_local_state->open(state));
 
-    return sink_local_state->open(state);
+    _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
+    return Status::OK();
 }
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id,
@@ -136,10 +136,6 @@ Status SpillSortSinkOperatorX::prepare(RuntimeState* state) {
 Status SpillSortSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::open(state));
     return _sort_sink_operator->open(state);
-}
-Status SpillSortSinkOperatorX::close(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::close(state));
-    return _sort_sink_operator->close(state);
 }
 Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state) {
     if (!_enable_spill) {
@@ -231,85 +227,79 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
-    status = ExecEnv::GetInstance()
-                     ->spill_stream_mgr()
-                     ->get_spill_io_thread_pool(_spilling_stream->get_spill_root_dir())
-                     ->submit_func([this, state, &parent, execution_context, submit_timer] {
-                         auto execution_context_lock = execution_context.lock();
-                         if (!execution_context_lock) {
-                             LOG(INFO) << "query " << print_id(state->query_id())
-                                       << " execution_context released, maybe query was cancelled.";
-                             return Status::OK();
-                         }
+    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+            [this, state, query_id, &parent, execution_context, submit_timer] {
+                auto execution_context_lock = execution_context.lock();
+                if (!execution_context_lock) {
+                    LOG(INFO) << "query " << print_id(query_id)
+                              << " execution_context released, maybe query was cancelled.";
+                    return Status::OK();
+                }
 
-                         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                         SCOPED_ATTACH_TASK(state);
-                         Defer defer {[&]() {
-                             if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
-                                 if (!_shared_state->sink_status.ok()) {
-                                     LOG(WARNING) << "query " << print_id(state->query_id())
-                                                  << " sort node " << _parent->id()
-                                                  << " revoke memory error: "
-                                                  << _shared_state->sink_status;
-                                 }
-                                 _shared_state->close();
-                             } else {
-                                 VLOG_DEBUG << "query " << print_id(state->query_id())
-                                            << " sort node " << _parent->id()
-                                            << " revoke memory finish";
-                             }
+                _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+                SCOPED_ATTACH_TASK(state);
+                Defer defer {[&]() {
+                    if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
+                        if (!_shared_state->sink_status.ok()) {
+                            LOG(WARNING) << "query " << print_id(query_id) << " sort node "
+                                         << _parent->id()
+                                         << " revoke memory error: " << _shared_state->sink_status;
+                        }
+                        _shared_state->close();
+                    } else {
+                        VLOG_DEBUG << "query " << print_id(query_id) << " sort node "
+                                   << _parent->id() << " revoke memory finish";
+                    }
 
-                             _spilling_stream->end_spill(_shared_state->sink_status);
-                             if (!_shared_state->sink_status.ok()) {
-                                 _shared_state->close();
-                             }
+                    if (!_shared_state->sink_status.ok()) {
+                        _shared_state->close();
+                    }
 
-                             _spilling_stream.reset();
-                             if (_eos) {
-                                 _dependency->set_ready_to_read();
-                                 _finish_dependency->set_ready();
-                             } else {
-                                 _dependency->Dependency::set_ready();
-                             }
-                         }};
+                    _spilling_stream.reset();
+                    if (_eos) {
+                        _dependency->set_ready_to_read();
+                        _finish_dependency->set_ready();
+                    } else {
+                        _dependency->Dependency::set_ready();
+                    }
+                }};
 
-                         _shared_state->sink_status = parent._sort_sink_operator->prepare_for_spill(
-                                 _runtime_state.get());
-                         RETURN_IF_ERROR(_shared_state->sink_status);
+                _shared_state->sink_status =
+                        parent._sort_sink_operator->prepare_for_spill(_runtime_state.get());
+                RETURN_IF_ERROR(_shared_state->sink_status);
 
-                         auto* sink_local_state = _runtime_state->get_sink_local_state();
-                         update_profile(sink_local_state->profile());
+                auto* sink_local_state = _runtime_state->get_sink_local_state();
+                update_profile(sink_local_state->profile());
 
-                         bool eos = false;
-                         vectorized::Block block;
-                         while (!eos && !state->is_cancelled()) {
-                             {
-                                 SCOPED_TIMER(_spill_merge_sort_timer);
-                                 _shared_state->sink_status =
-                                         parent._sort_sink_operator->merge_sort_read_for_spill(
-                                                 _runtime_state.get(), &block,
-                                                 _shared_state->spill_block_batch_row_count, &eos);
-                             }
-                             RETURN_IF_ERROR(_shared_state->sink_status);
-                             {
-                                 SCOPED_TIMER(Base::_spill_timer);
-                                 _shared_state->sink_status =
-                                         _spilling_stream->spill_block(state, block, eos);
-                             }
-                             RETURN_IF_ERROR(_shared_state->sink_status);
-                             block.clear_column_data();
-                         }
-                         parent._sort_sink_operator->reset(_runtime_state.get());
+                bool eos = false;
+                vectorized::Block block;
+                while (!eos && !state->is_cancelled()) {
+                    {
+                        SCOPED_TIMER(_spill_merge_sort_timer);
+                        _shared_state->sink_status =
+                                parent._sort_sink_operator->merge_sort_read_for_spill(
+                                        _runtime_state.get(), &block,
+                                        _shared_state->spill_block_batch_row_count, &eos);
+                    }
+                    RETURN_IF_ERROR(_shared_state->sink_status);
+                    {
+                        SCOPED_TIMER(Base::_spill_timer);
+                        _shared_state->sink_status =
+                                _spilling_stream->spill_block(state, block, eos);
+                    }
+                    RETURN_IF_ERROR(_shared_state->sink_status);
+                    block.clear_column_data();
+                }
+                parent._sort_sink_operator->reset(_runtime_state.get());
 
-                         return Status::OK();
-                     });
+                return Status::OK();
+            });
     if (!status.ok()) {
-        _spilling_stream->end_spill(status);
-
         if (!_eos) {
             Base::_dependency->Dependency::set_ready();
         }

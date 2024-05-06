@@ -427,7 +427,9 @@ class Syncer {
 
     Boolean checkRestoreFinish() {
         String checkSQL = "SHOW RESTORE FROM TEST_" + context.db
-        List<Object> row = suite.sql(checkSQL)[0]
+        int size = suite.sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = suite.sql(checkSQL)[size-1]
         logger.info("Now row is ${row}")
 
         return (row[4] as String) == "FINISHED"
@@ -645,9 +647,9 @@ class Syncer {
 
         // step 2: get partitionIds
         metaMap.values().forEach {
-            baseSql += "/" + it.id.toString() + "/partitions"
+            def partitionSql = baseSql + "/" + it.id.toString() + "/partitions"
             Map<Long, Long> partitionInfo = Maps.newHashMap()
-            sqlInfo = sendSql.call(baseSql, toSrc)
+            sqlInfo = sendSql.call(partitionSql, toSrc)
             for (List<Object> row : sqlInfo) {
                 partitionInfo.put(row[0] as Long, row[2] as Long)
             }
@@ -660,7 +662,7 @@ class Syncer {
             for (Entry<Long, Long> info : partitionInfo) {
 
                 // step 3.1: get partition/indexId
-                String partitionSQl = baseSql + "/" + info.key.toString()
+                String partitionSQl = partitionSql + "/" + info.key.toString()
                 sqlInfo = sendSql.call(partitionSQl, toSrc)
                 if (sqlInfo.isEmpty()) {
                     logger.error("Target cluster partition-${info.key} indexId fault.")

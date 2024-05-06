@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -66,7 +67,8 @@ public class CreateViewStmt extends BaseViewStmt {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
                         tableName.getTbl(), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.CREATE.getPrivs().toString(), tableName.getTbl());
         }
 
         // Do not rewrite nondeterministic functions to constant in create view's def stmt
@@ -83,7 +85,7 @@ public class CreateViewStmt extends BaseViewStmt {
             Analyzer viewAnalyzer = new Analyzer(analyzer);
             viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
-
+            checkQueryAuth();
             createColumnAndViewDefs(viewAnalyzer);
         } finally {
             // must reset this flag, otherwise, all following query statement in this connection
@@ -92,5 +94,13 @@ public class CreateViewStmt extends BaseViewStmt {
                 ConnectContext.get().setNotEvalNondeterministicFunction(false);
             }
         }
+    }
+
+    public void setInlineViewDef(String querySql) {
+        inlineViewDef = querySql;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 }

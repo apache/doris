@@ -13,5 +13,5 @@ UNIQUE KEY (`p_partkey`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"storage_vault" = "ssb_sf1_p2"
+"storage_vault_name" = "ssb_sf1_p2"
 );

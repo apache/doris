@@ -363,7 +363,7 @@ class UniqueTest extends TestWithFeService {
     void testWindow() {
         // partition by uniform
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select id, row_number() over(partition by id) from agg where id =1")
+                .analyze("select id, row_number() over(partition by name) from agg where name ='d'")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()

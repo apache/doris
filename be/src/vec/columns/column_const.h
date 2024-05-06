@@ -253,6 +253,10 @@ public:
                                  const IColumn::Selector& selector) const override {
         assert_cast<Self&>(*res).resize(selector.size());
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        assert_cast<Self&>(*res).resize(end - begin);
+    }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
@@ -292,6 +296,7 @@ public:
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         LOG(FATAL) << "should not call the method in column const";
+        __builtin_unreachable();
     }
 };
 } // namespace doris::vectorized

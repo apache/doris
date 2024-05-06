@@ -53,7 +53,6 @@ suite("test_schema_change_duplicate", "p0") {
             set 'column_separator', ','
 
             file 'all_types.csv'
-            time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {

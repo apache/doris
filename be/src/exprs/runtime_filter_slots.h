@@ -41,9 +41,9 @@ public:
         }
     }
 
-    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size, bool publish_local,
-                            pipeline::CountedFinishDependency* dependency) {
-        if (_runtime_filters.empty() || publish_local) {
+    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
+                            std::shared_ptr<pipeline::Dependency> dependency) {
+        if (_runtime_filters.empty()) {
             return Status::OK();
         }
         for (auto* runtime_filter : _runtime_filters) {

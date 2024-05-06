@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.ConfigBase.ConfField;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -146,11 +144,11 @@ public class Config extends ConfigBase {
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
-            + "默认为 * 全部允许，如果设置为空责全部不允许",
+            + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
             "The safe path of the JDBC driver. When creating a JDBC Catalog,"
                     + "you can configure multiple files or network paths that are allowed to be used,"
                     + "separated by semicolons"
-                    + "The default is * to allow all, if set to empty, all are not allowed"})
+                    + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
@@ -983,6 +981,14 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * publish version queue's size in be, report it to fe,
+     * if publish task in be exceed direct_publish_limit_number,
+     * fe will direct publish task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_version_queued_limit_number = 1000;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -1302,7 +1308,11 @@ public class Config extends ConfigBase {
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
+    )
     public static int cache_last_version_interval_second = 30;
 
     /**
@@ -1461,17 +1471,23 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * whether to ignore table that not support type when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean ignore_backup_not_support_table_type = false;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
     public static int default_max_query_instances = -1;
 
     /*
-     * One master daemon thread will update global partition in memory
-     * info every partition_in_memory_update_interval_secs
+     * One master daemon thread will update global partition info, include in memory and visible version
+     * info every partition_info_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static int partition_in_memory_update_interval_secs = 300;
+    public static int partition_info_update_interval_secs = 60;
 
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
@@ -1605,7 +1621,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -1757,7 +1773,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 4;
+    public static int max_be_exec_version = 5;
 
     /**
      * Min data version of backends serialize block.
@@ -2004,6 +2020,20 @@ public class Config extends ConfigBase {
                     + "the old load statement will be degraded."})
     public static boolean enable_nereids_load = false;
 
+    /**
+     * the plan cache num which can be reused for the next query
+     */
+    @ConfField(
+            mutable = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
+                "Now default set to 100, this config is used to control the number of "
+                        + "sql cache managed by NereidsSqlCacheManager"
+            }
+    )
+    public static int sql_cache_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2343,11 +2373,17 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(description = {
+    @ConfField(mutable = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
+
+    @ConfField(mutable = true, description = {
+        "Auto Buckets中最大的buckets数目",
+        "max buckets of auto bucket"
+    })
+    public static int autobucket_max_buckets = 128;
 
     @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
             + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
@@ -2525,6 +2561,15 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    /* https://forums.oracle.com/ords/apexds/post/je-log-checksumexception-2812
+      when meeting disk damage or other reason described in the oracle forums
+      and fe cannot start due to `com.sleepycat.je.log.ChecksumException`, we
+      add a param `ignore_bdbje_log_checksum_read` to ignore the exception, but
+      there is no guarantee of correctness for bdbje kv data
+    */
+    @ConfField
+    public static boolean ignore_bdbje_log_checksum_read = false;
+
     @ConfField(description = {"指定 mysql登录身份认证类型",
             "Specifies the authentication type"},
             options = {"default", "ldap"})
@@ -2653,6 +2698,40 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    /**
+     * Default number of waiting copy jobs for the whole cluster
+     */
+    @ConfField(mutable = true)
+    public static int cluster_max_waiting_copy_jobs = 100;
+
+    /**
+     * Default number of max file num for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_file_num_per_copy_into_job = 50;
+
+    /**
+     * Default number of max meta size for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_meta_size_per_copy_into_job = 51200;
+
+    // 0 means no limit
+    @ConfField(mutable = true)
+    public static int cloud_max_copy_job_per_table = 10000;
+
+    @ConfField(mutable = true)
+    public static int cloud_filter_copy_file_num_limit = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_delete_loaded_internal_stage_files = false;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_txn_conflict_error_retry_num = 5;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_into_statement_submitter_threads_num = 64;
+
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
@@ -2684,13 +2763,56 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = true;
+    public static boolean enable_cloud_warm_up_for_rebalance = true;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
     @ConfField(mutable = true)
     public static int mow_insert_into_commit_retry_times = 10;
+
+    @ConfField(mutable = true, description = {"指定S3 Load endpoint白名单, 举例: s3_load_endpoint_white_list=a,b,c",
+            "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
+            + "for example: s3_load_endpoint_white_list=a,b,c"})
+    public static String[] s3_load_endpoint_white_list = {};
+
+    @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
+            "the white list for jdbc driver url, if it is empty, no white list will be set"
+            + "for example: jdbc_driver_url_white_list=a,b,c"
+    })
+    public static String[] jdbc_driver_url_white_list = {};
+
+    @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
+            "Stream_Load When importing, the maximum length of label is limited"})
+    public static int label_regex_length = 128;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fetch_cluster_cache_hotspot = true;
+
+    @ConfField(mutable = true)
+    public static long fetch_cluster_cache_hotspot_interval_ms = 600000;
+    // to control the max num of values inserted into cache hotspot internal table
+    // insert into cache table when the size of batch values reaches this limit
+    @ConfField(mutable = true)
+    public static long batch_insert_cluster_cache_hotspot_num = 50;
+
+    /**
+     * intervals between be status checks for CloudUpgradeMgr
+     */
+    @ConfField(mutable = true)
+    public static int cloud_upgrade_mgr_interval_second = 15;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_running_txn_check = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

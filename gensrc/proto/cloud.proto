@@ -176,6 +176,7 @@ message ObjectStoreInfoPB {
         COS = 2;
         OBS = 3;
         BOS = 4;
+        GCP = 5;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
@@ -191,15 +192,14 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
-    optional string name = 16;
 }
 
-// The legacy OObjectStoreInfoPBbjectStoreInfoPB is stored in instnaceinfopb
+// The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
-    reserved 4; // reserved for S3.
+    optional ObjectStoreInfoPB obj_info = 4;
 }
 
 message HdfsBuildConf {
@@ -688,6 +688,18 @@ message GetTxnResponse {
     optional TxnInfoPB txn_info = 2;
 }
 
+message GetTxnIdRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional string label = 3;
+    repeated TxnStatusPB txn_status = 4;
+}
+
+message GetTxnIdResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 txn_id = 2;
+}
+
 message GetCurrentMaxTxnRequest {
     optional string cloud_unique_id = 1; // For auth
 }
@@ -762,18 +774,23 @@ message AlterObjStoreInfoRequest {
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
         ADD_BUILT_IN_VAULT = 102;
+        ADD_S3_VAULT = 103;
+        DROP_S3_VAULT = 104;
 
         SET_DEFAULT_VAULT = 200;
+        UNSET_DEFAULT_VAULT = 201;
     }
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
-    optional StorageVaultPB hdfs = 4;
+    optional StorageVaultPB vault = 4;
+    optional bool set_as_default_storage_vault = 5;
 }
 
 message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
+    optional bool default_storage_vault_replaced = 3;
 }
 
 message UpdateAkSkRequest {
@@ -790,6 +807,8 @@ message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
     repeated StorageVaultPB storage_vault = 3;
+    optional string default_storage_vault_id = 4;
+    optional string default_storage_vault_name = 5;
 };
 
 message CreateTabletsRequest {
@@ -888,6 +907,7 @@ message PartitionRequest {
     repeated int64 index_ids = 4;
     optional int64 expiration = 5;
     optional int64 db_id = 6;
+    optional bool need_update_table_version = 7;
 }
 
 message PartitionResponse {
@@ -912,7 +932,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
-    optional HdfsVaultInfo hdfs_info = 7;
+    optional StorageVaultPB vault = 7;
 }
 
 message CreateInstanceResponse {
@@ -1342,6 +1362,7 @@ service MetaService {
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
+    rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);

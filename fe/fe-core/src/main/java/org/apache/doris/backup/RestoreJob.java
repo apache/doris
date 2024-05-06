@@ -620,12 +620,17 @@ public class RestoreJob extends AbstractJob {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
                         }
-                        if (!localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)
-                                .equals(remoteOlapTbl.getSignature(
-                                        BackupHandler.SIGNATURE_VERSION, intersectPartNames))) {
+                        String localTblSignature = localOlapTbl.getSignature(
+                                BackupHandler.SIGNATURE_VERSION, intersectPartNames);
+                        String remoteTblSignature = remoteOlapTbl.getSignature(
+                                BackupHandler.SIGNATURE_VERSION, intersectPartNames);
+                        if (!localTblSignature.equals(remoteTblSignature)) {
+                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
+                            LOG.warn("Table {} already exists but with different schema, "
+                                    + "local table: {}, remote table: {}",
+                                    alias, localTblSignature, remoteTblSignature);
                             status = new Status(ErrCode.COMMON_ERROR, "Table "
-                                    + jobInfo.getAliasByOriginNameIfSet(tableName)
-                                    + " already exist but with different schema");
+                                    + alias + " already exist but with different schema");
                             return;
                         }
 
@@ -1774,8 +1779,7 @@ public class RestoreJob extends AbstractJob {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersionInfo(part.getVisibleVersion(), replica.getDataSize(),
-                                            replica.getRemoteDataSize(), replica.getRowCount());
+                                    replica.updateVersion(part.getVisibleVersion());
                                 }
                             }
                         }

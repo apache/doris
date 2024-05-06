@@ -412,6 +412,7 @@ message PKafkaMetaProxyRequest {
 
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+    optional int64 timeout_secs = 2;
 };
 
 message PKafkaMetaProxyResult {
@@ -784,7 +785,7 @@ enum FileCacheType {
     NORMAL = 2;
 }
 
-message FileCacheSegmentMeta {
+message FileCacheBlockMeta {
     required int64 tablet_id = 1;
     required string rowset_id = 2;
     required int64 segment_id = 3;
@@ -796,7 +797,7 @@ message FileCacheSegmentMeta {
 }
 
 message PGetFileCacheMetaResponse {
-    repeated FileCacheSegmentMeta file_cache_segment_metas = 1;
+    repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
 message PReportStreamLoadStatusRequest {

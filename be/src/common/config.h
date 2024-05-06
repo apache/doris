@@ -129,6 +129,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Schema change memory limit as a fraction of soft memory limit.
+DECLARE_Double(schema_change_mem_limit_frac);
+
 // Many modern allocators (for example) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -474,6 +477,13 @@ DECLARE_mInt32(compaction_task_num_per_fast_disk);
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
 
+// Not compact the invisible versions, but with some limitations:
+// if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
+// if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
+DECLARE_mInt32(compaction_keep_invisible_version_timeout_sec);
+DECLARE_mInt32(compaction_keep_invisible_version_min_count);
+DECLARE_mInt32(compaction_keep_invisible_version_max_count);
+
 // Threshold to logging compaction trace, in seconds.
 DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
@@ -715,6 +725,9 @@ DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 DECLARE_Int32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_Int32(high_priority_flush_thread_num_per_store);
+// number of threads = min(flush_thread_num_per_store * num_store,
+//                         max_flush_thread_num_per_cpu * num_cpu)
+DECLARE_Int32(max_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1022,6 +1035,9 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
+DECLARE_mBool(enable_read_cache_file_directly);
+DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
+DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1070,10 +1086,11 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt64(s3_write_buffer_size);
-// The timeout config for S3 buffer allocation
-DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
+// Log interval when doing s3 upload task
+DECLARE_mInt32(s3_file_writer_log_interval_second);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
+DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
@@ -1110,6 +1127,7 @@ DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
 // FAST: Perform CU lookup using .debug_aranges (might be incomplete).
@@ -1126,7 +1144,7 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
-DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+DECLARE_mInt64(lookup_connection_cache_capacity);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
@@ -1200,6 +1218,8 @@ DECLARE_mBool(exit_on_exception);
 DECLARE_mString(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
+DECLARE_mBool(enable_workload_group_memory_gc);
+
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
@@ -1235,6 +1255,7 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
+DECLARE_mInt32(report_exec_status_thread_num);
 
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DECLARE_mDouble(high_disk_avail_level_diff_usages);
@@ -1242,16 +1263,22 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-DECLARE_mInt64(spill_storage_limit);
+// Spill storage limit specified as number of bytes
+// ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
+// or percentage of capaity ('<int>%').
+// Defaults to bytes if no unit is given.
+// Must larger than 0.
+// If specified as percentage, the final limit value is:
+//   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
-DECLARE_Int32(spill_io_thread_pool_per_disk_thread_num);
+DECLARE_mInt32(spill_gc_file_count);
+DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
-DECLARE_Int32(spill_async_task_thread_pool_thread_num);
-DECLARE_Int32(spill_async_task_thread_pool_queue_size);
-DECLARE_mInt32(spill_mem_warning_water_mark_multiplier);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
+DECLARE_mBool(enable_s3_rate_limiter);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 
@@ -1265,12 +1292,12 @@ DECLARE_String(trino_connector_plugin_dir);
 DECLARE_mString(ca_cert_file_paths);
 
 /** Table sink configurations(currently contains only external table types) **/
-// Minimum data processed to scale writers when non partition writing
+// Minimum data processed to scale writers in exchange when non partition writing
 DECLARE_mInt64(table_sink_non_partition_write_scaling_data_processed_threshold);
-// Minimum data processed to start rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_data_processed_threshold);
 // Minimum data processed to trigger skewed partition rebalancing in exchange when partition writing
-DECLARE_mInt64(table_sink_partition_write_skewed_data_processed_rebalance_threshold);
+DECLARE_mInt64(table_sink_partition_write_min_data_processed_rebalance_threshold);
+// Minimum partition data processed to rebalance writers in exchange when partition writing
+DECLARE_mInt64(table_sink_partition_write_min_partition_data_processed_rebalance_threshold);
 // Maximum processed partition nums of per writer when partition writing
 DECLARE_mInt32(table_sink_partition_write_max_partition_nums_per_writer);
 
@@ -1281,8 +1308,27 @@ DECLARE_mInt64(hive_sink_max_file_size);
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
 
+// http scheme in S3Client to use. E.g. http or https
+DECLARE_String(s3_client_http_scheme);
+
 // enable injection point in regression-test
 DECLARE_mBool(enable_injection_point);
+
+DECLARE_mBool(ignore_schema_change_check);
+
+/** Only use in fuzzy test **/
+DECLARE_mInt64(string_overflow_size);
+
+// The min thread num for BufferedReaderPrefetchThreadPool
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
+// The max thread num for BufferedReaderPrefetchThreadPool
+DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
+// The min thread num for S3FileUploadThreadPool
+DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
+// The max thread num for S3FileUploadThreadPool
+DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
+// The max ratio for ttl cache's size
+DECLARE_mInt64(max_ttl_cache_ratio);
 
 #ifdef BE_TEST
 // test s3

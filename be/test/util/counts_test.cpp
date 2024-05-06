@@ -42,12 +42,16 @@ TEST_F(TCountsTest, TotalTest) {
 
     double result = counts.terminate(0.2);
     EXPECT_EQ(1, result);
-    uint8_t* writer = new uint8_t[counts.serialized_size()];
-    uint8_t* type_reader = writer;
-    counts.serialize(writer);
+
+    auto cs = vectorized::ColumnString::create();
+    vectorized::BufferWritable bw(*cs);
+    counts.serialize(bw);
+    bw.commit();
 
     Counts other;
-    other.unserialize(type_reader);
+    StringRef res(cs->get_chars().data(), cs->get_chars().size());
+    vectorized::BufferReadable br(res);
+    other.unserialize(br);
     double result1 = other.terminate(0.2);
     EXPECT_EQ(result, result1);
 
@@ -58,10 +62,19 @@ TEST_F(TCountsTest, TotalTest) {
     other1.increment(10, 1);
     other1.increment(99, 2);
 
-    counts.merge(&other1);
+    // deserialize other1
+    cs->clear();
+    other1.serialize(bw);
+    bw.commit();
+    Counts other1_deserialized;
+    vectorized::BufferReadable br1(res);
+    other1_deserialized.unserialize(br1);
+
+    Counts merge_res;
+    merge_res.merge(&other);
+    merge_res.merge(&other1_deserialized);
     // 1 1 1 1 2 5 7 7 9 9 10 19 50 50 50 99 99 100 100 100
-    EXPECT_EQ(counts.terminate(0.3), 6.4);
-    delete[] writer;
+    EXPECT_EQ(merge_res.terminate(0.3), 6.4);
 }
 
 } // namespace doris

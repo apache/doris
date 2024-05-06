@@ -28,7 +28,7 @@ suite("load") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault"
         );
     """
 
@@ -37,7 +37,7 @@ suite("load") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHdfsFs()}",
-        "root_prefix" = "default_vault_ssb_flat_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_flat_hdfs_vault"
         );
     """
 
@@ -45,8 +45,8 @@ suite("load") {
     SET default_vault_ssb_flat_hdfs_vault AS DEFAULT STORAGE VAULT
     """
 
-    // sleep 2 seconds to wait for BE sync the vault info from MS
-    sleep(2000)
+    // sleep 3 minutes to wait for BE sync the vault info from MS
+    sleep(180000)
 
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that

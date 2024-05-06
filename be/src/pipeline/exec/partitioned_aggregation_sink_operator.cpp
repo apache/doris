@@ -122,9 +122,11 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
 
 PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                          const TPlanNode& tnode,
-                                                         const DescriptorTbl& descs)
+                                                         const DescriptorTbl& descs,
+                                                         bool require_bucket_distribution)
         : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
-    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs);
+    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
+                                                            require_bucket_distribution);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -249,14 +251,15 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
 
     auto execution_context = state->get_task_execution_context();
     _shared_state_holder = _shared_state->shared_from_this();
+    auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-            [this, &parent, state, execution_context, submit_timer] {
+    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+            [this, &parent, state, query_id, execution_context, submit_timer] {
                 auto execution_context_lock = execution_context.lock();
                 if (!execution_context_lock) {
-                    LOG(INFO) << "query " << print_id(state->query_id())
+                    LOG(INFO) << "query " << print_id(query_id)
                               << " execution_context released, maybe query was cancelled.";
                     return Status::Cancelled("Cancelled");
                 }
@@ -267,13 +270,13 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                     if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                         if (!_shared_state->sink_status.ok()) {
                             LOG(WARNING)
-                                    << "query " << print_id(state->query_id()) << " agg node "
+                                    << "query " << print_id(query_id) << " agg node "
                                     << Base::_parent->id()
                                     << " revoke_memory error: " << Base::_shared_state->sink_status;
                         }
                         _shared_state->close();
                     } else {
-                        VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node "
+                        VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
                                    << Base::_parent->id() << " revoke_memory finish"
                                    << ", eos: " << _eos;
                     }
@@ -288,10 +291,16 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                 auto* runtime_state = _runtime_state.get();
                 auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
                 Base::_shared_state->sink_status = std::visit(
-                        [&](auto&& agg_method) -> Status {
-                            auto& hash_table = *agg_method.hash_table;
-                            return _spill_hash_table(state, agg_method, hash_table, _eos);
-                        },
+                        vectorized::Overload {[&](std::monostate& arg) -> Status {
+                                                  throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                                         "uninited hash table");
+                                                  return Status::InternalError("Unit hash table");
+                                              },
+                                              [&](auto& agg_method) -> Status {
+                                                  auto& hash_table = *agg_method.hash_table;
+                                                  return _spill_hash_table(state, agg_method,
+                                                                           hash_table, _eos);
+                                              }},
                         agg_data->method_variant);
                 RETURN_IF_ERROR(Base::_shared_state->sink_status);
                 Base::_shared_state->sink_status =

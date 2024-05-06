@@ -271,6 +271,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
+    public LogicalAggregate<Plan> withChildAndOutput(CHILD_TYPE child,
+                                                       List<NamedExpression> outputExpressionList) {
+        return new LogicalAggregate<>(groupByExpressions, outputExpressionList, normalized, ordinalIsResolved,
+                generated, hasPushed, sourceRepeat, Optional.empty(),
+                Optional.empty(), child);
+    }
+
     @Override
     public List<NamedExpression> getOutputs() {
         return outputExpressions;
@@ -389,5 +396,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         builder.add(fdItem);
 
         return builder.build();
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

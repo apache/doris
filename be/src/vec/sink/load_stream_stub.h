@@ -198,6 +198,20 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
+    std::string to_string();
+
+    // for tests only
+    void add_success_tablet(int64_t tablet_id) {
+        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+        _success_tablets.push_back(tablet_id);
+    }
+
+    // for tests only
+    void add_failed_tablet(int64_t tablet_id, Status reason) {
+        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        _failed_tablets[tablet_id] = reason;
+    }
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);

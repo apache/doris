@@ -83,7 +83,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
                 .tag("tablet_id", tablet_id);
-        // Becasue of the rowset_ids become empty, all delete bitmap
+        // Because of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
     }
@@ -159,7 +159,7 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             break;
         }
         auto txn_iter = _txn_map.find(iter->second);
-        if (iter->first == txn_iter->second.txn_expiration) {
+        if ((txn_iter != _txn_map.end()) && (iter->first == txn_iter->second.txn_expiration)) {
             LOG_INFO("clean expired delete bitmap")
                     .tag("txn_id", txn_iter->first.txn_id)
                     .tag("expiration", txn_iter->second.txn_expiration)

@@ -137,16 +137,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child) {
-        Preconditions.checkArgument(children.size() == 1,
-                "LogicalTopN should have 1 child, but input is %s", children.size());
         return new LogicalTopN<>(orderKeys, limit, offset, child);
     }
 
     public LogicalTopN<Plan> withLimitOrderKeyAndChild(long limit, long offset, List<OrderKey> orderKeys, Plan child) {
-        Preconditions.checkArgument(children.size() == 1,
-                "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalTopN<>(orderKeys, limit, offset,
-                Optional.empty(), Optional.of(getLogicalProperties()), child);
+        return new LogicalTopN<>(orderKeys, limit, offset, child);
     }
 
     @Override
@@ -185,6 +180,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         } else {
             fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         }
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 
     @Override

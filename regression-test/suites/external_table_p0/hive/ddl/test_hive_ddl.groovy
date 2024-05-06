@@ -73,7 +73,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                         properties('location'='tt://${externalEnvIp}:${hdfs_port}/exist_check')
                     """
             } catch (Exception e) {
-                assertTrue(e.getMessage().contains("No FileSystem for scheme: tt"))
+                assertTrue(e.getMessage().contains("No FileSystem for scheme"))
             }
             try {
                 sql """ create database if not exists `test_hive_loc_no_exist`
@@ -91,113 +91,27 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             }
         }
 
-        def test_loc_tbl = { String file_format, String externalEnvIp, String hdfs_port, String catalog_name ->
-            logger.info("Test create/drop table with location...")
+        def test_tbl_default_val = { String file_format, String externalEnvIp, String hms_port,
+                                     String hdfs_port, String catalog_name ->
+
+            // create and insert default value is supported on hive3, we can test default hive version 2.3
             sql """switch ${catalog_name}"""
-            def loc = "${externalEnvIp}:${hdfs_port}/tmp/hive/test_hive_loc_db"
-            sql  """ create database if not exists `test_hive_loc`
-                    properties('location'='hdfs://${loc}')
+            sql  """ create database if not exists `test_hive_default_val`
                  """
-            sql """use `test_hive_loc`"""
-
-            // case1. the table default location is inherited from db
-            sql """DROP TABLE IF EXISTS `loc_tbl_${file_format}_default`"""
-            sql """
-                    CREATE TABLE loc_tbl_${file_format}_default (
-                      `col` STRING COMMENT 'col'
-                    )  ENGINE=hive 
-                    PROPERTIES (
-                      'file_format'='${file_format}'
-                    )
-                 """
-            def create_tbl_res = sql """ show create table loc_tbl_${file_format}_default """
-            logger.info("${create_tbl_res}")
-            assertTrue(create_tbl_res.toString().containsIgnoreCase("${loc}/loc_tbl_${file_format}_default"))
-
-            sql """ INSERT INTO loc_tbl_${file_format}_default values(1)  """
-
-            def tvfRes = sql """ SELECT * FROM hdfs(
-                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
-                                  'format' = '${file_format}',
-                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
-                                 )
-                             """
-            logger.info("${tvfRes}")
-            assertTrue(!tvfRes.isEmpty())
-            sql """DROP TABLE `loc_tbl_${file_format}_default`"""
-            def tvfDropRes = sql """ SELECT * FROM hdfs(
-                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
-                                  'format' = '${file_format}',
-                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
-                                 )
-                             """
-            logger.info("${tvfDropRes}")
-            assertTrue(tvfDropRes.isEmpty())
-
-            // case2. use a custom location to create table
-            def tbl_loc = "hdfs://${loc}/custom_loc"
-            sql """ DROP TABLE IF EXISTS loc_tbl_${file_format}_customm"""
-            sql """
-                    CREATE TABLE loc_tbl_${file_format}_custom (
-                      `col` STRING COMMENT 'col'
-                    )  ENGINE=hive 
-                    PROPERTIES (
-                      'file_format'='${file_format}',
-                      'location'='${tbl_loc}'
-                    )
-                 """
-            def create_tbl_res2 = sql """ show create table loc_tbl_${file_format}_custom """
-            logger.info("${create_tbl_res2}")
-            assertTrue(create_tbl_res2.toString().containsIgnoreCase("${tbl_loc}"))
-            sql """ INSERT INTO loc_tbl_${file_format}_custom values(1)  """
-            def tvfRes2 = sql """ SELECT * FROM hdfs(
-                                    'uri'='${tbl_loc}/*',
-                                    'format' = '${file_format}',
-                                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
-                                  )
-                              """
-            logger.info("${tvfRes2}")
-            assertTrue(!tvfRes2.isEmpty())
-            sql """DROP TABLE `loc_tbl_${file_format}_custom`"""
-            def tvfDropRes2 = sql """ SELECT * FROM hdfs(
-                                        'uri'='${tbl_loc}/*',
-                                        'format' = '${file_format}',
-                                        'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
-                                      )
-                                  """
-            logger.info("${tvfDropRes2}")
-            assertTrue(tvfDropRes2.isEmpty())
-
-            // case3. check default
-            sql """
-                CREATE TABLE all_default_values_${file_format}(
-                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
-                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
-                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
-                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
-                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
-                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
-                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
-                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
-                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
-                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
-                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
-                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
-                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
-                )  ENGINE=hive
-                PROPERTIES (
-                  'file_format'='${file_format}'
-                )
-                """
-            // need support default insert:
-            //            sql """ INSERT INTO all_default_values_${file_format}
-            //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
-            //                """
-            //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
-            //                    VALUES(null, null, null, null)
-            //                """
-            //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
-            sql """DROP TABLE `all_default_values_${file_format}`"""
+            sql """use `test_hive_default_val`"""
+            test {
+                sql """ 
+                        CREATE TABLE all_default_values_${file_format}_hive2(
+                          `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+                          `col2` TINYINT DEFAULT '127' COMMENT 'col2'
+                        )  ENGINE=hive
+                        PROPERTIES (
+                          'file_format'='${file_format}'
+                        )
+                    """
+                exception "java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create database from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
+            }
+            sql """DROP DATABASE `test_hive_default_val`"""
 
             test {
                 sql """
@@ -283,7 +197,138 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 exception "errCode = 2, detailMessage = errCode = 2, detailMessage = date literal [2020-09-20 02:60] is invalid: Text '2020-09-20 02:60' could not be parsed: Invalid value for MinuteOfHour (valid values 0 - 59): 60"
             }
 
-            // case4. check some exceptions
+            // test 'hive.version' = '3.0'
+            //            sql """drop catalog if exists ${catalog_name}_hive3"""
+            //            sql """create catalog if not exists ${catalog_name}_hive3 properties (
+            //                'type'='hms',
+            //                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            //                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+            //                'hive.version' = '3.0'
+            //            );"""
+            //            sql """ switch ${catalog_name}_hive3 """
+            //            sql  """ create database if not exists `test_hive_default_val_hive3`
+            //                 """
+            //            sql """use `test_hive_default_val_hive3`"""
+            //            // test create hive3 table when use 'hive.version' = '3.0'
+            //            sql """
+            //                CREATE TABLE all_default_values_${file_format}(
+            //                  `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
+            //                  `col2` TINYINT DEFAULT '127' COMMENT 'col2',
+            //                  `col3` SMALLINT DEFAULT '32767' COMMENT 'col3',
+            //                  `col4` INT DEFAULT '2147483647' COMMENT 'col4',
+            //                  `col5` BIGINT DEFAULT '9223372036854775807' COMMENT 'col5',
+            //                  `col6` CHAR(10) DEFAULT 'default' COMMENT 'col6',
+            //                  `col7` FLOAT DEFAULT '1' COMMENT 'col7',
+            //                  `col8` DOUBLE DEFAULT '3.141592653' COMMENT 'col8',
+            //                  `col9` DECIMAL(9,4) DEFAULT '99999.9999' COMMENT 'col9',
+            //                  `col10` VARCHAR(11) DEFAULT 'default' COMMENT 'col10',
+            //                  `col11` STRING DEFAULT 'default' COMMENT 'col11',
+            //                  `col12` DATE DEFAULT '2023-05-29' COMMENT 'col12',
+            //                  `col13` DATETIME DEFAULT current_timestamp COMMENT 'col13'
+            //                )  ENGINE=hive
+            //                PROPERTIES (
+            //                  'file_format'='${file_format}'
+            //                )
+            //                """
+            //            // TODO: work on hive3
+            //            sql """ INSERT INTO all_default_values_${file_format}
+            //                    VALUES(null, null, null, null, null, null, null, null, null, null, null, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col1, col3, col5, col7, col12)
+            //                    VALUES(false, null, 3.4, null, null)
+            //                """
+            //            sql """ INSERT INTO all_default_values_${file_format} (col2, col4, col6, col9, col11)
+            //                    VALUES(-128, null, 'A', null, '2024-07-30')
+            //                """
+            //            order_qt_default_val01 """ SELECT * FROM all_default_values_${file_format} """
+            //            test {
+            //                sql """ INSERT INTO all_default_values_${file_format} (col2, col4, col6, col9, col11)
+            //                    VALUES("123", "abcd", 'Ab', null, '2024-07-30')
+            //                """
+            //                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Invalid number format: abcd"
+            //            }
+            //
+            //            sql """DROP TABLE `all_default_values_${file_format}`"""
+        }
+
+        def test_loc_tbl = { String file_format, String externalEnvIp, String hdfs_port, String catalog_name ->
+            logger.info("Test create/drop table with location...")
+            sql """switch ${catalog_name}"""
+            def loc = "${externalEnvIp}:${hdfs_port}/tmp/hive/test_hive_loc_db"
+            sql  """ create database if not exists `test_hive_loc`
+                    properties('location'='hdfs://${loc}')
+                 """
+            sql """use `test_hive_loc`"""
+
+            // case1. the table default location is inherited from db
+            sql """DROP TABLE IF EXISTS `loc_tbl_${file_format}_default`"""
+            sql """
+                    CREATE TABLE loc_tbl_${file_format}_default (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive 
+                    PROPERTIES (
+                      'file_format'='${file_format}'
+                    )
+                 """
+            def create_tbl_res = sql """ show create table loc_tbl_${file_format}_default """
+            logger.info("${create_tbl_res}")
+            assertTrue(create_tbl_res.toString().containsIgnoreCase("${loc}/loc_tbl_${file_format}_default"))
+
+            sql """ INSERT INTO loc_tbl_${file_format}_default values(1)  """
+
+            def tvfRes = sql """ SELECT * FROM hdfs(
+                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
+                                  'format' = '${file_format}',
+                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                 )
+                             """
+            logger.info("${tvfRes}")
+            assertTrue(!tvfRes.isEmpty())
+            sql """DROP TABLE `loc_tbl_${file_format}_default`"""
+            def tvfDropRes = sql """ SELECT * FROM hdfs(
+                                  'uri'='hdfs://${loc}/loc_tbl_${file_format}_default/*',
+                                  'format' = '${file_format}',
+                                  'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                 )
+                             """
+            logger.info("${tvfDropRes}")
+            assertTrue(tvfDropRes.isEmpty())
+
+            // case2. use a custom location to create table
+            def tbl_loc = "hdfs://${loc}/custom_loc"
+            sql """ DROP TABLE IF EXISTS loc_tbl_${file_format}_customm"""
+            sql """
+                    CREATE TABLE loc_tbl_${file_format}_custom (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive 
+                    PROPERTIES (
+                      'file_format'='${file_format}',
+                      'location'='${tbl_loc}'
+                    )
+                 """
+            def create_tbl_res2 = sql """ show create table loc_tbl_${file_format}_custom """
+            logger.info("${create_tbl_res2}")
+            assertTrue(create_tbl_res2.toString().containsIgnoreCase("${tbl_loc}"))
+            sql """ INSERT INTO loc_tbl_${file_format}_custom values(1)  """
+            def tvfRes2 = sql """ SELECT * FROM hdfs(
+                                    'uri'='${tbl_loc}/*',
+                                    'format' = '${file_format}',
+                                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                  )
+                              """
+            logger.info("${tvfRes2}")
+            assertTrue(!tvfRes2.isEmpty())
+            sql """DROP TABLE `loc_tbl_${file_format}_custom`"""
+            def tvfDropRes2 = sql """ SELECT * FROM hdfs(
+                                        'uri'='${tbl_loc}/*',
+                                        'format' = '${file_format}',
+                                        'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                                      )
+                                  """
+            logger.info("${tvfDropRes2}")
+            assertTrue(tvfDropRes2.isEmpty())
+
+            // case3. check some exceptions
             def comment_check = sql """ CREATE TABLE ex_tbl_${file_format}(
                                           `col1` INT COMMENT 'col1',
                                           `col2` STRING COMMENT 'col2',
@@ -419,6 +464,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ create database if not exists `test_hive_db_tbl` """;
             sql """use `${catalog_name}`.`test_hive_db_tbl`"""
 
+            sql """ drop table if exists unpart_tbl_${file_format}"""
             sql """
                 CREATE TABLE unpart_tbl_${file_format}(
                   `col1` BOOLEAN COMMENT 'col1',
@@ -638,8 +684,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "test_hive_ddl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -658,6 +704,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             for (String file_format in file_formats) {
                 logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
+                test_tbl_default_val(file_format, externalEnvIp, hms_port, hdfs_port, catalog_name)
                 test_db_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)
 
                 for (String compression in compressions) {

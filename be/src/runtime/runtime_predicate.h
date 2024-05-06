@@ -76,6 +76,22 @@ public:
 
     Status update(const Field& value);
 
+    bool has_value() const {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        return _has_value;
+    }
+
+    Field get_value() const {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        return _orderby_extrem;
+    }
+
+    std::string get_col_name() const { return _col_name; }
+
+    bool is_asc() const { return _is_asc; }
+
+    bool nulls_first() const { return _nulls_first; }
+
 private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};
@@ -90,6 +106,7 @@ private:
             _pred_constructor;
     bool _inited = false;
     std::string _col_name;
+    bool _has_value = false;
 
     template <PrimitiveType type>
     static std::string get_normal_value(const Field& field) {

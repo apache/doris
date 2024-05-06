@@ -85,7 +85,8 @@ public class BackendServiceClient {
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             InternalService.PCancelPlanFragmentRequest request) {
-        return stub.cancelPlanFragment(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .cancelPlanFragment(request);
     }
 
     public Future<InternalService.PFetchDataResult> fetchDataAsync(InternalService.PFetchDataRequest request) {

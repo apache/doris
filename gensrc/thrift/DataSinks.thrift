@@ -284,6 +284,8 @@ struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
   3: optional Types.TFileType file_type
+  // Other object store will convert write_path to s3 scheme path for BE, this field keeps the original write path.
+  4: optional string original_write_path
 }
 
 struct TSortedColumn {
@@ -338,6 +340,13 @@ enum TUpdateMode {
     OVERWRITE = 2 // insert overwrite
 }
 
+struct TS3MPUPendingUpload {
+    1: optional string bucket
+    2: optional string key
+    3: optional string upload_id
+    4: optional map<i32, string> etags
+}
+
 struct THivePartitionUpdate {
     1: optional string name
     2: optional TUpdateMode update_mode
@@ -345,6 +354,22 @@ struct THivePartitionUpdate {
     4: optional list<string> file_names
     5: optional i64 row_count
     6: optional i64 file_size
+    7: optional list<TS3MPUPendingUpload> s3_mpu_pending_uploads
+}
+
+enum TFileContent {
+    DATA = 0,
+    POSITION_DELETES = 1,
+    EQUALITY_DELETES = 2
+}
+
+struct TIcebergCommitData {
+    1: optional string file_path
+    2: optional i64 row_count
+    3: optional i64 file_size
+    4: optional TFileContent file_content
+    5: optional list<string> partition_values 
+    6: optional list<string> referenced_data_files
 }
 
 struct TDataSink {

@@ -68,7 +68,7 @@ suite("test_trino_hive_serde_prop", "external_docker,hive,external_docker_hive,p
         String catalog_name = "test_trino_hive_serde_prop"
         String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get("hive2HmsPort")
 
         sql """drop catalog if exists ${catalog_name} """
         sql """

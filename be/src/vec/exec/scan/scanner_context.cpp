@@ -405,9 +405,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
         std::stringstream scanner_wait_worker_time;
+        std::stringstream scanner_projection;
         scanner_statistics << "[";
         scanner_rows_read << "[";
         scanner_wait_worker_time << "[";
+        scanner_projection << "[";
         // Scanners can in 3 state
         //  state 1: in scanner context, not scheduled
         //  state 2: in scanner worker pool's queue, scheduled but not running
@@ -419,6 +421,9 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             }
             // Add per scanner running time before close them
             scanner_statistics << PrettyPrinter::print(scanner->_scanner->get_time_cost_ns(),
+                                                       TUnit::TIME_NS)
+                               << ", ";
+            scanner_projection << PrettyPrinter::print(scanner->_scanner->projection_time(),
                                                        TUnit::TIME_NS)
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->_scanner->get_rows_read(),
@@ -434,9 +439,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         scanner_statistics << "]";
         scanner_rows_read << "]";
         scanner_wait_worker_time << "]";
+        scanner_projection << "]";
         _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
         _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
+        _scanner_profile->add_info_string("PerScannerProjectionTime", scanner_projection.str());
     }
 
     _blocks_queue_added_cv.notify_one();

@@ -58,11 +58,15 @@
 // Usually used to record query more detailed memory, including ExecNode operators.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
+
+#define SCOPED_SKIP_MEMORY_CHECK() \
+    auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
 #define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) (void)0
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
+#define SCOPED_SKIP_MEMORY_CHECK() (void)0
 #endif
 
 // Used to tracking the memory usage of the specified code segment use by mem hook.
@@ -79,30 +83,20 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 
-#define ORPHAN_TRACKER_CHECK()                                                 \
-    DCHECK(!doris::config::enable_memory_orphan_check ||                       \
-           doris::thread_context()->thread_mem_tracker()->label() != "Orphan") \
+#define ORPHAN_TRACKER_CHECK()                                                  \
+    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
+           doris::thread_context()->thread_mem_tracker()->label() != "Orphan")  \
             << doris::memory_orphan_check_msg
 
-#define MEMORY_ORPHAN_CHECK() \
-    DCHECK(!doris::config::enable_memory_orphan_check) << doris::memory_orphan_check_msg;
+#define MEMORY_ORPHAN_CHECK()                                                 \
+    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check) \
+            << doris::memory_orphan_check_msg;
 #else
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) (void)0
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) (void)0
 #define ORPHAN_TRACKER_CHECK() (void)0
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
-
-#define SKIP_MEMORY_CHECK(...)                                             \
-    do {                                                                   \
-        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
-        doris::thread_context()->skip_memory_check++;                      \
-        DEFER({                                                            \
-            doris::thread_context()->skip_memory_check--;                  \
-            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); \
-        });                                                                \
-        __VA_ARGS__;                                                       \
-    } while (0)
 
 #define SKIP_LARGE_MEMORY_CHECK(...)                                       \
     do {                                                                   \
@@ -200,7 +194,7 @@ public:
 
     void consume_memory(const int64_t size) const {
 #ifdef USE_MEM_TRACKER
-        DCHECK(!doris::config::enable_memory_orphan_check ||
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
 #endif
@@ -278,10 +272,6 @@ static ThreadContext* thread_context() {
         DCHECK(thread_context_ptr != nullptr);
         return thread_context_ptr;
     }
-#if !defined(USE_MEM_TRACKER) || defined(BE_TEST)
-    DCHECK(doris::ExecEnv::ready());
-    return doris::ExecEnv::GetInstance()->env_thread_context();
-#endif
     if (bthread_self() != 0) {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
@@ -405,6 +395,19 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 };
 
+class ScopeSkipMemoryCheck {
+public:
+    explicit ScopeSkipMemoryCheck() {
+        ThreadLocalHandle::create_thread_local_if_not_exits();
+        doris::thread_context()->skip_memory_check++;
+    }
+
+    ~ScopeSkipMemoryCheck() {
+        doris::thread_context()->skip_memory_check--;
+        ThreadLocalHandle::del_thread_local_if_count_is_zero();
+    }
+};
+
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // used to fix the tracking accuracy of caches.
@@ -447,7 +450,7 @@ private:
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
-        if (doris::use_mem_hook || size == 0) {                                                    \
+        if (size == 0 || doris::use_mem_hook) {                                                    \
             break;                                                                                 \
         }                                                                                          \
         if (doris::pthread_context_ptr_init) {                                                     \

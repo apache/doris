@@ -278,7 +278,7 @@ private:
                 const auto& schema = col_schema->parquet_schema;
                 if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
                     const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-                    if (timestamp_info.isAdjustedToUTC) {
+                    if (!timestamp_info.isAdjustedToUTC) {
                         // should set timezone to utc+0
                         resolved_ctz = cctz::utc_time_zone();
                     }

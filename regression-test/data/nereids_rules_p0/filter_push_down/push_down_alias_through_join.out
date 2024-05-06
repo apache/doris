@@ -2,57 +2,52 @@
 -- !pushdown_inner_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------NestedLoopJoin[INNER_JOIN](id1 > id2)
+----NestedLoopJoin[INNER_JOIN](id1 > id2)
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecReplicated]
 --------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_left_outer_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------NestedLoopJoin[LEFT_OUTER_JOIN](id1 > id2)
+----NestedLoopJoin[LEFT_OUTER_JOIN](id1 > id2)
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecReplicated]
 --------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_right_outer_join --
 PhysicalResultSink
---PhysicalProject
-----NestedLoopJoin[RIGHT_OUTER_JOIN](id1 > id2)
-------PhysicalDistribute[DistributionSpecGather]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecGather]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--NestedLoopJoin[RIGHT_OUTER_JOIN](id1 > id2)
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalOlapScan[t2]
 
 -- !pushdown_full_outer_join --
 PhysicalResultSink
---PhysicalProject
-----NestedLoopJoin[FULL_OUTER_JOIN](id1 > id2)
-------PhysicalDistribute[DistributionSpecGather]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
-------PhysicalDistribute[DistributionSpecGather]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--NestedLoopJoin[FULL_OUTER_JOIN](id1 > id2)
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalOlapScan[t2]
 
 -- !pushdown_left_semi_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------NestedLoopJoin[LEFT_SEMI_JOIN](id1 > t2.id)
+----NestedLoopJoin[LEFT_SEMI_JOIN](id1 > t2.id)
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecReplicated]
 --------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_right_semi_join --
 PhysicalResultSink
@@ -77,24 +72,22 @@ PhysicalResultSink
 -- !pushdown_left_anti_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------NestedLoopJoin[LEFT_ANTI_JOIN](id1 > t2.id)
+----NestedLoopJoin[LEFT_ANTI_JOIN](id1 > t2.id)
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecReplicated]
 --------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_cross_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------NestedLoopJoin[INNER_JOIN](id1 > t2.id)
+----NestedLoopJoin[INNER_JOIN](id1 > t2.id)
+------PhysicalProject
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecReplicated]
 --------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_multiple_joins --
 PhysicalResultSink

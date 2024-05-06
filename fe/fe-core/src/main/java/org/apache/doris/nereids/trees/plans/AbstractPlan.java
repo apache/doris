@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
@@ -34,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -120,9 +122,31 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public String treeString() {
         return TreeStringUtils.treeString(this,
                 plan -> plan.toString(),
-                plan -> (List) ((Plan) plan).children(),
-                plan -> (List) ((Plan) plan).extraPlans(),
-                plan -> ((Plan) plan).displayExtraPlanFirst());
+                plan -> {
+                    if (plan instanceof TreeStringPlan) {
+                        Optional<TreeStringNode> treeStringNode = ((TreeStringPlan) plan).parseTreeStringNode();
+                        return treeStringNode.isPresent() ? ImmutableList.of(treeStringNode.get()) : ImmutableList.of();
+                    }
+                    if (plan instanceof TreeStringNode) {
+                        return (List) ((TreeStringNode) plan).children;
+                    }
+                    if (!(plan instanceof Plan)) {
+                        return ImmutableList.of();
+                    }
+                    return (List) ((Plan) plan).children();
+                },
+                plan -> {
+                    if (!(plan instanceof Plan)) {
+                        return ImmutableList.of();
+                    }
+                    return (List) ((Plan) plan).extraPlans();
+                },
+                plan -> {
+                    if (!(plan instanceof Plan)) {
+                        return false;
+                    }
+                    return ((Plan) plan).displayExtraPlanFirst();
+                });
     }
 
     /** top toJson method, can be override by specific operator */

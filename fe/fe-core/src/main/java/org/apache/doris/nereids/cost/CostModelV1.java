@@ -176,7 +176,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         double rowCount = statistics.getRowCount();
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            rowCount *= 100;
+            rowCount = rowCount * 100 + 100;
         }
         return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
     }

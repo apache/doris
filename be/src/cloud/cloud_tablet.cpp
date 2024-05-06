@@ -31,6 +31,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
@@ -126,7 +127,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
 
     auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }
@@ -153,7 +154,7 @@ Status CloudTablet::sync_if_not_running() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            recycle_cached_data();
+            clear_cache();
         }
         return st;
     }
@@ -178,7 +179,7 @@ Status CloudTablet::sync_if_not_running() {
 
     st = _engine.meta_mgr().sync_tablet_rowsets(this);
     if (st.is<ErrorCode::NOT_FOUND>()) {
-        recycle_cached_data();
+        clear_cache();
     }
     return st;
 }
@@ -192,13 +193,52 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 
     auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
         for (auto& rs : rowsets) {
+            if (version_overlap || warmup_delta_data) {
+#ifndef BE_TEST
+                // Warmup rowset data in background
+                for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                    const auto& rowset_meta = rs->rowset_meta();
+                    constexpr int64_t interval = 600; // 10 mins
+                    // When BE restart and receive the `load_sync` rpc, it will sync all historical rowsets first time.
+                    // So we need to filter out the old rowsets avoid to download the whole table.
+                    if (warmup_delta_data &&
+                        ::time(nullptr) - rowset_meta->newest_write_timestamp() >= interval) {
+                        continue;
+                    }
+
+                    auto fs = rowset_meta->fs();
+                    if (!fs) {
+                        LOG(WARNING) << "failed to get fs. tablet_id=" << tablet_id()
+                                     << " rowset_id=" << rowset_meta->rowset_id()
+                                     << " resource_id=" << rowset_meta->resource_id();
+                        continue;
+                    }
+
+                    int64_t expiration_time =
+                            _tablet_meta->ttl_seconds() == 0 ||
+                                            rowset_meta->newest_write_timestamp() <= 0
+                                    ? 0
+                                    : rowset_meta->newest_write_timestamp() +
+                                              _tablet_meta->ttl_seconds();
+                    _engine.file_cache_block_downloader().submit_download_task(
+                            io::DownloadFileMeta {
+                                    .path = rs->segment_file_path(seg_id),
+                                    .file_size = rs->rowset_meta()->segment_file_size(seg_id),
+                                    .file_system = std::move(fs),
+                                    .ctx =
+                                            {
+                                                    .expiration_time = expiration_time,
+                                            },
+                            });
+                }
+#endif
+            }
             _rs_version_map.emplace(rs->version(), rs);
             _timestamped_version_tracker.add_version(rs->version());
             _max_version = std::max(rs->end_version(), _max_version);
             update_base_size(*rs);
         }
         _tablet_meta->add_rowsets_unchecked(rowsets);
-        // TODO(plat1ko): Warmup delta rowset data in background
     };
 
     if (!version_overlap) {
@@ -319,13 +359,17 @@ void CloudTablet::update_base_size(const Rowset& rs) {
     }
 }
 
-void CloudTablet::recycle_cached_data() {
+void CloudTablet::clear_cache() {
     CloudTablet::recycle_cached_data(get_snapshot_rowset(true));
     _engine.tablet_mgr().erase_tablet(tablet_id());
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    std::unordered_map<int, int> map;
+    for (auto& rs : rowsets) {
+        // Clear cached opened segments and inverted index cache in memory
+        rs->clear_cache();
+    }
+
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
@@ -593,7 +637,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     return Status::OK();
 }
 
-Status CloudTablet::calc_delete_bitmap_for_compaciton(
+Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
         int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap) {

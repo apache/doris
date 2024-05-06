@@ -31,6 +31,8 @@ add_executable(meta_server_test meta_server_test.cpp)
 
 add_executable(rate_limiter_test rate_limiter_test.cpp)
 
+add_executable(s3_rate_limiter_test s3_rate_limiter_test.cpp)
+
 add_executable(encryption_test encryption_test.cpp)
 
 add_executable(metric_test metric_test.cpp)
@@ -49,6 +51,8 @@ add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
 
 add_executable(stopwatch_test stopwatch_test.cpp)
 
+add_executable(network_util_test network_util_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
@@ -61,6 +65,8 @@ target_link_libraries(meta_service_test ${TEST_LINK_LIBS})
 target_link_libraries(meta_server_test ${TEST_LINK_LIBS})
 
 target_link_libraries(rate_limiter_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_rate_limiter_test ${TEST_LINK_LIBS})
 
 target_link_libraries(encryption_test ${TEST_LINK_LIBS})
 
@@ -77,6 +83,8 @@ target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
 
 target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
+
+target_link_libraries(network_util_test ${TEST_LINK_LIBS})
 
 # FDB related tests need to be linked with libfdb_c
 set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")

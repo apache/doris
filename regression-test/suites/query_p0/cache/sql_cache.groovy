@@ -211,5 +211,5 @@ suite("sql_cache") {
                         k1;
                 """
 
-    sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '900')"
+    sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 }

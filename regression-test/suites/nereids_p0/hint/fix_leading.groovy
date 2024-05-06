@@ -27,6 +27,8 @@ suite("fix_leading") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
+    sql "set ignore_shape_nodes='PhysicalProject'"
+
 
     // create tables
     sql """drop table if exists t1;"""
@@ -38,6 +40,8 @@ suite("fix_leading") {
     sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
     sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t5 (c5 int, c55 int) distributed by hash(c5) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t6 (c6 int, c66 int) distributed by hash(c6) buckets 3 properties('replication_num' = '1');"""
 
     streamLoad {
         table "t1"
@@ -170,4 +174,14 @@ suite("fix_leading") {
     qt_select4_1 """select count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_2 """select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+
+    // check whether we have all tables
+    explain {
+        sql """shape plan select /*+ leading(t1 t2)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+        contains("SyntaxError: leading(t1 t2) Msg:leading should have all tables in query block, missing tables: t3")
+    }
+
+    // check brace problem
+    qt_select6_1 """explain shape plan select /*+ leading(t1 {{t2 t3}{t4 t5}} t6) */ count(*) from t1 join t2 on c1 = c2 join t3 on c1 = c3 join t4 on c1 = c4 join t5 on c1 = c5 join t6 on c1 = c6;"""
+
 }

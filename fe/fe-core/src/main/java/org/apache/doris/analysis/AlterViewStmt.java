@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -62,9 +63,8 @@ public class AlterViewStmt extends BaseViewStmt {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
                         PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ALTER.getPrivs().toString(), tableName.getTbl());
         }
 
         if (cols != null) {
@@ -74,8 +74,16 @@ public class AlterViewStmt extends BaseViewStmt {
         viewDefStmt.setNeedToSql(true);
         Analyzer viewAnalyzer = new Analyzer(analyzer);
         viewDefStmt.analyze(viewAnalyzer);
-
+        checkQueryAuth();
         createColumnAndViewDefs(analyzer);
+    }
+
+    public void setInlineViewDef(String querySql) {
+        inlineViewDef = querySql;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 
     @Override

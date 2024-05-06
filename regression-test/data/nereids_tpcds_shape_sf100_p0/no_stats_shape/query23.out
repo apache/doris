@@ -23,12 +23,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
 --------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------filter(( not ss_customer_sk IS NULL))
---------------------PhysicalOlapScan[store_sales]
+----------PhysicalProject
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter(( not ss_customer_sk IS NULL))
+----------------------PhysicalOlapScan[store_sales]
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
@@ -64,11 +65,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3
 ------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
@@ -83,11 +82,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4
 ------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#2 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))

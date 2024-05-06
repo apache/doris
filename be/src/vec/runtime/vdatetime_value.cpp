@@ -2192,6 +2192,26 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         return false;
     }
 
+    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
+    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
+    // time part and apply the offset. Then convert to Date type back.
+    // see https://github.com/apache/doris/pull/33553 for more details.
+    if constexpr (!is_datetime) {
+        if (sec_offset) {
+            DateV2Value<DateTimeV2ValueType> tmp;
+            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
+                                              date_val[4], date_val[5], date_val[6])) {
+                return false;
+            }
+            if (!tmp.date_add_interval<TimeUnit::SECOND>(
+                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
+                return false;
+            }
+            this->assign_from(tmp);
+            return true;
+        }
+    }
+
     if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                   date_val[5], date_val[6])) {
         return false;
@@ -3387,6 +3407,7 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+        __builtin_unreachable();
     }
 }
 
@@ -3396,6 +3417,7 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+        __builtin_unreachable();
     }
 }
 

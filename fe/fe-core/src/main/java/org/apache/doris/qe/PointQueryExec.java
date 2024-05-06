@@ -41,6 +41,7 @@ import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -227,7 +229,7 @@ public class PointQueryExec implements CoordInterface {
             if (tryCount >= maxTry) {
                 break;
             }
-            status.setStatus(Status.OK);
+            status.updateStatus(TStatusCode.OK, "");
         } while (true);
         // handle status code
         if (!status.ok()) {
@@ -304,7 +306,7 @@ public class PointQueryExec implements CoordInterface {
                 long currentTs = System.currentTimeMillis();
                 if (currentTs >= timeoutTs) {
                     LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-                    status.setStatus("query timeout");
+                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
                     return null;
                 }
                 try {
@@ -313,35 +315,35 @@ public class PointQueryExec implements CoordInterface {
                     // continue to get result
                     LOG.info("future get interrupted Exception");
                     if (isCancel) {
-                        status.setStatus(Status.CANCELLED);
+                        status.updateStatus(TStatusCode.CANCELLED, "cancelled");
                         return null;
                     }
                 } catch (TimeoutException e) {
                     futureResponse.cancel(true);
                     LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-                    status.setStatus("query timeout");
+                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
                     return null;
                 }
             }
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception {}, e {}", backend.getBrpcAddress(), e);
-            status.setRpcStatus(e.getMessage());
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception {}, addr {}", e, backend.getBrpcAddress());
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-                status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
+                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else {
-                status.setRpcStatus(e.getMessage());
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
             return null;
         }
-        TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
-        if (code != TStatusCode.OK) {
-            status.setPstatus(pResult.getStatus());
+        Status resultStatus = new Status(pResult.getStatus());
+        if (resultStatus.getErrorCode() != TStatusCode.OK) {
+            status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
             return null;
         }
 
@@ -369,12 +371,17 @@ public class PointQueryExec implements CoordInterface {
         }
 
         if (isCancel) {
-            status.setStatus(Status.CANCELLED);
+            status.updateStatus(TStatusCode.CANCELLED, "cancelled");
         }
         return rowBatch;
     }
 
     public void cancel() {
         isCancel = true;
+    }
+
+    @Override
+    public List<TNetworkAddress> getInvolvedBackends() {
+        return Lists.newArrayList();
     }
 }

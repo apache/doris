@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToPro
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -209,8 +210,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             }
             SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
                     .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
-            Preconditions.checkNotNull(rewrittenSlot);
-            return context.findSlotRef(rewrittenSlot.getExprId());
+            // rewrittenSlot == null means variant is not from table. so keep element_at function
+            if (rewrittenSlot != null) {
+                return context.findSlotRef(rewrittenSlot.getExprId());
+            }
         }
         return visitScalarFunction(elementAt, context);
     }
@@ -642,6 +645,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitJavaUdf(JavaUdf udf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs);
+    }
+
+    @Override
+    public Expr visitJavaUdtf(JavaUdtf udf, PlanTranslatorContext context) {
         FunctionParams exprs = new FunctionParams(udf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));

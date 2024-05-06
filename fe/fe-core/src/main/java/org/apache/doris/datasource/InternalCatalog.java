@@ -127,6 +127,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -866,18 +867,22 @@ public class InternalCatalog implements CatalogIf<Database> {
             // Check if a view
             if (stmt.isView()) {
                 if (!(table instanceof View)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
+                            genDropHint(table));
                 }
             } else {
                 if (table instanceof View) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                            genDropHint(table));
                 }
             }
 
             if (!stmt.isMaterializedView() && table instanceof MTMV) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
+                        genDropHint(table));
             } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV");
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                        genDropHint(table));
             }
 
             if (!stmt.isForceDrop()) {
@@ -940,6 +945,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                 tableName, dbName, stmt.isForceDrop(), costTimes);
     }
 
+    private static String genDropHint(TableIf table) {
+        String type = "";
+        if (table instanceof View) {
+            type = "VIEW";
+        } else if (table instanceof OlapTable) {
+            type = "TABLE";
+        } else if (table instanceof MTMV) {
+            type = "MATERIALIZED VIEW";
+        }
+        return "Use 'DROP " + type + " " + table.getName();
+    }
+
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
             long recycleTime) {
         if (table.getType() == TableType.ELASTICSEARCH) {
@@ -961,20 +978,24 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-            Long recycleTime) throws MetaNotFoundException {
+    public void dropTable(Database db, long tableId, boolean isForceDrop,
+                          Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, true, recycleTime);
-            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
-                    tableId);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
         }
+    }
+
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+            Long recycleTime) throws MetaNotFoundException {
+        dropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
@@ -1057,7 +1078,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaById(info.getReplicaId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(), info.getRowCount());
+        replica.updateVersion(info.getVersion());
+        replica.setDataSize(info.getDataSize());
+        replica.setRemoteDataSize(info.getRemoteDataSize());
+        replica.setRowCount(info.getRowCount());
         replica.setBad(false);
     }
 
@@ -1445,8 +1469,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
-                    LOG.info("add partition[{}] which already exists", partitionName);
-                    return;
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
+                    if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
+                        return;
+                    }
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
@@ -1603,6 +1629,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
             storagePolicy = dataProperty.getStoragePolicy();
         }
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             List<Long> partitionIds = Lists.newArrayList(partitionId);
@@ -1625,8 +1656,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        LOG.info("add partition[{}] which already exists", partitionName);
+                        failedCleanCallback.run();
                         return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
@@ -1675,8 +1707,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
 
-
-
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
@@ -1720,9 +1750,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.writeUnlock();
             }
         } catch (DdlException e) {
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
     }
@@ -2172,6 +2200,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
+        if (defaultDistributionInfo instanceof HashDistributionInfo
+                    && ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns()
+                        .stream().anyMatch(column -> column.getType().isVariantType())) {
+            throw new DdlException("Hash distribution info should not contain variant columns");
+        }
+
         // calc short key column count
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
         if (LOG.isDebugEnabled()) {
@@ -2367,7 +2401,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
         String storageVaultId = null;
         // If user does not specify one storage vault then FE would use the default vault
-        if (storageVaultName == null || !storageVaultName.isEmpty()) {
+        if (Strings.isNullOrEmpty(storageVaultName)) {
             Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
             if (info != null) {
                 storageVaultName = info.first;
@@ -2724,21 +2758,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        String dynamicUnit = dynamicProperty.getTimeUnit();
-                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
-                        for (Expr autoExpr : autoExprs) {
-                            Expr func = (FunctionCallExpr) autoExpr;
-                            for (Expr child : func.getChildren()) {
-                                if (child instanceof LiteralExpr) {
-                                    String autoUnit = ((LiteralExpr) child).getStringValue();
-                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
-                                        throw new AnalysisException(
-                                                "If support auto partition and dynamic partition at same time, "
-                                                        + "they must have the same interval unit.");
-                                    }
-                                }
-                            }
-                        }
+                        throw new AnalysisException(
+                                "Can't use Dynamic Partition and Auto Partition at the same time");
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
@@ -2803,6 +2824,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
+            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                LOG.info("debug point FE.createOlapTable.exception, throw e");
+                // not commit, not log edit
+                throw new DdlException("debug point FE.createOlapTable.exception");
+            }
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2825,21 +2851,27 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
-                // register or remove table from DynamicPartition after table created
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                // register or remove table from DynamicPartition after table created
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
             }
         } catch (DdlException e) {
+            LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
             // only remove from memory, because we have not persist it
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
+            }
+            try {
+                dropTable(db, tableId, true, 0L);
+            } catch (Exception ex) {
+                LOG.warn("drop table", ex);
             }
 
             throw e;
@@ -3177,7 +3209,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
-                rowsToTruncate = olapTable.getRowCount();
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
@@ -3186,6 +3217,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
+                    rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
@@ -3346,10 +3378,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
             Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-        } else {
-            // Update the updated rows in table stats after truncate some partitions.
-            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         }
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
@@ -3538,5 +3568,13 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public boolean enableAutoAnalyze() {
         return true;
+    }
+
+    public Map<String, Long> getUsedDataQuota() {
+        Map<String, Long> dbToDataSize = new TreeMap<>();
+        for (Database db : this.idToDb.values()) {
+            dbToDataSize.put(db.getFullName(), db.getUsedDataQuotaWithLock());
+        }
+        return dbToDataSize;
     }
 }

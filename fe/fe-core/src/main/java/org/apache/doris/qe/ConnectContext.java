@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.proto.Types;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -584,7 +585,7 @@ public class ConnectContext {
 
     // for USER() function
     public UserIdentity getUserIdentity() {
-        return new UserIdentity(qualifiedUser, remoteIP);
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
     }
 
     public UserIdentity getCurrentUserIdentity() {
@@ -891,6 +892,24 @@ public class ConnectContext {
         cancelQuery();
     }
 
+    // kill operation with no protect by timeout.
+    private void killByTimeout(boolean killConnection) {
+        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
+                killConnection);
+
+        if (killConnection) {
+            isKilled = true;
+            // Close channel to break connection with client
+            closeChannel();
+        }
+        // Now, cancel running query.
+        // cancelQuery by time out
+        StmtExecutor executorRef = executor;
+        if (executorRef != null) {
+            executorRef.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
+        }
+    }
+
     public void cancelQuery() {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
@@ -931,7 +950,7 @@ public class ConnectContext {
         }
 
         if (killFlag) {
-            kill(killConnection);
+            killByTimeout(killConnection);
         }
     }
 
@@ -994,7 +1013,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs, boolean showFe) {
+        public List<String> toRow(int connId, long nowMs) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -1023,10 +1042,8 @@ public class ConnectContext {
                 row.add("");
             }
 
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
-
+            row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            row.add(cloudCluster);
             return row;
         }
     }

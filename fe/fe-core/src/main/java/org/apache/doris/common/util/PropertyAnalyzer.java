@@ -178,7 +178,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
-    public static final String PROPERTIES_STORAGE_VAULT = "storage_vault";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -1056,9 +1055,9 @@ public class PropertyAnalyzer {
 
     public static String analyzeStorageVault(Map<String, String> properties) {
         String storageVault = null;
-        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT);
-            properties.remove(PROPERTIES_STORAGE_VAULT);
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
+            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
         return storageVault;
@@ -1508,7 +1507,7 @@ public class PropertyAnalyzer {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
         }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(ctl);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
         if (catalog == null) {
             return properties;
         }

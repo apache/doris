@@ -155,7 +155,14 @@ public class FunctionRegistry {
         }
         if (candidateBuilders.size() > 1) {
             String candidateHints = getCandidateHint(name, candidateBuilders);
-            // NereidsPlanner not supported override function by the same arity, should we support it?
+            // TODO: NereidsPlanner not supported override function by the same arity, we will support it later
+            if (ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+                } catch (Throwable t) {
+                    // ignore error
+                }
+            }
             throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
 

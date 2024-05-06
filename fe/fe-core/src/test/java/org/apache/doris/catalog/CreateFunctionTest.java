@@ -82,7 +82,7 @@ public class CreateFunctionTest {
         createTable("create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
 
-        dorisAssert = new DorisAssert();
+        dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db1");
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
@@ -115,7 +115,7 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+                "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -219,7 +219,7 @@ public class CreateFunctionTest {
         createTable("create table db2.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
 
-        dorisAssert = new DorisAssert();
+        dorisAssert = new DorisAssert(ctx);
         dorisAssert.useDatabase("db2");
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("db2");
@@ -241,7 +241,7 @@ public class CreateFunctionTest {
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
-                "concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+                "concat(left(CAST(`k1` AS VARCHAR(65533)), 3), '****', right(CAST(`k1` AS VARCHAR(65533)), 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale

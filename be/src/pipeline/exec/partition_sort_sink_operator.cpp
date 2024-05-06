@@ -23,10 +23,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSinkOperator>(this, _node);
-}
-
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -180,42 +176,50 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
         const vectorized::ColumnRawPtrs& key_columns, const vectorized::Block* input_block,
         PartitionSortSinkLocalState& local_state, bool eos) {
     return std::visit(
-            [&](auto&& agg_method) -> Status {
-                SCOPED_TIMER(local_state._build_timer);
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using AggState = typename HashMethodType::State;
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return Status::InternalError("Unit hash table");
+                    },
+                    [&](auto& agg_method) -> Status {
+                        SCOPED_TIMER(local_state._build_timer);
+                        using HashMethodType = std::decay_t<decltype(agg_method)>;
+                        using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns);
-                size_t num_rows = input_block->rows();
-                agg_method.init_serialized_keys(key_columns, num_rows);
+                        AggState state(key_columns);
+                        size_t num_rows = input_block->rows();
+                        agg_method.init_serialized_keys(key_columns, num_rows);
 
-                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
-                    auto* aggregate_data = _pool->add(new vectorized::PartitionBlocks(
-                            local_state._partition_sort_info, local_state._value_places.empty()));
-                    local_state._value_places.push_back(aggregate_data);
-                    ctor(key, aggregate_data);
-                    local_state._num_partition++;
-                };
-                auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = _pool->add(new vectorized::PartitionBlocks(
-                            local_state._partition_sort_info, local_state._value_places.empty()));
-                    local_state._value_places.push_back(mapped);
-                    local_state._num_partition++;
-                };
+                        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                            HashMethodType::try_presis_key(key, origin,
+                                                           *local_state._agg_arena_pool);
+                            auto* aggregate_data = _pool->add(new vectorized::PartitionBlocks(
+                                    local_state._partition_sort_info,
+                                    local_state._value_places.empty()));
+                            local_state._value_places.push_back(aggregate_data);
+                            ctor(key, aggregate_data);
+                            local_state._num_partition++;
+                        };
+                        auto creator_for_null_key = [&](auto& mapped) {
+                            mapped = _pool->add(new vectorized::PartitionBlocks(
+                                    local_state._partition_sort_info,
+                                    local_state._value_places.empty()));
+                            local_state._value_places.push_back(mapped);
+                            local_state._num_partition++;
+                        };
 
-                SCOPED_TIMER(local_state._emplace_key_timer);
-                for (size_t row = 0; row < num_rows; ++row) {
-                    auto& mapped =
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                    mapped->add_row_idx(row);
-                }
-                for (auto* place : local_state._value_places) {
-                    SCOPED_TIMER(local_state._selector_block_timer);
-                    RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
-                }
-                return Status::OK();
-            },
+                        SCOPED_TIMER(local_state._emplace_key_timer);
+                        for (size_t row = 0; row < num_rows; ++row) {
+                            auto& mapped = agg_method.lazy_emplace(state, row, creator,
+                                                                   creator_for_null_key);
+                            mapped->add_row_idx(row);
+                        }
+                        for (auto* place : local_state._value_places) {
+                            SCOPED_TIMER(local_state._selector_block_timer);
+                            RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
+                        }
+                        return Status::OK();
+                    }},
             local_state._partitioned_data->method_variant);
 }
 

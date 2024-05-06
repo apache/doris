@@ -187,6 +187,9 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+        // wait wal delete
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -222,10 +225,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
             olapTable.setState(OlapTableState.ROLLUP);
 
-            // wait wal delete
-            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
-            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
-
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
@@ -248,6 +247,11 @@ public class MaterializedViewHandler extends AlterHandler {
     public void processBatchAddRollup(String rawSql, List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
         checkReplicaCount(olapTable);
+
+        // wait wal delete
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
+
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
@@ -308,10 +312,6 @@ public class MaterializedViewHandler extends AlterHandler {
             // ATTN: This order is not mandatory, because database lock will protect us,
             // but this order is more reasonable
             olapTable.setState(OlapTableState.ROLLUP);
-
-            // wait wal delete
-            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
-            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
 
             // 2 batch submit rollup job
             List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());

@@ -21,6 +21,7 @@ import java.util.function.Supplier;
 
 /**
  * Pre-aggregate status for OLAP scan table.
+ * @see org.apache.doris.planner.OlapScanNode#isPreAggregation
  */
 public class PreAggStatus {
 

@@ -52,7 +52,7 @@ Status SpillWriter::close() {
     total_written_bytes_ += meta_.size();
     COUNTER_UPDATE(write_bytes_counter_, meta_.size());
 
-    ExecEnv::GetInstance()->spill_stream_mgr()->update_usage(data_dir_->path(), meta_.size());
+    data_dir_->update_spill_data_usage(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
 
@@ -112,21 +112,19 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
                         "serialize spill data error. [path={}]", file_path_);
             }
         }
-        auto* spill_stream_mgr = ExecEnv::GetInstance()->spill_stream_mgr();
-        auto splled_data_size = spill_stream_mgr->spilled_data_size(data_dir_->path());
-        if (spill_stream_mgr->reach_capacity_limit(splled_data_size, buff.size())) {
+        if (data_dir_->reach_capacity_limit(buff.size())) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                     "size: {}",
-                    data_dir_->path(), PrettyPrinter::print_bytes(config::spill_storage_limit),
-                    PrettyPrinter::print_bytes(
-                            spill_stream_mgr->spilled_data_size(data_dir_->path())));
+                    data_dir_->path(),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_limit()),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_bytes()));
         }
 
         {
             Defer defer {[&]() {
                 if (status.ok()) {
-                    spill_stream_mgr->update_usage(data_dir_->path(), buff.size());
+                    data_dir_->update_spill_data_usage(buff.size());
                 }
             }};
             {

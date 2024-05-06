@@ -28,9 +28,9 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.wildfly.common.Assert;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -349,5 +349,31 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt.analyze(analyzer);
         exportMgr.cancelExportJob(stmt);
         Assert.assertTrue(job8.getState() == ExportJobState.CANCELLED);
+    }
+
+    @Test
+    public void testCancelAuth() {
+        ExportMgr exportMgr = new ExportMgr();
+        List<ExportJob> jobs = Lists.newArrayList();
+        ExportJob job1 = new ExportJob();
+        job1.setTableName(new TableName("ctl1", "db1", "table1"));
+        jobs.add(job1);
+        try {
+            // should check table auth
+            exportMgr.checkCancelExportJobAuth("ctl1", "db1", jobs);
+            throw new RuntimeException("should exception");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Admin_priv,Select_priv"));
+            Assert.assertTrue(e.getMessage().contains("table1"));
+        }
+        jobs.add(new ExportJob());
+        try {
+            // should check db auth
+            exportMgr.checkCancelExportJobAuth("ctl1", "db1", jobs);
+            throw new RuntimeException("should exception");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Admin_priv,Select_priv"));
+            Assert.assertTrue(e.getMessage().contains("db1"));
+        }
     }
 }

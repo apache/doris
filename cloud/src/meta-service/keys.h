@@ -26,48 +26,50 @@
 // clang-format off
 // Key encoding schemes:
 //
-// 0x01 "instance" ${instance_id}                                                            -> InstanceInfoPB
+// 0x01 "instance" ${instance_id}                                               -> InstanceInfoPB
 //
-// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}                                   -> TxnLabelPB ${version_timestamp}
-// 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}                                   -> TxnInfoPB
-// 0x01 "txn" ${instance_id} "txn_db_tbl" ${txn_id}                                          -> TxnIndexPB
-// 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                                -> TxnRunningPB
+// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}                      -> TxnLabelPB ${version_timestamp}
+// 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}                      -> TxnInfoPB
+// 0x01 "txn" ${instance_id} "txn_db_tbl" ${txn_id}                             -> TxnIndexPB
+// 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                   -> TxnRunningPB
 //
-// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}              -> VersionPB
-// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                                  -> int64
+// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
+// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                     -> int64
 //
-// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                               -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                            -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}  -> TabletMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                    -> TabletIndexPB
-// 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                         -> TabletSchemaCloudPB
-// 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}               -> DeleteBitmapUpdateLockPB
-// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                            -> PendingDeleteBitmapPB 
+// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                                   -> RowsetMetaCloudPB
+// 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                                -> RowsetMetaCloudPB
+// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}      -> TabletMetaCloudPB
+// 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                        -> TabletIndexPB
+// 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                             -> TabletSchemaCloudPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}                   -> DeleteBitmapUpdateLockPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                                -> PendingDeleteBitmapPB 
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
-// 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                            -> SchemaCloudDictionary
+// 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
 //
-// 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
+// 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rows"    -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rowsets" -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segs"    -> int64
 //
-// 0x01 "recycle" ${instance_id} "index" ${index_id}                                         -> RecycleIndexPB
-// 0x01 "recycle" ${instance_id} "partition" ${partition_id}                                 -> RecyclePartitionPB
-// 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id}                          -> RecycleRowsetPB
-// 0x01 "recycle" ${instance_id} "txn" ${db_id} ${txn_id}                                    -> RecycleTxnPB
-// 0x01 "recycle" ${instance_id} "stage" ${stage_id}                                         -> RecycleStagePB
+// 0x01 "recycle" ${instance_id} "index" ${index_id}                                       -> RecycleIndexPB
+// 0x01 "recycle" ${instance_id} "partition" ${partition_id}                               -> RecyclePartitionPB
+// 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id}                        -> RecycleRowsetPB
+// 0x01 "recycle" ${instance_id} "txn" ${db_id} ${txn_id}                                  -> RecycleTxnPB
+// 0x01 "recycle" ${instance_id} "stage" ${stage_id}                                       -> RecycleStagePB
 //
-// 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}   -> TabletJobInfoPB
-// 0x01 "job" ${instance_id} "recycle"                                                       -> JobRecyclePB
-// 0x01 "job" ${instance_id} "check"                                                         -> JobRecyclePB
+// 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
+// 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
+// 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
 //
-// 0x02 "system" "meta-service" "registry"                                                   -> MetaServiceRegistryPB
-// 0x02 "system" "meta-service" "arn_info"                                                   -> RamUserPB
-// 0x02 "system" "meta-service" "encryption_key_info"                                        -> EncryptionKeyInfoPB
+// 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
+// 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
 //
-// 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}           -> CopyJobPB
-// 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}    -> CopyFilePB
+// 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
+//
+// 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
+// 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
+// 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
 // clang-format on
 
 namespace doris::cloud {

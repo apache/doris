@@ -61,15 +61,23 @@ bool LoadStreamMap::contains(int64_t dst_id) {
 }
 
 void LoadStreamMap::for_each(std::function<void(int64_t, const Streams&)> fn) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    for (auto& [dst_id, streams] : _streams_for_node) {
+    decltype(_streams_for_node) snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        snapshot = _streams_for_node;
+    }
+    for (auto& [dst_id, streams] : snapshot) {
         fn(dst_id, *streams);
     }
 }
 
 Status LoadStreamMap::for_each_st(std::function<Status(int64_t, const Streams&)> fn) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    for (auto& [dst_id, streams] : _streams_for_node) {
+    decltype(_streams_for_node) snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        snapshot = _streams_for_node;
+    }
+    for (auto& [dst_id, streams] : snapshot) {
         RETURN_IF_ERROR(fn(dst_id, *streams));
     }
     return Status::OK();

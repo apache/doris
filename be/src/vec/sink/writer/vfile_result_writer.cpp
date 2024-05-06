@@ -108,7 +108,11 @@ Status VFileResultWriter::_create_next_file_writer() {
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            {
+                    .write_file_cache = false,
+                    .sync_file_data = false,
+            }));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),

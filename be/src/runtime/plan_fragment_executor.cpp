@@ -25,11 +25,13 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -638,10 +640,41 @@ void PlanFragmentExecutor::close() {
                 load_channel_profile()->pretty_print(&ss);
             }
             LOG(INFO) << ss.str();
+
+            _query_ctx->add_instance_profile(_fragment_instance_id,
+                                             collect_realtime_query_profile(),
+                                             collect_realtime_load_channel_profile());
         }
     }
 
     _closed = true;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_query_profile() const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
+}
+
+std::shared_ptr<TRuntimeProfileTree> PlanFragmentExecutor::collect_realtime_load_channel_profile()
+        const {
+    std::shared_ptr<TRuntimeProfileTree> res = std::make_shared<TRuntimeProfileTree>();
+
+    if (_runtime_state != nullptr) {
+        _runtime_state->load_channel_profile()->compute_time_in_profile();
+        _runtime_state->load_channel_profile()->to_thrift(res.get());
+    } else {
+        return nullptr;
+    }
+
+    return res;
 }
 
 } // namespace doris

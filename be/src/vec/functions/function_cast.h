@@ -646,6 +646,7 @@ struct ConvertImplNumberToJsonb {
                 writer.writeDouble(data[i]);
             } else {
                 LOG(FATAL) << "unsupported type ";
+                __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
                                        writer.getOutput()->getSize());
@@ -893,6 +894,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else {
                     LOG(FATAL) << "unsupported type ";
+                    __builtin_unreachable();
                 }
             }
 
@@ -1819,7 +1821,6 @@ private:
     }
 
     WrapperType create_unsupport_wrapper(const String error_msg) const {
-        LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
                            const ColumnNumbers& /*arguments*/, const size_t /*result*/,
                            size_t /*input_rows_count*/) {
@@ -1908,7 +1909,7 @@ private:
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                        const size_t result, size_t /*input_rows_count*/) -> Status {
-            auto& from_column = block.get_by_position(arguments.front()).column;
+            ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
                     check_and_get_column<ColumnArray>(from_column.get());

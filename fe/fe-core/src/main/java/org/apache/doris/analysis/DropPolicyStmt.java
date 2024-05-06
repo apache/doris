@@ -60,6 +60,12 @@ public class DropPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
         switch (type) {
             case STORAGE:
+                // check auth
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            PrivPredicate.ADMIN.getPrivs().toString());
+                }
                 break;
             case ROW:
             default:
@@ -67,10 +73,12 @@ public class DropPolicyStmt extends DdlStmt {
                 if (user != null) {
                     user.analyze();
                 }
-        }
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+                // check auth
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            PrivPredicate.GRANT.getPrivs().toString());
+                }
         }
     }
 

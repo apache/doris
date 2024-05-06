@@ -17,6 +17,9 @@
 
 #include "parallel_scanner_builder.h"
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/config.h"
 #include "olap/rowset/beta_rowset.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -46,6 +49,12 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
         auto& rowsets = _all_rowsets[tablet->tablet_id()];
 
         TabletReader::ReadSource reade_source_with_delete_info;
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
         if (!_state->skip_delete_predicate()) {
             RETURN_IF_ERROR(tablet->capture_rs_readers(
                     {0, version}, &reade_source_with_delete_info.rs_splits, false));

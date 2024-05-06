@@ -20,10 +20,9 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
@@ -36,19 +35,22 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
-    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
-    }
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
                 p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
-        if (!_runtime_filters[i]->is_broadcast_join()) {
-            return Status::InternalError(
-                    "runtime filter({}) on NestedLoopJoin should be set to is_broadcast_join",
-                    _runtime_filters[i]->get_name());
-        }
+    }
+    return Status::OK();
+}
+
+Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
+    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
+    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
     return Status::OK();
 }

@@ -42,5 +42,5 @@ UNIQUE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`, `LO_LINENUMBER`)
 DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"storage_vault" = "ssb_sf1_p2"
+"storage_vault_name" = "ssb_sf1_p2"
 );

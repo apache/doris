@@ -385,7 +385,14 @@ public:
     void insert(const Field& field) override { try_insert(field); }
 
     void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override;
+                                 const IColumn::Selector& selector) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
+    }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
@@ -436,6 +443,7 @@ public:
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
@@ -454,6 +462,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     bool is_variable_length() const override { return true; }
@@ -464,6 +473,7 @@ public:
 
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     template <typename Func>

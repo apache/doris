@@ -26,9 +26,13 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.MultiMutableState;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Used for unit test only.
@@ -88,7 +92,12 @@ public class FakePlan implements Plan {
 
     @Override
     public List<Slot> getOutput() {
-        return new ArrayList<>();
+        return ImmutableList.of();
+    }
+
+    @Override
+    public Set<Slot> getOutputSet() {
+        return ImmutableSet.of();
     }
 
     @Override

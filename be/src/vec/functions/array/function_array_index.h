@@ -25,6 +25,10 @@
 #include <utility>
 
 #include "common/status.h"
+#include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -70,6 +74,11 @@ struct ArrayCountEqual {
     static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
 };
 
+struct ParamValue {
+    PrimitiveType type;
+    Field value;
+};
+
 template <typename ConcreteAction, bool OldVersion = false>
 class FunctionArrayIndex : public IFunction {
 public:
@@ -86,6 +95,66 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+
+        DCHECK(context->get_num_args() >= 1);
+        DCHECK(context->get_arg_type(0)->is_array_type());
+        // now we only support same
+        std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
+        Field field;
+        if (context->get_constant_col(1)) {
+            context->get_constant_col(1)->column_ptr->get(0, field);
+            state->value = field;
+            state->type = context->get_arg_type(1)->type;
+            context->set_function_state(scope, state);
+        }
+        return Status::OK();
+    }
+
+    /**
+     * eval inverted index. we can filter array rows with inverted index iter
+     */
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::NameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const override {
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        auto* param_value = reinterpret_cast<ParamValue*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (param_value == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, param_value is nullptr");
+        }
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                param_value->type, &param_value->value, query_param));
+        if (is_string_type(param_value->type)) {
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
+        } else {
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        }
+
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *bitmap -= *null_bitmap;
+        }
+
+        *bitmap = *roaring;
+        return Status::OK();
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if constexpr (OldVersion) {

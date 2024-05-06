@@ -26,6 +26,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
@@ -123,6 +125,9 @@ public class ExportMgr {
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
+
+        // check auth
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -131,6 +136,29 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
+        if (jobs.size() > 1) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
+        } else {
+            TableName tableName = jobs.get(0).getTableName();
+            if (tableName == null) {
+                return;
+            }
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                            tableName.getTbl(),
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName.getTbl());
+            }
         }
     }
 
@@ -395,7 +423,7 @@ public class ExportMgr {
                 ExportJob job = entry.getValue();
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
                         && (job.getState() == ExportJobState.CANCELLED
-                            || job.getState() == ExportJobState.FINISHED)) {
+                        || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
                     Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
