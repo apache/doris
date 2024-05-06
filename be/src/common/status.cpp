@@ -29,7 +29,10 @@ void Status::to_thrift(TStatus* s) const {
         s->status_code = TStatusCode::OK;
         return;
     }
-    DCHECK(_code > 0) << "The error code has to > 0 because TStatusCode need it > 0";
+    // Currently, there are many error codes, not defined in thrift and need pass to FE.
+    // DCHECK(_code > 0)
+    //        << "The error code has to > 0 because TStatusCode need it > 0, it's actual value is "
+    //        << _code;
     s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
     s->error_msgs.push_back(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                         code_as_string(), _err_msg ? _err_msg->_msg : ""));
