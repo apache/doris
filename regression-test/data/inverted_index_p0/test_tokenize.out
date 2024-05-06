@@ -31,3 +31,9 @@
 -- !tokenize_sql --
 ["get", "images", "hm", "bg", "jpg", "http", "1", "0", "test", "abc", "bcd"]
 
+-- !tokenize_sql --
+["华", "夏", "智", "胜", "新", "税", "股", "票"]
+
+-- !tokenize_sql --
+["华", "夏", "智", "胜", "新", "税", "股", "票", "a"]
+
