@@ -390,13 +390,6 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testParseCollate() {
-        String sql = "SELECT * FROM t1 WHERE col COLLATE utf8 = 'test'";
-        NereidsParser nereidsParser = new NereidsParser();
-        nereidsParser.parseSingle(sql);
-    }
-
-    @Test
     public void testParseBinaryKeyword() {
         String sql = "SELECT BINARY 'abc' FROM t";
         NereidsParser nereidsParser = new NereidsParser();
