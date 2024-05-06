@@ -39,7 +39,7 @@ suite("test_default_hll") {
     sql " insert into ${tableName} (k, v1, h1) values (3, 3, hll_empty()); "
     sql " insert into ${tableName} (k, v1, h1) values (4, 4, hll_empty()); "
     sql "sync"
-    qt_insert_into1 """ select HLL_CARDINALITY(h1) from ${tableName}; """
+    qt_insert_into1 """ select HLL_CARDINALITY(h1) from ${tableName} order by k; """
 
     // test csv stream load.
     streamLoad {
@@ -55,7 +55,7 @@ suite("test_default_hll") {
 
     sql "sync"
 
-    qt_stream_load_csv1 """ select HLL_CARDINALITY(h1) from ${tableName}; """
+    qt_stream_load_csv1 """ select HLL_CARDINALITY(h1) from ${tableName} order by k; """
 
     // test partial update
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -80,7 +80,7 @@ suite("test_default_hll") {
     sql " insert into ${tableName} (k, v1) values (4, 4); "
     sql "sync"
 
-    qt_select_1 "select HLL_CARDINALITY(h1) from ${tableName};"
+    qt_select_1 "select HLL_CARDINALITY(h1) from ${tableName} order by k;"
 
     streamLoad {
         table "${tableName}"
@@ -96,6 +96,6 @@ suite("test_default_hll") {
 
     sql "sync"
 
-    qt_stream_load_csv1 """ select HLL_CARDINALITY(h1) from ${tableName}; """
+    qt_stream_load_csv1 """ select HLL_CARDINALITY(h1) from ${tableName} order by k; """
 
 } 
