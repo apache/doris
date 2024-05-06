@@ -654,8 +654,11 @@ Status AggLocalState::close(RuntimeState* state) {
                                              // Do nothing
                                          },
                                          [&](auto& agg_method) {
-                                             COUNTER_SET(_hash_table_size_counter,
+                                             if (agg_method.hash_table) {
+                                                 COUNTER_SET(
+                                                         _hash_table_size_counter,
                                                          int64_t(agg_method.hash_table->size()));
+                                             }
                                          }},
                    _shared_state->agg_data->method_variant);
     }
