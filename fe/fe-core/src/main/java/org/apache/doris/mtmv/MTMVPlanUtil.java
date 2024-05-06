@@ -92,7 +92,7 @@ public class MTMVPlanUtil {
                     "The database selected when creating the materialized view was %s, "
                             + "but now this database has been deleted. "
                             + "Please recreate the materialized view.",
-                    envInfo.getCtlId()));
+                    envInfo.getDbId()));
         }
         return Pair.of(true, "");
     }
