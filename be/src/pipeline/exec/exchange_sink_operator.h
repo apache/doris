@@ -58,9 +58,9 @@ public:
               current_channel_idx(0),
               only_local_exchange(false),
               _serializer(this) {
-        _finish_dependency = std::make_shared<FinishDependency>(
-                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-                state->get_query_ctx());
+        _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                          parent->get_name() + "_FINISH_DEPENDENCY",
+                                                          state->get_query_ctx());
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -78,7 +78,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
-    void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
+    void register_channels(pipeline::ExchangeSinkBuffer* buffer);
     Status get_next_available_buffer(std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -110,9 +110,8 @@ public:
         return Status::OK();
     }
     Status _send_new_partition_batch();
-    std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
-    std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
-            channel_shared_ptrs;
+    std::vector<vectorized::PipChannel*> channels;
+    std::vector<std::shared_ptr<vectorized::PipChannel>> channel_shared_ptrs;
     int current_channel_idx; // index of current channel to send to if _random == true
     bool only_local_exchange;
 
@@ -123,10 +122,10 @@ public:
 private:
     friend class ExchangeSinkOperatorX;
     friend class vectorized::Channel<ExchangeSinkLocalState>;
-    friend class vectorized::PipChannel<ExchangeSinkLocalState>;
+    friend class vectorized::PipChannel;
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
-    std::unique_ptr<ExchangeSinkBuffer<ExchangeSinkLocalState>> _sink_buffer = nullptr;
+    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
