@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -217,8 +218,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     }
 
     @Override
-    public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
-            Void context) {
+    public Boolean visitPhysicalHashJoin(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
         Preconditions.checkArgument(children.size() == 2, "children.size() != 2");
         Preconditions.checkArgument(childrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
@@ -248,7 +249,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
             return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)
+                && !SessionVariable.canUseNereidsDistributePlanner()) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -302,7 +304,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
-                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
+                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL
+                && !SessionVariable.canUseNereidsDistributePlanner()) {
             // TODO: we must do shuffle on right because coordinator could not do right be selection in this case,
             //  since it always to check the left most node whether olap scan node.
             //  after we fix coordinator problem, we could do right to left bucket shuffle

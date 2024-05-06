@@ -1,0 +1,82 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("shuffle_left_join") {
+    multi_sql """
+        drop table if exists test_shuffle_left;
+        
+        CREATE TABLE `test_shuffle_left` (
+          id int,
+          id2 int
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        
+        insert into test_shuffle_left values (1, 1), (2, 2), (3, 4);
+        
+        sync;
+
+        set enable_nereids_distribute_planner=false;
+        set enable_pipeline_x_engine=true;
+        set disable_join_reorder=true;
+        """
+
+    def sqlStr = """
+            select *
+            from test_shuffle_left a
+            inner join [shuffle]
+            test_shuffle_left b
+            on a.id2=b.id;
+        """
+
+    explain {
+        sql sqlStr
+        check { explainStr ->
+            log.info(explainStr)
+
+            assertTrue(explainStr.contains("INNER JOIN(PARTITIONED)"))
+
+            // union all with two exchange
+            assertTrue(explainStr.count("VEXCHANGE") == 2)
+        }
+    }
+
+    order_qt_shuffle_left_and_right sqlStr
+
+    multi_sql """
+        set enable_nereids_distribute_planner=true;
+        set enable_pipeline_x_engine=true;
+        set disable_join_reorder=true;
+        """
+
+    explain {
+        sql sqlStr
+        check { explainStr ->
+            log.info(explainStr)
+
+            assertTrue(explainStr.contains("INNER JOIN(PARTITIONED)"))
+
+            // union all with one exchange
+            assertTrue(explainStr.count("VEXCHANGE") == 1)
+        }
+    }
+
+    order_qt_shuffle_left sqlStr
+}

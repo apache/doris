@@ -1876,8 +1876,12 @@ public class StmtExecutor {
             // this branch is for legacy planner, to be removed
             coordBase = new PointQueryExec(planner, analyzer,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+        // } else if (context.getState().isNereids()
+        //         && context.getSessionVariable().isEnableNereidsCoordinator()
+        //         && planner instanceof NereidsPlanner) {
+        //     coordBase = new NereidsCoordinator((NereidsPlanner) planner);
         } else {
-            coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
+            coord = EnvFactory.getInstance().createCoordinator(context, analyzer,
                 planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
