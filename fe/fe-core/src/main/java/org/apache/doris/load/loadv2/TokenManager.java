@@ -53,16 +53,20 @@ public class TokenManager {
     public void start() {
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
         // init one token to avoid async issue.
-        this.tokenQueue.offer(generateNewToken());
+        this.addNewToken(generateNewToken());
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
-        this.tokenGenerator.scheduleAtFixedRate(() -> tokenQueue.offer(generateNewToken()), 0,
+        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()), 0,
                 Config.token_generate_period_hour, TimeUnit.HOURS);
     }
 
+    private void addNewToken(String token) {
+        tokenQueue.offer(token);
+        latestToken = token;
+    }
+
     private String generateNewToken() {
-        latestToken = UUID.randomUUID().toString();
-        return latestToken;
+        return UUID.randomUUID().toString();
     }
 
     public String acquireToken() throws UserException {
