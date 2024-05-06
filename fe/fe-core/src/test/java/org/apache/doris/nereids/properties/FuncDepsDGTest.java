@@ -45,6 +45,7 @@ class FuncDepsDGTest {
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s3));
+        System.out.println(res);
         Assertions.assertEquals(1, res.size());
     }
 

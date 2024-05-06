@@ -116,8 +116,10 @@ public class FuncDepsDG {
             Set<DGItem> visited, Set<DGItem> children) {
         for (int childIdx : root.children) {
             DGItem child = dgItems.get(childIdx);
-            if (!visited.contains(child) && validSlot.containsAll(child.slots)) {
-                children.add(child);
+            if (!visited.contains(child)) {
+                if (validSlot.containsAll(child.slots)) {
+                    children.add(child);
+                }
                 visited.add(child);
                 collectAllChildren(validSlot, child, visited, children);
             }
