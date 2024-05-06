@@ -59,7 +59,11 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -81,9 +85,9 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
 
     private static final DateLiteral MIN_DATETIMEV2
-            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
+        = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
     private static final DateLiteral MAX_DATETIMEV2
-            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
+        = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
     private static final int DATEKEY_LENGTH = 8;
     private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
@@ -105,38 +109,38 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
-    private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final int[] DAYS_IN_MONTH = new int[]{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     static {
         try {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+                .withResolverStyle(ResolverStyle.STRICT);
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+                .withResolverStyle(ResolverStyle.STRICT);
             DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+                .withResolverStyle(ResolverStyle.STRICT);
             DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+                .withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
-                    .appendPattern("uuuu-MM-dd HH:mm:ss")
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+                .appendPattern("uuuu-MM-dd HH:mm:ss")
+                .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                .toFormatter()
+                .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
-                    formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
+                formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+                formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+                formatBuilder("%Y%m%d%H%i%s")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+                formatBuilder("%Y%m%d%H%i%s")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+                DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
             TIME_PART_SET = "HhIiklrSsTp".chars().mapToObj(c -> (char) c).collect(Collectors.toSet());
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
@@ -306,7 +310,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATE.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
+            || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
         analysisDone();
     }
@@ -323,7 +327,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond,
-            Type type) {
+                       Type type) {
         this.hour = hour;
         this.minute = minute;
         this.second = second;
@@ -344,7 +348,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
+            || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
         this.type = type;
         analysisDone();
     }
@@ -404,7 +408,7 @@ public class DateLiteral extends LiteralExpr {
                 ZoneId zone = ZoneId.of(tzString);
                 ZoneId dorisZone = DateUtils.getTimeZone();
                 offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
-                        - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
+                    - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
             }
 
             if (!s.contains("-")) {
@@ -454,12 +458,12 @@ public class DateLiteral extends LiteralExpr {
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
+                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
                 if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
                 if (timePart.length == 0 && type != null && (type.equals(Type.DATETIME) || type.equals(
-                        Type.DATETIMEV2))) {
+                    Type.DATETIMEV2))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
@@ -472,7 +476,7 @@ public class DateLiteral extends LiteralExpr {
                             break;
                         case 2:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
-                                    ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
+                                ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
                                 builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
                             }
@@ -566,13 +570,13 @@ public class DateLiteral extends LiteralExpr {
             case DATE:
             case DATEV2:
                 return year == 0 && month == 1 && day == 1
-                        && this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
+                    && this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
             case DATETIME:
                 return year == 0 && month == 1 && day == 1
-                        && this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
+                    && this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
             case DATETIMEV2:
                 return year == 0 && month == 1 && day == 1
-                        && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
+                    && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
             default:
                 return false;
         }
@@ -588,7 +592,7 @@ public class DateLiteral extends LiteralExpr {
             return (year << 9) | (month << 5) | day;
         } else if (type.isDatetimeV2()) {
             return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-                    | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+                | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
         } else {
             Preconditions.checkState(false, "invalid date type: " + type);
             return -1L;
@@ -606,7 +610,7 @@ public class DateLiteral extends LiteralExpr {
             buffer.putInt(value);
         } else if (type == PrimitiveType.DATETIMEV2) {
             long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-                    | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+                | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
             buffer = ByteBuffer.allocate(8);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putLong(value);
@@ -732,7 +736,7 @@ public class DateLiteral extends LiteralExpr {
         long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();
         if (remain != 0) {
             microsecond = Double.valueOf((microsecond + (Math.pow(10, 6 - newScale)))
-                    / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
+                / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
         }
         if (microsecond > MAX_MICROSECOND) {
             microsecond %= microsecond;
@@ -749,7 +753,7 @@ public class DateLiteral extends LiteralExpr {
 
     public void roundFloor(int newScale) {
         microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
-                * (Math.pow(10, 6 - newScale))).longValue();
+            * (Math.pow(10, 6 - newScale))).longValue();
         type = ScalarType.createDatetimeV2Type(newScale);
     }
 
@@ -758,7 +762,7 @@ public class DateLiteral extends LiteralExpr {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type == PrimitiveType.DATETIMEV2) {
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
-                    year, month, day, hour, minute, second);
+                year, month, day, hour, minute, second);
             if (microsecond == 0) {
                 return tmp;
             }
@@ -808,10 +812,10 @@ public class DateLiteral extends LiteralExpr {
                 return new DateLiteral(this.year, this.month, this.day, targetType);
             } else if (targetType.equals(Type.DATETIME)) {
                 return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
-                        targetType);
+                    targetType);
             } else if (targetType.isDatetimeV2()) {
                 return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
-                        this.microsecond, targetType);
+                    this.microsecond, targetType);
             } else {
                 throw new AnalysisException("Error date literal type : " + type);
             }
@@ -888,7 +892,7 @@ public class DateLiteral extends LiteralExpr {
 
     private long makePackedDatetimeV2() {
         return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-                | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+            | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
     }
 
     private long makePackedDateV2() {
@@ -998,7 +1002,7 @@ public class DateLiteral extends LiteralExpr {
 
     public long unixTimestamp(TimeZone timeZone) {
         ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
-                (int) minute, (int) second, (int) microsecond, ZoneId.of(timeZone.getID()));
+            (int) minute, (int) second, (int) microsecond, ZoneId.of(timeZone.getID()));
         Timestamp timestamp = Timestamp.from(zonedDateTime.toInstant());
         return timestamp.getTime();
     }
@@ -1074,9 +1078,9 @@ public class DateLiteral extends LiteralExpr {
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
                         builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
-                                .appendPattern(":mm:ss ")
-                                .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
-                                .toFormatter();
+                            .appendPattern(":mm:ss ")
+                            .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
+                            .toFormatter();
                         break;
                     case 'S': // %S Seconds (00..59)
                     case 's': // %s Seconds (00..59)
@@ -1115,7 +1119,7 @@ public class DateLiteral extends LiteralExpr {
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     case 'w': // %w Day of the week (0=Sunday..6=Saturday)
                         throw new AnalysisException(String.format("%%%s not supported in date format string",
-                                character));
+                            character));
                     case '%': // %% A literal "%" character
                         builder.appendLiteral('%');
                         break;
@@ -1134,7 +1138,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private int getOrDefault(final TemporalAccessor accessor, final ChronoField field,
-            final int defaultValue) {
+                             final int defaultValue) {
         return accessor.isSupported(field) ? accessor.get(field) : defaultValue;
     }
 
@@ -1143,12 +1147,12 @@ public class DateLiteral extends LiteralExpr {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, 0, 0, 0);
         } else if (type.isDatetimeV2()) {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
-                    (int) this.minute,
-                    (int) this.second, (int) this.microsecond * 1000);
+                (int) this.minute,
+                (int) this.second, (int) this.microsecond * 1000);
         } else {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
-                    (int) this.minute,
-                    (int) this.second);
+                (int) this.minute,
+                (int) this.second);
         }
     }
 
@@ -1409,7 +1413,7 @@ public class DateLiteral extends LiteralExpr {
                     // AM/PM
                     case 'p':
                         if ((endValue - pValue) < 2 || Character.toUpperCase(value.charAt(pValue + 1)) != 'M'
-                                || !hourSystem12) {
+                            || !hourSystem12) {
                             throw new InvalidFormatException("Invalid %p format");
                         }
                         if (Character.toUpperCase(value.charAt(pValue)) == 'P') {
@@ -1518,7 +1522,7 @@ public class DateLiteral extends LiteralExpr {
             } else if (format.charAt(pFormat) != ' ') {
                 if (format.charAt(pFormat) != value.charAt(pValue)) {
                     throw new InvalidFormatException("Invalid char: " + value.charAt(pValue) + ", expected: "
-                            + format.charAt(pFormat));
+                        + format.charAt(pFormat));
                 }
                 pFormat++;
                 pValue++;
@@ -1582,8 +1586,8 @@ public class DateLiteral extends LiteralExpr {
         if (weekNum >= 0 && weekday > 0) {
             // Check
             if ((strictWeekNumber && (strictWeekNumberYear < 0
-                    || strictWeekNumberYearType != sundayFirst))
-                    || (!strictWeekNumber && strictWeekNumberYear >= 0)) {
+                || strictWeekNumberYearType != sundayFirst))
+                || (!strictWeekNumber && strictWeekNumberYear >= 0)) {
                 throw new InvalidFormatException("invalid week number");
             }
             long days = calcDaynr(strictWeekNumber ? strictWeekNumberYear : this.year, 1, 1);
@@ -1626,7 +1630,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public int fromDateFormatStr(String format, String value, boolean hasSubVal, Type type)
-            throws InvalidFormatException {
+        throws InvalidFormatException {
         switch (type.getPrimitiveType()) {
             case DATETIME:
             case DATE:
@@ -1652,8 +1656,8 @@ public class DateLiteral extends LiteralExpr {
 
     private boolean checkRange() {
         return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
-                || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
-                || microsecond > MAX_MICROSECOND;
+            || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
+            || microsecond > MAX_MICROSECOND;
     }
 
     private boolean checkDate() {
