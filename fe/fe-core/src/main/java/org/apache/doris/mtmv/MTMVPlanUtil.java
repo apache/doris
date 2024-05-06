@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.Auth;
@@ -50,7 +49,7 @@ import java.util.Set;
 
 public class MTMVPlanUtil {
 
-    public static ConnectContext createMTMVContext(MTMV mtmv) throws AnalysisException {
+    public static ConnectContext createMTMVContext(MTMV mtmv) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(Auth.ADMIN_USER);

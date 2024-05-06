@@ -155,8 +155,8 @@ public class MTMVTask extends AbstractTask {
     @Override
     public void run() throws JobException {
         LOG.info("mtmv task run, taskId: {}", super.getTaskId());
+        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         try {
-            ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
                 if (LOG.isDebugEnabled()) {
@@ -202,8 +202,15 @@ public class MTMVTask extends AbstractTask {
             }
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
-                LOG.warn("run task failed: ", e);
-                throw new JobException(e);
+                StringBuilder errMsg = new StringBuilder();
+                // when env ctl/db not exist, need give client tips
+                Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
+                if (!pair.first) {
+                    errMsg.append(pair.second);
+                }
+                errMsg.append(ctx.getState().getErrorMessage());
+                LOG.warn("run task failed: ", errMsg.toString());
+                throw new JobException(errMsg.toString(), e);
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
@@ -226,14 +233,7 @@ public class MTMVTask extends AbstractTask {
         ctx.getState().setNereids(true);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
-            StringBuilder errMsg = new StringBuilder();
-            // when env ctl/db not exist, need give client tips
-            Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
-            if (!pair.first) {
-                errMsg.append(pair.second);
-            }
-            errMsg.append(ctx.getState().getErrorMessage());
-            throw new JobException(errMsg.toString());
+            throw new JobException(ctx.getState().getErrorMessage());
         }
     }
 
