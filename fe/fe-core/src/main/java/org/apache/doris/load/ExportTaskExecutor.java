@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportFailMsg.CancelType;
@@ -90,7 +89,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
             }
             // check the version of tablets, skip if the consistency is in partition level.
-            if (exportJob.getExportTable().getType() == TableType.OLAP && !exportJob.isPartitionConsistency()) {
+            if (exportJob.getExportTable().isManagedTable() && !exportJob.isPartitionConsistency()) {
                 try {
                     Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
                             exportJob.getTableName().getDb());
