@@ -83,17 +83,19 @@ public class MTMVPlanUtil {
     public static Pair<Boolean, String> checkEnvInfo(EnvInfo envInfo, ConnectContext ctx) {
         if (envInfo.getCtlId() != ctx.getCurrentCatalog().getId()) {
             return Pair.of(false, String.format(
-                    "The catalog selected when creating the materialized view was %s, but now this catalog has been deleted. "
+                    "The catalog selected when creating the materialized view was %s, "
+                            + "but now this catalog has been deleted. "
                             + "Please recreate the materialized view.",
                     envInfo.getCtlId()));
         }
         if (envInfo.getDbId() != ctx.getCurrentDbId()) {
             return Pair.of(false, String.format(
-                    "The database selected when creating the materialized view was %s, but now this database has been deleted. "
+                    "The database selected when creating the materialized view was %s, "
+                            + "but now this database has been deleted. "
                             + "Please recreate the materialized view.",
                     envInfo.getCtlId()));
         }
-        return  Pair.of(true,"");
+        return Pair.of(true, "");
     }
 
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
