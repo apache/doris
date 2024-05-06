@@ -135,7 +135,7 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
                                                int start, int end,
                                                const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
-    const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+    const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
     for (size_t offset_i = start; offset_i < end; ++offset_i) {
@@ -160,7 +160,7 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                                               orc::ColumnVectorBatch* orc_col_batch, int start,
                                               int end, std::vector<StringRef>& buffer_list) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
-    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    orc::StringVectorBatch* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
     if (!ptr) {
         return Status::InternalError(
