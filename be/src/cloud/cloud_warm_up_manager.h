@@ -45,9 +45,7 @@ struct JobMeta {
 
 class CloudWarmUpManager {
 public:
-    static CloudWarmUpManager* instance();
-
-    CloudWarmUpManager(CloudStorageEngine& engine);
+    explicit CloudWarmUpManager(CloudStorageEngine& engine);
     ~CloudWarmUpManager();
     // Set the job id if the id is zero
     Status check_and_set_job_id(int64_t job_id);

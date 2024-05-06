@@ -88,6 +88,8 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
+    Status _get_block_wrapped(RuntimeState* state, Block* block, bool* eof);
+
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.

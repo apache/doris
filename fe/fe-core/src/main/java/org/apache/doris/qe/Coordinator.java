@@ -4097,12 +4097,34 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    @Override
+    public List<TNetworkAddress> getInvolvedBackends() {
+        List<TNetworkAddress> backendAddresses = Lists.newArrayList();
+        if (this.enablePipelineXEngine) {
+            for (Long backendId : this.beToPipelineExecCtxs.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        } else {
+            for (Long backendId : this.beToExecStates.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        }
+        return backendAddresses;
+    }
+
     public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
         return fragmentExecParamsMap;
     }
 
     public List<PlanFragment> getFragments() {
         return fragments;
+    }
+
+    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
+        Optional.ofNullable(context).map(ConnectContext::getExecutor).map(StmtExecutor::getSummaryProfile)
+                .ifPresent(profileAction);
     }
 
     // Runtime filter target fragment instance param
@@ -4115,13 +4137,6 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentInstanceId = id;
             this.targetFragmentInstanceAddr = host;
         }
-    }
-
-    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
-        Optional.ofNullable(context)
-                .map(ConnectContext::getExecutor)
-                .map(StmtExecutor::getSummaryProfile)
-                .ifPresent(profileAction);
     }
 }
 

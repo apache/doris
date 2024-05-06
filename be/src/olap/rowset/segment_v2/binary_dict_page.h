@@ -140,6 +140,8 @@ private:
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+
+    std::vector<int32_t> _buffer;
 };
 
 } // namespace segment_v2

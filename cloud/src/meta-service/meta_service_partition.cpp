@@ -226,9 +226,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
         // init table version, for create and truncate table
         std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
-        std::string val(sizeof(int64_t), 0);
-        *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
-        txn->put(key, val);
+        txn->atomic_add(key, 1);
         LOG_INFO("put table version").tag("key", hex(key));
     }
 

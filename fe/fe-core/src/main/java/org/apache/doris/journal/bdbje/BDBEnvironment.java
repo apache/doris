@@ -101,11 +101,12 @@ public class BDBEnvironment {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
-            LOG.info("start group reset");
+            LOG.warn("start group reset");
             DbResetRepGroup resetUtility = new DbResetRepGroup(
                     envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
-            LOG.info("group has been reset.");
+            LOG.warn("WARNING: metadata recovery mode, group has been reset.");
+            System.out.println("WARNING: metadata recovery mode, group has been reset.");
         }
 
         // set replication config

@@ -41,6 +41,7 @@ import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -376,5 +378,10 @@ public class PointQueryExec implements CoordInterface {
 
     public void cancel() {
         isCancel = true;
+    }
+
+    @Override
+    public List<TNetworkAddress> getInvolvedBackends() {
+        return Lists.newArrayList();
     }
 }

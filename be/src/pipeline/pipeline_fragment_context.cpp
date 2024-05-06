@@ -91,8 +91,8 @@
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -348,17 +348,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
-    auto& pipeline_id_to_profile = _runtime_state->pipeline_id_to_profile();
-    DCHECK(pipeline_id_to_profile.empty());
-    pipeline_id_to_profile.resize(_pipelines.size());
-    {
-        size_t pip_idx = 0;
-        for (auto& pipeline_profile : pipeline_id_to_profile) {
-            pipeline_profile =
-                    std::make_unique<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
-            pip_idx++;
-        }
-    }
+    auto& pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
     for (size_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];
@@ -421,7 +411,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
-        std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
+        std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                            std::shared_ptr<Dependency>>> {
@@ -457,7 +447,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_unique<PipelineXTask>(
+                auto task = std::make_unique<PipelineTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
                         i);
@@ -486,7 +476,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         // First, set up the parent profile,task runtime state
 
-        auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
+        auto prepare_and_set_parent_profile = [&](PipelineTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
             RETURN_IF_ERROR(
                     task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));

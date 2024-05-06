@@ -291,10 +291,16 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                 auto* runtime_state = _runtime_state.get();
                 auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
                 Base::_shared_state->sink_status = std::visit(
-                        [&](auto&& agg_method) -> Status {
-                            auto& hash_table = *agg_method.hash_table;
-                            return _spill_hash_table(state, agg_method, hash_table, _eos);
-                        },
+                        vectorized::Overload {[&](std::monostate& arg) -> Status {
+                                                  throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                                         "uninited hash table");
+                                                  return Status::InternalError("Unit hash table");
+                                              },
+                                              [&](auto& agg_method) -> Status {
+                                                  auto& hash_table = *agg_method.hash_table;
+                                                  return _spill_hash_table(state, agg_method,
+                                                                           hash_table, _eos);
+                                              }},
                         agg_data->method_variant);
                 RETURN_IF_ERROR(Base::_shared_state->sink_status);
                 Base::_shared_state->sink_status =

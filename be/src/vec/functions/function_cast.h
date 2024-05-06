@@ -1821,7 +1821,6 @@ private:
     }
 
     WrapperType create_unsupport_wrapper(const String error_msg) const {
-        LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
                            const ColumnNumbers& /*arguments*/, const size_t /*result*/,
                            size_t /*input_rows_count*/) {

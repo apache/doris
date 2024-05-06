@@ -34,6 +34,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import com.google.common.collect.Lists;
+
 import java.util.HashMap;
 import java.util.List;
 
@@ -68,6 +70,7 @@ public class ApplyRuleJob extends Job {
         }
         countJobExecutionTimesOfGroupExpressions(groupExpression);
 
+        List<DeriveStatsJob> deriveStatsJobs = Lists.newArrayList();
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
@@ -87,7 +90,7 @@ public class ApplyRuleJob extends Job {
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
                     if (!rule.getRuleType().equals(RuleType.LOGICAL_JOIN_COMMUTE)) {
-                        pushJob(new DeriveStatsJob(newGroupExpression, context));
+                        deriveStatsJobs.add(new DeriveStatsJob(newGroupExpression, context));
                     } else {
                         // The Join Commute rule preserves the operator's expression and children,
                         // thereby not altering the statistics. Hence, there is no need to derive statistics for it.
@@ -101,7 +104,7 @@ public class ApplyRuleJob extends Job {
                         // logicalTopN ==> GlobalPhysicalTopN
                         //                   -> localPhysicalTopN
                         // These implementation rules integrate rules for plan shape transformation.
-                        pushJob(new DeriveStatsJob(newGroupExpression, context));
+                        deriveStatsJobs.add(new DeriveStatsJob(newGroupExpression, context));
                     } else {
                         newGroupExpression.setStatDerived(true);
                     }
@@ -110,6 +113,17 @@ public class ApplyRuleJob extends Job {
                 NereidsTracer.logApplyRuleEvent(rule.toString(), plan, newGroupExpression.getPlan());
                 APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
                         rule::isRewrite);
+            }
+            // we do derive stats job eager to avoid un derive stats due to merge group and optimize group
+            // consider:
+            //   we have two groups burned by order: G1 and G2
+            //   then we have job by order derive G2, optimize group expression in G2,
+            //     derive G1, optimize group expression in G1
+            //   if G1 merged into G2, then we maybe generated job optimize group G2 before derive G1
+            //   in this case, we will do get stats from G1's child before derive G1's child stats
+            //   then we will meet NPE in CostModel.
+            for (DeriveStatsJob deriveStatsJob : deriveStatsJobs) {
+                pushJob(deriveStatsJob);
             }
         }
         groupExpression.setApplied(rule);

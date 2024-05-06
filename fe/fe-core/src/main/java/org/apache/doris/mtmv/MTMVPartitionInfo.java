@@ -102,8 +102,8 @@ public class MTMVPartitionInfo {
         return MTMVPartitionUtil.getPos(getRelatedTable(), relatedCol);
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVPartitionInfo{"
                 + "partitionType=" + partitionType
                 + ", relatedTable=" + relatedTable

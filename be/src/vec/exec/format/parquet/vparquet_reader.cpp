@@ -736,16 +736,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         read_whole_row_group();
         return Status::OK();
     }
-    uint8_t col_index_buff[page_index._column_index_size];
+    std::vector<uint8_t> col_index_buff(page_index._column_index_size);
     size_t bytes_read = 0;
-    Slice result(col_index_buff, page_index._column_index_size);
+    Slice result(col_index_buff.data(), page_index._column_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
-    uint8_t off_index_buff[page_index._offset_index_size];
-    Slice res(off_index_buff, page_index._offset_index_size);
+    std::vector<uint8_t> off_index_buff(page_index._offset_index_size);
+    Slice res(off_index_buff.data(), page_index._offset_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
@@ -766,7 +766,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         tparquet::ColumnIndex column_index;
-        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
+        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff.data(), &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             continue;
@@ -780,7 +780,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,

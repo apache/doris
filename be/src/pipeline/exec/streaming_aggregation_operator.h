@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -189,19 +189,22 @@ private:
 
     void _close_with_serialized_key() {
         std::visit(
-                [&](auto&& agg_method) -> void {
-                    auto& data = *agg_method.hash_table;
-                    data.for_each_mapped([&](auto& mapped) {
-                        if (mapped) {
-                            _destroy_agg_status(mapped);
-                            mapped = nullptr;
-                        }
-                    });
-                    if (data.has_null_key_data()) {
-                        _destroy_agg_status(
-                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
-                    }
-                },
+                vectorized::Overload {[&](std::monostate& arg) -> void {
+                                          // Do nothing
+                                      },
+                                      [&](auto& agg_method) -> void {
+                                          auto& data = *agg_method.hash_table;
+                                          data.for_each_mapped([&](auto& mapped) {
+                                              if (mapped) {
+                                                  _destroy_agg_status(mapped);
+                                                  mapped = nullptr;
+                                              }
+                                          });
+                                          if (data.has_null_key_data()) {
+                                              _destroy_agg_status(data.template get_null_key_data<
+                                                                  vectorized::AggregateDataPtr>());
+                                          }
+                                      }},
                 _agg_data->method_variant);
     }
 };

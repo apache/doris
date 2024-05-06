@@ -91,17 +91,6 @@ public:
         }
     }
 
-    void init_mem_tracker_by_allocator() {
-        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}](AllocByAllocator)", type_string(_type),
-                            lru_cache_type_string(_lru_cache_type)));
-    }
-    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
-        DCHECK(_mem_tracker_by_allocator != nullptr);
-        return _mem_tracker_by_allocator;
-    }
-
     // Insert and cache value destroy will be manually consume tracking_bytes to mem tracker.
     // If lru cache is LRUCacheType::SIZE, tracking_bytes usually equal to charge.
     Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
@@ -214,7 +203,6 @@ private:
     // compatible with ShardedLRUCache usage, but will not actually cache.
     std::shared_ptr<Cache> _cache;
     LRUCacheType _lru_cache_type;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
 } // namespace doris

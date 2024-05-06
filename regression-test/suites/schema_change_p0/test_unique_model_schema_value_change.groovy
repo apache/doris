@@ -17,7 +17,7 @@
 
 suite("test_unique_model_schema_value_change","p0") {
      def tbName = "test_unique_model_schema_value_change"
-
+     def tbName2 = "test_unique_model_schema_value_change_1"
      //Test the unique model by adding a value column
      sql """ DROP TABLE IF EXISTS ${tbName} """
      def initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
@@ -282,7 +282,8 @@ suite("test_unique_model_schema_value_change","p0") {
      /**
       *  Test the unique model by modify a value type
       */
-
+     def initTable2 = ""
+     def initTableData2 = ""
      sql """ DROP TABLE IF EXISTS ${tbName} """
      initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
              "          (\n" +
@@ -510,10 +511,42 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, false,"${tbName}")
 
+     sql """ DROP TABLE IF EXISTS ${tbName2} """
+     initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+             "          (\n" +
+             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+             "              `is_student` SMALLINT COMMENT \"是否是学生\",\n" +
+             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
+             "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+             "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+             "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+             "              `address` VARCHAR(500) COMMENT \"用户地址\",\n" +
+             "              `register_time` DATETIME COMMENT \"用户注册时间\"\n" +
+             "          )\n" +
+             "          UNIQUE KEY(`user_id`, `username`)\n" +
+             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+             "          PROPERTIES (\n" +
+             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          );"
+
+     initTableData2 = "insert into ${tbName2} values(123456789, 'Alice', 1, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (234567890, 'Bob', 1, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00')," +
+             "               (345678901, 'Carol', 1, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00')," +
+             "               (456789012, 'Dave', 1, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
+             "               (567890123, 'Eve', 0, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
+             "               (678901234, 'Frank', 0, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
+             "               (789012345, 'Grace', 1, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00')," +
+             "               (123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+     sql initTable2
+     sql initTableData2
+     checkTableData("${tbName}","${tbName2}","is_student")
 
      //Test the unique model by modify a value type from TINYINT  to INT
+     sql """ DROP TABLE IF EXISTS ${tbName} """
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column is_student INT  """

@@ -131,7 +131,7 @@ bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stat
 class MetaServiceProxy {
 public:
     static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
         return get_pooled_client(stub);
     }
 
@@ -458,7 +458,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bimtap")
+                LOG_WARNING("failed to get delete bitmap")
                         .tag("tablet", tablet->tablet_id())
                         .error(st);
                 return st;

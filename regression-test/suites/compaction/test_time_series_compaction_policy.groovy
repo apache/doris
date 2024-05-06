@@ -75,13 +75,6 @@ suite("test_time_series_compaction_polciy", "p0") {
         return rowsetCount
     }
 
-    // String backend_id;
-    // backend_id = backendId_to_backendIP.keySet()[0]
-    // def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
-    // logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-    // assertEquals(code, 0)
-
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE ${tableName} (
@@ -117,10 +110,20 @@ suite("test_time_series_compaction_polciy", "p0") {
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+
+    int replicaNum = 1
+    def dedup_tablets = deduplicate_tablets(tablets)
+    if (dedup_tablets.size() > 0) {
+        replicaNum = Math.round(tablets.size() / dedup_tablets.size())
+        if (replicaNum != 1 && replicaNum != 3) {
+            assert(false)
+        }
+    }
+    
     // BUCKETS = 2
     // before cumulative compaction, there are 17 * 2 = 34 rowsets.
     int rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 34)
+    assert (rowsetCount == 34 * replicaNum)
 
     // trigger cumulative compactions for all tablets in table
     trigger_cumulative_compaction_on_tablets.call(tablets)
@@ -132,7 +135,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     // 5 consecutive empty versions are merged into one empty version
     // 34 - 2*4 = 26
     rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 26)
+    assert (rowsetCount == 26 * replicaNum)
 
     // trigger cumulative compactions for all tablets in ${tableName}
     trigger_cumulative_compaction_on_tablets.call(tablets)
@@ -143,7 +146,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     // after cumulative compaction, there is only 22 rowset.
     // 26 - 4 = 22
     rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 22)
+    assert (rowsetCount == 22 * replicaNum)
 
     qt_sql_2 """ select count() from ${tableName}"""
     sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
@@ -156,6 +159,6 @@ suite("test_time_series_compaction_polciy", "p0") {
 
     // after cumulative compaction, there is only 11 rowset.
     rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 11)
+    assert (rowsetCount == 11 * replicaNum)
     qt_sql_3 """ select count() from ${tableName}"""
 }

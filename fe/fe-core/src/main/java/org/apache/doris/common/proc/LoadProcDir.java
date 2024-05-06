@@ -18,7 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.load.loadv2.LoadManager;
 
 import com.google.common.collect.ImmutableList;
@@ -66,8 +68,13 @@ public class LoadProcDir implements ProcDirInterface {
         if (db == null) {
             loadJobInfos = loadManager.getAllLoadJobInfos();
         } else {
-            loadJobInfos = loadManager.getLoadJobInfosByDb(db.getId(), null, false,
-                null, null, null, false, null, false, null, false);
+            if (!Config.isCloudMode()) {
+                loadJobInfos = loadManager.getLoadJobInfosByDb(db.getId(), null, false, null);
+            } else {
+                loadJobInfos = ((CloudLoadManager) loadManager)
+                        .getLoadJobInfosByDb(db.getId(), null, false,
+                        null, null, null, false, null, false, null, false);
+            }
         }
 
         int counter = 0;

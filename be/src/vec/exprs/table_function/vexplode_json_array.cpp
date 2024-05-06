@@ -74,11 +74,12 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_close() {
 }
 
 template <typename DataImpl>
-void VExplodeJsonArrayTableFunction<DataImpl>::get_value(MutableColumnPtr& column) {
+void VExplodeJsonArrayTableFunction<DataImpl>::get_same_many_values(MutableColumnPtr& column,
+                                                                    int length) {
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
-        insert_values_into_column(column, 1);
+        _insert_same_many_values_into_column(column, length);
     }
 }
 
@@ -89,20 +90,40 @@ int VExplodeJsonArrayTableFunction<DataImpl>::get_value(MutableColumnPtr& column
         column->insert_default();
         max_step = 1;
     } else {
-        insert_values_into_column(column, max_step);
+        _insert_values_into_column(column, max_step);
     }
     forward(max_step);
     return max_step;
 }
 
 template <typename DataImpl>
-void VExplodeJsonArrayTableFunction<DataImpl>::insert_values_into_column(MutableColumnPtr& column,
-                                                                         int max_step) {
+void VExplodeJsonArrayTableFunction<DataImpl>::_insert_same_many_values_into_column(
+        MutableColumnPtr& column, int length) {
     if (_is_nullable) {
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto nested_column = nullable_column->get_nested_column_ptr();
 
-        _parsed_data.insert_result_from_parsed_data(nested_column, max_step, _cur_offset);
+        _parsed_data.insert_many_same_value_from_parsed_data(nested_column, _cur_offset, length);
+
+        auto* nullmap_column =
+                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+        size_t old_size = nullmap_column->size();
+        nullmap_column->resize(old_size + length);
+        memset(nullmap_column->get_data().data() + old_size,
+               *(_parsed_data.get_null_flag_address(_cur_offset)), length * sizeof(UInt8));
+    } else {
+        _parsed_data.insert_many_same_value_from_parsed_data(column, _cur_offset, length);
+    }
+}
+
+template <typename DataImpl>
+void VExplodeJsonArrayTableFunction<DataImpl>::_insert_values_into_column(MutableColumnPtr& column,
+                                                                          int max_step) {
+    if (_is_nullable) {
+        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto nested_column = nullable_column->get_nested_column_ptr();
+
+        _parsed_data.insert_result_from_parsed_data(nested_column, _cur_offset, max_step);
 
         auto* nullmap_column =
                 assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
@@ -111,7 +132,7 @@ void VExplodeJsonArrayTableFunction<DataImpl>::insert_values_into_column(Mutable
         memcpy(nullmap_column->get_data().data() + old_size,
                _parsed_data.get_null_flag_address(_cur_offset), max_step * sizeof(UInt8));
     } else {
-        _parsed_data.insert_result_from_parsed_data(column, max_step, _cur_offset);
+        _parsed_data.insert_result_from_parsed_data(column, _cur_offset, max_step);
     }
 }
 
