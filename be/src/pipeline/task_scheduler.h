@@ -50,7 +50,7 @@ public:
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _shutdown(false),
-              _name(name),
+              _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
