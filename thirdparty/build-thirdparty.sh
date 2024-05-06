@@ -1494,7 +1494,7 @@ build_hdfs3() {
 }
 
 # jemalloc
-build_jemalloc() {
+build_jemalloc_doris() {
     check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
@@ -1818,7 +1818,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
-        jemalloc
+        jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
