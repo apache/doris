@@ -87,7 +87,7 @@ suite("test_env_db_dropped_mtmv") {
             REFRESH MATERIALIZED VIEW ${dbName2}.${mvName} AUTO;
         """
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-    def  msg = sql """select ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"""
-    assertTrue(msg.toString().contains("has been deleted")
+    def msg = sql """select ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"""
     logger.info(msg.toString())
+    assertTrue(msg.toString().contains("has been deleted")
 }
