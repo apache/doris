@@ -208,7 +208,7 @@ public class MTMVTask extends AbstractTask {
                 if (!pair.first) {
                     errMsg.append(pair.second);
                 }
-                errMsg.append(ctx.getState().getErrorMessage());
+                errMsg.append(e.getMessage());
                 LOG.warn("run task failed: ", errMsg.toString());
                 throw new JobException(errMsg.toString(), e);
             } else {
