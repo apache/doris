@@ -102,6 +102,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->inner_shared_state->hash_table_variants.reset();
     auto row_desc = p._child_x->row_desc();
+    const auto num_slots = row_desc.num_slots();
     std::vector<vectorized::Block> build_blocks;
     auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
     if (inner_sink_state_) {
@@ -116,11 +117,18 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     }
 
     auto execution_context = state->get_task_execution_context();
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
+            _shared_state->shared_from_this();
+
     _dependency->block();
     auto query_id = state->query_id();
     auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
-    auto spill_func = [execution_context, build_blocks = std::move(build_blocks), state, query_id,
-                       mem_tracker, this]() mutable {
+    auto spill_func = [shared_state_holder, execution_context,
+                       build_blocks = std::move(build_blocks), state, query_id, mem_tracker,
+                       num_slots, this]() mutable {
         SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
         Defer defer {[&]() {
             // need to reset build_block here, or else build_block will be destructed
@@ -128,8 +136,12 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             build_blocks.clear();
         }};
 
-        auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock || state->is_cancelled()) {
+        std::shared_ptr<TaskExecutionContext> execution_context_lock;
+        auto shared_state_sptr = shared_state_holder.lock();
+        if (shared_state_sptr) {
+            execution_context_lock = execution_context.lock();
+        }
+        if (!shared_state_sptr || !execution_context_lock || state->is_cancelled()) {
             LOG(INFO) << "execution_context released, maybe query was canceled.";
             return;
         }
@@ -163,6 +175,11 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             if (UNLIKELY(build_block.empty())) {
                 continue;
             }
+
+            if (build_block.columns() > num_slots) {
+                build_block.erase(num_slots);
+            }
+
             {
                 SCOPED_TIMER(_partition_timer);
                 (void)_partitioner->do_partitioning(state, &build_block, _mem_tracker.get());
@@ -213,13 +230,24 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
               << ", eos: " << _child_eos;
     DCHECK_EQ(_spilling_streams_count, 0);
 
-    _shared_state_holder = _shared_state->shared_from_this();
     if (!_shared_state->need_to_spill) {
+        profile()->add_info_string("Spilled", "true");
         _shared_state->need_to_spill = true;
         return _revoke_unpartitioned_block(state);
     }
 
     _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
+
+    auto execution_context = state->get_task_execution_context();
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
+            _shared_state->shared_from_this();
+
+    auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
+
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
@@ -235,24 +263,26 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         auto* spill_io_pool =
                 ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
         DCHECK(spill_io_pool != nullptr);
-        auto execution_context = state->get_task_execution_context();
 
         MonotonicStopWatch submit_timer;
         submit_timer.start();
 
-        auto st = spill_io_pool->submit_func(
-                [this, execution_context, state, spilling_stream, i, submit_timer] {
-                    auto execution_context_lock = execution_context.lock();
-                    if (!execution_context_lock) {
-                        LOG(INFO) << "execution_context released, maybe query was cancelled.";
-                        return;
-                    }
-                    _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                    SCOPED_TIMER(_spill_build_timer);
-                    (void)state; // avoid ut compile error
-                    SCOPED_ATTACH_TASK(state);
-                    _spill_to_disk(i, spilling_stream);
-                });
+        auto st = spill_io_pool->submit_func([this, query_id, mem_tracker, shared_state_holder,
+                                              execution_context, spilling_stream, i, submit_timer] {
+            SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+            std::shared_ptr<TaskExecutionContext> execution_context_lock;
+            auto shared_state_sptr = shared_state_holder.lock();
+            if (shared_state_sptr) {
+                execution_context_lock = execution_context.lock();
+            }
+            if (!shared_state_sptr || !execution_context_lock) {
+                LOG(INFO) << "execution_context released, maybe query was cancelled.";
+                return;
+            }
+            _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+            SCOPED_TIMER(_spill_build_timer);
+            _spill_to_disk(i, spilling_stream);
+        });
 
         if (!st.ok()) {
             --_spilling_streams_count;

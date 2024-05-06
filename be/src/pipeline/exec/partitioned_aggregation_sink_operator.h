@@ -261,11 +261,6 @@ public:
     bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<PartitionedAggSharedState> _shared_state_holder;
-
     // temp structures during spilling
     vectorized::MutableColumns key_columns_;
     vectorized::MutableColumns value_columns_;
