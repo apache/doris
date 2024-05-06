@@ -1114,21 +1114,21 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
                                                        InvertedIndexQueryType query_type,
                                                        uint32_t segment_num_rows,
                                                        roaring::Roaring* bit_map, bool skip_try) {
-    // if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
-    //     if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
-    //         _runtime_state->query_options().inverted_index_skip_threshold < 100) {
-    //         auto query_bkd_limit_percent =
-    //                 _runtime_state->query_options().inverted_index_skip_threshold;
-    //         uint32_t hit_count = 0;
-    //         RETURN_IF_ERROR(
-    //                 try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
-    //         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
-    //             return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-    //                     "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
-    //                     hit_count, query_bkd_limit_percent, segment_num_rows);
-    //         }
-    //     }
-    // }
+    if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
+        if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+            auto query_bkd_limit_percent =
+                    _runtime_state->query_options().inverted_index_skip_threshold;
+            uint32_t hit_count = 0;
+            RETURN_IF_ERROR(
+                    try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+            if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+                        hit_count, query_bkd_limit_percent, segment_num_rows);
+            }
+        }
+    }
 
     RETURN_IF_ERROR(
             _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));
