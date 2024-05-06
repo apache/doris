@@ -295,7 +295,7 @@ public abstract class MaterializationContext {
     }
 
     private static String generateQualifierName(List<String> qualifiers) {
-        return String.join("-", qualifiers);
+        return String.join("#", qualifiers);
     }
 
     @Override
