@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPaimonDeleteFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -51,6 +52,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -141,7 +143,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     public List<Split> getSplits() throws UserException {
         boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
         List<Split> splits = new ArrayList<>();
-        int[] projected = desc.getSlots().stream().mapToInt(
+    int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
                 .toArray();
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
@@ -157,6 +159,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 BinaryRow partitionValue = dataSplit.partition();
                 selectedPartitionValues.add(partitionValue);
                 Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+                Optional<List<DeletionFile>> deletionFiles = dataSplit.deletionFiles();
                 if (optRawFiles.isPresent()) {
                     List<RawFile> rawFiles = optRawFiles.get();
                     for (RawFile file : rawFiles) {
