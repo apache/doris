@@ -225,6 +225,10 @@ suite("test_date_function") {
     String explainResult
     explainResult = sql("select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);")
     assertFalse(explainResult.contains("date_add"))
+    explainResult = sql("select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);")
+    assertFalse(explainResult.contains("months_add"))
+    explainResult = sql("select * from ${tableName} where test_datetime >= years_add('2024-01-16',1);")
+    assertFalse(explainResult.contains("years_add"))
 
     // DATE_FORMAT
     sql """ truncate table ${tableName} """
