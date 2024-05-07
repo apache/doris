@@ -562,44 +562,4 @@ bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
 }
 
-std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
-    std::shared_lock lc(_pipeline_profile_lock);
-    std::vector<std::shared_ptr<RuntimeProfile>> pipelines_profile;
-    pipelines_profile.reserve(_pipeline_id_to_profile.size());
-    // The sort here won't change the structure of _pipeline_id_to_profile;
-    // it sorts the children of each element in sort_pipeline_id_to_profile,
-    // and these children are locked.
-    for (auto& pipeline_profile : _pipeline_id_to_profile) {
-        DCHECK(pipeline_profile);
-        // pipeline 0
-        //  pipeline task 0
-        //  pipeline task 1
-        //  pipleine task 2
-        //  .......
-        // sort by pipeline task total time
-        pipeline_profile->sort_children_by_total_time();
-        pipelines_profile.push_back(pipeline_profile);
-    }
-    return pipelines_profile;
-}
-
-std::vector<std::shared_ptr<RuntimeProfile>>& RuntimeState::build_pipeline_profile(
-        std::size_t pipeline_size) {
-    std::unique_lock lc(_pipeline_profile_lock);
-    if (!_pipeline_id_to_profile.empty()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "build_pipeline_profile can only be called once.");
-    }
-    _pipeline_id_to_profile.resize(pipeline_size);
-    {
-        size_t pip_idx = 0;
-        for (auto& pipeline_profile : _pipeline_id_to_profile) {
-            pipeline_profile =
-                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
-            pip_idx++;
-        }
-    }
-    return _pipeline_id_to_profile;
-}
-
 } // end namespace doris
