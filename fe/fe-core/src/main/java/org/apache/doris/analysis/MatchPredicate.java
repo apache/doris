@@ -33,8 +33,6 @@ import org.apache.doris.thrift.TMatchPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -44,7 +42,6 @@ import java.util.Objects;
  * filed MATCH query_str
  */
 public class MatchPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(MatchPredicate.class);
 
     public enum Operator {
         MATCH_ANY("MATCH_ANY", "match_any", TExprOpcode.MATCH_ANY),

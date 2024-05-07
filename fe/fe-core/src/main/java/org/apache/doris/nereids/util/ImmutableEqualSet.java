@@ -88,6 +88,22 @@ public class ImmutableEqualSet<T> {
             }
         }
 
+        /**
+         * Calculate all equal set
+         */
+        public List<Set<T>> calEqualSetList() {
+            parent.replaceAll((s, v) -> findRoot(s));
+            return parent.values()
+                    .stream()
+                    .distinct()
+                    .map(a -> {
+                        T ra = parent.get(a);
+                        return parent.keySet().stream()
+                                .filter(t -> parent.get(t).equals(ra))
+                                .collect(ImmutableSet.toImmutableSet());
+                    }).collect(ImmutableList.toImmutableList());
+        }
+
         public void addEqualSet(ImmutableEqualSet<T> equalSet) {
             this.parent.putAll(equalSet.root);
         }
@@ -116,6 +132,10 @@ public class ImmutableEqualSet<T> {
         return root.keySet().stream()
                 .filter(t -> root.get(t).equals(ra) && !t.equals(a))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public boolean isEmpty() {
+        return root.isEmpty();
     }
 
     /**

@@ -40,7 +40,6 @@ import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
@@ -166,14 +165,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
-        }
+        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
     }
 
     @Override
@@ -184,7 +176,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExistInLocal(String dbName, String tblName) {
         makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) getDbNullable(dbName);
         if (hmsExternalDatabase == null) {
             return false;
         }
@@ -201,11 +193,17 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("drop database [{}]", dbName);
         }
-        Long dbId = dbNameToId.remove(dbName);
-        if (dbId == null) {
-            LOG.warn("drop database [{}] failed", dbName);
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(dbName);
+            }
+        } else {
+            Long dbId = dbNameToId.remove(dbName);
+            if (dbId == null) {
+                LOG.warn("drop database [{}] failed", dbName);
+            }
+            idToDb.remove(dbId);
         }
-        idToDb.remove(dbId);
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
@@ -214,9 +212,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
-        dbNameToId.put(dbName, dbId);
-        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
-        idToDb.put(dbId, db);
+
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.updateCache(dbName, db);
+            }
+        } else {
+            dbNameToId.put(dbName, dbId);
+            idToDb.put(dbId, db);
+        }
     }
 
     @Override
@@ -229,10 +234,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultPropsWhenCreating(boolean isReplay) {
-        if (isReplay) {
-            return;
-        }
+    public void setDefaultPropsIfMissing(boolean isReplay) {
+        super.setDefaultPropsIfMissing(isReplay);
         if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");

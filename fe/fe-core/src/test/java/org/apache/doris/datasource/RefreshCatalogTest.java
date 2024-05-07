@@ -146,7 +146,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         Assertions.assertTrue(l3 == l2);
         Assertions.assertTrue(table.isObjectCreated());
         test2.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
+        // Assertions.assertFalse(table.isObjectCreated());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {

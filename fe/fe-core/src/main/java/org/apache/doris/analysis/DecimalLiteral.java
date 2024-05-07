@@ -30,8 +30,6 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -43,7 +41,6 @@ import java.nio.ByteOrder;
 import java.util.Objects;
 
 public class DecimalLiteral extends NumericLiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
     private BigDecimal value;
 
     public DecimalLiteral() {
