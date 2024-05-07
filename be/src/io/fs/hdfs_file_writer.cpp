@@ -47,7 +47,37 @@ bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written")
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
 
+class HdfsMaxConnectionLimiter {
+public:
+    HdfsMaxConnectionLimiter() = default;
+    ~HdfsMaxConnectionLimiter() = default;
+
+    void add_inflight_writer() {
+        std::unique_lock lck {_latch};
+        while (!_cv.wait_for(
+                lck, std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds), [&]() {
+                    return _cur_inflight_writer < config::max_inflight_hdfs_write_connection;
+                })) {
+            // Is it a bad idea to log under the lock ?
+            LOG_WARNING("Add inflight hdfs writer failed due to no avaiable connection");
+        }
+        _cur_inflight_writer++;
+    }
+
+    void reduce_inflight_writer() {
+        std::unique_lock lck {_latch};
+        _cur_inflight_writer--;
+        _cv.notify_one();
+    }
+
+private:
+    std::mutex _latch;
+    std::condition_variable _cv;
+    int64_t _cur_inflight_writer {0};
+};
+
 static constexpr size_t MB = 1024 * 1024;
+static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 
 // In practice, we've found that if the import frequency to HDFS is too fast,
 // it can cause an OutOfMemoryError (OOM) in the JVM started by the JNI.
@@ -96,6 +126,7 @@ private:
 };
 
 static HdfsWriteRateLimit g_hdfs_write_rate_limiter;
+static HdfsMaxConnectionLimiter g_hdfs_max_write_connection_limiter;
 
 HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
                                std::string fs_name, const FileWriterOptions* opts)
@@ -122,10 +153,36 @@ HdfsFileWriter::~HdfsFileWriter() {
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
-        g_hdfs_write_rate_limiter.release_memory(bytes_appended());
+        g_hdfs_max_write_connection_limiter.reduce_inflight_writer();
+        _flush_and_reset_approximate_jni_buffer_size();
     }
 
     hdfs_file_being_written << -1;
+}
+
+void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
+    g_hdfs_write_rate_limiter.release_memory(_approximate_jni_buffer_size);
+    _approximate_jni_buffer_size = 0;
+}
+
+Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
+#ifdef USE_LIBHDFS3
+    return Status::OK();
+#endif
+    size_t actual_size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
+    if (!g_hdfs_write_rate_limiter.acquire_memory(actual_size).ok()) {
+        auto ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
+                                                "HdfsFileWriter::close::hdfsHSync");
+        _flush_and_reset_approximate_jni_buffer_size();
+        if (ret != 0) {
+            return Status::InternalError(
+                    "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
+                    BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
+                    bytes_appended());
+        }
+    }
+
+    return Status::OK();
 }
 
 Status HdfsFileWriter::close() {
@@ -146,6 +203,7 @@ Status HdfsFileWriter::close() {
 #else
             ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
                                                "HdfsFileWriter::close::hdfsHSync");
+            _flush_and_reset_approximate_jni_buffer_size();
 #endif
         }
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync",
@@ -164,6 +222,7 @@ Status HdfsFileWriter::close() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
+        _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
@@ -354,6 +413,7 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
 #endif
     // open file
     hdfsFile hdfs_file = nullptr;
+    g_hdfs_max_write_connection_limiter.add_inflight_writer();
     {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
         hdfs_file = hdfsOpenFile(handler->hdfs_fs, path.c_str(), O_WRONLY, 0, 0, 0);
