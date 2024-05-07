@@ -222,6 +222,10 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
 
+    String explainResult
+    explainResult = sql("select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);")
+    assertFalse(explainResult.contains("date_add"))
+
     // DATE_FORMAT
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
@@ -661,7 +665,6 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
-    String explainResult
     explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
     assertFalse(explainResult.contains("timestamp"))
 
