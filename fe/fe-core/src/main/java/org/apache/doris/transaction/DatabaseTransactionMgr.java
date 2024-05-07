@@ -1229,7 +1229,7 @@ public class DatabaseTransactionMgr {
                         // versions.
                         //
                         // If a timeout happens, it means that the rowset
-                        // that are being publised exists on a few replicas we should go
+                        // that are being published exists on a few replicas we should go
                         // ahead, otherwise data may be lost and thre
                         // publish task hangs forever.
                         logs.add(String.format("publish version timeout succ for transaction %s on tablet %s "
