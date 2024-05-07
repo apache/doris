@@ -112,7 +112,7 @@ int64_t WorkloadGroup::memory_used() {
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
-            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
+            used_memory += tracker->consumption();
         }
     }
     return used_memory;
