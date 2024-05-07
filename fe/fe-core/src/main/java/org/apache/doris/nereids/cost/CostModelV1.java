@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -371,6 +372,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 0
         );
+    }
+
+    @Override
+    public Cost visitPhysicalIntersect(PhysicalIntersect physicalIntersect, PlanContext context) {
+        double cpuCost = 0.0;
+        for (int i = 0; i < physicalIntersect.children().size(); i++) {
+            cpuCost += context.getChildStatistics(i).getRowCount();
+        }
+        double memoryCost = context.getChildStatistics(0).computeSize();
+        return CostV1.of(context.getSessionVariable(), cpuCost, memoryCost, 0);
     }
 
     @Override
