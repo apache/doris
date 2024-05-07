@@ -97,7 +97,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     // jobId(listenerId). use in beginTransaction to callback function
     private final long id;
-    protected long transactionId;
+    protected static final long INVALID_TXN_ID = -1L;
+    protected long transactionId = INVALID_TXN_ID;
     protected String label;
     private final Set<Long> totalTablets;
     private final Set<Long> quorumTablets;
@@ -738,5 +739,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             }
             return deleteConditions;
         }
+    }
+
+    protected void addTableIndexes(TransactionState state) {
+        state.addTableIndexes(targetTbl);
     }
 }

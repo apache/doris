@@ -2070,7 +2070,7 @@ public class StmtExecutor {
 
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
-        if (context.isTxnIniting()) { // first time, begin txn
+        if (context.isInsertValuesTxnIniting()) { // first time, begin txn
             beginTxn(insertStmt.getDbName(),
                     insertStmt.getTbl());
         }
