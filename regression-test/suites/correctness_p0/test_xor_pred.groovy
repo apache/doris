@@ -40,10 +40,20 @@ suite("test_xor_pred") {
         select k1,k2 , k1 xor k2, not (k1 xor k2) from dbxor order by k1,k2;
     """
 
+    // xor only support bool  
     test {
+        sql """set enable_nereids_planner=true;"""
         sql """
             select 1 xor 0;
         """
-        exception("Can not find the compatibility function signature: xor(TINYINT, TINYINT)")
+        exception("errCode")
+    }
+
+    test {
+        sql """set enable_nereids_planner=false;"""
+        sql """
+            select 1 xor 0;
+        """
+        exception("errCode")
     }
 }
