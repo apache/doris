@@ -309,14 +309,14 @@ TEST_F(VWalScannerTest, normal) {
 
 TEST_F(VWalScannerTest, fail_with_not_equal) {
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("WalReader::set_column_id_count");
-        sp->clear_call_back("WalReader::set_out_block_column_size");
-    }};
-    sp->set_call_back("WalReader::set_column_id_count",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 2; });
-    sp->set_call_back("WalReader::set_out_block_column_size",
-                      [](auto&& args) { *try_any_cast<size_t*>(args[0]) = 2; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "WalReader::set_column_id_count",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 2; }, &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "WalReader::set_out_block_column_size",
+            [](auto&& args) { *try_any_cast<size_t*>(args[0]) = 2; }, &guard2);
     sp->enable_processing();
 
     _runtime_state._wal_id = _txn_id_1;

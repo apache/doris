@@ -89,6 +89,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Schema change memory limit as a fraction of soft memory limit.
+DEFINE_Double(schema_change_mem_limit_frac, "0.6");
+
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -990,6 +993,7 @@ DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1134,6 +1138,8 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
+
+DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 

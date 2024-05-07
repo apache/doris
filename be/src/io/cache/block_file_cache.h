@@ -131,6 +131,8 @@ public:
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
 
+    void update_ttl_atime(const UInt128Wrapper& hash);
+
     class LRUQueue {
     public:
         LRUQueue() = default;

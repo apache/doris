@@ -207,11 +207,11 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override;
 };
 
-struct CountedFinishDependency final : public FinishDependency {
+struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : FinishDependency(id, node_id, name, query_ctx) {}
+            : Dependency(id, node_id, name, true, query_ctx) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -320,9 +320,7 @@ public:
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
     ~AggSharedState() override {
-        if (probe_expr_ctxs.empty() && ready_to_execute) {
-            _close_without_key();
-        } else if (ready_to_execute) {
+        if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
         }
     }
@@ -362,42 +360,33 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
-    bool agg_data_created_without_key = false;
-    std::atomic<bool> ready_to_execute = false;
-
     bool enable_spill = false;
 
 private:
     void _close_with_serialized_key() {
-        std::visit(
-                [&](auto&& agg_method) -> void {
-                    auto& data = *agg_method.hash_table;
-                    data.for_each_mapped([&](auto& mapped) {
-                        if (mapped) {
-                            static_cast<void>(_destroy_agg_status(mapped));
-                            mapped = nullptr;
-                        }
-                    });
-                    if (data.has_null_key_data()) {
-                        auto st = _destroy_agg_status(
-                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
-                        if (!st) {
-                            throw Exception(st.code(), st.to_string());
-                        }
-                    }
-                },
-                agg_data->method_variant);
+        std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
+                                             // Do nothing
+                                         },
+                                         [&](auto& agg_method) -> void {
+                                             auto& data = *agg_method.hash_table;
+                                             data.for_each_mapped([&](auto& mapped) {
+                                                 if (mapped) {
+                                                     static_cast<void>(_destroy_agg_status(mapped));
+                                                     mapped = nullptr;
+                                                 }
+                                             });
+                                             if (data.has_null_key_data()) {
+                                                 auto st = _destroy_agg_status(
+                                                         data.template get_null_key_data<
+                                                                 vectorized::AggregateDataPtr>());
+                                                 if (!st) {
+                                                     throw Exception(st.code(), st.to_string());
+                                                 }
+                                             }
+                                         }},
+                   agg_data->method_variant);
     }
 
-    void _close_without_key() {
-        //because prepare maybe failed, and couldn't create agg data.
-        //but finally call close to destory agg data, if agg data has bitmapValue
-        //will be core dump, it's not initialized
-        if (agg_data_created_without_key) {
-            static_cast<void>(_destroy_agg_status(agg_data->without_key));
-            agg_data_created_without_key = false;
-        }
-    }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
             aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);

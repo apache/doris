@@ -30,7 +30,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -1086,7 +1085,7 @@ public class SelectStmt extends QueryStmt {
                 break;
             }
             long rowCount = 0;
-            if (tblRef.getTable().getType() == TableType.OLAP) {
+            if (tblRef.getTable().isManagedTable()) {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);

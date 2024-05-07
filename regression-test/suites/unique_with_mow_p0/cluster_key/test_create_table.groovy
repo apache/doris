@@ -184,6 +184,7 @@ suite("test_create_table") {
         );
     """
 
+    // test legacy planner
     sql """set enable_nereids_planner=false;"""
     // duplicate table with cluster keys
     test {
@@ -204,6 +205,7 @@ suite("test_create_table") {
         exception "Syntax error"
     }
 
+    // test nereids planner
     sql """set enable_nereids_planner=true;"""
     sql """set enable_nereids_dml=true;"""
     sql """set enable_fallback_to_original_planner=false;"""

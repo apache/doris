@@ -36,6 +36,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -128,6 +129,8 @@ public:
 
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
 
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -148,6 +151,8 @@ protected:
     std::mutex _quering_rowsets_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
     scoped_refptr<Thread> _evict_quering_rowset_thread;
+
+    int64_t _memory_limitation_bytes_for_schema_change;
 };
 
 class StorageEngine final : public BaseStorageEngine {
