@@ -142,7 +142,8 @@ public class HiveMetaStoreCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), refreshExecutor);
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
+                refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -160,7 +161,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, refreshExecutor);
+        }, null, refreshExecutor);
 
         setNewFileCache();
     }
@@ -198,7 +199,7 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
+        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }

@@ -24,8 +24,6 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,7 +32,6 @@ import java.nio.ByteBuffer;
 
 // PlaceHolderExpr is a reference class point to real LiteralExpr
 public class PlaceHolderExpr extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
     private LiteralExpr lExpr;
     int mysqlTypeCode = -1;
 

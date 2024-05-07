@@ -250,7 +250,6 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
-        msg.setOutputColumn(outputColumn);
         if (type.isNativeType() && getChild(0).getType().isNativeType()) {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }

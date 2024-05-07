@@ -792,7 +792,6 @@ class Suite implements GroovyInterceptable {
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
-        String backend_id;
         for (List<Object> backend : backends) {
             backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
@@ -856,6 +855,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute hive ql: ${sqlStr}".toString())
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(hivePrefix), cleanedSqlStr)
         if (isOrder) {
@@ -1511,5 +1511,55 @@ class Suite implements GroovyInterceptable {
 
     public void resetConnection() {
         context.resetConnection()
+    }
+
+    def get_be_param = { paramName ->
+        def ipList = [:]
+        def portList = [:]
+        def backendId_to_params = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            // get the config value from be
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/show_config?conf_item=%s", beIp, bePort, paramName))
+            assertTrue(code == 0)
+            assertTrue(out.contains(paramName))
+            // parsing
+            def resultList = parseJson(out)[0]
+            assertTrue(resultList.size() == 4)
+            // get original value
+            def paramValue = resultList[2]
+            backendId_to_params.put(id, paramValue)
+        }
+        logger.info("backendId_to_params: ${backendId_to_params}".toString())
+        return backendId_to_params
+    }
+
+    def set_be_param = { paramName, paramValue ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def set_original_be_param = { paramName, backendId_to_params ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            def paramValue = backendId_to_params.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
     }
 }

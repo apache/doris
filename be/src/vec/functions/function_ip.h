@@ -672,8 +672,10 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const auto& [addr_column, addr_const] =
+                unpack_if_const(addr_column_with_type_and_name.column);
+        const auto& [cidr_column, cidr_const] =
+                unpack_if_const(cidr_column_with_type_and_name.column);
         const ColumnString* str_addr_column = nullptr;
         const ColumnString* str_cidr_column = nullptr;
         const NullMap* null_map_addr = nullptr;
@@ -715,18 +717,22 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_addr && (*null_map_addr)[i]) {
+            auto addr_idx = index_check_const(i, addr_const);
+            auto cidr_idx = index_check_const(i, cidr_const);
+            if (null_map_addr && (*null_map_addr)[addr_idx]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            if (null_map_cidr && (*null_map_cidr)[i]) {
+            if (null_map_cidr && (*null_map_cidr)[cidr_idx]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            const auto addr = IPAddressVariant(str_addr_column->get_data_at(i).to_string_view());
-            const auto cidr = parse_ip_with_cidr(str_cidr_column->get_data_at(i).to_string_view());
+            const auto addr =
+                    IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
+            const auto cidr =
+                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
             col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
         }
 
