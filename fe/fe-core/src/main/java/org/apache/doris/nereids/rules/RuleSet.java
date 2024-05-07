@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.IntersectReorder;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
@@ -122,6 +123,7 @@ public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new MergeProjectsCBO())
+            .add(IntersectReorder.INSTANCE)
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()

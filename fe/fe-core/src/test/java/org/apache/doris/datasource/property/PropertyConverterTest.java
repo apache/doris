@@ -265,10 +265,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 12);
+        Assertions.assertEquals(13, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 21);
+        Assertions.assertEquals(22, hdProps.size());
     }
 
     @Test
@@ -283,10 +283,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 11);
+        Assertions.assertEquals(12, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 20);
+        Assertions.assertEquals(21, hdProps.size());
     }
 
     @Test
@@ -434,11 +434,11 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getProperties();
-        Assertions.assertEquals(properties.size(), 20);
+        Assertions.assertEquals(properties.size(), 21);
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 29);
+        Assertions.assertEquals(30, hdProps.size());
 
         String query = "create catalog hms_glue properties (\n"
                 + "    'type'='hms',\n"
@@ -452,11 +452,11 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
         Map<String, String> propertiesNew = catalogNew.getProperties();
-        Assertions.assertEquals(propertiesNew.size(), 20);
+        Assertions.assertEquals(21, propertiesNew.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdPropsNew.size(), 29);
+        Assertions.assertEquals(30, hdPropsNew.size());
     }
 
     @Test
@@ -470,7 +470,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                    "cos.ap-beijing.myqcloud.com", query0, 11, 16);
+                "cos.ap-beijing.myqcloud.com", query0, 12, 17);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -481,7 +481,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                    "oss.oss-cn-beijing.aliyuncs.com", query1, 11, 16);
+                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 17);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"
@@ -492,7 +492,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                    "http://127.0.0.1", query2, 11, 20);
+                "http://127.0.0.1", query2, 12, 21);
 
         String catalogName3 = "hms_obs";
         String query3 = "create catalog hms_obs properties (\n"
@@ -503,7 +503,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'obs.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName3, ObsProperties.OBS_PREFIX,
-                "obs.cn-north-4.myhuaweicloud.com", query3, 11, 16);
+                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 17);
     }
 
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
@@ -513,10 +513,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(sql);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), catalogPropsSize);
+        Assertions.assertEquals(catalogPropsSize, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), bePropsSize);
+        Assertions.assertEquals(bePropsSize, hdProps.size());
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", endpoint);

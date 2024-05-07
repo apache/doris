@@ -173,4 +173,9 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
             }
         }
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
+    }
 }

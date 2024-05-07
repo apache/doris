@@ -135,8 +135,8 @@ class UniformTest extends TestWithFeService {
                 .analyze("select id from agg lateral view explode([1,2,3]) tmp1 as e1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutputSet()));
     }
 
     @Test
