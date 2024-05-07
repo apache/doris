@@ -20,9 +20,9 @@
 
 #include "vec/functions/functions_logical.h"
 
-#include <bits/ranges_algo.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
