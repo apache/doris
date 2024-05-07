@@ -40,7 +40,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -183,8 +182,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     Collection<DatabaseIf<? extends TableIf>> getAllDbs();
 
     boolean enableAutoAnalyze();
-
-    ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 
     void createDb(CreateDbStmt stmt) throws DdlException;
 
