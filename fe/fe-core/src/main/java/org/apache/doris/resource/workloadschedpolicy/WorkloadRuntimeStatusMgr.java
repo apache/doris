@@ -140,13 +140,13 @@ public class WorkloadRuntimeStatusMgr {
             queryIdMap = Maps.newConcurrentMap();
             queryIdMap.putAll(params.query_statistics_map);
             beToQueryStatsMap.put(beId, queryIdMap);
-        } else {
-            long currentTime = System.currentTimeMillis();
-            for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
-                queryIdMap.put(entry.getKey(), entry.getValue());
-                queryLastReportTime.put(entry.getKey(), currentTime);
-            }
         }
+        long currentTime = System.currentTimeMillis();
+        for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
+            queryIdMap.put(entry.getKey(), entry.getValue());
+            queryLastReportTime.put(entry.getKey(), currentTime);
+        }
+
     }
 
     public Map<String, TQueryStatistics> getQueryStatisticsMap() {
