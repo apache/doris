@@ -175,4 +175,9 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }
