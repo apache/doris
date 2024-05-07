@@ -82,15 +82,18 @@ static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 // In practice, we've found that if the import frequency to HDFS is too fast,
 // it can cause an OutOfMemoryError (OOM) in the JVM started by the JNI.
 // For this, we should have a method to monitor how much JVM memory is currently being used.
-// The HdfsWriteRateLimit class increments a recorded value during hdfsWrite when writing to HDFS.
-// When hdfsCloseFile is called, all related memory in the JVM will be invalidated, so the recorded value can be decreased at that time.
-// If the current usage exceeds the maximum set by the user, the current write will sleep.
-// If the number of sleeps exceeds the number specified by the user, then the current write is considered to have failed
-class HdfsWriteRateLimit {
+// The HdfsWriteMemUsageRecorder class increments a recorded value during hdfsWrite when writing to HDFS.
+// The HDFS client will blockingly call hdfsHsync or hdfsCloseFile
+// which ensures that the client's buffer is sent to the data node and returned with an acknowledgment before returning to the caller.
+// HdfsWriteMemUsageRecorder would reduce the mem usage at that time.
+// If the current usage exceeds the maximum set by the user, the current mem acquire would return failure.
+// The caller could do sleep to wait for free memory.
+class HdfsWriteMemUsageRecorder {
 public:
-    HdfsWriteRateLimit()
+    HdfsWriteMemUsageRecorder()
             : max_jvm_heap_size(JniUtil::get_max_jni_heap_memory_size()),
               cur_memory_comsuption(0) {}
+    ~HdfsWriteMemUsageRecorder() = default;
     size_t max_usage() const {
         return static_cast<size_t>(max_jvm_heap_size *
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
@@ -99,18 +102,12 @@ public:
 #ifdef USE_LIBHDFS3
         return Status::OK();
 #endif
-        for (int retry_time = config::hdfs_jni_write_max_retry_time; retry_time != 0;
-             retry_time--) {
-            if (cur_memory_comsuption + memory_size > max_usage()) {
-                std::this_thread::sleep_for(
-                        std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds));
-                continue;
-            }
-            cur_memory_comsuption.fetch_add(memory_size);
-            return Status::OK();
+        if (cur_memory_comsuption + memory_size > max_usage()) {
+            return Status::InternalError("Run out of Jni jvm heap space, current limit size is {}",
+                                         max_usage());
         }
-        return Status::InternalError("Run out of Jni jvm heap space, current limit size is {}",
-                                     max_usage());
+        cur_memory_comsuption.fetch_add(memory_size);
+        return Status::OK();
     }
 
     void release_memory(size_t memory_size) {
@@ -125,7 +122,7 @@ private:
     std::atomic_uint64_t cur_memory_comsuption;
 };
 
-static HdfsWriteRateLimit g_hdfs_write_rate_limiter;
+static HdfsWriteMemUsageRecorder g_hdfs_write_rate_limiter;
 static HdfsMaxConnectionLimiter g_hdfs_max_write_connection_limiter;
 
 HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
@@ -170,7 +167,7 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
     return Status::OK();
 #endif
     size_t actual_size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
-    if (!g_hdfs_write_rate_limiter.acquire_memory(actual_size).ok()) {
+    if (auto st = g_hdfs_write_rate_limiter.acquire_memory(actual_size); !st.ok()) {
         auto ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
                                                 "HdfsFileWriter::close::hdfsHSync");
         _flush_and_reset_approximate_jni_buffer_size();
@@ -180,8 +177,20 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
                     BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
                     bytes_appended());
         }
+        // Other hdfs writers might occupied too much memory, we need to sleep for a while to wait for them
+        // releasing their memory
+        for (int i = 0; i < config::hdfs_jni_write_max_retry_time; i++) {
+            if (g_hdfs_write_rate_limiter.acquire_memory(actual_size).ok()) {
+                _approximate_jni_buffer_size += actual_size;
+                return Status::OK();
+            }
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds));
+        }
+        return st;
     }
 
+    _approximate_jni_buffer_size += actual_size;
     return Status::OK();
 }
 
@@ -292,7 +301,7 @@ void HdfsFileWriter::_write_into_local_file_cache() {
 }
 
 Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
-    RETURN_IF_ERROR(g_hdfs_write_rate_limiter.acquire_memory(content.size()));
+    RETURN_IF_ERROR(_acquire_jni_memory(content.size()));
     while (!content.empty()) {
         int64_t written_bytes;
         {
