@@ -876,6 +876,33 @@ const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key
     return &node->data;
 }
 
+const ColumnObject::Subcolumn* ColumnObject::get_subcolumn_with_cache(const PathInData& key,
+                                                                      size_t key_index) const {
+    // Optimization by caching the order of fields (which is almost always the same)
+    // and a quick check to match the next expected field, instead of searching the hash table.
+    if (_prev_positions.size() > key_index && _prev_positions[key_index].second != nullptr &&
+        key == _prev_positions[key_index].first) {
+        return _prev_positions[key_index].second;
+    }
+    const auto* subcolumn = get_subcolumn(key);
+    if (key_index >= _prev_positions.size()) {
+        _prev_positions.resize(key_index + 1);
+    }
+    if (subcolumn != nullptr) {
+        _prev_positions[key_index] = std::make_pair(key, subcolumn);
+    }
+    return subcolumn;
+}
+
+ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key, size_t key_index) {
+    return const_cast<ColumnObject::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
+}
+
+const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key,
+                                                           size_t key_index) const {
+    return get_subcolumn_with_cache(key, key_index);
+}
+
 ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key) {
     const auto* node = subcolumns.find_leaf(key);
     if (node == nullptr) {
@@ -1301,6 +1328,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
     }
     std::swap(subcolumns, new_subcolumns);
     doc_structure = nullptr;
+    _prev_positions.clear();
 }
 
 void ColumnObject::finalize() {
@@ -1419,6 +1447,7 @@ void ColumnObject::clear() {
     Subcolumns empty;
     std::swap(empty, subcolumns);
     num_rows = 0;
+    _prev_positions.clear();
 }
 
 void ColumnObject::revise_to(int target_num_rows) {

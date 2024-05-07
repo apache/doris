@@ -155,15 +155,15 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
             continue;
         }
-        if (!column_object.has_subcolumn(paths[i])) {
+        if (column_object.get_subcolumn(paths[i], i) == nullptr) {
             column_object.add_sub_column(paths[i], old_num_rows);
         }
-        auto* subcolumn = column_object.get_subcolumn(paths[i]);
+        auto* subcolumn = column_object.get_subcolumn(paths[i], i);
         if (!subcolumn) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
-        assert(subcolumn->size() == old_num_rows);
+        DCHECK_EQ(subcolumn->size(), old_num_rows);
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.

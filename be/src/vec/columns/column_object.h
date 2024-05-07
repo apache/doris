@@ -234,6 +234,10 @@ private:
     // used for quickly row store encoding
     ColumnPtr rowstore_column;
 
+    using SubColumnWithName = std::pair<PathInData, const Subcolumn*>;
+    // Cached search results for previous row (keyed as index in JSON object) - used as a hint.
+    mutable std::vector<SubColumnWithName> _prev_positions;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
@@ -296,6 +300,9 @@ public:
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
+    // return null if not found
+    const Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint) const;
+
     /** More efficient methods of manipulation */
     [[noreturn]] IColumn& get_data() {
         LOG(FATAL) << "Not implemented method get_data()";
@@ -308,6 +315,12 @@ public:
 
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key);
+
+    // return null if not found
+    Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint);
+
+    // return null if not found
+    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
 
     void incr_num_rows() { ++num_rows; }
 
