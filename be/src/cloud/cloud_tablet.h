@@ -166,8 +166,6 @@ public:
 
     int64_t base_size() const { return _base_size; }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
-
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
