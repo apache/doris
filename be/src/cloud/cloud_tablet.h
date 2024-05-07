@@ -186,7 +186,8 @@ public:
                                              const RowIdConversion& rowid_conversion,
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t initiator,
-                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap,
+                                             bool allow_delete_in_cumu_compaction);
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
