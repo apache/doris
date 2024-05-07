@@ -626,7 +626,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
-        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap) {
+        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
+        bool allow_delete_in_cumu_compaction) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     std::set<RowLocation> missed_rows;
     std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
@@ -638,15 +639,17 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
             input_rowsets, rowid_conversion, 0, version.second + 1, &missed_rows, &location_map,
             tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
     std::size_t missed_rows_size = missed_rows.size();
-    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
-        tablet_state() == TABLET_RUNNING) {
-        if (merged_rows >= 0 && merged_rows != missed_rows_size) {
-            std::string err_msg = fmt::format(
-                    "cumulative compaction: the merged rows({}) is not equal to missed "
-                    "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                    merged_rows, missed_rows_size, tablet_id(), table_id());
-            DCHECK(false) << err_msg;
-            LOG(WARNING) << err_msg;
+    if (!allow_delete_in_cumu_compaction) {
+        if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+            tablet_state() == TABLET_RUNNING) {
+            if (merged_rows >= 0 && merged_rows != missed_rows_size) {
+                std::string err_msg = fmt::format(
+                        "cumulative compaction: the merged rows({}) is not equal to missed "
+                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        merged_rows, missed_rows_size, tablet_id(), table_id());
+                DCHECK(false) << err_msg;
+                LOG(WARNING) << err_msg;
+            }
         }
     }
     if (config::enable_rowid_conversion_correctness_check) {
