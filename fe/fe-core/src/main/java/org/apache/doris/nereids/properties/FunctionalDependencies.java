@@ -80,7 +80,7 @@ public class FunctionalDependencies {
 
     public boolean isUniform(Set<Slot> slotSet) {
         return !slotSet.isEmpty()
-                && (uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains));
+                && uniformSet.slots.containsAll(slotSet);
     }
 
     public boolean isUniqueAndNotNull(Slot slot) {
@@ -162,10 +162,6 @@ public class FunctionalDependencies {
             uniformSet.add(functionalDependencies.uniformSet);
         }
 
-        public void addUniformSlot(ImmutableSet<Slot> slotSet) {
-            uniformSet.add(slotSet);
-        }
-
         public void addUniqueSlot(Slot slot) {
             uniqueSet.add(slot);
         }
@@ -215,6 +211,41 @@ public class FunctionalDependencies {
             }
         }
 
+        /**
+         * add equal set in func deps.
+         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
+         */
+        public void addUniqueByEqualSet(Set<Slot> equalSet) {
+            if (uniqueSet.isIntersect(equalSet, uniqueSet.slots)) {
+                uniqueSet.slots.addAll(equalSet);
+                return;
+            }
+            for (Set<Slot> slotSet : uniqueSet.slotSets) {
+                Set<Slot> intersection = Sets.intersection(equalSet, uniqueSet.slots);
+                if (intersection.size() > 2) {
+                    uniqueSet.slotSets.remove(slotSet);
+                    slotSet.removeAll(intersection);
+                    for (Slot slot : equalSet) {
+                        ImmutableSet<Slot> uniqueSlotSet = ImmutableSet.<Slot>builder()
+                                .addAll(slotSet)
+                                .add(slot)
+                                .build();
+                        uniqueSet.add(uniqueSlotSet);
+                    }
+                }
+            }
+        }
+
+        /**
+         * add equal set in func deps.
+         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
+         */
+        public void addUniformByEqualSet(Set<Slot> equalSet) {
+            if (uniformSet.isIntersect(uniformSet.slots, equalSet)) {
+                uniformSet.slots.addAll(equalSet);
+            }
+        }
+
         public List<Set<Slot>> calEqualSetList() {
             return equalSetBuilder.calEqualSetList();
         }
@@ -233,12 +264,8 @@ public class FunctionalDependencies {
         /**
          * get all uniform slots
          */
-        public List<Set<Slot>> getAllUniform() {
-            List<Set<Slot>> res = new ArrayList<>(uniformSet.slotSets);
-            for (Slot s : uniformSet.slots) {
-                res.add(ImmutableSet.of(s));
-            }
-            return res;
+        public Set<Slot> getAllUniform() {
+            return uniformSet.slots;
         }
 
         public void addEqualPair(Slot l, Slot r) {
@@ -339,6 +366,20 @@ public class FunctionalDependencies {
         public void add(NestedSet nestedSet) {
             slots.addAll(nestedSet.slots);
             slotSets.addAll(nestedSet.slotSets);
+        }
+
+        public boolean isIntersect(Set<Slot> set1, Set<Slot> set2) {
+            if (set1.size() > set2.size()) {
+                Set<Slot> temp = set1;
+                set1 = set2;
+                set2 = temp;
+            }
+            for (Slot slot : set1) {
+                if (set2.contains(slot)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public boolean isEmpty() {

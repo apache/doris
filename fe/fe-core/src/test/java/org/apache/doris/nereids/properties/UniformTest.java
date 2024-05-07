@@ -38,12 +38,14 @@ class UniformTest extends TestWithFeService {
         createDatabase("test");
         createTable("create table test.agg (\n"
                 + "id int not null,\n"
+                + "id2 int replace not null,\n"
                 + "name varchar(128) replace not null )\n"
                 + "AGGREGATE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         createTable("create table test.uni (\n"
                 + "id int not null,\n"
+                + "id2 int not null,\n"
                 + "name varchar(128) not null)\n"
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
@@ -204,4 +206,13 @@ class UniformTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
     }
 
+    @Test
+    void testEqual() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id2 from agg where id = 1 and id = id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutputSet()));
+    }
 }

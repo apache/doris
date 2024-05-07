@@ -38,12 +38,14 @@ class UniqueTest extends TestWithFeService {
         createDatabase("test");
         createTable("create table test.agg (\n"
                 + "id int not null,\n"
+                + "id2 int replace not null,\n"
                 + "name varchar(128) replace not null )\n"
                 + "AGGREGATE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         createTable("create table test.uni (\n"
                 + "id int not null,\n"
+                + "id2 int not null,\n"
                 + "name varchar(128) not null)\n"
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
@@ -378,4 +380,23 @@ class UniqueTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
     }
 
+    @Test
+    void testEqual() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id, id2 from agg where id = id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t1.name, t2.id from "
+                        + "(select id, name from agg group by id, name) t1 "
+                        + "join (select id from uni) t2 "
+                        + "on t1.id = t2.id")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutputSet()));
+    }
 }
