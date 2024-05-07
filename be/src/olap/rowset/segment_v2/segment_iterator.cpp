@@ -741,10 +741,17 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
-        _column_predicate_info->query_value = v_literal_expr->value();
-    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED) {
+        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
+               node_type == TExprNodeType::IN_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
+        } else if (node_type == TExprNodeType::IN_PRED) {
+            if (expr->op() == TExprOpcode::type::FILTER_IN) {
+                _column_predicate_info->query_op = "in_list";
+            } else {
+                _column_predicate_info->query_op = "not_in_list";
+            }
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
@@ -869,7 +876,9 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                           pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
-                          pred_type == PredicateType::MATCH;
+                          pred_type == PredicateType::MATCH ||
+                          pred_type == PredicateType::IN_LIST ||
+                          pred_type == PredicateType::NOT_IN_LIST;
         if (!is_support) {
             continue;
         }
@@ -950,7 +959,8 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_" +
-                       predicate->pred_type_string(pred_type) + "_" + predicate_params->value;
+                       predicate->pred_type_string(pred_type) + "_" +
+                       join(predicate_params->values, ",");
 
     return pred_result_sign;
 }
@@ -958,7 +968,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
-                       predicate_info->query_op + "_" + predicate_info->query_value;
+                       predicate_info->query_op + "_" + join(predicate_info->query_values, ",");
     return pred_result_sign;
 }
 
@@ -1007,7 +1017,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         }
 
         auto pred_type = pred->type();
-        if (pred_type == PredicateType::MATCH) {
+        if (pred_type == PredicateType::MATCH || pred_type == PredicateType::IN_LIST) {
             std::string pred_result_sign = _gen_predicate_result_sign(pred);
             _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(false, _row_bitmap));
         }
@@ -2630,10 +2640,16 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
         }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
-        _column_predicate_info->query_value = v_literal_expr->value();
+        _column_predicate_info->query_values.push_back(v_literal_expr->value());
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
+        } else if (node_type == TExprNodeType::IN_PRED) {
+            if (expr->op() == TExprOpcode::type::FILTER_IN) {
+                _column_predicate_info->query_op = "in_list";
+            } else {
+                _column_predicate_info->query_op = "not_in_list";
+            }
         } else if (node_type != TExprNodeType::COMPOUND_PRED) {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
