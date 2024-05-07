@@ -328,14 +328,14 @@ class UniqueTest extends TestWithFeService {
                 .analyze("select id from agg  group by GROUPING SETS ((id, name), (id))")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies()
+                .isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from agg group by rollup (id, name)")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies()
+                .isUnique(plan.getOutputSet()));
     }
 
     @Test

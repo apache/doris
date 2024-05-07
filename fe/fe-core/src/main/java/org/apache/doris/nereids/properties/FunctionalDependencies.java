@@ -32,9 +32,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Record functional dependencies, aka func deps, including
- * 1. unique slot: it means the column that has ndv = row count, can be null
- * 2. uniform slotL it means the column that has ndv = 1, can be null
+ * Records functional dependencies (func deps), which include:
+ * 1. Unique Slot:  Represents a column where the number of distinct values (ndv)
+ *                  equals the row count. This column may include null values.
+ * 2. Uniform Slot: Represents a column where the number of distinct values (ndv) is 1,
+ *                  indicating all values are the same. This column may include null values.
+ * 3. Equal Set:    Denotes a group of slots that have equal values.
+ * 4. fdDg:         Stands for functional dependencies, expressed as 'a -> b',
+ *                   which signifies that if values in column 'a' are identical,
+ *                   then values in column 'b' must also be identical.
  */
 public class FunctionalDependencies {
 
@@ -212,8 +218,14 @@ public class FunctionalDependencies {
         }
 
         /**
-         * add equal set in func deps.
-         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
+         * Extends a unique slot using an equivalence set.
+         * Within slots, if any slot in the equivalence set is unique,
+         * then all slots in the set are considered unique.
+         * For slotSets, if there is an intersection with the equivalence set,
+         * the slotSet can be substituted with the equivalence set.
+         * Example:
+         *          Given an equivalence set {a1, a2, a3} and a uniqueSet {a1, b1, c1},
+         *          the sets {a2, b1, c1} and {a3, b1, c1} are also treated as unique.
          */
         public void addUniqueByEqualSet(Set<Slot> equalSet) {
             if (uniqueSet.isIntersect(equalSet, uniqueSet.slots)) {
@@ -237,8 +249,8 @@ public class FunctionalDependencies {
         }
 
         /**
-         * add equal set in func deps.
-         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
+         * Extend uniform slot by an equivalence set.
+         * if there is a uniform slot in the equivalence set, then all slots of an equivalence set are uniform
          */
         public void addUniformByEqualSet(Set<Slot> equalSet) {
             if (uniformSet.isIntersect(uniformSet.slots, equalSet)) {
