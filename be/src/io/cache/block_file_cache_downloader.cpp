@@ -113,7 +113,11 @@ void FileCacheBlockDownloader::polling_download_task() {
         if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() -
                                                              task.atime)
                     .count() < hot_interval) {
-            download_blocks(task);
+            auto st = _workers->submit_func(
+                    [this, task_ = std::move(task)]() mutable { download_blocks(task_); });
+            if (!st.ok()) {
+                LOG(WARNING) << "submit download blocks failed: " << st;
+            }
         }
     }
 }
