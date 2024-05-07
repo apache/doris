@@ -54,13 +54,9 @@ public:
 
     void add_inflight_writer() {
         std::unique_lock lck {_latch};
-        while (!_cv.wait_for(
-                lck, std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds), [&]() {
-                    return _cur_inflight_writer < config::max_inflight_hdfs_write_connection;
-                })) {
-            // Is it a bad idea to log under the lock ?
-            LOG_WARNING("Add inflight hdfs writer failed due to no avaiable connection");
-        }
+        _cv.wait(lck, [&]() {
+            return _cur_inflight_writer < config::max_inflight_hdfs_write_connection;
+        });
         _cur_inflight_writer++;
     }
 
@@ -177,7 +173,7 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
                     BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
                     bytes_appended());
         }
-        // Other hdfs writers might occupied too much memory, we need to sleep for a while to wait for them
+        // Other hdfs writers might have occupied too much memory, we need to sleep for a while to wait for them
         // releasing their memory
         for (int i = 0; i < config::hdfs_jni_write_max_retry_time; i++) {
             if (g_hdfs_write_rate_limiter.acquire_memory(actual_size).ok()) {
