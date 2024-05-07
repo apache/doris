@@ -222,13 +222,18 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
 
-    String explainResult
-    explainResult = sql("select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);")
-    assertFalse(explainResult.contains("date_add"))
-    explainResult = sql("select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);")
-    assertFalse(explainResult.contains("months_add"))
-    explainResult = sql("select * from ${tableName} where test_datetime >= years_add('2024-01-16',1);")
-    assertFalse(explainResult.contains("years_add"))
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add('2024-01-16',1);"""
+        contains "2025-01-16"
+    }
 
     // DATE_FORMAT
     sql """ truncate table ${tableName} """
@@ -669,6 +674,7 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
+    String explainResult
     explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
     assertFalse(explainResult.contains("timestamp"))
 
