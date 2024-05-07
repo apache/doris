@@ -38,7 +38,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadSchedulePolicyScanner::_s_t
 };
 
 SchemaWorkloadSchedulePolicyScanner::SchemaWorkloadSchedulePolicyScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_SCHEDULE_POLICY) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_POLICY) {}
 
 SchemaWorkloadSchedulePolicyScanner::~SchemaWorkloadSchedulePolicyScanner() {}
 
@@ -59,7 +59,7 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
 
     TFetchSchemaTableDataRequest request;
-    request.__set_schema_table_name(TSchemaTableName::WORKLOAD_SCHEDULE_POLICY);
+    request.__set_schema_table_name(TSchemaTableName::WORKLOAD_POLICY);
     request.__set_schema_table_params(schema_table_request_params);
 
     TFetchSchemaTableDataResult result;

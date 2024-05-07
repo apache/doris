@@ -249,7 +249,7 @@ struct TQueryIngestBinlogResult {
 enum TTopicInfoType {
     WORKLOAD_GROUP
     MOVE_QUERY_TO_GROUP
-    WORKLOAD_SCHED_POLICY
+    WORKLOAD_POLICY
 }
 
 struct TWorkloadGroupInfo {
@@ -298,7 +298,7 @@ struct TWorkloadAction {
     2: optional string action_args
 }
 
-struct TWorkloadSchedPolicy {
+struct TWorkloadPolicy {
     1: optional i64 id
     2: optional string name
     3: optional i32 version
@@ -311,7 +311,7 @@ struct TWorkloadSchedPolicy {
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
-    2: optional TWorkloadSchedPolicy workload_sched_policy
+    2: optional TWorkloadPolicy workload_policy
 }
 
 struct TPublishTopicRequest {

@@ -15,8 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
-public enum WorkloadConditionOperator {
-    EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAl
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.publish.TopicPublisher;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TopicInfo;
+
+import java.util.List;
+
+public class WorkloadPolicyPublisher implements TopicPublisher {
+
+    private Env env;
+
+    public WorkloadPolicyPublisher(Env env) {
+        this.env = env;
+    }
+
+    @Override
+    public void getTopicInfo(TPublishTopicRequest req) {
+        List<TopicInfo> list = env.getWorkloadPolicyMgr().getPublishTopicInfoList();
+        req.putToTopicMap(TTopicInfoType.WORKLOAD_POLICY, list);
+    }
+
 }

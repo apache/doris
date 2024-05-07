@@ -234,7 +234,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::FRONTENDS_DISKS:
         RETURN_IF_ERROR(_build_frontends_disks_metadata_request(meta_scan_range, &request));
         break;
-    case TMetadataType::WORKLOAD_SCHED_POLICY:
+    case TMetadataType::WORKLOAD_POLICY:
         RETURN_IF_ERROR(_build_workload_sched_policy_metadata_request(meta_scan_range, &request));
         break;
     case TMetadataType::CATALOGS:
@@ -368,7 +368,7 @@ Status VMetaScanner::_build_workload_sched_policy_metadata_request(
 
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_SCHED_POLICY);
+    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_POLICY);
     metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);

@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
 import org.apache.doris.common.UserException;
 
-public class WorkloadConditionBeScanBytes implements WorkloadCondition {
+public class WorkloadConditionBeScanRows implements WorkloadCondition {
 
     private long value;
 
     private WorkloadConditionOperator op;
 
-    public WorkloadConditionBeScanBytes(WorkloadConditionOperator op, long value) {
+    public WorkloadConditionBeScanRows(WorkloadConditionOperator op, long value) {
         this.op = op;
         this.value = value;
     }
@@ -36,17 +36,17 @@ public class WorkloadConditionBeScanBytes implements WorkloadCondition {
         return false;
     }
 
-    public static WorkloadConditionBeScanBytes createWorkloadCondition(WorkloadConditionOperator op, String value)
+    public static WorkloadConditionBeScanRows createWorkloadCondition(WorkloadConditionOperator op, String value)
             throws UserException {
         long longValue = Long.parseLong(value);
         if (longValue < 0) {
-            throw new UserException("invalid scan bytes value, " + longValue + ", it requires >= 0");
+            throw new UserException("invalid scan rows value, " + longValue + ", it requires >= 0");
         }
-        return new WorkloadConditionBeScanBytes(op, longValue);
+        return new WorkloadConditionBeScanRows(op, longValue);
     }
 
     @Override
     public WorkloadMetricType getMetricType() {
-        return WorkloadMetricType.BE_SCAN_BYTES;
+        return WorkloadMetricType.BE_SCAN_ROWS;
     }
 }

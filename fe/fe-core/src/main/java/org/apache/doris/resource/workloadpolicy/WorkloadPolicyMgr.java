@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
-import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
+import org.apache.doris.analysis.AlterWorkloadPolicyStmt;
+import org.apache.doris.analysis.CreateWorkloadPolicyStmt;
+import org.apache.doris.analysis.DropWorkloadPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -59,17 +59,17 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
+public class WorkloadPolicyMgr implements Writable, GsonPostProcessable {
 
-    private static final Logger LOG = LogManager.getLogger(WorkloadSchedPolicyMgr.class);
+    private static final Logger LOG = LogManager.getLogger(WorkloadPolicyMgr.class);
 
     @SerializedName(value = "idToPolicy")
-    private Map<Long, WorkloadSchedPolicy> idToPolicy = Maps.newConcurrentMap();
-    private Map<String, WorkloadSchedPolicy> nameToPolicy = Maps.newHashMap();
+    private Map<Long, WorkloadPolicy> idToPolicy = Maps.newConcurrentMap();
+    private Map<String, WorkloadPolicy> nameToPolicy = Maps.newHashMap();
 
     private PolicyProcNode policyProcNode = new PolicyProcNode();
 
-    public static final ImmutableList<String> WORKLOAD_SCHED_POLICY_NODE_TITLE_NAMES
+    public static final ImmutableList<String> WORKLOAD_POLICY_NODE_TITLE_NAMES
             = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add("Condition").add("Action").add("Priority").add("Enabled").add("Version")
             .add("WorkloadGroup")
@@ -92,9 +92,9 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    public static Comparator<WorkloadSchedPolicy> policyComparator = new Comparator<WorkloadSchedPolicy>() {
+    public static Comparator<WorkloadPolicy> policyComparator = new Comparator<WorkloadPolicy>() {
         @Override
-        public int compare(WorkloadSchedPolicy p1, WorkloadSchedPolicy p2) {
+        public int compare(WorkloadPolicy p1, WorkloadPolicy p2) {
             return p2.getPriority() - p1.getPriority();
         }
     };
@@ -155,7 +155,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         policyExecThread.start();
     }
 
-    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
+    public void createWorkloadPolicy(CreateWorkloadPolicyStmt createStmt) throws UserException {
         String policyName = createStmt.getPolicyName();
 
         // 1 create condition
@@ -204,11 +204,11 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                         "workload scheduler policy num can not exceed " + Config.workload_max_policy_num);
             }
             long id = Env.getCurrentEnv().getNextId();
-            WorkloadSchedPolicy policy = new WorkloadSchedPolicy(id, policyName,
+            WorkloadPolicy policy = new WorkloadPolicy(id, policyName,
                     policyConditionList, policyActionList, propMap, wgIdList);
             policy.setConditionMeta(originConditions);
             policy.setActionMeta(originActions);
-            Env.getCurrentEnv().getEditLog().logCreateWorkloadSchedPolicy(policy);
+            Env.getCurrentEnv().getEditLog().logCreateWorkloadPolicy(policy);
             idToPolicy.put(id, policy);
             nameToPolicy.put(policyName, policy);
         } finally {
@@ -286,7 +286,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         Set<Long> policyIdSet = new HashSet<>();
         readLock();
         try {
-            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+            for (Map.Entry<Long, WorkloadPolicy> entry : idToPolicy.entrySet()) {
                 if (entry.getValue().isFePolicy()) {
                     policyIdSet.add(entry.getKey());
                 }
@@ -298,16 +298,16 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         for (WorkloadQueryInfo queryInfo : queryInfoList) {
             try {
                 // 1 check policy is match
-                Map<WorkloadActionType, Queue<WorkloadSchedPolicy>> matchedPolicyMap = Maps.newHashMap();
+                Map<WorkloadActionType, Queue<WorkloadPolicy>> matchedPolicyMap = Maps.newHashMap();
                 for (Long policyId : policyIdSet) {
-                    WorkloadSchedPolicy policy = idToPolicy.get(policyId);
+                    WorkloadPolicy policy = idToPolicy.get(policyId);
                     if (policy == null) {
                         continue;
                     }
                     if (policy.isEnabled() && policy.isMatch(queryInfo)) {
                         WorkloadActionType actionType = policy.getFirstActionType();
                         // add to priority queue
-                        Queue<WorkloadSchedPolicy> queue = matchedPolicyMap.get(actionType);
+                        Queue<WorkloadPolicy> queue = matchedPolicyMap.get(actionType);
                         if (queue == null) {
                             queue = new PriorityQueue<>(policyComparator);
                             matchedPolicyMap.put(actionType, queue);
@@ -321,10 +321,10 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                 }
 
                 // 2 pick higher priority policy when action conflicts
-                List<WorkloadSchedPolicy> pickedPolicyList = pickPolicy(matchedPolicyMap);
+                List<WorkloadPolicy> pickedPolicyList = pickPolicy(matchedPolicyMap);
 
                 // 3 exec action
-                for (WorkloadSchedPolicy policy : pickedPolicyList) {
+                for (WorkloadPolicy policy : pickedPolicyList) {
                     policy.execAction(queryInfo);
                 }
             } catch (Throwable e) {
@@ -333,28 +333,28 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    List<WorkloadSchedPolicy> pickPolicy(Map<WorkloadActionType, Queue<WorkloadSchedPolicy>> policyMap) {
+    List<WorkloadPolicy> pickPolicy(Map<WorkloadActionType, Queue<WorkloadPolicy>> policyMap) {
         // NOTE(wb) currently all action share the same comparator which use priority.
         // But later we may design every action type's own comparator,
         // such as if two move group action has the same priority but move to different group,
         // then we may pick group by resource usage and query statistics.
 
         // 1 only need one policy with move action which has the highest priority
-        WorkloadSchedPolicy policyWithMoveAction = null;
-        Queue<WorkloadSchedPolicy> moveActionQueue = policyMap.get(WorkloadActionType.MOVE_QUERY_TO_GROUP);
+        WorkloadPolicy policyWithMoveAction = null;
+        Queue<WorkloadPolicy> moveActionQueue = policyMap.get(WorkloadActionType.MOVE_QUERY_TO_GROUP);
         if (moveActionQueue != null) {
             policyWithMoveAction = moveActionQueue.peek();
         }
 
         // 2 only need one policy with cancel action which has the highest priority
-        WorkloadSchedPolicy policyWithCancelQueryAction = null;
-        Queue<WorkloadSchedPolicy> canelQueryActionQueue = policyMap.get(WorkloadActionType.CANCEL_QUERY);
+        WorkloadPolicy policyWithCancelQueryAction = null;
+        Queue<WorkloadPolicy> canelQueryActionQueue = policyMap.get(WorkloadActionType.CANCEL_QUERY);
         if (canelQueryActionQueue != null) {
             policyWithCancelQueryAction = canelQueryActionQueue.peek();
         }
 
         // 3 compare policy with move action and cancel action
-        List<WorkloadSchedPolicy> ret = new ArrayList<>();
+        List<WorkloadPolicy> ret = new ArrayList<>();
         if (policyWithMoveAction != null && policyWithCancelQueryAction != null) {
             if (policyWithMoveAction.getPriority() > policyWithCancelQueryAction.getPriority()) {
                 ret.add(policyWithMoveAction);
@@ -370,12 +370,12 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
 
         // 4 add no-conflict policy
-        for (Map.Entry<WorkloadActionType, Queue<WorkloadSchedPolicy>> entry : policyMap.entrySet()) {
+        for (Map.Entry<WorkloadActionType, Queue<WorkloadPolicy>> entry : policyMap.entrySet()) {
             WorkloadActionType type = entry.getKey();
-            Queue<WorkloadSchedPolicy> policyQueue = entry.getValue();
+            Queue<WorkloadPolicy> policyQueue = entry.getValue();
             if (!WorkloadActionType.CANCEL_QUERY.equals(type) && !WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(type)
                     && policyQueue != null && policyQueue.size() > 0) {
-                WorkloadSchedPolicy pickedPolicy = policyQueue.peek();
+                WorkloadPolicy pickedPolicy = policyQueue.peek();
                 ret.add(pickedPolicy);
             }
         }
@@ -388,19 +388,19 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         Set<String> allInputPropKeySet = new HashSet<>();
         allInputPropKeySet.addAll(properties.keySet());
 
-        allInputPropKeySet.removeAll(WorkloadSchedPolicy.POLICY_PROPERTIES);
+        allInputPropKeySet.removeAll(WorkloadPolicy.POLICY_PROPERTIES);
         if (allInputPropKeySet.size() > 0) {
             throw new UserException("illegal policy properties " + String.join(",", allInputPropKeySet));
         }
 
-        String enabledStr = properties.get(WorkloadSchedPolicy.ENABLED);
+        String enabledStr = properties.get(WorkloadPolicy.ENABLED);
         if (enabledStr != null) {
             if (!"true".equals(enabledStr) && !"false".equals(enabledStr)) {
                 throw new UserException("invalid enabled property value, it can only true or false with lower case");
             }
         }
 
-        String priorityStr = properties.get(WorkloadSchedPolicy.PRIORITY);
+        String priorityStr = properties.get(WorkloadPolicy.PRIORITY);
         if (priorityStr != null) {
             try {
                 Long prioLongVal = Long.parseLong(priorityStr);
@@ -413,7 +413,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             }
         }
 
-        String workloadGroupNameStr = properties.get(WorkloadSchedPolicy.WORKLOAD_GROUP);
+        String workloadGroupNameStr = properties.get(WorkloadPolicy.WORKLOAD_GROUP);
         if (workloadGroupNameStr != null && !workloadGroupNameStr.isEmpty()) {
             Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(workloadGroupNameStr);
             if (wgId == null) {
@@ -423,11 +423,11 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void alterWorkloadSchedPolicy(AlterWorkloadSchedPolicyStmt alterStmt) throws UserException {
+    public void alterWorkloadPolicy(AlterWorkloadPolicyStmt alterStmt) throws UserException {
         writeLock();
         try {
             String policyName = alterStmt.getPolicyName();
-            WorkloadSchedPolicy policy = nameToPolicy.get(policyName);
+            WorkloadPolicy policy = nameToPolicy.get(policyName);
             if (policy == null) {
                 throw new UserException("can not find workload schedule policy " + policyName);
             }
@@ -437,17 +437,17 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             checkProperties(properties, wgIdList);
             policy.updatePropertyIfNotNull(properties, wgIdList);
             policy.incrementVersion();
-            Env.getCurrentEnv().getEditLog().logAlterWorkloadSchedPolicy(policy);
+            Env.getCurrentEnv().getEditLog().logAlterWorkloadPolicy(policy);
         } finally {
             writeUnlock();
         }
     }
 
-    public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
+    public void dropWorkloadPolicy(DropWorkloadPolicyStmt dropStmt) throws UserException {
         writeLock();
         try {
             String policyName = dropStmt.getPolicyName();
-            WorkloadSchedPolicy schedPolicy = nameToPolicy.get(policyName);
+            WorkloadPolicy schedPolicy = nameToPolicy.get(policyName);
             if (schedPolicy == null) {
                 if (dropStmt.isIfExists()) {
                     return;
@@ -459,7 +459,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             long id = schedPolicy.getId();
             idToPolicy.remove(id);
             nameToPolicy.remove(policyName);
-            Env.getCurrentEnv().getEditLog().dropWorkloadSchedPolicy(id);
+            Env.getCurrentEnv().getEditLog().dropWorkloadPolicy(id);
         } finally {
             writeUnlock();
         }
@@ -485,7 +485,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         List<TopicInfo> topicInfoList = new ArrayList();
         readLock();
         try {
-            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+            for (Map.Entry<Long, WorkloadPolicy> entry : idToPolicy.entrySet()) {
                 if (entry.getValue().isFePolicy()) {
                     continue;
                 }
@@ -500,18 +500,18 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         return topicInfoList;
     }
 
-    public void replayCreateWorkloadSchedPolicy(WorkloadSchedPolicy policy) {
-        insertWorkloadSchedPolicy(policy);
+    public void replayCreateWorkloadPolicy(WorkloadPolicy policy) {
+        insertWorkloadPolicy(policy);
     }
 
-    public void replayAlterWorkloadSchedPolicy(WorkloadSchedPolicy policy) {
-        insertWorkloadSchedPolicy(policy);
+    public void replayAlterWorkloadPolicy(WorkloadPolicy policy) {
+        insertWorkloadPolicy(policy);
     }
 
-    public void replayDropWorkloadSchedPolicy(long policyId) {
+    public void replayDropWorkloadPolicy(long policyId) {
         writeLock();
         try {
-            WorkloadSchedPolicy policy = idToPolicy.get(policyId);
+            WorkloadPolicy policy = idToPolicy.get(policyId);
             if (policy == null) {
                 return;
             }
@@ -522,7 +522,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    private void insertWorkloadSchedPolicy(WorkloadSchedPolicy policy) {
+    private void insertWorkloadPolicy(WorkloadPolicy policy) {
         writeLock();
         try {
             idToPolicy.put(policy.getId(), policy);
@@ -537,7 +537,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         return policyProcNode.fetchResult(currentUserIdentity).getRows();
     }
 
-    public List<List<String>> getWorkloadSchedPolicyTvfInfo(TUserIdentity tcurrentUserIdentity) {
+    public List<List<String>> getWorkloadPolicyTvfInfo(TUserIdentity tcurrentUserIdentity) {
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
         return policyProcNode.fetchResult(currentUserIdentity).getRows();
     }
@@ -545,7 +545,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
     public boolean checkWhetherGroupHasPolicy(long wgId) {
         readLock();
         try {
-            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+            for (Map.Entry<Long, WorkloadPolicy> entry : idToPolicy.entrySet()) {
                 if (entry.getValue().getWorkloadGroupIdList().contains(wgId)) {
                     return true;
                 }
@@ -559,11 +559,11 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
     public class PolicyProcNode {
         public ProcResult fetchResult(UserIdentity currentUserIdentity) {
             BaseProcResult result = new BaseProcResult();
-            result.setNames(WORKLOAD_SCHED_POLICY_NODE_TITLE_NAMES);
+            result.setNames(WORKLOAD_POLICY_NODE_TITLE_NAMES);
             Map<Long, String> idToNameMap = Env.getCurrentEnv().getWorkloadGroupMgr().getIdToNameMap();
             readLock();
             try {
-                for (WorkloadSchedPolicy policy : idToPolicy.values()) {
+                for (WorkloadPolicy policy : idToPolicy.values()) {
                     if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(currentUserIdentity,
                             policy.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
@@ -615,9 +615,9 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public static WorkloadSchedPolicyMgr read(DataInput in) throws IOException {
+    public static WorkloadPolicyMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, WorkloadSchedPolicyMgr.class);
+        return GsonUtils.GSON.fromJson(json, WorkloadPolicyMgr.class);
     }
 
     @Override

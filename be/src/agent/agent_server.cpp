@@ -62,7 +62,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     std::unique_ptr<TopicListener> policy_listener =
             std::make_unique<WorkloadschedPolicyListener>(exec_env);
     LOG(INFO) << "Register workload scheduler policy listener";
-    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_SCHED_POLICY,
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_POLICY,
                                          std::move(policy_listener));
 
 #endif

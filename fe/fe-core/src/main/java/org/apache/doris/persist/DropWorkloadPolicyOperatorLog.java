@@ -27,12 +27,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class DropWorkloadSchedPolicyOperatorLog implements Writable {
+public class DropWorkloadPolicyOperatorLog implements Writable {
 
     @SerializedName(value = "id")
     private long id;
 
-    public DropWorkloadSchedPolicyOperatorLog(long id) {
+    public DropWorkloadPolicyOperatorLog(long id) {
         this.id = id;
     }
 
@@ -45,7 +45,7 @@ public class DropWorkloadSchedPolicyOperatorLog implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static DropWorkloadSchedPolicyOperatorLog read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropWorkloadSchedPolicyOperatorLog.class);
+    public static DropWorkloadPolicyOperatorLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropWorkloadPolicyOperatorLog.class);
     }
 }

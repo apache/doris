@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
 import org.apache.hbase.thirdparty.com.google.gson.annotations.SerializedName;
 

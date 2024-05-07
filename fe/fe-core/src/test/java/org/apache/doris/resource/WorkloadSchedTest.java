@@ -17,13 +17,13 @@
 
 package org.apache.doris.resource;
 
-import org.apache.doris.resource.workloadschedpolicy.WorkloadCondition;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionOperator;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionQueryTime;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionUsername;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadMetricType;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadQueryInfo;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
+import org.apache.doris.resource.workloadpolicy.WorkloadCondition;
+import org.apache.doris.resource.workloadpolicy.WorkloadConditionOperator;
+import org.apache.doris.resource.workloadpolicy.WorkloadConditionQueryTime;
+import org.apache.doris.resource.workloadpolicy.WorkloadConditionUsername;
+import org.apache.doris.resource.workloadpolicy.WorkloadMetricType;
+import org.apache.doris.resource.workloadpolicy.WorkloadPolicy;
+import org.apache.doris.resource.workloadpolicy.WorkloadQueryInfo;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,7 +43,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -64,7 +64,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER_EQUAL, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -85,7 +85,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -106,7 +106,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -127,7 +127,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS_EQUAl, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -148,7 +148,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition strCondition = new WorkloadConditionUsername(WorkloadConditionOperator.EQUAL, "root");
                 operatorList.add(strCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
@@ -172,7 +172,7 @@ public class WorkloadSchedTest {
                 WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
                 operatorList.add(intCondition);
 
-                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                WorkloadPolicy workloadSchedPolicy1 = new WorkloadPolicy();
                 workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
                 WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();

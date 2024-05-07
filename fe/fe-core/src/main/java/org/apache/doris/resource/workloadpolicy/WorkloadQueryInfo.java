@@ -15,8 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
-public enum WorkloadMetricType {
-    USERNAME, QUERY_TIME, BE_SCAN_ROWS, BE_SCAN_BYTES
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TUniqueId;
+
+import java.util.Map;
+
+public class WorkloadQueryInfo {
+    String queryId = null;
+    TUniqueId tUniqueId = null;
+    ConnectContext context = null;
+    public Map<WorkloadMetricType, String> metricMap;
 }

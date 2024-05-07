@@ -15,38 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
 import org.apache.doris.common.UserException;
 
-public class WorkloadConditionBeScanRows implements WorkloadCondition {
+public class WorkloadConditionQueryTime implements WorkloadCondition {
 
     private long value;
-
     private WorkloadConditionOperator op;
 
-    public WorkloadConditionBeScanRows(WorkloadConditionOperator op, long value) {
+    public WorkloadConditionQueryTime(WorkloadConditionOperator op, long value) {
         this.op = op;
         this.value = value;
     }
 
     @Override
     public boolean eval(String strValue) {
-        // currently not support run in fe, so this condition never match
-        return false;
+        long inputLongValue = Long.parseLong(strValue);
+        return WorkloadConditionCompareUtils.compareInteger(op, inputLongValue, value);
     }
 
-    public static WorkloadConditionBeScanRows createWorkloadCondition(WorkloadConditionOperator op, String value)
+    public static WorkloadConditionQueryTime createWorkloadCondition(WorkloadConditionOperator op, String value)
             throws UserException {
         long longValue = Long.parseLong(value);
         if (longValue < 0) {
-            throw new UserException("invalid scan rows value, " + longValue + ", it requires >= 0");
+            throw new UserException("invalid query time value, " + longValue + ", it requires >= 0");
         }
-        return new WorkloadConditionBeScanRows(op, longValue);
+        return new WorkloadConditionQueryTime(op, longValue);
     }
 
     @Override
     public WorkloadMetricType getMetricType() {
-        return WorkloadMetricType.BE_SCAN_ROWS;
+        return WorkloadMetricType.QUERY_TIME;
     }
+
 }

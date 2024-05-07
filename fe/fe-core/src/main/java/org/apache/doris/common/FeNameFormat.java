@@ -143,7 +143,7 @@ public class FeNameFormat {
         checkCommonName("workload group", workloadGroupName);
     }
 
-    public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
+    public static void checkWorkloadPolicyName(String policyName) throws AnalysisException {
         checkCommonName("workload schedule policy", policyName);
     }
 

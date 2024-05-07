@@ -18,34 +18,32 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.Map;
+public class DropWorkloadPolicyStmt extends DdlStmt {
 
-public class AlterWorkloadSchedPolicyStmt extends DdlStmt {
+    private boolean ifExists;
+    private String policyName;
 
-    private final String policyName;
-    private final Map<String, String> properties;
-
-    public AlterWorkloadSchedPolicyStmt(String policyName, Map<String, String> properties) {
+    public DropWorkloadPolicyStmt(boolean ifExists, String policyName) {
+        this.ifExists = ifExists;
         this.policyName = policyName;
-        this.properties = properties;
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
     }
 
     public String getPolicyName() {
         return policyName;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
+    @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
@@ -54,17 +52,14 @@ public class AlterWorkloadSchedPolicyStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("properties can't be null when alter workload schedule policy");
-        }
+        FeNameFormat.checkWorkloadPolicyName(policyName);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER WORKLOAD SCHEDULE POLICY ");
-        sb.append(policyName);
-        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+        sb.append("DROP ");
+        sb.append("WORKLOAD SCHEDULE POLICY '").append(policyName).append("' ");
         return sb.toString();
     }
 

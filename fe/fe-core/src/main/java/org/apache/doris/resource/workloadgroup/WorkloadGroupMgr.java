@@ -423,7 +423,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         // A group with related policies should not be deleted.
         Long wgId = getWorkloadGroupIdByName(workloadGroupName);
         if (wgId != null) {
-            boolean groupHasPolicy = Env.getCurrentEnv().getWorkloadSchedPolicyMgr()
+            boolean groupHasPolicy = Env.getCurrentEnv().getWorkloadPolicyMgr()
                     .checkWhetherGroupHasPolicy(wgId.longValue());
             if (groupHasPolicy) {
                 throw new DdlException(

@@ -25,13 +25,13 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
+import org.apache.doris.resource.workloadpolicy.WorkloadActionMeta;
+import org.apache.doris.resource.workloadpolicy.WorkloadConditionMeta;
 
 import java.util.List;
 import java.util.Map;
 
-public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
+public class CreateWorkloadPolicyStmt extends DdlStmt {
 
     private final boolean ifNotExists;
     private final String policyName;
@@ -39,7 +39,7 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
     private final List<WorkloadActionMeta> actions;
     private final Map<String, String> properties;
 
-    public CreateWorkloadSchedPolicyStmt(boolean ifNotExists, String policyName,
+    public CreateWorkloadPolicyStmt(boolean ifNotExists, String policyName,
             List<WorkloadConditionMeta> conditions, List<WorkloadActionMeta> actions, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
@@ -62,7 +62,7 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
         }
 
         // check name
-        FeNameFormat.checkWorkloadSchedPolicyName(policyName);
+        FeNameFormat.checkWorkloadPolicyName(policyName);
 
         if (conditions == null || conditions.size() < 1) {
             throw new DdlException("At least one condition needs to be specified");

@@ -89,7 +89,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
-import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
+import org.apache.doris.persist.DropWorkloadPolicyOperatorLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
@@ -127,7 +127,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
+import org.apache.doris.resource.workloadpolicy.WorkloadPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -830,14 +830,14 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY:
-            case OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY: {
-                data = WorkloadSchedPolicy.read(in);
+            case OperationType.OP_CREATE_WORKLOAD_POLICY:
+            case OperationType.OP_ALTER_WORKLOAD_POLICY: {
+                data = WorkloadPolicy.read(in);
                 isRead = true;
                 break;
             }
-            case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
-                data = DropWorkloadSchedPolicyOperatorLog.read(in);
+            case OperationType.OP_DROP_WORKLOAD_POLICY: {
+                data = DropWorkloadPolicyOperatorLog.read(in);
                 isRead = true;
                 break;
             }

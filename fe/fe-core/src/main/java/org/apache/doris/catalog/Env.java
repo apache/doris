@@ -236,9 +236,9 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
+import org.apache.doris.resource.workloadpolicy.WorkloadPolicyMgr;
+import org.apache.doris.resource.workloadpolicy.WorkloadPolicyPublisher;
+import org.apache.doris.resource.workloadpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -503,7 +503,7 @@ public class Env {
 
     private WorkloadGroupMgr workloadGroupMgr;
 
-    private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
+    private WorkloadPolicyMgr workloadPolicyMgr;
 
     private WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr;
 
@@ -765,7 +765,7 @@ public class Env {
         this.statisticsJobAppender = new StatisticsJobAppender();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
-        this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
+        this.workloadPolicyMgr = new WorkloadPolicyMgr();
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
@@ -870,8 +870,8 @@ public class Env {
         return workloadGroupMgr;
     }
 
-    public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
-        return workloadSchedPolicyMgr;
+    public WorkloadPolicyMgr getWorkloadPolicyMgr() {
+        return workloadPolicyMgr;
     }
 
     public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
@@ -1711,7 +1711,7 @@ public class Env {
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
-        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        WorkloadPolicyPublisher wpPublisher = new WorkloadPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
 
@@ -1742,7 +1742,7 @@ public class Env {
         dnsCache.start();
 
         workloadGroupMgr.startUpdateThread();
-        workloadSchedPolicyMgr.start();
+        workloadPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
 
     }
@@ -2201,8 +2201,8 @@ public class Env {
         return checksum;
     }
 
-    public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
-        workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
+    public long loadWorkloadPolicy(DataInputStream in, long checksum) throws IOException {
+        workloadPolicyMgr = WorkloadPolicyMgr.read(in);
         LOG.info("finished replay workload sched policy from image");
         return checksum;
     }
@@ -2492,8 +2492,8 @@ public class Env {
         return checksum;
     }
 
-    public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
-        Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+    public long saveWorkloadPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getWorkloadPolicyMgr().write(dos);
         return checksum;
     }
 

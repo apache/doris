@@ -313,9 +313,9 @@ public class OperationType {
     public static final short OP_CREATE_WORKLOAD_GROUP = 410;
     public static final short OP_DROP_WORKLOAD_GROUP = 411;
     public static final short OP_ALTER_WORKLOAD_GROUP = 412;
-    public static final short OP_CREATE_WORKLOAD_SCHED_POLICY = 413;
-    public static final short OP_ALTER_WORKLOAD_SCHED_POLICY = 414;
-    public static final short OP_DROP_WORKLOAD_SCHED_POLICY = 415;
+    public static final short OP_CREATE_WORKLOAD_POLICY = 413;
+    public static final short OP_ALTER_WORKLOAD_POLICY = 414;
+    public static final short OP_DROP_WORKLOAD_POLICY = 415;
 
     // query stats 420 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;

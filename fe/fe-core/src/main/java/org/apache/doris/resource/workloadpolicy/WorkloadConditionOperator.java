@@ -15,16 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TUniqueId;
-
-import java.util.Map;
-
-public class WorkloadQueryInfo {
-    String queryId = null;
-    TUniqueId tUniqueId = null;
-    ConnectContext context = null;
-    public Map<WorkloadMetricType, String> metricMap;
+public enum WorkloadConditionOperator {
+    EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAl
 }

@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
-public enum WorkloadActionType {
-    CANCEL_QUERY, // cancel query
-    MOVE_QUERY_TO_GROUP, // move query from one wg group to another
-    SET_SESSION_VARIABLE
+public enum WorkloadMetricType {
+    USERNAME, QUERY_TIME, BE_SCAN_ROWS, BE_SCAN_BYTES
 }

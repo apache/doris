@@ -86,7 +86,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
+import org.apache.doris.resource.workloadpolicy.WorkloadPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
@@ -1072,20 +1072,20 @@ public class EditLog {
                     env.getWorkloadGroupMgr().replayAlterWorkloadGroup(resource);
                     break;
                 }
-                case OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY: {
-                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
-                    env.getWorkloadSchedPolicyMgr().replayCreateWorkloadSchedPolicy(policy);
+                case OperationType.OP_CREATE_WORKLOAD_POLICY: {
+                    final WorkloadPolicy policy = (WorkloadPolicy) journal.getData();
+                    env.getWorkloadPolicyMgr().replayCreateWorkloadPolicy(policy);
                     break;
                 }
-                case OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY: {
-                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
-                    env.getWorkloadSchedPolicyMgr().replayAlterWorkloadSchedPolicy(policy);
+                case OperationType.OP_ALTER_WORKLOAD_POLICY: {
+                    final WorkloadPolicy policy = (WorkloadPolicy) journal.getData();
+                    env.getWorkloadPolicyMgr().replayAlterWorkloadPolicy(policy);
                     break;
                 }
-                case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
-                    final DropWorkloadSchedPolicyOperatorLog dropLog
-                            = (DropWorkloadSchedPolicyOperatorLog) journal.getData();
-                    env.getWorkloadSchedPolicyMgr().replayDropWorkloadSchedPolicy(dropLog.getId());
+                case OperationType.OP_DROP_WORKLOAD_POLICY: {
+                    final DropWorkloadPolicyOperatorLog dropLog
+                            = (DropWorkloadPolicyOperatorLog) journal.getData();
+                    env.getWorkloadPolicyMgr().replayDropWorkloadPolicy(dropLog.getId());
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
@@ -1763,16 +1763,16 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
     }
 
-    public void logCreateWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
-        logEdit(OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
+    public void logCreateWorkloadPolicy(WorkloadPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_CREATE_WORKLOAD_POLICY, workloadSchedPolicy);
     }
 
-    public void logAlterWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
-        logEdit(OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
+    public void logAlterWorkloadPolicy(WorkloadPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_ALTER_WORKLOAD_POLICY, workloadSchedPolicy);
     }
 
-    public void dropWorkloadSchedPolicy(long policyId) {
-        logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
+    public void dropWorkloadPolicy(long policyId) {
+        logEdit(OperationType.OP_DROP_WORKLOAD_POLICY, new DropWorkloadPolicyOperatorLog(policyId));
     }
 
     public void logAddPlsqlStoredProcedure(PlsqlStoredProcedure plsqlStoredProcedure) {

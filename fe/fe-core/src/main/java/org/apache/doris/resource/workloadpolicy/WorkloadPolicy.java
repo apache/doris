@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadschedpolicy;
+package org.apache.doris.resource.workloadpolicy;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -27,7 +27,7 @@ import org.apache.doris.thrift.TWorkloadAction;
 import org.apache.doris.thrift.TWorkloadActionType;
 import org.apache.doris.thrift.TWorkloadCondition;
 import org.apache.doris.thrift.TWorkloadMetricType;
-import org.apache.doris.thrift.TWorkloadSchedPolicy;
+import org.apache.doris.thrift.TWorkloadPolicy;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.esotericsoftware.minlog.Log;
@@ -42,7 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
+public class WorkloadPolicy implements Writable, GsonPostProcessable {
 
     public static final String ENABLED = "enabled";
     public static final String PRIORITY = "priority";
@@ -97,7 +97,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     private Boolean isFePolicy = null;
 
     // for ut
-    public WorkloadSchedPolicy() {
+    public WorkloadPolicy() {
     }
 
     // for ut
@@ -105,7 +105,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         this.workloadConditionList = workloadConditionList;
     }
 
-    public WorkloadSchedPolicy(long id, String name, List<WorkloadCondition> workloadConditionList,
+    public WorkloadPolicy(long id, String name, List<WorkloadCondition> workloadConditionList,
             List<WorkloadAction> workloadActionList, Map<String, String> properties, List<Long> wgIdList) {
         this.id = id;
         this.name = name;
@@ -234,7 +234,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         if (isFePolicy == null) {
             isFePolicy = false;
             for (WorkloadAction action : workloadActionList) {
-                if (WorkloadSchedPolicyMgr.FE_ACTION_SET.contains(action.getWorkloadActionType())) {
+                if (WorkloadPolicyMgr.FE_ACTION_SET.contains(action.getWorkloadActionType())) {
                     isFePolicy = true;
                     break;
                 }
@@ -244,7 +244,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     }
 
     public TopicInfo toTopicInfo() {
-        TWorkloadSchedPolicy tPolicy = new TWorkloadSchedPolicy();
+        TWorkloadPolicy tPolicy = new TWorkloadPolicy();
         tPolicy.setId(id);
         tPolicy.setName(name);
         tPolicy.setVersion(version);
@@ -281,7 +281,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         tPolicy.setActionList(actionList);
 
         TopicInfo topicInfo = new TopicInfo();
-        topicInfo.setWorkloadSchedPolicy(tPolicy);
+        topicInfo.setWorkloadPolicy(tPolicy);
 
         return topicInfo;
     }
@@ -292,9 +292,9 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
-    public static WorkloadSchedPolicy read(DataInput in) throws IOException {
+    public static WorkloadPolicy read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, WorkloadSchedPolicy.class);
+        return GsonUtils.GSON.fromJson(json, WorkloadPolicy.class);
     }
 
     @Override

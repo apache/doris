@@ -98,7 +98,7 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
 
-    private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> WORKLOAD_POLICY_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -121,11 +121,11 @@ public class MetadataGenerator {
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
 
         ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
-        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_schedule_policy").getFullSchema();
+        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
         for (int i = 0; i < policyColList.size(); i++) {
             policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
         }
-        WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
+        WORKLOAD_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
 
     }
 
@@ -199,9 +199,9 @@ public class MetadataGenerator {
                 result = routineInfoMetadataResult(schemaTableParams);
                 columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
                 break;
-            case WORKLOAD_SCHEDULE_POLICY:
+            case WORKLOAD_POLICY:
                 result = workloadSchedPolicyMetadataResult(schemaTableParams);
-                columnIndex = WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
+                columnIndex = WORKLOAD_POLICY_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -486,8 +486,8 @@ public class MetadataGenerator {
         }
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
-        List<List<String>> workloadPolicyList = Env.getCurrentEnv().getWorkloadSchedPolicyMgr()
-                .getWorkloadSchedPolicyTvfInfo(tcurrentUserIdentity);
+        List<List<String>> workloadPolicyList = Env.getCurrentEnv().getWorkloadPolicyMgr()
+                .getWorkloadPolicyTvfInfo(tcurrentUserIdentity);
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         for (List<String> policyRow : workloadPolicyList) {

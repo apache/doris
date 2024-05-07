@@ -27,11 +27,11 @@ namespace doris {
 void WorkloadschedPolicyListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::map<uint64_t, std::shared_ptr<WorkloadSchedPolicy>> policy_map;
     for (const TopicInfo& topic_info : topic_info_list) {
-        if (!topic_info.__isset.workload_sched_policy) {
+        if (!topic_info.__isset.workload_policy) {
             continue;
         }
 
-        TWorkloadSchedPolicy tpolicy = topic_info.workload_sched_policy;
+        TWorkloadPolicy tpolicy = topic_info.workload_policy;
         // some metric or action can not exec in be, then need skip
         bool need_skip_current_policy = false;
 
