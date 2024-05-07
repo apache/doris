@@ -41,6 +41,19 @@ public class Log4jConfig extends XmlConfiguration {
 
     private static StringBuilder xmlConfTemplateBuilder = new StringBuilder();
 
+    private static void getXmlConfByStrategy(final String size, final String age) {
+        if (Config.log_rollover_strategy.equalsIgnoreCase("size")) {
+            xmlConfTemplateBuilder
+                    .append("          <IfAny>\n")
+                    .append("             <IfAccumulatedFileSize exceeds=\"${").append(size).append("}GB\"/>\n")
+                    .append("           </IfAny>\n");
+        } else {
+            // default age
+            xmlConfTemplateBuilder
+                    .append("          <IfLastModified age=\"${").append(age).append("}\" />\n");
+        }
+    }
+
     static {
         // CHECKSTYLE OFF
         xmlConfTemplateBuilder.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
@@ -51,7 +64,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("      <PatternLayout charset=\"UTF-8\">\n")
             .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
             .append("      </PatternLayout>\n")
-            .append("    </Console>")
+            .append("    </Console>\n")
             .append("    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n")
             .append("      <PatternLayout charset=\"UTF-8\">\n")
             .append("        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n")
@@ -64,16 +77,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
             .append("          <IfFileName glob=\"fe.log.*\" />\n");
 
-        if (Config.log_by_size) {
-            xmlConfTemplateBuilder
-                .append("          <IfAny>\n")
-                .append("             <IfAccumulatedFileSize exceeds=\"${info_sys_accumulated_file_size}GB\"/>\n")
-                .append("           </IfAny>\n");
-
-        } else {
-            xmlConfTemplateBuilder
-                .append("          <IfLastModified age=\"${sys_log_delete_age}\" />\n");
-        }
+        getXmlConfByStrategy("info_sys_accumulated_file_size", "sys_log_delete_age");
 
         xmlConfTemplateBuilder
             .append("        </Delete>\n")
@@ -91,15 +95,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
             .append("          <IfFileName glob=\"fe.warn.log.*\" />\n");
 
-        if (Config.log_by_size) {
-            xmlConfTemplateBuilder
-                .append("          <IfAny>\n")
-                .append("             <IfAccumulatedFileSize exceeds=\"${warn_sys_accumulated_file_size}GB\"/>\n")
-                .append("          </IfAny>\n");
-        } else {
-            xmlConfTemplateBuilder
-                .append("          <IfLastModified age=\"${sys_log_delete_age}\" />\n");
-        }
+        getXmlConfByStrategy("warn_sys_accumulated_file_size", "sys_log_delete_age");
 
         xmlConfTemplateBuilder
             .append("        </Delete>\n")
@@ -117,16 +113,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n")
             .append("          <IfFileName glob=\"fe.audit.log.*\" />\n");
 
-        if (Config.log_by_size) {
-            xmlConfTemplateBuilder
-                .append("          <IfAny>\n")
-                .append("             <IfAccumulatedFileSize exceeds=\"${audit_sys_accumulated_file_size}GB\"/>\n")
-                .append("          </IfAny>\n");
-
-        } else {
-            xmlConfTemplateBuilder
-                .append("          <IfLastModified age=\"${audit_log_delete_age}\" />\n");
-        }
+        getXmlConfByStrategy("audit_sys_accumulated_file_size", "audit_log_delete_age");
 
         xmlConfTemplateBuilder
             .append("        </Delete>\n")
