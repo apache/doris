@@ -581,7 +581,7 @@ public:
 
     std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
 
-    std::vector<std::shared_ptr<RuntimeProfile>>& build_pipeline_profile(std::size_t pipeline_size);
+    std::vector<std::shared_ptr<RuntimeProfile>> build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
