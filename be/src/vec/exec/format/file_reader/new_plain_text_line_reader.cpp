@@ -143,12 +143,13 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
 }
 
 void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
+    bool should_escape = false;
     do {
         do {
             if (start[_idx] == _escape) [[unlikely]] {
-                _should_escape = !_should_escape;
-            } else if (_should_escape) [[unlikely]] {
-                _should_escape = false;
+                should_escape = !should_escape;
+            } else if (should_escape) [[unlikely]] {
+                should_escape = false;
             } else if (start[_idx] == _enclose) [[unlikely]] {
                 _state.forward_to(ReaderState::MATCH_ENCLOSE);
                 ++_idx;

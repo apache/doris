@@ -135,7 +135,6 @@ public:
 
     inline void refresh_impl() {
         _idx = 0;
-        _should_escape = false;
         _result = nullptr;
         _column_sep_positions.clear();
         _state.reset();
@@ -169,7 +168,6 @@ private:
     const size_t _column_sep_len;
 
     size_t _idx = 0;
-    bool _should_escape = false;
 
     const std::string _column_sep;
     std::vector<size_t> _column_sep_positions;
