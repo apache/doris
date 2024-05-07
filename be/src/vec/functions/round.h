@@ -720,7 +720,7 @@ public:
                     res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
                             col_general, scale_arg);
 
-                    if (arguments.size() == 2 && is_col_general_const) {
+                    if (is_col_general_const) {
                         // Important, make sure the result column has the same size as the input column
                         res = ColumnConst::create(std::move(res), input_rows_count);
                     }
