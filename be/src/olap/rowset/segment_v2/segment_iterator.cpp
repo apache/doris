@@ -693,6 +693,9 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         RETURN_IF_ERROR(_execute_predicates_except_leafnode_of_andnode(children[i]));
     }
 
+    LOG(ERROR) << "yangsiyu: " << expr->node_type() << ", " << expr->expr_name() << ", "
+               << expr->op() << ", " << expr->fn().name.function_name;
+
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         _column_predicate_info->column_name = expr->expr_name();
@@ -841,8 +844,6 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
-        LOG(ERROR) << "yangsiyu pred: " << pred->pred_type_string(pred->type());
-
         bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred, true);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
@@ -870,12 +871,6 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
-        LOG(ERROR) << "yangsiyu pred_result_sign: " << pred_result_sign;
-    }
-
-    for (auto& iter : _rowid_result_for_index) {
-        LOG(ERROR) << "yangsiyu _rowid_result_for_index: " << iter.first << ", "
-                   << iter.second.first << ", " << iter.second.second.cardinality();
     }
 
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
