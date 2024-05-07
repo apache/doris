@@ -3551,11 +3551,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
-        return new ConcurrentHashMap<>(idToDb);
-    }
-
-    @Override
     public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
