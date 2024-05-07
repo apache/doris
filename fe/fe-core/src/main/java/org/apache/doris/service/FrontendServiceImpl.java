@@ -583,14 +583,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 try {
                     List<TableIf> tables;
                     if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                        tables = db.getTablesOrEmpty();
+                        tables = db.getTablesIgnoreException();
                     } else {
                         switch (params.getType()) {
                             case "VIEW":
                                 tables = db.getViewsOrEmpty();
                                 break;
                             default:
-                                tables = db.getTablesOrEmpty();
+                                tables = db.getTablesIgnoreException();
                         }
                     }
                     for (TableIf table : tables) {
@@ -1968,7 +1968,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new UserException("unknown database, database=" + dbName);
             }
             // todo Whether there will be a large amount of data risk
-            List<Table> tables = db.getTablesOrEmpty();
+            List<Table> tables = db.getTablesIgnoreException();
             if (CollectionUtils.isEmpty(tables)) {
                 throw new MetaNotFoundException("table not found");
             }
