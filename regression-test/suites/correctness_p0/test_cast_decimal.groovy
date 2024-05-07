@@ -24,16 +24,6 @@ suite("test_cast_decimal") {
         sql """select cast(32123.34212456734 as decimal(3,2));"""
         contains "cast(32123.34212456734 as DECIMALV3(3, 2))"
     }
-    
-
-    sql """
-        set enable_nereids_planner=false;
-    """
-
-    explain {
-        sql """select cast(32123.34212456734 as decimal(3,2));"""
-        contains "CAST(32123.34212456734 AS DECIMALV3(3, 2))"
-    }
 
     sql """drop table if exists test_ttt"""
     sql """create table test_ttt(big_key bigint)DISTRIBUTED BY HASH(big_key) BUCKETS 1 PROPERTIES ("replication_num" = "1");"""

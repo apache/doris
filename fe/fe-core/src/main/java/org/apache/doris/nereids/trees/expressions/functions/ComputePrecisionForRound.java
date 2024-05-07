@@ -37,7 +37,8 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             Expression floatLength = getArgument(1);
             int scale;
 
-            if (floatLength.isLiteral() || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
+            if ((floatLength.isLiteral() && floatLength.getDataType() instanceof Int32OrLessType)
+                    || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
                     && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {
                 // Scale argument is a literal or cast from other literal
                 if (floatLength instanceof Cast) {
