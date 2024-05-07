@@ -1218,7 +1218,6 @@ public class StmtExecutor {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
                         String.valueOf(context.getEnv().getNextStmtId()));
-                context.getMysqlChannel().setUseServerPrepStmts();
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
@@ -2560,12 +2559,12 @@ public class StmtExecutor {
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), context.getMysqlChannel().useServerPrepStmts());
+                        prepareStmt.getName(), context.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
                             context, planner, analyzer, prepareStmt.getName()));
-        if (context.getMysqlChannel().useServerPrepStmts()) {
+        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             sendStmtPrepareOK();
         }
     }
