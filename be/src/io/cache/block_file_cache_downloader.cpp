@@ -209,7 +209,8 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
     for (size_t i = 0; i < task_num; i++) {
         size_t offset = meta.offset + i * one_single_task_size;
-        size_t size = std::min(one_single_task_size, meta.download_size - offset);
+        size_t size =
+                std::min(one_single_task_size, static_cast<size_t>(meta.download_size - offset));
         size_t bytes_read;
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache
