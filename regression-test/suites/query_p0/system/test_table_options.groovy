@@ -101,6 +101,58 @@ suite("test_table_options") {
     		"replication_num" = "1"
 	);
         """
+    sql """
+	CREATE TABLE IF NOT EXISTS aggregate_table
+	(
+	    `user_id` LARGEINT NOT NULL COMMENT "user id",
+	    `date` DATE NOT NULL COMMENT "data import time",
+	    `city` VARCHAR(20) COMMENT "city",
+	    `age` SMALLINT COMMENT "age",
+	    `sex` TINYINT COMMENT "gender",
+	    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
+	    `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
+	    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
+	    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
+	)
+	AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
+	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+	PROPERTIES (
+	"replication_allocation" = "tag.location.default: 1"
+	);
+        """
+    sql """
+	CREATE TABLE IF NOT EXISTS unique_table
+	(
+	    `user_id` LARGEINT NOT NULL COMMENT "User ID",
+	    `username` VARCHAR(50) NOT NULL COMMENT "Username",
+	    `city` VARCHAR(20) COMMENT "User location city",
+	    `age` SMALLINT COMMENT "User age",
+	    `sex` TINYINT COMMENT "User gender",
+	    `phone` LARGEINT COMMENT "User phone number",
+	    `address` VARCHAR(500) COMMENT "User address",
+	    `register_time` DATETIME COMMENT "User registration time"
+	)
+	UNIQUE KEY(`user_id`, `username`)
+	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+	PROPERTIES (
+	"replication_allocation" = "tag.location.default: 1"
+	);
+        """
+    sql """
+	CREATE TABLE IF NOT EXISTS duplicate_table
+	(
+	    `timestamp` DATETIME NOT NULL COMMENT "Log time",
+	    `type` INT NOT NULL COMMENT "Log type",
+	    `error_code` INT COMMENT "Error code",
+	    `error_msg` VARCHAR(1024) COMMENT "Error detail message",
+	    `op_id` BIGINT COMMENT "Operator ID",
+	    `op_time` DATETIME COMMENT "Operation time"
+	)
+	DISTRIBUTED BY HASH(`type`) BUCKETS 1
+	PROPERTIES (
+	"replication_allocation" = "tag.location.default: 1"
+	);
+        """
     qt_select """select * from information_schema.table_options where table_schema=\"${dbName}\" order by TABLE_NAME; """
     sql "drop database if exists ${dbName}"
 }

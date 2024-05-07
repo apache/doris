@@ -47,6 +47,6 @@ private:
     int _row_idx = 0;
     int _total_rows = 0;
     std::unique_ptr<vectorized::Block> _tableoptions_block = nullptr;
-    int _rpc_timeout = 3000;
+    int _rpc_timeout_ms = 3000;
 };
 }; // namespace doris

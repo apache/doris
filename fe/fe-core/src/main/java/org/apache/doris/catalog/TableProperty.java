@@ -30,6 +30,8 @@ import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -664,14 +666,12 @@ public class TableProperty implements Writable {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 
-    public String getPropertiesString() {
-        StringBuilder str = new StringBuilder("");
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (str.length() != 0) {
-                str.append(", ");
-            }
-            str.append(entry.getKey() + " = " + entry.getValue());
+    public String getPropertiesString() throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            return objectMapper.writeValueAsString(properties);
+        } catch (JsonProcessingException e) {
+            throw new IOException(e);
         }
-        return str.toString();
     }
 }

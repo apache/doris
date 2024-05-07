@@ -30,6 +30,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTableOptionsScanner::_s_tbls_column
         {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_MODEL", TYPE_STRING, sizeof(StringRef), true},
+        {"TABLE_MODEL_KEY", TYPE_STRING, sizeof(StringRef), true},
         {"DISTRIBUTE_KEY", TYPE_STRING, sizeof(StringRef), true},
         {"DISTRIBUTE_TYPE", TYPE_STRING, sizeof(StringRef), true},
         {"BUCKETS_NUM", TYPE_INT, sizeof(int32_t), true},
@@ -42,7 +44,7 @@ SchemaTableOptionsScanner::SchemaTableOptionsScanner()
 
 Status SchemaTableOptionsScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
-    _rpc_timeout = state->execution_timeout() * 1000;
+    _rpc_timeout_ms = state->execution_timeout() * 1000;
     return Status::OK();
 }
 
@@ -67,7 +69,7 @@ Status SchemaTableOptionsScanner::get_block_from_fe() {
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
-            _rpc_timeout));
+            _rpc_timeout_ms));
 
     Status status(Status::create(result.status));
     if (!status.ok()) {

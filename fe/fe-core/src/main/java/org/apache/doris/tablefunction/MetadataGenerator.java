@@ -86,6 +86,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -913,6 +914,11 @@ public class MetadataGenerator {
                         trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
                         trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
                         trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                        trow.addToColumnValue(
+                            new TCell().setStringVal(olapTable.getKeysType().toMetadata())); //TABLE_MODEL
+                        trow.addToColumnValue(
+                            new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+
                         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
                         if (distributionInfo.getType() == DistributionInfoType.HASH) {
                             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
@@ -941,8 +947,12 @@ public class MetadataGenerator {
                         if (property == null) {
                             trow.addToColumnValue(new TCell().setStringVal("")); // PROPERTIES
                         } else {
-                            trow.addToColumnValue(
-                                new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
+                            try {
+                                trow.addToColumnValue(
+                                    new TCell().setStringVal(property.getPropertiesString())); // PROPERTIES
+                            } catch (IOException e) {
+                                return errorResult(e.getMessage());
+                            }
                         }
                         dataBatch.add(trow);
                     }

@@ -515,6 +515,8 @@ public class SchemaTable extends Table {
                             builder().column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .column("TABLE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_MODEL", ScalarType.createStringType())
+                                    .column("TABLE_MODEL_KEY", ScalarType.createStringType())
                                     .column("DISTRIBUTE_KEY", ScalarType.createStringType())
                                     .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
                                     .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
