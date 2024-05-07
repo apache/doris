@@ -72,6 +72,8 @@ public:
                _stats->rows_vec_cond_filtered + _stats->rows_short_circuit_cond_filtered;
     }
 
+    uint64_t merged_rows() override { return *(_read_context->merged_rows); }
+
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override {
@@ -83,6 +85,8 @@ public:
     bool update_profile(RuntimeProfile* profile) override;
 
     RowsetReaderSharedPtr clone() override;
+
+    void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
 
 private:
     [[nodiscard]] Status _init_iterator_once();
@@ -123,6 +127,8 @@ private:
     StorageReadOptions _read_options;
 
     bool _empty = false;
+    size_t _topn_limit = 0;
+    uint64_t _merged_rows = 0;
 };
 
 } // namespace doris

@@ -126,8 +126,11 @@ public:
         }
 
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
+                  << ", source_filtered_rows=" << rowset_reader->filtered_rows()
+                  << ", source_merged_rows=" << rowset_reader->merged_rows()
                   << ", merged_rows=" << merged_rows() << ", filtered_rows=" << filtered_rows()
-                  << ", new_index_rows=" << rowset_writer->num_rows();
+                  << ", new_index_rows=" << rowset_writer->num_rows()
+                  << ", writer_filtered_rows=" << rowset_writer->num_rows_filtered();
         return Status::OK();
     }
 
@@ -147,16 +150,19 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+        if (reader->rowset()->num_rows() - reader->filtered_rows() - reader->merged_rows() !=
             writer.num_rows() + writer.num_rows_filtered() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
                          << ", source_filtered_rows=" << reader->filtered_rows()
+                         << ", source_merged_rows=" << reader->merged_rows()
                          << ", written_rows=" << writer.num_rows()
                          << ", writer_filtered_rows=" << writer.num_rows_filtered()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows();
-            return false;
+            if (!config::ignore_schema_change_check) {
+                return false;
+            }
         }
         return true;
     }
@@ -270,11 +276,13 @@ struct SchemaChangeParams {
     DescriptorTbl* desc_tbl = nullptr;
     ObjectPool pool;
     int32_t be_exec_version;
+    std::string vault_id;
 };
 
 class SchemaChangeJob {
 public:
-    SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request);
+    SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request,
+                    const std::string& job_id);
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
     bool tablet_in_converting(int64_t tablet_id);
@@ -285,11 +293,10 @@ public:
 
 private:
     std::unique_ptr<SchemaChange> _get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
-                                                    bool sc_directly) {
+                                                    bool sc_directly, int64_t mem_limit) {
         if (sc_sorting) {
-            return std::make_unique<VLocalSchemaChangeWithSorting>(
-                    changer, config::memory_limitation_per_thread_for_schema_change_bytes,
-                    _local_storage_engine);
+            return std::make_unique<VLocalSchemaChangeWithSorting>(changer, mem_limit,
+                                                                   _local_storage_engine);
         }
 
         if (sc_directly) {
@@ -323,5 +330,6 @@ private:
     std::shared_mutex _mutex;
     std::unordered_set<int64_t> _tablet_ids_in_converting;
     std::set<std::string> _supported_functions;
+    std::string _job_id;
 };
 } // namespace doris

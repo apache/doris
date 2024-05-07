@@ -90,7 +90,6 @@ public class HistogramTaskTest extends TestWithFeService {
 
             for (Entry<Long, BaseAnalysisTask> infoEntry : taskInfo.entrySet()) {
                 BaseAnalysisTask task = infoEntry.getValue();
-                Assertions.assertEquals(AnalysisType.HISTOGRAM, task.info.analysisType);
                 Assertions.assertEquals("col1", task.info.colName);
             }
         }

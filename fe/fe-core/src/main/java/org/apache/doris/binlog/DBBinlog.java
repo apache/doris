@@ -297,6 +297,7 @@ public class DBBinlog {
             TBinlog dummy = binlogIter.next();
             boolean foundFirstUsingBinlog = false;
             long lastCommitSeq = -1;
+            long removed = 0;
 
             while (binlogIter.hasNext()) {
                 TBinlog binlog = binlogIter.next();
@@ -304,6 +305,7 @@ public class DBBinlog {
                 if (commitSeq <= largestExpiredCommitSeq) {
                     if (binlog.table_ref <= 0) {
                         binlogIter.remove();
+                        ++removed;
                         if (!foundFirstUsingBinlog) {
                             lastCommitSeq = commitSeq;
                         }
@@ -318,6 +320,8 @@ public class DBBinlog {
             if (lastCommitSeq != -1) {
                 dummy.setCommitSeq(lastCommitSeq);
             }
+
+            LOG.info("remove {} expired binlogs, dbId: {}, left: {}", removed, dbId, allBinlogs.size());
         } finally {
             lock.writeLock().unlock();
         }

@@ -56,6 +56,9 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -73,6 +76,8 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
      */
     private void getTableStats() {
         Map<String, String> params = buildStatsParams(null);
+        Pair<Double, Long> sampleInfo = getSampleInfo();
+        params.put("scaleFactor", String.valueOf(sampleInfo.first));
         List<ResultRow> columnResult =
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                         .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
@@ -98,7 +103,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Will do full collection for column {}", col.getName());
             }
-            sb.append(COLLECT_COL_STATISTICS);
+            sb.append(FULL_ANALYZE_TEMPLATE);
         } else {
             // Do sample analyze
             if (LOG.isDebugEnabled()) {
@@ -129,7 +134,11 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
                 params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
                 params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
             } else {
-                sb.append(DUJ1_ANALYZE_TEMPLATE);
+                if (col.getType().isStringType()) {
+                    sb.append(DUJ1_ANALYZE_STRING_TEMPLATE);
+                } else {
+                    sb.append(DUJ1_ANALYZE_TEMPLATE);
+                }
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
                 params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
@@ -250,9 +259,6 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             }
             target = columnSize * tableSample.getSampleValue();
         }
-        if (sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR) {
-            return true;
-        }
-        return false;
+        return sizeToRead > LIMIT_SIZE && sizeToRead > target * LIMIT_FACTOR;
     }
 }

@@ -384,6 +384,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             tParams.setVecExec(true);
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
+            tParams.setIsNereids(false);
 
             Future<InternalService.PConstantExprResult> future
                     = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);

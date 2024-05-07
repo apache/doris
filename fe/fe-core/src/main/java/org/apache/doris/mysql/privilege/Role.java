@@ -90,6 +90,8 @@ public class Role implements Writable, GsonPostProcessable {
     private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "clusterPatternToPrivs")
     private Map<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
+    @SerializedName(value = "stagePatternToPrivs")
+    private Map<ResourcePattern, PrivBitSet> stagePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "workloadGroupPatternToPrivs")
     private Map<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "colPrivMap")
@@ -103,6 +105,9 @@ public class Role implements Writable, GsonPostProcessable {
     private ResourcePrivTable resourcePrivTable = new ResourcePrivTable();
     // reuse ResourcePrivTable and ResourcePrivEntry for grant/revoke cloudClusterName
     private ResourcePrivTable cloudClusterPrivTable = new ResourcePrivTable();
+
+    // reuse ResourcePrivTable and ResourcePrivEntry for grant/revoke cloudStageName
+    private ResourcePrivTable cloudStagePrivTable = new ResourcePrivTable();
     private WorkloadGroupPrivTable workloadGroupPrivTable = new WorkloadGroupPrivTable();
 
 
@@ -148,6 +153,9 @@ public class Role implements Writable, GsonPostProcessable {
             this.resourcePatternToPrivs.put(resourcePattern, privs);
         } else if (resourcePattern.isClusterResource()) {
             this.clusterPatternToPrivs.put(resourcePattern, privs);
+        } else if (resourcePattern.isStageResource()) {
+            privs = PrivBitSet.of(Privilege.STAGE_USAGE_PRIV);
+            this.stagePatternToPrivs.put(resourcePattern, privs);
         }
         grantPrivs(resourcePattern, privs.copy());
     }
@@ -198,6 +206,10 @@ public class Role implements Writable, GsonPostProcessable {
         return clusterPatternToPrivs;
     }
 
+    public Map<ResourcePattern, PrivBitSet> getStagePatternToPrivs() {
+        return stagePatternToPrivs;
+    }
+
     public Map<WorkloadGroupPattern, PrivBitSet> getWorkloadGroupPatternToPrivs() {
         return workloadGroupPatternToPrivs;
     }
@@ -228,6 +240,15 @@ public class Role implements Writable, GsonPostProcessable {
                 existPrivs.or(entry.getValue());
             } else {
                 clusterPatternToPrivs.put(entry.getKey(), entry.getValue());
+            }
+            grantPrivs(entry.getKey(), entry.getValue().copy());
+        }
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : other.stagePatternToPrivs.entrySet()) {
+            if (stagePatternToPrivs.containsKey(entry.getKey())) {
+                PrivBitSet existPrivs = stagePatternToPrivs.get(entry.getKey());
+                existPrivs.or(entry.getValue());
+            } else {
+                stagePatternToPrivs.put(entry.getKey(), entry.getValue());
             }
             grantPrivs(entry.getKey(), entry.getValue().copy());
         }
@@ -422,7 +443,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
         Optional<Privilege> colPrivilege = wanted.getColPrivilege();
-        Preconditions.checkState(colPrivilege.isPresent(), "this privPredicate should not use checkColPriv:" + wanted);
+        if (!colPrivilege.isPresent()) {
+            throw new IllegalStateException("this privPredicate should not use checkColPriv:" + wanted);
+        }
         return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege.get());
     }
 
@@ -464,15 +487,14 @@ public class Role implements Writable, GsonPostProcessable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-
     public boolean checkWorkloadGroupPriv(String workloadGroupName, PrivPredicate wanted) {
         // For compatibility with older versions, it is not needed to check the privileges of the default group.
         if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             return true;
         }
         PrivBitSet savedPrivs = PrivBitSet.of();
-        // Workload groups do not support global usage_priv, so only global admin_priv and usage_priv are checked.
-        if (checkGlobalInternal(PrivPredicate.ADMIN, savedPrivs)
+        // usage priv not in global, but grant_priv may in global
+        if (checkGlobalInternal(wanted, savedPrivs)
                 || checkWorkloadGroupInternal(workloadGroupName, wanted, savedPrivs)) {
             return true;
         }
@@ -541,6 +563,10 @@ public class Role implements Writable, GsonPostProcessable {
         return cloudClusterPrivTable;
     }
 
+    public ResourcePrivTable getCloudStagePrivTable() {
+        return cloudStagePrivTable;
+    }
+
     public WorkloadGroupPrivTable getWorkloadGroupPrivTable() {
         return workloadGroupPrivTable;
     }
@@ -573,22 +599,13 @@ public class Role implements Writable, GsonPostProcessable {
         if (privs.isEmpty()) {
             return;
         }
-        // grant privs to user
-        switch (resourcePattern.getPrivLevel()) {
-            case GLOBAL:
-                grantGlobalPrivs(privs);
-                break;
-            case RESOURCE:
-                if (resourcePattern.isClusterResource()) {
-                    grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
-                } else {
-                    grantResourcePrivs(resourcePattern.getResourceName(), privs);
-                }
-                break;
-            default:
-                Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
+        if (resourcePattern.isClusterResource()) {
+            grantCloudClusterPrivs(resourcePattern.getResourceName(), false, false, privs);
+        } else if  (resourcePattern.isStageResource()) {
+            grantCloudStagePrivs(resourcePattern.getResourceName(), false, false, privs);
+        } else {
+            grantResourcePrivs(resourcePattern.getResourceName(), privs);
         }
-
     }
 
     private void grantPrivs(WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs) throws DdlException {
@@ -659,6 +676,18 @@ public class Role implements Writable, GsonPostProcessable {
         resourcePrivTable.addEntry(entry, false, false);
     }
 
+    private void grantCloudStagePrivs(String cloudStageName, boolean errOnExist,
+                                      boolean errOnNonExist, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(cloudStageName, privs);
+        } catch (AnalysisException | PatternMatcherException e) {
+            throw new DdlException(e.getMessage());
+        }
+        cloudStagePrivTable.addEntry(entry, errOnExist, errOnNonExist);
+        LOG.info("cloud stage add list {}", cloudStagePrivTable);
+    }
+
     private void grantCloudClusterPrivs(String cloudClusterName, boolean errOnExist,
             boolean errOnNonExist, PrivBitSet privs) throws DdlException {
         ResourcePrivEntry entry;
@@ -674,6 +703,8 @@ public class Role implements Writable, GsonPostProcessable {
     private ResourcePrivTable getCloudPrivTable(ResourceTypeEnum type) {
         if (type == ResourceTypeEnum.CLUSTER) {
             return cloudClusterPrivTable;
+        } else if (type == ResourceTypeEnum.STAGE) {
+            return cloudStagePrivTable;
         } else {
             // cloud resource not GENERAL type
             return null;
@@ -732,6 +763,17 @@ public class Role implements Writable, GsonPostProcessable {
         LOG.info("cloud cluster revoke list {}", cloudClusterPrivTable);
     }
 
+    private void revokeCloudStagePrivs(String cloudStageName, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(cloudStageName, privs);
+        } catch (AnalysisException | PatternMatcherException e) {
+            throw new DdlException(e.getMessage());
+        }
+        cloudStagePrivTable.revoke(entry,  false, true);
+        LOG.info("cloud stage revoke list {}", cloudStagePrivTable);
+    }
+
     public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, Map<ColPrivilegeKey, Set<String>> colPrivileges,
             boolean errOnNonExist)
             throws DdlException {
@@ -767,10 +809,12 @@ public class Role implements Writable, GsonPostProcessable {
     public void revokePrivs(ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
             throws DdlException {
         PrivBitSet existingPriv = null;
-        if (resourcePattern.isClusterResource()) {
-            existingPriv = clusterPatternToPrivs.get(resourcePattern);
-        } else {
+        if (resourcePattern.isGeneralResource()) {
             existingPriv = resourcePatternToPrivs.get(resourcePattern);
+        } else if (resourcePattern.isClusterResource()) {
+            existingPriv = clusterPatternToPrivs.get(resourcePattern);
+        } else if (resourcePattern.isStageResource()) {
+            existingPriv = stagePatternToPrivs.get(resourcePattern);
         }
         if (existingPriv == null) {
             if (errOnNonExist) {
@@ -788,10 +832,12 @@ public class Role implements Writable, GsonPostProcessable {
                 revokeGlobalPrivs(privs);
                 break;
             case RESOURCE:
-                if (resourcePattern.isGeneralResource()) {
-                    revokeResourcePrivs(resourcePattern.getResourceName(), privs);
-                } else {
+                if (resourcePattern.isClusterResource()) {
                     revokeCloudClusterPrivs(resourcePattern.getResourceName(), privs);
+                } else if (resourcePattern.isStageResource()) {
+                    revokeCloudStagePrivs(resourcePattern.getResourceName(), privs);
+                } else {
+                    revokeResourcePrivs(resourcePattern.getResourceName(), privs);
                 }
                 break;
         }
@@ -946,6 +992,7 @@ public class Role implements Writable, GsonPostProcessable {
         sb.append("role: ").append(roleName).append(", db table privs: ").append(tblPatternToPrivs);
         sb.append(", resource privs: ").append(resourcePatternToPrivs);
         sb.append(", cluster privs: ").append(clusterPatternToPrivs);
+        sb.append(", stage privs: ").append(stagePatternToPrivs);
         sb.append(", workload group privs: ").append(workloadGroupPatternToPrivs);
         return sb.toString();
     }
@@ -1032,8 +1079,15 @@ public class Role implements Writable, GsonPostProcessable {
                         privBitSet.set(Privilege.CLUSTER_USAGE_PRIV.getIdx());
                     }
                 });
-                // todo(dx): if doris has stage
                 // STAGE_USAGE_PRIV_DEPRECATED -> STAGE_USAGE_PRIV (10 -> 13)
+                stagePatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.STAGE_USAGE_PRIV_DEPRECATED)) {
+                        // remove CLUSTER_USAGE_PRIV_DEPRECATED
+                        privBitSet.unset(Privilege.STAGE_USAGE_PRIV_DEPRECATED.getIdx());
+                        // add CLUSTER_USAGE_PRIV
+                        privBitSet.set(Privilege.STAGE_USAGE_PRIV.getIdx());
+                    }
+                });
                 // SHOW_VIEW_PRIV_CLOUD_DEPRECATED -> SHOW_VIEW_PRIV (11 -> 14)
                 tblPatternToPrivs.values().forEach(privBitSet -> {
                     if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED)) {
@@ -1054,6 +1108,8 @@ public class Role implements Writable, GsonPostProcessable {
         tablePrivTable = new TablePrivTable();
         resourcePrivTable = new ResourcePrivTable();
         workloadGroupPrivTable = new WorkloadGroupPrivTable();
+        cloudClusterPrivTable = new ResourcePrivTable();
+        cloudStagePrivTable = new ResourcePrivTable();
         for (Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
@@ -1078,7 +1134,16 @@ public class Role implements Writable, GsonPostProcessable {
                 LOG.warn("grant failed exception {} entry {}", e, entry);
             }
         }
-        // todo(dx): if add stage priv
+        for (Entry<ResourcePattern, PrivBitSet> entry : stagePatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("cloud stage entry {}", entry);
+                }
+            } catch (DdlException e) {
+                LOG.warn("grant failed entry {}", entry, e);
+            }
+        }
         for (Entry<WorkloadGroupPattern, PrivBitSet> entry : workloadGroupPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());

@@ -41,6 +41,8 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
+#include "util/mem_info.h"
+#include "util/parse_util.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -749,6 +751,16 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
+size_t TabletMeta::version_count_cross_with_range(const Version& range) const {
+    size_t count = 0;
+    for (const auto& rs_meta : _rs_metas) {
+        if (!(range.first > rs_meta->version().second || range.second < rs_meta->version().first)) {
+            count++;
+        }
+    }
+    return count;
+}
+
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
@@ -930,7 +942,18 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
 }
 
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
-    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity));
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _agg_cache.reset(new AggCache(delete_bitmap_agg_cache_cache_limit >
+                                                  config::delete_bitmap_agg_cache_capacity
+                                          ? delete_bitmap_agg_cache_cache_limit
+                                          : config::delete_bitmap_agg_cache_capacity));
 }
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {

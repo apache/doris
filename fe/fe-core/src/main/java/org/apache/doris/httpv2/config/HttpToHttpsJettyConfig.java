@@ -67,6 +67,12 @@ public class HttpToHttpsJettyConfig extends AbstractConfiguration {
         mappingRest.setMethod("POST");
         handler.addConstraintMapping(mappingRest);
 
+        ConstraintMapping mappingCopy = new ConstraintMapping();
+        mappingCopy.setConstraint(constraint);
+        mappingCopy.setPathSpec("/copy/*");
+        mappingCopy.setMethod("GET");
+        handler.addConstraintMapping(mappingCopy);
+
         context.setSecurityHandler(handler);
     }
 }

@@ -25,13 +25,17 @@ under the License.
         <format>jar</format>
     </formats>
     <includeBaseDirectory>false</includeBaseDirectory>
-    <fileSets>
-        <fileSet>
-            <directory>${project.build.outputDirectory}</directory>
+    <dependencySets>
+        <dependencySet>
             <outputDirectory>/</outputDirectory>
-            <includes>
-                <include>**/*.class</include>
-            </includes>
-        </fileSet>
-    </fileSets>
+            <useProjectArtifact>true</useProjectArtifact>
+            <unpack>true</unpack>
+            <scope>runtime</scope>
+            <unpackOptions>
+                <excludes>
+                    <exclude>**/Log4j2Plugins.dat</exclude>
+                </excludes>
+            </unpackOptions>
+        </dependencySet>
+    </dependencySets>
 </assembly>

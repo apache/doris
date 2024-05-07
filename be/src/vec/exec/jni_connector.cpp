@@ -66,11 +66,7 @@ namespace doris::vectorized {
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
 JniConnector::~JniConnector() {
-    Status st = close();
-    if (!st.ok()) {
-        // Ensure successful resource release
-        LOG(FATAL) << "Failed to release jni resource: " << st.to_string();
-    }
+    static_cast<void>(close());
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -178,12 +174,16 @@ Status JniConnector::close() {
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
             env->DeleteGlobalRef(_jni_scanner_obj);
         }
-        env->DeleteGlobalRef(_jni_scanner_cls);
+        if (_jni_scanner_cls != nullptr) {
+            // _jni_scanner_cls may be null if init connector failed
+            env->DeleteGlobalRef(_jni_scanner_cls);
+        }
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
-            LOG(WARNING) << "Failed to release jni resource: "
-                         << JniUtil::GetJniExceptionMsg(env).to_string();
+            // Ensure successful resource release
+            LOG(FATAL) << "Failed to release jni resource: "
+                       << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();

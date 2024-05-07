@@ -131,7 +131,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         List<Split> splits = Lists.newArrayList();
         while (!splitSource.isFinished()) {
             for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                splits.add(new TrinoConnectorSplit(split.getConnectorSplit()));
+                splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
             }
         }
         return splits;

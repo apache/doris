@@ -48,8 +48,8 @@
 #include "vec/core/block.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 // NOLINTNEXTLINE(unused-includes)
+#include "vec/sink/load_stream_map_pool.h"
 #include "vec/sink/load_stream_stub.h" // IWYU pragma: keep
-#include "vec/sink/load_stream_stub_pool.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 
@@ -96,7 +96,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
-                    if (!_streams_for_node.contains(node)) {
+                    if (!_load_stream_map->contains(node)) {
                         new_backends.insert(node);
                     }
                     _tablets_for_node[node].emplace(tablet_id, tablet);
@@ -111,11 +111,9 @@ Status VTabletWriterV2::_incremental_open_streams(
             }
         }
     }
-    for (int64_t node_id : new_backends) {
-        auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
-        RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
-        _streams_for_node[node_id] = load_streams;
+    for (int64_t dst_id : new_backends) {
+        auto streams = _load_stream_map->get_or_create(dst_id);
+        RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
     }
     return Status::OK();
 }
@@ -137,12 +135,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool) {
-    _pool = pool;
-    return Status::OK();
-}
-
 Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
+    _pool = state->obj_pool();
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
@@ -153,6 +147,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
@@ -242,34 +238,36 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     } else {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
+    _load_stream_map = ExecEnv::GetInstance()->load_stream_map_pool()->get_or_create(
+            _load_id, _backend_id, _stream_per_node, _num_local_sink);
     return Status::OK();
 }
 
 Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    LOG(INFO) << "opening olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
     _timeout_watch.start();
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     RETURN_IF_ERROR(_build_tablet_node_mapping());
-    RETURN_IF_ERROR(_open_streams(_backend_id));
+    RETURN_IF_ERROR(_open_streams());
     RETURN_IF_ERROR(_init_row_distribution());
 
     return Status::OK();
 }
 
-Status VTabletWriterV2::_open_streams(int64_t src_id) {
+Status VTabletWriterV2::_open_streams() {
     for (auto& [dst_id, _] : _tablets_for_node) {
-        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink);
+        auto streams = _load_stream_map->get_or_create(dst_id);
         RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
-        _streams_for_node[dst_id] = streams;
     }
     return Status::OK();
 }
 
-Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& streams) {
+Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& streams) {
     const auto* node_info = _nodes_info->find_node(dst_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.node_info_null",
                     { node_info = nullptr; });
@@ -278,14 +276,14 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& st
     }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
     // get tablet schema from each backend only in the 1st stream
-    for (auto& stream : streams.streams() | std::ranges::views::take(1)) {
+    for (auto& stream : streams | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
         RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
                                      *node_info, _txn_id, *_schema, tablets_for_schema,
                                      _total_streams, idle_timeout_ms, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
-    for (auto& stream : streams.streams() | std::ranges::views::drop(1)) {
+    for (auto& stream : streams | std::ranges::views::drop(1)) {
         RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
                                      *node_info, _txn_id, *_schema, {}, _total_streams,
                                      idle_timeout_ms, _state->enable_profile()));
@@ -361,7 +359,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         tablet.set_tablet_id(tablet_id);
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
-        streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
+        streams.emplace_back(_load_stream_map->at(node_id)->at(_stream_index));
         RETURN_IF_ERROR(streams[0]->wait_for_schema(partition_id, index_id, tablet_id));
     }
     _stream_index = (_stream_index + 1) % _stream_per_node;
@@ -465,16 +463,19 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
 
 Status VTabletWriterV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
-              << ", txn_id=" << _txn_id << ", due to error: " << status;
+              << ", txn_id=" << _txn_id << ", sink_id=" << _sender_id
+              << ", due to error: " << status;
     if (_delta_writer_for_tablet) {
         _delta_writer_for_tablet->cancel(status);
         _delta_writer_for_tablet.reset();
     }
-    for (const auto& [_, streams] : _streams_for_node) {
-        for (const auto& stream : streams->streams()) {
-            stream->cancel(status);
-        }
-        streams->release();
+    if (_load_stream_map) {
+        _load_stream_map->for_each([status](int64_t dst_id, const Streams& streams) {
+            for (auto& stream : streams) {
+                stream->cancel(status);
+            }
+        });
+        _load_stream_map->release();
     }
     return Status::OK();
 }
@@ -504,6 +505,8 @@ Status VTabletWriterV2::close(Status exec_status) {
     if (_is_closed) {
         return _close_status;
     }
+    LOG(INFO) << "closing olap table sink, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id << ", status=" << exec_status.to_string();
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
@@ -528,32 +531,35 @@ Status VTabletWriterV2::close(Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
-        // defer stream release to prevent memory leak
-        Defer defer([&] {
-            for (const auto& [_, streams] : _streams_for_node) {
-                streams->release();
-            }
-            _streams_for_node.clear();
-        });
-
+        // close DeltaWriters
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            RETURN_IF_ERROR(_delta_writer_for_tablet->close(_profile));
+            auto st = _delta_writer_for_tablet->close(_profile);
             _delta_writer_for_tablet.reset();
-        }
-
-        {
-            // send CLOSE_LOAD to all streams, return ERROR if any
-            for (const auto& [_, streams] : _streams_for_node) {
-                RETURN_IF_ERROR(_close_load(streams->streams()));
+            if (!st.ok()) {
+                RETURN_IF_ERROR(_cancel(st));
             }
         }
 
+        _calc_tablets_to_commit();
+        const bool is_last_sink = _load_stream_map->release();
+        LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
+                  << ", load_id=" << print_id(_load_id);
+
+        // send CLOSE_LOAD on all streams if this is the last sink
+        if (is_last_sink) {
+            RETURN_IF_ERROR(_load_stream_map->close_load());
+        }
+
+        // close_wait on all streams, even if this is not the last sink.
+        // because some per-instance data structures are now shared among all sinks
+        // due to sharing delta writers and load stream stubs.
         {
             SCOPED_TIMER(_close_load_timer);
-            for (const auto& [_, streams] : _streams_for_node) {
-                for (const auto& stream : streams->streams()) {
+            RETURN_IF_ERROR(_load_stream_map->for_each_st([this](int64_t dst_id,
+                                                                 const Streams& streams) -> Status {
+                for (auto& stream : streams) {
                     int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
                                         _timeout_watch.elapsed_time() / 1000 / 1000;
                     if (remain_ms <= 0) {
@@ -563,52 +569,39 @@ Status VTabletWriterV2::close(Status exec_status) {
                     }
                     RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
                 }
-            }
+                return Status::OK();
+            }));
         }
 
-        std::unordered_map<int64_t, int> failed_tablets;
+        // calculate and submit commit info
+        if (is_last_sink) {
+            DBUG_EXECUTE_IF("VTabletWriterV2.close.add_failed_tablet", {
+                auto streams = _load_stream_map->at(_tablets_for_node.begin()->first);
+                int64_t tablet_id = -1;
+                for (auto& stream : *streams) {
+                    const auto& tablets = stream->success_tablets();
+                    if (tablets.size() > 0) {
+                        tablet_id = tablets[0];
+                        break;
+                    }
+                }
+                if (tablet_id != -1) {
+                    LOG(INFO) << "fault injection: adding failed tablet_id: " << tablet_id;
+                    streams->front()->add_failed_tablet(tablet_id,
+                                                        Status::InternalError("fault injection"));
+                } else {
+                    LOG(INFO) << "fault injection: failed to inject failed tablet_id";
+                }
+            });
 
-        std::vector<TTabletCommitInfo> tablet_commit_infos;
-        for (const auto& [node_id, streams] : _streams_for_node) {
-            for (const auto& stream : streams->streams()) {
-                std::unordered_set<int64_t> known_tablets;
-                for (auto [tablet_id, _] : stream->failed_tablets()) {
-                    if (known_tablets.contains(tablet_id)) {
-                        continue;
-                    }
-                    known_tablets.insert(tablet_id);
-                    failed_tablets[tablet_id]++;
-                }
-                for (auto tablet_id : stream->success_tablets()) {
-                    if (known_tablets.contains(tablet_id)) {
-                        continue;
-                    }
-                    known_tablets.insert(tablet_id);
-                    TTabletCommitInfo commit_info;
-                    commit_info.tabletId = tablet_id;
-                    commit_info.backendId = node_id;
-                    tablet_commit_infos.emplace_back(std::move(commit_info));
-                }
-            }
+            std::vector<TTabletCommitInfo> tablet_commit_infos;
+            RETURN_IF_ERROR(
+                    _create_commit_info(tablet_commit_infos, _load_stream_map, _num_replicas));
+            _state->tablet_commit_infos().insert(
+                    _state->tablet_commit_infos().end(),
+                    std::make_move_iterator(tablet_commit_infos.begin()),
+                    std::make_move_iterator(tablet_commit_infos.end()));
         }
-        for (auto [tablet_id, replicas] : failed_tablets) {
-            if (replicas <= (_num_replicas - 1) / 2) {
-                continue;
-            }
-            auto backends = _location->find_tablet(tablet_id)->node_ids;
-            for (auto& backend_id : backends) {
-                for (const auto& stream : _streams_for_node[backend_id]->streams()) {
-                    const auto& failed_tablets = stream->failed_tablets();
-                    if (failed_tablets.contains(tablet_id)) {
-                        return failed_tablets.at(tablet_id);
-                    }
-                }
-            }
-            DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";
-        }
-        _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
-                                             std::make_move_iterator(tablet_commit_infos.begin()),
-                                             std::make_move_iterator(tablet_commit_infos.end()));
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
@@ -630,28 +623,67 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-Status VTabletWriterV2::_close_load(const Streams& streams) {
-    auto node_id = streams[0]->dst_id();
-    std::vector<PTabletID> tablets_to_commit;
-    std::vector<int64_t> partition_ids;
-    for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
-        if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
-            if (VLOG_DEBUG_IS_ON) {
-                partition_ids.push_back(tablet.partition_id());
+void VTabletWriterV2::_calc_tablets_to_commit() {
+    LOG(INFO) << "saving close load info, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+              << ", sink_id=" << _sender_id;
+    for (const auto& [dst_id, tablets] : _tablets_for_node) {
+        std::vector<PTabletID> tablets_to_commit;
+        std::vector<int64_t> partition_ids;
+        for (const auto& [tablet_id, tablet] : tablets) {
+            if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
+                if (VLOG_DEBUG_IS_ON) {
+                    partition_ids.push_back(tablet.partition_id());
+                }
+                tablets_to_commit.push_back(tablet);
             }
-            tablets_to_commit.push_back(tablet);
         }
-    }
-    if (VLOG_DEBUG_IS_ON) {
-        std::string msg("close load partitions: ");
-        msg.reserve(partition_ids.size() * 7);
-        for (auto v : partition_ids) {
-            msg.append(std::to_string(v) + ", ");
+        if (VLOG_DEBUG_IS_ON) {
+            std::string msg("close load partitions: ");
+            msg.reserve(partition_ids.size() * 7);
+            for (auto v : partition_ids) {
+                msg.append(std::to_string(v) + ", ");
+            }
+            LOG(WARNING) << msg;
         }
-        LOG(WARNING) << msg;
+        _load_stream_map->save_tablets_to_commit(dst_id, tablets_to_commit);
     }
-    for (const auto& stream : streams) {
-        RETURN_IF_ERROR(stream->close_load(tablets_to_commit));
+}
+
+Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                                            std::shared_ptr<LoadStreamMap> load_stream_map,
+                                            int num_replicas) {
+    std::unordered_map<int64_t, int> failed_tablets;
+    std::unordered_map<int64_t, Status> failed_reason;
+    load_stream_map->for_each([&](int64_t dst_id, const Streams& streams) {
+        std::unordered_set<int64_t> known_tablets;
+        for (const auto& stream : streams) {
+            for (auto [tablet_id, reason] : stream->failed_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                failed_tablets[tablet_id]++;
+                failed_reason[tablet_id] = reason;
+            }
+            for (auto tablet_id : stream->success_tablets()) {
+                if (known_tablets.contains(tablet_id)) {
+                    continue;
+                }
+                known_tablets.insert(tablet_id);
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = tablet_id;
+                commit_info.backendId = dst_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
+        }
+    });
+
+    for (auto [tablet_id, replicas] : failed_tablets) {
+        if (replicas > (num_replicas - 1) / 2) {
+            LOG(INFO) << "tablet " << tablet_id
+                      << " failed on majority backends: " << failed_reason[tablet_id];
+            return failed_reason.at(tablet_id);
+        }
     }
     return Status::OK();
 }

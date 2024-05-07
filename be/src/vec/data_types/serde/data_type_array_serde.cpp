@@ -392,5 +392,35 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                              int end) const {
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::LIST);
+    const IColumn& nested_column = array_col.get_data();
+    const auto& offsets = array_col.get_offsets();
+    auto* child_element = result.add_child_element();
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        result.add_child_offset(next_offset);
+        RETURN_IF_ERROR(nested_serde->write_column_to_pb(nested_column, *child_element, offset,
+                                                         next_offset));
+    }
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    for (int i = 0; i < arg.child_offset_size(); ++i) {
+        offsets.emplace_back(arg.child_offset(i));
+    }
+    for (int i = 0; i < arg.child_element_size(); ++i) {
+        RETURN_IF_ERROR(nested_serde->read_column_from_pb(nested_column, arg.child_element(i)));
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

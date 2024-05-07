@@ -15,6 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Add PL-SQL regression test notice:
+// 1. JDBC does not support the execution of stored procedures that return results. You can only Into the execution
+// results into a variable or write them into a table, because when multiple result sets are returned, JDBC needs
+// to use the prepareCall statement to execute, otherwise the Statemnt of the returned result executes Finalize.
+// Send EOF Packet will report an error;
+// 2. The format of the result returned by Doris Statement is xxxx\n, xxxx\n, 2 rows affected (0.03 sec).
+// PL-SQL uses Print to print variable values in an unformatted format, and JDBC cannot easily obtain them. Real results.
 suite("test_plsql_loop_cursor") {
     def tableName = "plsql_tbl"
     sql "DROP TABLE IF EXISTS ${tableName}"

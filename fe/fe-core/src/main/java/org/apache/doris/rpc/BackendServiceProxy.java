@@ -17,12 +17,14 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncResponse;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
@@ -36,6 +38,7 @@ import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,7 +115,7 @@ public class BackendServiceProxy {
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
-        String realIp = NetUtils.getIpByHost(address.getHostname());
+        String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
@@ -198,7 +201,23 @@ public class BackendServiceProxy {
         // VERSION 3 means we send TPipelineFragmentParamsList
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
 
-        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+        return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            ByteString serializedFragments, boolean twoPhaseExecution) throws RpcException {
+        InternalService.PExecPlanFragmentRequest.Builder builder =
+                InternalService.PExecPlanFragmentRequest.newBuilder();
+        builder.setRequest(serializedFragments);
+        builder.setCompact(true);
+        // VERSION 3 means we send TPipelineFragmentParamsList
+        builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
+        return execPlanFragmentsAsync(address, builder.build(), twoPhaseExecution);
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            InternalService.PExecPlanFragmentRequest pRequest, boolean twoPhaseExecution)
+            throws RpcException {
         MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
         MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
         try {
@@ -225,7 +244,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
             TUniqueId finstId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest =
                 InternalService.PCancelPlanFragmentRequest.newBuilder()
@@ -241,8 +260,8 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
-            PlanFragmentId fragmentId, TUniqueId queryId,
+    public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
+            TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
             Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
@@ -303,6 +322,18 @@ public class BackendServiceProxy {
             return client.fetchArrowFlightSchema(request);
         } catch (Throwable e) {
             LOG.warn("fetch arrow flight schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(TNetworkAddress address,
+            InternalService.POutfileWriteSuccessRequest request)  throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.outfileWriteSuccessAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("outfile write success file catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
@@ -495,6 +526,18 @@ public class BackendServiceProxy {
             LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
                     address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PAlterVaultSyncResponse> alterVaultSync(TNetworkAddress address,
+            PAlterVaultSyncRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.alterVaultSync(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to alter vault sync from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.getHostname(), e.getMessage());
         }
     }
 

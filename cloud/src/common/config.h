@@ -77,6 +77,9 @@ CONF_String(test_s3_sk, "sk");
 CONF_String(test_s3_endpoint, "endpoint");
 CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
+
+CONF_String(test_hdfs_prefix, "prefix");
+CONF_String(test_hdfs_fs_name, "fs_name");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -120,7 +123,10 @@ CONF_mBool(split_tablet_stats, "true");
 CONF_mBool(snapshot_get_tablet_stats, "true");
 
 // Value codec version
-CONF_mInt16(meta_schema_value_version, 0);
+CONF_mInt16(meta_schema_value_version, "1");
+
+// Limit kv size of Schema SchemaDictKeyList, default 10MB
+CONF_mInt32(schema_dict_kv_size_limit, "10485760");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -146,11 +152,39 @@ CONF_Bool(focus_add_kms_data_key, "false");
 
 // Whether to retry the retryable errors that returns by the underlying txn store.
 CONF_Bool(enable_txn_store_retry, "true");
-CONF_Int32(txn_store_retry_times, "20");
+// The rpc timeout of BE cloud meta mgr is set to 10s, to avoid BE rpc timeout, the retry time here
+// should satisfy that:
+//  (1 << txn_store_retry_times) * txn_store_retry_base_internvals_ms < 10s
+CONF_Int32(txn_store_retry_times, "4");
+CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 // Whether to retry the txn conflict errors that returns by the underlying txn store.
 CONF_Bool(enable_retry_txn_conflict, "true");
 
+CONF_mBool(enable_s3_rate_limiter, "false");
+CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_get_token_limit, "0");
+
+CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_put_token_limit, "0");
+
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
+
+// Allow to specify kerberos credentials cache path.
+CONF_String(kerberos_ccache_path, "");
+// set krb5.conf path, use "/etc/krb5.conf" by default
+CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
+
+CONF_mBool(enable_distinguish_hdfs_path, "true");
+
+// Declare a selection strategy for those servers have many ips.
+// Note that there should at most one ip match this list.
+// this is a list in semicolon-delimited format, in CIDR notation,
+// e.g. 10.10.10.0/24
+// e.g. 10.10.10.0/24;192.168.0.1/24
+// If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
+CONF_String(priority_networks, "");
 
 } // namespace doris::cloud::config

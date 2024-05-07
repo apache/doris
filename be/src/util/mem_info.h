@@ -41,6 +41,7 @@
 #endif
 #include "common/config.h"
 #include "util/perf_counters.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -67,7 +68,7 @@ public:
     // Get total physical memory in bytes (if has cgroups memory limits, return the limits).
     static inline int64_t physical_mem() {
         DCHECK(_s_initialized);
-        return _s_physical_mem;
+        return _s_physical_mem.load(std::memory_order_relaxed);
     }
 
     static void refresh_proc_meminfo();
@@ -76,7 +77,15 @@ public:
         return _s_sys_mem_available.load(std::memory_order_relaxed) -
                refresh_interval_memory_growth;
     }
-    static inline std::string sys_mem_available_str() { return _s_sys_mem_available_str; }
+    static inline std::string sys_mem_available_str() {
+#ifdef ADDRESS_SANITIZER
+        return "[ASAN]" + PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
+                                               TUnit::BYTES);
+#else
+        return PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
+                                    TUnit::BYTES);
+#endif
+    }
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
     }
@@ -169,19 +178,20 @@ public:
 
     static inline int64_t mem_limit() {
         DCHECK(_s_initialized);
-        return _s_mem_limit;
+        return _s_mem_limit.load(std::memory_order_relaxed);
     }
     static inline std::string mem_limit_str() {
         DCHECK(_s_initialized);
-        return _s_mem_limit_str;
+        return PrettyPrinter::print(_s_mem_limit.load(std::memory_order_relaxed), TUnit::BYTES);
     }
     static inline int64_t soft_mem_limit() {
         DCHECK(_s_initialized);
-        return _s_soft_mem_limit;
+        return _s_soft_mem_limit.load(std::memory_order_relaxed);
     }
     static inline std::string soft_mem_limit_str() {
         DCHECK(_s_initialized);
-        return _s_soft_mem_limit_str;
+        return PrettyPrinter::print(_s_soft_mem_limit.load(std::memory_order_relaxed),
+                                    TUnit::BYTES);
     }
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
         return proc_mem_no_allocator_cache() + bytes >= soft_mem_limit() ||
@@ -195,7 +205,7 @@ public:
 
     static int64_t tg_not_enable_overcommit_group_gc();
     static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                 RuntimeProfile* profile);
+                                                 RuntimeProfile* profile, bool is_minor_gc);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
@@ -203,11 +213,9 @@ public:
 
 private:
     static bool _s_initialized;
-    static int64_t _s_physical_mem;
-    static int64_t _s_mem_limit;
-    static std::string _s_mem_limit_str;
-    static int64_t _s_soft_mem_limit;
-    static std::string _s_soft_mem_limit_str;
+    static std::atomic<int64_t> _s_physical_mem;
+    static std::atomic<int64_t> _s_mem_limit;
+    static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
@@ -215,11 +223,10 @@ private:
     static std::atomic<int64_t> _s_proc_mem_no_allocator_cache;
 
     static std::atomic<int64_t> _s_sys_mem_available;
-    static std::string _s_sys_mem_available_str;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;
-    static int64_t _s_process_minor_gc_size;
-    static int64_t _s_process_full_gc_size;
+    static std::atomic<int64_t> _s_process_minor_gc_size;
+    static std::atomic<int64_t> _s_process_full_gc_size;
 };
 
 } // namespace doris

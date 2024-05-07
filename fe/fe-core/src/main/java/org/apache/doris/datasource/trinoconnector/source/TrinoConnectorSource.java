@@ -24,6 +24,7 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.thrift.TFileAttributes;
 
 import io.trino.Session;
+import io.trino.connector.ConnectorName;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorTableHandle;
@@ -36,6 +37,7 @@ public class TrinoConnectorSource {
     private final CatalogHandle catalogHandle;
     private final Session trinoSession;
     private final Connector connector;
+    private final ConnectorName connectorName;
     private ConnectorTransactionHandle connectorTransactionHandle;
     private final ConnectorTableHandle trinoConnectorExtTableHandle;
 
@@ -47,6 +49,7 @@ public class TrinoConnectorSource {
         this.trinoConnectorExtTableHandle = table.getConnectorTableHandle();
         this.trinoSession = trinoConnectorExternalCatalog.getTrinoSession();
         this.connector = ((TrinoConnectorExternalCatalog) table.getCatalog()).getConnector();
+        this.connectorName = ((TrinoConnectorExternalCatalog) table.getCatalog()).getConnectorName();
     }
 
     public TupleDescriptor getDesc() {
@@ -79,6 +82,10 @@ public class TrinoConnectorSource {
 
     public Connector getConnector() {
         return connector;
+    }
+
+    public ConnectorName getConnectorName() {
+        return connectorName;
     }
 
     public void setConnectorTransactionHandle(ConnectorTransactionHandle connectorTransactionHandle) {

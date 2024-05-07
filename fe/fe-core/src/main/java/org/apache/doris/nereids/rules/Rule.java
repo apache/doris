@@ -24,8 +24,8 @@ import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.BitSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Abstract class for all rules.
@@ -79,8 +79,8 @@ public abstract class Rule {
     /**
      * Filter out already applied rules and rules that are not matched on root node.
      */
-    public boolean isInvalid(Set<Integer> disableRules, GroupExpression groupExpression) {
-        return disableRules.contains(this.getRuleType().type())
+    public boolean isInvalid(BitSet disableRules, GroupExpression groupExpression) {
+        return disableRules.get(this.getRuleType().type())
                 || !groupExpression.notApplied(this)
                 || !this.getPattern().matchRoot(groupExpression.getPlan());
     }

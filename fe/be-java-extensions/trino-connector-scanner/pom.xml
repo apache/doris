@@ -35,17 +35,17 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>hudi-scanner</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>${commons-io.version}</version>
         </dependency>
     </dependencies>
 

@@ -243,6 +243,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {
@@ -292,7 +296,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
@@ -313,7 +317,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         try {
             long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -462,6 +466,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return new ArrayList<>(idToTable.values());
     }
 
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
+    }
+
+    public List<Long> getTableIds() {
+        return new ArrayList<>(idToTable.keySet());
+    }
+
     // tables must get read or write table in fixed order to avoid potential dead lock
     public List<Table> getTablesOnIdOrder() {
         return idToTable.values().stream()
@@ -501,7 +513,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+                throw new MetaNotFoundException("table not found, tableId=" + tableId);
             }
             tableList.add(table);
         }
@@ -550,7 +562,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         readLock();
         try {
             for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -876,7 +888,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

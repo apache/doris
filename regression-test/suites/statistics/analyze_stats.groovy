@@ -23,6 +23,7 @@ suite("test_analyze") {
 
     String tbl = "analyzetestlimited_duplicate_all"
 
+    sql """set global force_sample_analyze=false"""
     sql """
         DROP DATABASE IF EXISTS `${db}`
     """
@@ -1122,10 +1123,10 @@ PARTITION `p599` VALUES IN (599)
         System.out.println(actual_result)
         return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)
     }
-    assert check_column(afterDropped, "[col2, col3]")
+    assert check_column(afterDropped, "[test_meta_management:col2, test_meta_management:col3]")
     sql """ANALYZE TABLE test_meta_management WITH SYNC"""
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
-    assert check_column(afterDropped, "[col1, col2, col3]")
+    assert check_column(afterDropped, "[test_meta_management:col1, test_meta_management:col2, test_meta_management:col3]")
 
     sql """ DROP TABLE IF EXISTS test_updated_rows """
     sql """
@@ -1148,6 +1149,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt1[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertEquals(Integer.valueOf(cnt1[0][0]), 1)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
@@ -1155,6 +1161,11 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    for (int i = 0; i < 10; ++i) {
+      if (Integer.valueOf(cnt2[0][0]) == 8) break;
+      Thread.sleep(1000) // rows updated report is async
+      cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    }
     assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
 
     // test analyze specific column
@@ -2773,7 +2784,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test auto analyze with job type SYSTEM
     sql """drop stats trigger_test"""
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    sql """analyze table trigger_test PROPERTIES("use.auto.analyzer"="true")"""
     int i = 0;
     for (0; i < 10; i++) {
         result = sql """show column stats trigger_test"""

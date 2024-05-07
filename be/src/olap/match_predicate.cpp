@@ -71,12 +71,12 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
-        char buf[column_desc.children[0].len];
+        std::vector<char> buf(column_desc.children[0].len);
         const TypeInfo* type_info = get_scalar_type_info(
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
-        RETURN_IF_ERROR(type_info->from_string(buf, _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(name, buf, inverted_index_query_type,
-                                                           num_rows, roaring, true));
+        RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                name, buf.data(), inverted_index_query_type, num_rows, roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL

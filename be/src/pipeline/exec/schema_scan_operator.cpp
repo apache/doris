@@ -24,7 +24,6 @@
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/vschema_scan_node.h"
 
 namespace doris {
 class RuntimeState;
@@ -32,23 +31,11 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(SchemaScanOperator, SourceOperator)
-
-Status SchemaScanOperator::open(RuntimeState* state) {
-    return _node->open(state);
-}
-
-Status SchemaScanOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::close(state));
-    RETURN_IF_ERROR(_node->close(state));
-    return Status::OK();
-}
-
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
@@ -69,6 +56,9 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     return _schema_scanner->start(state);
 }
 

@@ -129,8 +129,9 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
 
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
-    if (_state == kOpened) {
-        // Normal case, already open by other sender
+    // if _state is kOpened, it's a normal case, already open by other sender
+    // if _state is kFinished, already cancelled by other sender
+    if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
     LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << request.tablets().size()
@@ -466,6 +467,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
+                .storage_vault_id = request.storage_vault_id(),
         };
 
         auto delta_writer = create_delta_writer(wrequest);

@@ -99,37 +99,6 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
     _written_data_bytes = ADD_COUNTER(profile, "WrittenDataBytes", TUnit::BYTES);
 }
 
-Status VFileResultWriter::_create_success_file() {
-    std::string file_name;
-    RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
-    // must write somthing because s3 file writer can not writer empty file
-    RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
-    return _file_writer_impl->close();
-}
-
-Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
-    std::stringstream ss;
-    ss << _file_opts->file_path << _file_opts->success_file_name;
-    *file_name = ss.str();
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        // For local file writer, the file_path is a local dir.
-        // Here we do a simple security verification by checking whether the file exists.
-        // Because the file path is currently arbitrarily specified by the user,
-        // Doris is not responsible for ensuring the correctness of the path.
-        // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
-            return Status::InternalError("File already exists: {}", *file_name);
-        }
-    }
-
-    return Status::OK();
-}
-
 Status VFileResultWriter::_create_next_file_writer() {
     std::string file_name;
     RETURN_IF_ERROR(_get_next_file_name(&file_name));
@@ -139,7 +108,11 @@ Status VFileResultWriter::_create_next_file_writer() {
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            {
+                    .write_file_cache = false,
+                    .sync_file_data = false,
+            }));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
@@ -275,10 +248,6 @@ Status VFileResultWriter::_close_file_writer(bool done) {
         RETURN_IF_ERROR(_create_next_file_writer());
     } else {
         // All data is written to file, send statistic result
-        if (_file_opts->success_file_name != "") {
-            // write success file, just need to touch an empty file
-            RETURN_IF_ERROR(_create_success_file());
-        }
         if (_output_block == nullptr) {
             RETURN_IF_ERROR(_send_result());
         } else {

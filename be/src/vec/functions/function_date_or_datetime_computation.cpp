@@ -97,6 +97,9 @@ using FunctionLocalTimeWithPrecision =
 using FunctionLocalTimestampWithPrecision =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, true>>;
 
+using FunctionNowWithPrecisionOld =
+        FunctionCurrentDateOrDateTimeOld<CurrentDateTimeImpl<NowFunctionName, true>>;
+
 struct CurDateFunctionName {
     static constexpr auto name = "curdate";
 };
@@ -181,6 +184,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicroSecToDateTime>();
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
+
+    factory.register_alternative_function<FunctionNowWithPrecisionOld>();
 
     // alias
     factory.register_alias("days_add", "date_add");

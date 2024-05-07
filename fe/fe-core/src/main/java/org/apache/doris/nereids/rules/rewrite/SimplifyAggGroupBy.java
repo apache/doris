@@ -19,16 +19,18 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Simplify Aggregate group by Multiple to One. For example
@@ -41,20 +43,25 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
-                .when(agg -> agg.getGroupByExpressions().size() > 1)
-                .when(agg -> agg.getGroupByExpressions().stream().allMatch(this::isBinaryArithmeticSlot))
+                .when(agg -> agg.getGroupByExpressions().size() > 1
+                        && ExpressionUtils.allMatch(agg.getGroupByExpressions(), this::isBinaryArithmeticSlot))
                 .then(agg -> {
-                    Set<Expression> slots = agg.getGroupByExpressions().stream()
-                            .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toSet());
+                    List<Expression> groupByExpressions = agg.getGroupByExpressions();
+                    ImmutableSet.Builder<Expression> inputSlots
+                            = ImmutableSet.builderWithExpectedSize(groupByExpressions.size());
+                    for (Expression groupByExpression : groupByExpressions) {
+                        inputSlots.addAll(groupByExpression.getInputSlots());
+                    }
+                    Set<Expression> slots = inputSlots.build();
                     if (slots.size() != 1) {
                         return null;
                     }
-                    return agg.withGroupByAndOutput(ImmutableList.copyOf(slots), agg.getOutputExpressions());
+                    return agg.withGroupByAndOutput(Utils.fastToImmutableList(slots), agg.getOutputExpressions());
                 })
                 .toRule(RuleType.SIMPLIFY_AGG_GROUP_BY);
     }
 
-    private boolean isBinaryArithmeticSlot(Expression expr) {
+    private boolean isBinaryArithmeticSlot(TreeNode<Expression> expr) {
         if (expr instanceof Slot) {
             return true;
         }

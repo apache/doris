@@ -278,7 +278,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -431,7 +431,7 @@ public abstract class TestWithFeService {
     }
 
     private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = 10;
+        int maxTry = Config.heartbeat_interval_second + 2;
         boolean allAlive = false;
         while (maxTry-- > 0 && !allAlive) {
             Thread.sleep(1000);
@@ -463,7 +463,9 @@ public abstract class TestWithFeService {
     }
 
     protected Backend addNewBackend() throws IOException, InterruptedException {
-        return createBackend("127.0.0.1", lastFeRpcPort);
+        Backend be = createBackend("127.0.0.1", lastFeRpcPort);
+        checkBEHeartbeat(Lists.newArrayList(be));
+        return be;
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
@@ -581,7 +583,8 @@ public abstract class TestWithFeService {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
-        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR
+                && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
             return null;
@@ -603,6 +606,11 @@ public abstract class TestWithFeService {
         String createDbStmtStr = "DROP DATABASE " + db;
         DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Env.getCurrentEnv().dropDb(createDbStmt);
+    }
+
+    public void dropDatabaseWithSql(String dropDbSql) throws Exception {
+        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
     }
 
     public void useDatabase(String dbName) {
@@ -650,6 +658,11 @@ public abstract class TestWithFeService {
     public void dropTable(String table, boolean force) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
                 "drop table " + table + (force ? " force" : "") + ";", connectContext);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
+    }
+
+    public void dropTableWithSql(String dropTableSql) throws Exception {
+        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(dropTableSql);
         Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 

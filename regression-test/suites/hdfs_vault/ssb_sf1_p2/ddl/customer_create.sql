@@ -12,5 +12,5 @@ UNIQUE KEY (`c_custkey`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"storage_vault" = "ssb_hdfs_vault"
+"storage_vault_name" = "ssb_sf1_p2"
 );

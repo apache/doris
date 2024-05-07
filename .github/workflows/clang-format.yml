@@ -17,7 +17,7 @@
 #
 
 ---
-name: BE Code Formatter
+name: Code Formatter
 
 on: [push, pull_request_target]
 
@@ -52,9 +52,11 @@ jobs:
         id: filter
         with:
           filters: |
-            be_changes:
+            changes:
               - 'be/src/**'
               - 'be/test/**'
+              - 'cloud/src/**'
+              - 'cloud/test/**'
 
       - name: Checkout clang-format-lint-action
         run: |
@@ -66,14 +68,14 @@ jobs:
           popd &>/dev/null
 
       - name: "Format it!"
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        if: ${{ steps.filter.outputs.changes == 'true' }}
         uses: ./.github/actions/clang-format-lint-action
-        id: be_clang_format
+        id: clang_format
         with:
-          source: "be/src be/test"
+          source: "be/src be/test cloud/src cloud/test"
           clangFormatVersion: 16
           inplace: False
 
       - name: Ignore it!
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        if: ${{ steps.filter.outputs.changes == 'false' }}
         run: echo 'No need to check.'

@@ -43,14 +43,18 @@ class VHivePartitionWriter {
 public:
     struct WriteInfo {
         std::string write_path;
+        std::string original_write_path;
         std::string target_path;
         TFileType::type file_type;
     };
 
     VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
                          TUpdateMode::type update_mode, const VExprContextSPtrs& output_expr_ctxs,
+                         const VExprContextSPtrs& write_output_expr_ctxs,
+                         const std::set<size_t>& non_write_columns_indices,
                          const std::vector<THiveColumn>& columns, WriteInfo write_info,
-                         std::string file_name, TFileFormatType::type file_format_type,
+                         std::string file_name, int file_name_index,
+                         TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
                          const std::map<std::string, std::string>& hadoop_conf);
 
@@ -62,16 +66,24 @@ public:
 
     Status close(const Status& status);
 
+    inline const std::string& file_name() const { return _file_name; }
+
+    inline int file_name_index() const { return _file_name_index; }
+
     inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
-    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor);
+    std::string _get_target_file_name();
 
+private:
     Status _projection_and_filter_block(doris::vectorized::Block& input_block,
                                         const vectorized::IColumn::Filter* filter,
                                         doris::vectorized::Block* output_block);
 
     THivePartitionUpdate _build_partition_update();
+
+    std::string _get_file_extension(TFileFormatType::type file_format_type,
+                                    TFileCompressType::type write_compress_type);
 
     std::string _path;
 
@@ -83,10 +95,13 @@ private:
     size_t _input_size_in_bytes = 0;
 
     const VExprContextSPtrs& _vec_output_expr_ctxs;
+    const VExprContextSPtrs& _write_output_expr_ctxs;
+    const std::set<size_t>& _non_write_columns_indices;
 
     const std::vector<THiveColumn>& _columns;
     WriteInfo _write_info;
     std::string _file_name;
+    int _file_name_index;
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _hive_compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;

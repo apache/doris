@@ -45,7 +45,7 @@
 4096
 
 -- !select_all_bfcompact --
-3	{"a":1234,"point":1,"xxxx":"ddddd"}
+3	1234	\N	ddddd	1	\N
 
 -- !select_b --
 12291
@@ -93,5 +93,5 @@
 4096
 
 -- !select_all --
-3	{"a":1234,"xxxx":"ddddd","point":1}
+3	1234	\N	ddddd	1	\N
 

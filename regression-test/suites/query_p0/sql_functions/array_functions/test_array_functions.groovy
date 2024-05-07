@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_functions") {
-    sql "SET enable_nereids_planner=false"
     def tableName = "tbl_test_array_functions"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""

@@ -56,12 +56,20 @@ class SimplifiedScanScheduler;
 
 class ScanTask {
 public:
-    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {}
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
+        _query_thread_context.init();
+    }
+
+    ~ScanTask() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+        cached_blocks.clear();
+    }
 
 private:
     // whether current scanner is finished
     bool eos = false;
     Status status = Status::OK();
+    QueryThreadContext _query_thread_context;
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
@@ -100,7 +108,15 @@ public:
                    int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
-    virtual ~ScannerContext() = default;
+    ~ScannerContext() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+        _blocks_queue.clear();
+        vectorized::BlockUPtr block;
+        while (_free_blocks.try_dequeue(block)) {
+            // do nothing
+        }
+        block.reset();
+    }
     virtual Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
@@ -219,6 +235,7 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage_mark = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
+    QueryThreadContext _query_thread_context;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

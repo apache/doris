@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -73,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -128,6 +130,9 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     // *******************************
     // Logical plans
     // *******************************
+    public R visitLogicalSqlCache(LogicalSqlCache sqlCache, C context) {
+        return visit(sqlCache, context);
+    }
 
     public R visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, C context) {
         return visit(aggregate, context);
@@ -248,6 +253,9 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     // *******************************
     // Physical plans
     // *******************************
+    public R visitPhysicalSqlCache(PhysicalSqlCache sqlCache, C context) {
+        return visit(sqlCache, context);
+    }
 
     public R visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, C context) {
         return visit(agg, context);

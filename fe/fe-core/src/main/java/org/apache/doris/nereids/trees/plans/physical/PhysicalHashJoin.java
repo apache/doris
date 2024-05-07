@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -204,12 +205,17 @@ public class PhysicalHashJoin<
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
             AbstractPhysicalJoin<?, ?> builderNode, Expression srcExpr, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        // currently, mark join doesn't support RF, so markJoinConjuncts is not processed here
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
                 PhysicalHashJoin<?, ?> builderJoin = (PhysicalHashJoin<?, ?>) builderNode;
                 if (builderJoin == this) {
                     return false;
+                }
+                EqualPredicate equal = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
+                if (equal instanceof NullSafeEqual) {
+                    if (this.joinType.isOuterJoin()) {
+                        return false;
+                    }
                 }
             }
         }
@@ -234,7 +240,8 @@ public class PhysicalHashJoin<
         Preconditions.checkState(leftNode != null && rightNode != null,
                 "join child node is null");
 
-        Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Set<Expression> probExprList = Sets.newLinkedHashSet();
+        probExprList.add(probeExpr);
         Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
         Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);

@@ -84,5 +84,10 @@ public abstract class Metric<T> {
         return labels;
     }
 
+    public Metric<T> setLabels(List<MetricLabel> newLabels) {
+        this.labels = newLabels;
+        return this;
+    }
+
     public abstract T getValue();
 }

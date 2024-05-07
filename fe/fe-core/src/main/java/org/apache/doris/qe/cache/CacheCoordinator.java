@@ -146,12 +146,11 @@ public class CacheCoordinator {
     }
 
     public void addBackend(Backend backend) {
-        if (realNodes.contains(backend.getId())) {
+        if (realNodes.putIfAbsent(backend.getId(), backend) != null) {
             return;
         }
-        realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
-            String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
+            String nodeName = backend.getId() + "::" + i;
             Types.PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
             virtualNodes.put(nodeId.getHi(), backend);
             if (LOG.isDebugEnabled()) {

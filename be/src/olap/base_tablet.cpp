@@ -445,21 +445,12 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
 }
 
 std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
-        const RowsetIdUnorderedSet* specified_rowset_ids, bool include_stale) {
+        const RowsetIdUnorderedSet* specified_rowset_ids) {
     std::vector<RowsetSharedPtr> rowsets;
     for (auto& rs : _rs_version_map) {
         if (!specified_rowset_ids ||
             specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
             rowsets.push_back(rs.second);
-        }
-    }
-
-    if (include_stale && specified_rowset_ids != nullptr &&
-        rowsets.size() != specified_rowset_ids->size()) {
-        for (auto& rs : _stale_rs_version_map) {
-            if (specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
-                rowsets.push_back(rs.second);
-            }
         }
     }
 
@@ -1444,6 +1435,18 @@ RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
         }
     }
     return nullptr;
+}
+
+std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_rowset) const {
+    std::shared_lock rdlock(_meta_lock);
+    std::vector<RowsetSharedPtr> rowsets;
+    std::transform(_rs_version_map.cbegin(), _rs_version_map.cend(), std::back_inserter(rowsets),
+                   [](auto& kv) { return kv.second; });
+    if (include_stale_rowset) {
+        std::transform(_stale_rs_version_map.cbegin(), _stale_rs_version_map.cend(),
+                       std::back_inserter(rowsets), [](auto& kv) { return kv.second; });
+    }
+    return rowsets;
 }
 
 } // namespace doris

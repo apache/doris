@@ -18,7 +18,7 @@
 suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive") {
 
     def q01 = {
-        qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""
+        qt_q24 """ select name, count(1) as c from student group by name order by name desc;"""
         qt_q25 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by lo_orderkey asc, c desc;"""
         qt_q26 """ select * from test1 order by col_1;"""
         qt_q27 """ select * from string_table order by p_partkey desc;"""
@@ -51,12 +51,17 @@ suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive"
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hms_port = context.config.otherConfigs.get("hms_port")
-        String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-        String catalog_name = "hive_test_other"
+        String catalog_name = "${hivePrefix}_test_other"
 
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
@@ -99,6 +104,6 @@ suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive"
         sql """refresh table `default`.table_with_vertical_line"""
         order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
 
-        sql """drop catalog if exists ${catalog_name}"""
+        // sql """drop catalog if exists ${catalog_name}"""
     }
 }

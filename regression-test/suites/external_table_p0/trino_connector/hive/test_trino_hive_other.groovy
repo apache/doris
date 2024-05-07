@@ -63,7 +63,7 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
 
 
     def q01 = {
-        qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""
+        qt_q24 """ select name, count(1) as c from student group by name order by name desc;"""
         qt_q25 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by lo_orderkey asc, c desc;"""
         qt_q26 """ select * from test1 order by col_1;"""
         qt_q27 """ select * from string_table order by p_partkey desc;"""
@@ -97,8 +97,8 @@ suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hi
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hms_port = context.config.otherConfigs.get("hms_port")
-        String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+        String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+        String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         String catalog_name = "test_trino_hive_other"

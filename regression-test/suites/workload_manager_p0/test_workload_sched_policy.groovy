@@ -32,7 +32,7 @@ suite("test_workload_sched_policy") {
     // 2 create set policy
     sql "create workload schedule policy set_action_policy " +
             "conditions(username='root') " +
-            "actions(set_session_variable 'workload_group=normal');"
+            "actions(set_session_variable 'workload_group=normal') properties('enabled'='false');"
 
     // 3 create policy run in fe
     sql "create workload schedule policy fe_policy " +
@@ -52,7 +52,7 @@ suite("test_workload_sched_policy") {
             "'priority'='10' " +
             ");"
 
-    qt_select_policy_tvf "select name,condition,action,priority,enabled,version from workload_schedule_policy() order by name;"
+    qt_select_policy_tvf "select name,condition,action,priority,enabled,version from information_schema.workload_schedule_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test_alter
     sql "alter workload schedule policy fe_policy properties('priority'='2', 'enabled'='false');"
@@ -112,7 +112,7 @@ suite("test_workload_sched_policy") {
     sql "drop workload schedule policy fe_policy;"
     sql "drop workload schedule policy be_policy;"
 
-    qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from workload_schedule_policy() order by name;"
+    qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from information_schema.workload_schedule_policy where name in('be_policy','fe_policy','set_action_policy','test_cancel_policy') order by name;"
 
     // test workload schedule policy
     sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '500');"
@@ -149,10 +149,105 @@ suite("test_workload_sched_policy") {
     }
     assertEquals("parallel_pipeline_task_num", result3[0][0])
     assertEquals("33", result3[0][1])
-
+    
     sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '10000');"
 
     sql "drop workload schedule policy if exists test_set_var_policy;"
     sql "drop workload schedule policy if exists test_set_var_policy2;"
+
+    sql "drop user if exists test_policy_user"
+    sql "drop workload schedule policy if exists test_cancel_query_policy"
+    sql "drop workload schedule policy if exists test_cancel_query_policy2"
+    sql "drop workload schedule policy if exists test_set_session"
+    sql "drop workload group if exists policy_group;"
+    sql "CREATE USER 'test_policy_user'@'%' IDENTIFIED BY '12345';"
+    sql """grant SELECT_PRIV on *.*.* to test_policy_user;"""
+    sql "create workload group if not exists policy_group properties ('cpu_share'='1024');"
+    sql "create workload group if not exists policy_group2 properties ('cpu_share'='1024');"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group' TO 'test_policy_user'@'%';"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group2' TO 'test_policy_user'@'%';"
+    sql "create workload schedule policy test_cancel_query_policy conditions(query_time > 1000) actions(cancel_query) properties('workload_group'='policy_group')"
+    sql "create workload schedule policy test_cancel_query_policy2 conditions(query_time > 0, be_scan_rows>1) actions(cancel_query) properties('workload_group'='policy_group')"
+    sql "create workload schedule policy test_set_session conditions(username='test_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=1')"
+
+    test {
+        sql "drop workload group policy_group;"
+        exception "because it has related policy"
+    }
+
+    test {
+        sql "alter workload schedule policy test_cancel_query_policy properties('workload_group'='invalid_gorup');"
+        exception "unknown workload group"
+    }
+
+    // test alter policy property
+    sql "drop user if exists test_alter_policy_user"
+    sql "CREATE USER 'test_alter_policy_user'@'%' IDENTIFIED BY '12345';"
+    sql "drop workload schedule policy if exists test_alter_policy;"
+    sql "create workload schedule policy test_alter_policy conditions(username='test_alter_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=0') properties('workload_group'='normal');"
+    qt_select_alter_1 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('workload_group'='');"
+    qt_select_alter_2 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('enabled'='false');"
+    qt_select_alter_3 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('priority'='9');"
+    qt_select_alter_4 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "alter workload schedule policy test_alter_policy properties('workload_group'='normal');"
+    qt_select_alter_5 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_schedule_policy where name='test_alter_policy'"
+
+    sql "drop user test_alter_policy_user"
+    sql "drop workload schedule policy test_alter_policy"
+
+    // daemon thread alter test
+    def thread1 = new Thread({
+        def startTime = System.currentTimeMillis()
+        def curTime = System.currentTimeMillis()
+        def totalTime = 30 * 60 * 1000 // 30min
+
+        connect(user = 'test_policy_user', password = '12345', url = context.config.jdbcUrl) {
+            sql "set workload_group=policy_group"
+            boolean flag = false
+            long lastTime = System.currentTimeMillis()
+
+            while (curTime - startTime <= totalTime) {
+                if (curTime - lastTime > 20000) {
+                    if (flag) {
+                        connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+                            sql "alter workload schedule policy test_cancel_query_policy properties('workload_group'='policy_group2');"
+                            sql "alter workload schedule policy test_cancel_query_policy2 properties('workload_group'='policy_group');"
+                        }
+                        flag = false
+                    } else {
+                        connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+                            sql "alter workload schedule policy test_cancel_query_policy properties('workload_group'='policy_group');"
+                            sql "alter workload schedule policy test_cancel_query_policy2 properties('workload_group'='policy_group2');"
+                        }
+                        flag = true
+                    }
+                    lastTime = System.currentTimeMillis()
+                }
+                try {
+                    sql "select k0,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
+                } catch (Exception e) {
+                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                }
+
+                try {
+                    sql "select count(1) from regression_test_load_p0_insert.baseall"
+                } catch (Exception e) {
+                    assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
+                }
+
+                Thread.sleep(1000)
+                curTime = System.currentTimeMillis()
+            }
+        }
+    })
+    thread1.setDaemon(true)
+    thread1.start()
 
 }

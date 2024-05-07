@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.proto.Types;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -584,7 +585,7 @@ public class ConnectContext {
 
     // for USER() function
     public UserIdentity getUserIdentity() {
-        return new UserIdentity(qualifiedUser, remoteIP);
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
     }
 
     public UserIdentity getCurrentUserIdentity() {
@@ -891,6 +892,24 @@ public class ConnectContext {
         cancelQuery();
     }
 
+    // kill operation with no protect by timeout.
+    private void killByTimeout(boolean killConnection) {
+        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
+                killConnection);
+
+        if (killConnection) {
+            isKilled = true;
+            // Close channel to break connection with client
+            closeChannel();
+        }
+        // Now, cancel running query.
+        // cancelQuery by time out
+        StmtExecutor executorRef = executor;
+        if (executorRef != null) {
+            executorRef.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
+        }
+    }
+
     public void cancelQuery() {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
@@ -931,7 +950,7 @@ public class ConnectContext {
         }
 
         if (killFlag) {
-            kill(killConnection);
+            killByTimeout(killConnection);
         }
     }
 
@@ -994,7 +1013,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs, boolean showFe) {
+        public List<String> toRow(int connId, long nowMs) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -1023,10 +1042,8 @@ public class ConnectContext {
                 row.add("");
             }
 
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
-
+            row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            row.add(cloudCluster);
             return row;
         }
     }
@@ -1150,13 +1167,14 @@ public class ConnectContext {
     }
 
     /**
-     * @param updateErr whether set this connect state to error when the returned cluster is null or empty.
+     * Tries to choose an available cluster in the following order
+     * 1. Do nothing if a cluster has been chosen for current session. It may be
+     *    chosen explicitly by `use @` command or setCloudCluster() or this method
+     * 2. Tries to choose a default cluster if current mysql user has been set any
+     * 3. Tries to choose an authorized cluster if all preceeding conditions failed
      *
-     * @return Returns an available cluster in the following order
-     *         1 Use an explicitly specified cluster
-     *         2 If no cluster is specified, the user's default cluster is used
-     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
-     *         Returns null when there is no available cluster
+     * @param updateErr whether set the connect state to error if the returned cluster is null or empty
+     * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
      */
     public String getCloudCluster(boolean updateErr) {
         if (!Config.isCloudMode()) {
@@ -1302,5 +1320,13 @@ public class ConnectContext {
 
     public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
         isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
+    }
+
+    public Map<String, LiteralExpr> getUserVars() {
+        return userVars;
+    }
+
+    public void setUserVars(Map<String, LiteralExpr> userVars) {
+        this.userVars = userVars;
     }
 }

@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -29,12 +28,8 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
@@ -52,6 +47,7 @@ import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.DefaultConstraintsRequest;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -59,27 +55,25 @@ import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
-import org.apache.hadoop.hive.metastore.api.SerDeInfo;
-import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -143,7 +137,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 if (db instanceof HiveDatabaseMetadata) {
                     HiveDatabaseMetadata hiveDb = (HiveDatabaseMetadata) db;
                     ugiDoAs(() -> {
-                        client.client.createDatabase(toHiveDatabase(hiveDb));
+                        client.client.createDatabase(HiveUtil.toHiveDatabase(hiveDb));
                         return null;
                     });
                 }
@@ -154,17 +148,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to create database from hms client", e);
         }
-    }
-
-    private static Database toHiveDatabase(HiveDatabaseMetadata hiveDb) {
-        Database database = new Database();
-        database.setName(hiveDb.getDbName());
-        if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
-            database.setLocationUri(hiveDb.getLocationUri());
-        }
-        database.setParameters(hiveDb.getProperties());
-        database.setDescription(hiveDb.getComment());
-        return database;
     }
 
     @Override
@@ -177,8 +160,28 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             try {
                 // String location,
                 if (tbl instanceof HiveTableMetadata) {
+                    Table hiveTable = HiveUtil.toHiveTable((HiveTableMetadata) tbl);
+                    List<Column> tableColumns = ((HiveTableMetadata) tbl).getColumns();
+                    List<SQLDefaultConstraint> dvs = new ArrayList<>(tableColumns.size());
+                    for (Column tableColumn : tableColumns) {
+                        if (tableColumn.hasDefaultValue()) {
+                            SQLDefaultConstraint dv = new SQLDefaultConstraint();
+                            dv.setTable_db(tbl.getDbName());
+                            dv.setTable_name(tbl.getTableName());
+                            dv.setColumn_name(tableColumn.getName());
+                            dv.setDefault_value(tableColumn.getDefaultValue());
+                            dv.setDc_name(tableColumn.getName() + "_dv_constraint");
+                            dvs.add(dv);
+                        }
+                    }
                     ugiDoAs(() -> {
-                        client.client.createTable(toHiveTable((HiveTableMetadata) tbl));
+                        if (!dvs.isEmpty()) {
+                            // foreignKeys, uniqueConstraints, notNullConstraints, defaultConstraints, checkConstraints
+                            client.client.createTableWithConstraints(hiveTable, null,
+                                    null, null, null, dvs, null);
+                            return null;
+                        }
+                        client.client.createTable(hiveTable);
                         return null;
                     });
                 }
@@ -189,92 +192,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to create database from hms client", e);
         }
-    }
-
-    private static Table toHiveTable(HiveTableMetadata hiveTable) {
-        Objects.requireNonNull(hiveTable.getDbName(), "Hive database name should be not null");
-        Objects.requireNonNull(hiveTable.getTableName(), "Hive table name should be not null");
-        Table table = new Table();
-        table.setDbName(hiveTable.getDbName());
-        table.setTableName(hiveTable.getTableName());
-        // table.setOwner("");
-        int createTime = (int) System.currentTimeMillis() * 1000;
-        table.setCreateTime(createTime);
-        table.setLastAccessTime(createTime);
-        // table.setRetention(0);
-        String location = hiveTable.getProperties().get(HiveMetadataOps.LOCATION_URI_KEY);
-        Set<String> partitionSet = new HashSet<>(hiveTable.getPartitionKeys());
-        Pair<List<FieldSchema>, List<FieldSchema>> hiveSchema = toHiveSchema(hiveTable.getColumns(), partitionSet);
-
-        table.setSd(toHiveStorageDesc(hiveSchema.first, hiveTable.getBucketCols(), hiveTable.getNumBuckets(),
-                hiveTable.getFileFormat(), location));
-        table.setPartitionKeys(hiveSchema.second);
-
-        // table.setViewOriginalText(hiveTable.getViewSql());
-        // table.setViewExpandedText(hiveTable.getViewSql());
-        table.setTableType("MANAGED_TABLE");
-        table.setParameters(hiveTable.getProperties());
-        return table;
-    }
-
-    private static StorageDescriptor toHiveStorageDesc(List<FieldSchema> columns,
-                                                       List<String> bucketCols,
-                                                       int numBuckets,
-                                                       String fileFormat,
-                                                       String location) {
-        StorageDescriptor sd = new StorageDescriptor();
-        sd.setCols(columns);
-        setFileFormat(fileFormat, sd);
-        if (StringUtils.isNotEmpty(location)) {
-            sd.setLocation(location);
-        }
-        sd.setBucketCols(bucketCols);
-        sd.setNumBuckets(numBuckets);
-        Map<String, String> parameters = new HashMap<>();
-        parameters.put("tag", "doris external hive talbe");
-        sd.setParameters(parameters);
-        return sd;
-    }
-
-    private static void setFileFormat(String fileFormat, StorageDescriptor sd) {
-        String inputFormat;
-        String outputFormat;
-        String serDe;
-        if (fileFormat.equalsIgnoreCase("orc")) {
-            inputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
-            outputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
-            serDe = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
-        } else if (fileFormat.equalsIgnoreCase("parquet")) {
-            inputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
-            outputFormat = "'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat";
-            serDe = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
-        } else {
-            throw new IllegalArgumentException("Creating table with an unsupported file format: " + fileFormat);
-        }
-        SerDeInfo serDeInfo = new SerDeInfo();
-        serDeInfo.setSerializationLib(serDe);
-        sd.setSerdeInfo(serDeInfo);
-        sd.setInputFormat(inputFormat);
-        sd.setOutputFormat(outputFormat);
-    }
-
-    private static Pair<List<FieldSchema>, List<FieldSchema>> toHiveSchema(List<Column> columns,
-                Set<String> partitionSet) {
-        List<FieldSchema> hiveCols = new ArrayList<>();
-        List<FieldSchema> hiveParts = new ArrayList<>();
-        for (Column column : columns) {
-            FieldSchema hiveFieldSchema = new FieldSchema();
-            // TODO: add doc, just support doris type
-            hiveFieldSchema.setType(HiveMetaStoreClientHelper.dorisTypeToHiveType(column.getType()));
-            hiveFieldSchema.setName(column.getName());
-            hiveFieldSchema.setComment(column.getComment());
-            if (partitionSet.contains(column.getName())) {
-                hiveParts.add(hiveFieldSchema);
-            } else {
-                hiveCols.add(hiveFieldSchema);
-            }
-        }
-        return Pair.of(hiveCols, hiveParts);
     }
 
     @Override
@@ -400,6 +317,37 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to get database %s from hms client", e, dbName);
+        }
+    }
+
+    public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
+        Map<String, String> res = new HashMap<>();
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                DefaultConstraintsRequest req = new DefaultConstraintsRequest();
+                req.setDb_name(dbName);
+                req.setTbl_name(tblName);
+                List<SQLDefaultConstraint> dvcs = ugiDoAs(() -> {
+                    try {
+                        return client.client.getDefaultConstraints(req);
+                    } catch (TApplicationException e) {
+                        if (e.getMessage().contains("Invalid method name: 'get_default_constraints'")) {
+                            // the getDefaultConstraints method only supported on hive3
+                            return ImmutableList.of();
+                        }
+                        throw e;
+                    }
+                });
+                for (SQLDefaultConstraint dvc : dvcs) {
+                    res.put(dvc.getColumn_name().toLowerCase(Locale.ROOT), dvc.getDefault_value());
+                }
+                return res;
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);
         }
     }
 
@@ -709,11 +657,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
             Table originTable = getTable(dbName, tableName);
             Map<String, String> originParams = originTable.getParameters();
-            HivePartitionStatistics updatedStats = update.apply(toHivePartitionStatistics(originParams));
+            HivePartitionStatistics updatedStats = update.apply(HiveUtil.toHivePartitionStatistics(originParams));
 
             Table newTable = originTable.deepCopy();
             Map<String, String> newParams =
-                    updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
+                    HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
             newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
             newTable.setParameters(newParams);
             client.client.alter_table(dbName, tableName, newTable);
@@ -737,11 +685,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
             Partition originPartition = partitions.get(0);
             Map<String, String> originParams = originPartition.getParameters();
-            HivePartitionStatistics updatedStats = update.apply(toHivePartitionStatistics(originParams));
+            HivePartitionStatistics updatedStats = update.apply(HiveUtil.toHivePartitionStatistics(originParams));
 
             Partition modifiedPartition = originPartition.deepCopy();
             Map<String, String> newParams =
-                    updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
+                    HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
             newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
             modifiedPartition.setParameters(newParams);
             client.client.alter_partition(dbName, tableName, modifiedPartition);
@@ -754,7 +702,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
         try (ThriftHMSClient client = getClient()) {
             List<Partition> hivePartitions = partitions.stream()
-                    .map(ThriftHMSCachedClient::toMetastoreApiPartition)
+                    .map(HiveUtil::toMetastoreApiPartition)
                     .collect(Collectors.toList());
             client.client.add_partitions(hivePartitions);
         } catch (Exception e) {
@@ -770,64 +718,4 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName);
         }
     }
-
-    private static HivePartitionStatistics toHivePartitionStatistics(Map<String, String> params) {
-        long rowCount = Long.parseLong(params.getOrDefault(StatsSetupConst.ROW_COUNT, "-1"));
-        long totalSize = Long.parseLong(params.getOrDefault(StatsSetupConst.TOTAL_SIZE, "-1"));
-        long numFiles = Long.parseLong(params.getOrDefault(StatsSetupConst.NUM_FILES, "-1"));
-        return HivePartitionStatistics.fromCommonStatistics(rowCount, numFiles, totalSize);
-    }
-
-    private static Map<String, String> updateStatisticsParameters(
-            Map<String, String> parameters,
-            HiveCommonStatistics statistics) {
-        HashMap<String, String> result = new HashMap<>(parameters);
-
-        result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
-        result.put(StatsSetupConst.ROW_COUNT, String.valueOf(statistics.getRowCount()));
-        result.put(StatsSetupConst.TOTAL_SIZE, String.valueOf(statistics.getTotalFileBytes()));
-
-        // CDH 5.16 metastore ignores stats unless STATS_GENERATED_VIA_STATS_TASK is set
-        // https://github.com/cloudera/hive/blob/cdh5.16.2-release/metastore/src/java/org/apache/hadoop/hive/metastore/MetaStoreUtils.java#L227-L231
-        if (!parameters.containsKey("STATS_GENERATED_VIA_STATS_TASK")) {
-            result.put("STATS_GENERATED_VIA_STATS_TASK", "workaround for potential lack of HIVE-12730");
-        }
-
-        return result;
-    }
-
-    public static Partition toMetastoreApiPartition(HivePartitionWithStatistics partitionWithStatistics) {
-        Partition partition =
-                toMetastoreApiPartition(partitionWithStatistics.getPartition());
-        partition.setParameters(updateStatisticsParameters(
-                partition.getParameters(), partitionWithStatistics.getStatistics().getCommonStatistics()));
-        return partition;
-    }
-
-    public static Partition toMetastoreApiPartition(HivePartition hivePartition) {
-        Partition result = new Partition();
-        result.setDbName(hivePartition.getDbName());
-        result.setTableName(hivePartition.getTblName());
-        result.setValues(hivePartition.getPartitionValues());
-        result.setSd(makeStorageDescriptorFromHivePartition(hivePartition));
-        result.setParameters(hivePartition.getParameters());
-        return result;
-    }
-
-    private static StorageDescriptor makeStorageDescriptorFromHivePartition(HivePartition partition) {
-        SerDeInfo serdeInfo = new SerDeInfo();
-        serdeInfo.setName(partition.getTblName());
-        serdeInfo.setSerializationLib(partition.getSerde());
-
-        StorageDescriptor sd = new StorageDescriptor();
-        sd.setLocation(Strings.emptyToNull(partition.getPath()));
-        sd.setCols(partition.getColumns());
-        sd.setSerdeInfo(serdeInfo);
-        sd.setInputFormat(partition.getInputFormat());
-        sd.setOutputFormat(partition.getOutputFormat());
-        sd.setParameters(ImmutableMap.of());
-
-        return sd;
-    }
-
 }

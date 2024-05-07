@@ -44,6 +44,7 @@ Usage: $0 <shell_options> <framework_options>
      -forceGenOut                      delete and generate .out file
      -parallel                         run tests using specified threads
      -randomOrder                      run tests in a random order
+     -noKillDocker                     don't kill container when finish docker suites
      -times                            rum tests {times} times
 
   Eg.
@@ -200,6 +201,7 @@ fi
 
 echo "===== Run Regression Test ====="
 
+# if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi

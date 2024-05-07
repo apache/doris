@@ -27,6 +27,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -75,7 +76,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-            Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
@@ -131,7 +132,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
 
-        AbstractInsertExecutor insertExecutor;
+        AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
@@ -172,7 +173,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner, insertCtx);
+                insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
                 // set hive query options
             } else {
                 // TODO: support other table types
@@ -181,8 +183,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
-        } finally {
             targetTableIf.readUnlock();
+        } catch (Throwable e) {
+            targetTableIf.readUnlock();
+            // the abortTxn in onFail need to acquire table write lock
+            if (insertExecutor != null) {
+                insertExecutor.onFail(e);
+            }
+            throw e;
         }
 
         executor.setProfileType(ProfileType.LOAD);
@@ -195,6 +203,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsert(executor, jobId);
+    }
+
+    public boolean isExternalTableSink() {
+        return !(logicalQuery instanceof UnboundTableSink);
     }
 
     @Override

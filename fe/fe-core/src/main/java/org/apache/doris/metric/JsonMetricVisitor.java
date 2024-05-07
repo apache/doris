@@ -192,7 +192,7 @@ public class JsonMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void getNodeInfo() {
+    public void visitNodeInfo() {
         if (Env.getCurrentEnv().isMaster()) {
             setNodeInfo(sb, "node_info", "is_master", null, 1, false);
         }
@@ -206,6 +206,11 @@ public class JsonMetricVisitor extends MetricVisitor {
                 Env.getCurrentSystemInfo().getDecommissionedBackendIds().size(), false);
         setNodeInfo(sb, "node_info", "be_node_num", "dead",
                 Env.getCurrentEnv().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count(), true);
+    }
+
+    @Override
+    public void visitCloudTableStats() {
+        return;
     }
 
     private void setNodeInfo(StringBuilder sb, String metric, String type,

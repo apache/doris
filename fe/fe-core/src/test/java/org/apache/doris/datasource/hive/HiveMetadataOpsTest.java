@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -99,12 +100,12 @@ public class HiveMetadataOpsTest {
     }
 
     private void createDb(String dbName, Map<String, String> props) throws DdlException {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, dbName, props);
+        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", dbName), props);
         metadataOps.createDb(createDbStmt);
     }
 
     private void dropDb(String dbName, boolean forceDrop) throws DdlException {
-        DropDbStmt dropDbStmt = new DropDbStmt(true, dbName, forceDrop);
+        DropDbStmt dropDbStmt = new DropDbStmt(true, new DbName("hive", dbName), forceDrop);
         metadataOps.dropDb(dropDbStmt);
     }
 
@@ -141,6 +142,13 @@ public class HiveMetadataOpsTest {
 
     @Test
     public void testCreateAndDropAll() throws UserException {
+        new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
+            // create table if getTableNullable return null
+            @Mock
+            HMSExternalTable getTableNullable(String tableName) {
+                return null;
+            }
+        };
         Map<String, String> dbProps = new HashMap<>();
         dbProps.put(HiveMetadataOps.LOCATION_URI_KEY, "file://loc/db");
         createDb("mockedDb", dbProps);

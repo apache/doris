@@ -16,10 +16,12 @@
 // under the License.
 
 suite("test_iot_auto_detect") {
+   // only nereids now
    sql """set enable_nereids_planner = true"""
    sql """set enable_fallback_to_original_planner = false"""
    sql """set enable_nereids_dml = true"""
 
+   // range
    sql " drop table if exists range1; "
    sql """
          create table range1(
@@ -46,6 +48,7 @@ suite("test_iot_auto_detect") {
    sql " insert overwrite table range1 partition(*) values (-100), (-100), (333), (444), (555); "
    qt_sql " select * from range1 order by k0; "
 
+   // list
    sql " drop table if exists list1; "
    sql """
          create table list1(
@@ -72,6 +75,54 @@ suite("test_iot_auto_detect") {
    qt_sql " select * from list1 order by k0; "
    sql """ insert overwrite table list1 partition(*) values ("BEIJING"), ("SHANGHAI"), ("XXX"), ("LIST"), ("7654321"); """
    qt_sql " select * from list1 order by k0; "
+
+   // with label - transactions
+   def uniqueID1 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID2 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   def uniqueID3 = Math.abs(UUID.randomUUID().hashCode()).toString()
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID1}` values ("BEIJING"), ("7654321"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID2}` values ("SHANGHAI"), ("LIST"); """
+   sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID3}` values  ("XXX"); """
+
+   def max_try_milli_secs = 10000
+   while(max_try_milli_secs) {
+      def result = sql " show load where label like 'iot_auto_txn%' order by LoadStartTime desc "
+      // the last three loads are loads upper
+      if(result[0][2] == "FINISHED" && result[1][2] == "FINISHED" && result[2][2] == "FINISHED" ) {
+         break
+      } else {
+         sleep(1000) // wait 1 second every time
+         max_try_milli_secs -= 1000
+         if(max_try_milli_secs <= 0) {
+            log.info("result: ${result[0][2]}, ${result[1][2]}, ${result[2][2]}")
+            fail()
+         }
+      }
+   }
+
+   qt_sql " select * from list1 order by k0; "
+
+   // long partition value
+   sql " drop table if exists list_long; "
+   sql """
+         create table list_long(
+            k0 varchar null
+         )
+         partition by list (k0)
+         (
+            PARTITION p1 values in (("Beijing"), ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+            PARTITION p2 values in (("nonono"))
+         )
+         DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+         properties("replication_num" = "1");
+      """
+   sql """ insert into list_long values ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); """
+   sql """ insert overwrite table list_long partition(*) values ("Beijing"); """
+   qt_sql " select * from list_long order by k0; "
+   sql """ insert overwrite table list_long partition(*) values ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); """
+   qt_sql " select * from list_long order by k0; "
+
+   // miss partitions
    try {
       sql """ insert overwrite table list1 partition(*) values ("BEIJING"), ("invalid"); """
    } catch (Exception e) {

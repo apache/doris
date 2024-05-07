@@ -1023,13 +1023,16 @@ public class NativeInsertStmt extends InsertStmt {
         }
         if (targetTable instanceof OlapTable) {
             OlapTableSink sink;
+            final boolean enableSingleReplicaLoad =
+                    analyzer.getContext().getSessionVariable().isEnableMemtableOnSinkNode()
+                    ? false : analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert();
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
-                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
+                        targetPartitionIds, enableSingleReplicaLoad,
                         ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
-                        analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+                        enableSingleReplicaLoad);
             }
             dataSink = sink;
             sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
@@ -1151,7 +1154,7 @@ public class NativeInsertStmt extends InsertStmt {
         targetColumns.clear();
     }
 
-    protected void resetPrepare() {
+    public void resetPrepare() {
         label = null;
         isTransactionBegin = false;
     }
@@ -1285,12 +1288,16 @@ public class NativeInsertStmt extends InsertStmt {
         if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             return;
         }
+        // when enable_unique_key_partial_update = true,
+        // only unique table with MOW insert with target columns can consider be a partial update,
+        // and unique table without MOW, insert will be like a normal insert.
+        // when enable_unique_key_partial_update = false,
+        // unique table with MOW, insert will be a normal insert, and column that not set will insert default value.
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+            return;
         }
         if (hasEmptyTargetColumns) {
-            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                    + "updating partial columns using the INSERT statement.");
+            return;
         }
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
@@ -1332,5 +1339,10 @@ public class NativeInsertStmt extends InsertStmt {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
+    }
+
+    public boolean containTargetColumnName(String columnName) {
+        return targetColumnNames != null && targetColumnNames.stream()
+                .anyMatch(col -> col.equalsIgnoreCase(columnName));
     }
 }

@@ -510,5 +510,42 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     return Status::OK();
 }
 
+Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
+                                            int end) const {
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::MAP);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    auto* key_child_element = result.add_child_element();
+    auto* value_child_element = result.add_child_element();
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        result.add_child_offset(next_offset);
+        RETURN_IF_ERROR(key_serde->write_column_to_pb(nested_keys_column, *key_child_element,
+                                                      offset, next_offset));
+        RETURN_IF_ERROR(value_serde->write_column_to_pb(nested_values_column, *value_child_element,
+                                                        offset, next_offset));
+    }
+    return Status::OK();
+}
+
+Status DataTypeMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& map_column = assert_cast<ColumnMap&>(column);
+    auto& offsets = map_column.get_offsets();
+    auto& key_column = map_column.get_keys();
+    auto& value_column = map_column.get_values();
+    for (int i = 0; i < arg.child_offset_size(); ++i) {
+        offsets.emplace_back(arg.child_offset(i));
+    }
+    for (int i = 0; i < arg.child_element_size(); i = i + 2) {
+        RETURN_IF_ERROR(key_serde->read_column_from_pb(key_column, arg.child_element(i)));
+        RETURN_IF_ERROR(value_serde->read_column_from_pb(value_column, arg.child_element(i + 1)));
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

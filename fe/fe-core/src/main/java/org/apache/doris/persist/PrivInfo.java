@@ -76,11 +76,11 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     // For create user/set password/create role/drop role
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
             PasswordOptions passwordOptions) {
-        this(userIdent, privs, passwd, role, passwordOptions, null);
+        this(userIdent, privs, passwd, role, passwordOptions, null, null);
     }
 
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
-            PasswordOptions passwordOptions, String comment) {
+            PasswordOptions passwordOptions, String comment, String userId) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
@@ -89,6 +89,7 @@ public class PrivInfo implements Writable, GsonPostProcessable {
         this.role = role;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
+        this.userId = userId;
     }
 
     public PrivInfo(String role, String comment) {

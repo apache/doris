@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->[ps_suppkey,l_suppkey]
+----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->[l_suppkey,ps_suppkey]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = partsupp.ps_partkey) and (lineitem.l_suppkey = partsupp.ps_suppkey)) otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(l_quantity)))) build RFs:RF2 ps_partkey->[l_partkey];RF3 ps_suppkey->[l_suppkey]
@@ -23,11 +23,12 @@ PhysicalResultSink
 ------------------------filter((p_name like 'forest%'))
 --------------------------PhysicalOlapScan[part]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
-----------------PhysicalProject
-------------------PhysicalOlapScan[supplier] apply RFs: RF0
-----------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 ------------------PhysicalProject
---------------------filter((nation.n_name = 'CANADA'))
-----------------------PhysicalOlapScan[nation]
+--------------------PhysicalOlapScan[supplier] apply RFs: RF0
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------filter((nation.n_name = 'CANADA'))
+------------------------PhysicalOlapScan[nation]
 

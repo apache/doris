@@ -30,6 +30,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,7 +50,8 @@ class IRuntimeFilter;
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
-class PipelineXFragmentContext;
+class PipelineFragmentContext;
+class PipelineTask;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -65,20 +67,17 @@ class RuntimeState {
     ENABLE_FACTORY_CREATOR(RuntimeState);
 
 public:
-    // for ut only
-    RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
-
     RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                 ExecEnv* exec_env, QueryContext* ctx);
+                 ExecEnv* exec_env, QueryContext* ctx,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // for only use in pipelineX
-    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                  const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -101,7 +100,9 @@ public:
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
-    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
+
+    // for ut and non-query.
+    void init_mem_trackers(const std::string& name = "ut", const TUniqueId& id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -177,6 +178,12 @@ public:
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;
     }
+
+    bool enable_common_expr_pushdown_for_inverted_index() const {
+        return enable_common_expr_pushdown() &&
+               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
+               _query_options.enable_common_expr_pushdown_for_inverted_index;
+    };
 
     bool enable_faster_float_convert() const {
         return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
@@ -376,13 +383,11 @@ public:
         }
         return _query_options.be_exec_version;
     }
-    bool enable_pipeline_exec() const {
-        return _query_options.__isset.enable_pipeline_engine &&
-               _query_options.enable_pipeline_engine;
-    }
     bool enable_pipeline_x_exec() const {
-        return _query_options.__isset.enable_pipeline_x_engine &&
-               _query_options.enable_pipeline_x_engine;
+        return (_query_options.__isset.enable_pipeline_x_engine &&
+                _query_options.enable_pipeline_x_engine) ||
+               (_query_options.__isset.enable_pipeline_engine &&
+                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -428,6 +433,11 @@ public:
 
     bool skip_missing_version() const {
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
+    }
+
+    int64_t data_queue_max_blocks() const {
+        return _query_options.__isset.data_queue_max_blocks ? _query_options.data_queue_max_blocks
+                                                            : 1;
     }
 
     bool enable_page_cache() const;
@@ -569,7 +579,9 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+    std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
+
+    std::vector<std::shared_ptr<RuntimeProfile>>& build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
@@ -619,12 +631,16 @@ public:
 
     int task_id() const { return _task_id; }
 
+    void set_task_num(int task_num) { _task_num = task_num; }
+
+    int task_num() const { return _task_num; }
+
 private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // Could not find a better way to record if the weak ptr is inited, use a bool to record
     // it. In some unit test cases, the runtime state's task ctx is not inited, then the test
@@ -644,7 +660,7 @@ private:
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
-    // owned by PipelineXFragmentContext
+    // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure
@@ -729,6 +745,7 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
     int _task_id = -1;
+    int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
@@ -741,7 +758,9 @@ private:
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
 
-    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+    // only to lock _pipeline_id_to_profile
+    std::shared_mutex _pipeline_profile_lock;
+    std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

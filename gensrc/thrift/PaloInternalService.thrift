@@ -285,6 +285,12 @@ struct TQueryOptions {
   104: optional i64 min_revocable_mem = 0
 
   105: optional i64 spill_streaming_agg_mem_limit = 0;
+
+  // max rows of each sub-queue in DataQueue.
+  106: optional i64 data_queue_max_blocks = 0;
+  
+  // expr pushdown for index filter rows
+  107: optional bool enable_common_expr_pushdown_for_inverted_index = false; 
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
@@ -548,6 +554,7 @@ struct TFoldConstantParams {
   3: optional bool vec_exec
   4: optional TQueryOptions query_options
   5: optional Types.TUniqueId query_id
+  6: optional bool is_nereids
 }
 
 // TransmitData

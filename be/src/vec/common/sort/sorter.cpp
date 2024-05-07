@@ -63,6 +63,7 @@ void MergeSorterState::reset() {
     cursors_.swap(empty_cursors);
     std::vector<Block> empty_blocks(0);
     sorted_blocks_.swap(empty_blocks);
+    unsorted_block_ = Block::create_unique(unsorted_block_->clone_empty());
     in_mem_sorted_bocks_size_ = 0;
 }
 Status MergeSorterState::add_sorted_block(Block& block) {
@@ -70,8 +71,8 @@ Status MergeSorterState::add_sorted_block(Block& block) {
     if (0 == rows) {
         return Status::OK();
     }
-    sorted_blocks_.emplace_back(std::move(block));
     in_mem_sorted_bocks_size_ += block.bytes();
+    sorted_blocks_.emplace_back(std::move(block));
     num_rows_ += rows;
     return Status::OK();
 }
@@ -127,7 +128,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             offset_--;
         }
 
-        if (!current->isLast()) {
+        if (!current->is_last()) {
             current->next();
             priority_queue_.push(current);
         }

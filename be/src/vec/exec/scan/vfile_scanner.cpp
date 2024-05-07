@@ -290,6 +290,15 @@ Status VFileScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    Status st = _get_block_wrapped(state, block, eof);
+    if (!st.ok()) {
+        // add cur path in error msg for easy debugging
+        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+    }
+    return st;
+}
+
 // For query:
 //                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
@@ -309,7 +318,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _fill_columns_from_path      -     -    -  -                 x                x      -
 // _fill_missing_columns        -     -    -  x                 -                x      -
 // _convert_to_output_block     -     -    -  -                 -                -      x
-Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
@@ -827,15 +836,16 @@ Status VFileScanner::_get_next_reader() {
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
-                std::unique_ptr<IcebergTableReader> iceberg_reader =
-                        IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
-                                                          _state, *_params, range, _kv_cache,
-                                                          _io_ctx.get(), _get_push_down_count());
+                std::unique_ptr<IcebergParquetReader> iceberg_reader =
+                        IcebergParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                            _state, *_params, range, _kv_cache,
+                                                            _io_ctx.get(), _get_push_down_count());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
+
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader = std::move(iceberg_reader);
             } else {
@@ -877,6 +887,20 @@ Status VFileScanner::_get_next_reader() {
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
                 _cur_reader = std::move(tran_orc_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "iceberg") {
+                std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
+                        std::move(orc_reader), _profile, _state, *_params, range, _kv_cache,
+                        _io_ctx.get(), _get_push_down_count());
+
+                init_status = iceberg_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+
+                RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
+                _cur_reader = std::move(iceberg_reader);
             } else {
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
@@ -932,15 +956,14 @@ Status VFileScanner::_get_next_reader() {
         }
 
         COUNTER_UPDATE(_file_counter, 1);
-        if (init_status.is<END_OF_FILE>()) {
+        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
+            // The VFileScanner for external table may try to open not exist files,
+            // Because FE file cache for external table may out of date.
+            // So, NOT_FOUND for VFileScanner is not a fail case.
+            // Will remove this after file reader refactor.
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            if (init_status.is<ErrorCode::NOT_FOUND>()) {
-                COUNTER_UPDATE(_empty_file_counter, 1);
-                LOG(INFO) << "failed to find file: " << range.path;
-                return init_status;
-            }
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }

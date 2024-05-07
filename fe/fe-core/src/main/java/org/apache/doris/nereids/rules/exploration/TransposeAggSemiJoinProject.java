@@ -32,8 +32,8 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalAggregate(logicalProject(logicalJoin()))
-                .when(agg -> agg.child().child().getJoinType().isLeftSemiOrAntiJoin())
+        return logicalAggregate(logicalProject(
+                logicalJoin().when(join -> join.getJoinType().isLeftSemiOrAntiJoin() && !join.isMarkJoin())))
                 .then(agg -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = agg.child();
                     LogicalJoin<GroupPlan, GroupPlan> join = project.child();

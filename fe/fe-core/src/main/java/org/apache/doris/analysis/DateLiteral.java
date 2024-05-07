@@ -569,11 +569,14 @@ public class DateLiteral extends LiteralExpr {
         switch (type.getPrimitiveType()) {
             case DATE:
             case DATEV2:
-                return this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATE.getStringValue()) == 0;
             case DATETIME:
-                return this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIME.getStringValue()) == 0;
             case DATETIMEV2:
-                return this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
+                return year == 0 && month == 1 && day == 1
+                        && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
             default:
                 return false;
         }

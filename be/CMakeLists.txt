@@ -280,9 +280,13 @@ if (COMPILER_CLANG)
                         -Wunused-volatile-lvalue
                         -Wunused-template
                         -Wunused-member-function
-                        -Wunused-macros)
-    add_compile_options(-Wno-vla-extension)
-    add_compile_options(-Wno-gnu-statement-expression)
+                        -Wunused-macros
+                        -Wconversion)
+    add_compile_options( -Wno-gnu-statement-expression
+                        -Wno-implicit-float-conversion
+                        -Wno-implicit-int-conversion
+                        -Wno-sign-conversion
+                        -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -322,6 +326,10 @@ endif()
 
 if (WITH_MYSQL)
     add_definitions(-DDORIS_WITH_MYSQL)
+endif()
+
+if (ENABLE_INJECTION_POINT)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,

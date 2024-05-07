@@ -43,8 +43,8 @@ public:
     PageBase() = default;
 
     PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : LRUCacheValueBase(mem_tracker), _size(b), _capacity(b) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+            : LRUCacheValueBase(), _size(b), _capacity(b), _mem_tracker_by_allocator(mem_tracker) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
         _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
     }
 
@@ -54,7 +54,7 @@ public:
     ~PageBase() override {
         if (_data != nullptr) {
             DCHECK(_capacity != 0 && _size != 0);
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
             TAllocator::free(_data, _capacity);
         }
     }
@@ -73,6 +73,7 @@ private:
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size = 0;
     size_t _capacity = 0;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
 using DataPage = PageBase<Allocator<false>>;
@@ -109,7 +110,9 @@ public:
         DataPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
-                                 num_shards) {}
+                                 num_shards) {
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
+        }
     };
 
     class IndexPageCache : public LRUCachePolicy {
@@ -117,7 +120,9 @@ public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
-                                 num_shards) {}
+                                 num_shards) {
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
+        }
     };
 
     class PKIndexPageCache : public LRUCachePolicy {
@@ -125,7 +130,9 @@ public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE,
-                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
+                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {
+            init_mem_tracker_by_allocator(lru_cache_type_string(LRUCacheType::SIZE));
+        }
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
@@ -162,7 +169,7 @@ public:
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
-        return _get_page_cache(page_type)->mem_tracker();
+        return _get_page_cache(page_type)->mem_tracker_by_allocator();
     }
 
 private:
@@ -189,6 +196,7 @@ private:
         }
         default:
             LOG(FATAL) << "get error type page cache";
+            __builtin_unreachable();
         }
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();

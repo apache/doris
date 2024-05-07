@@ -38,22 +38,9 @@ public class ShowProcesslistStmt extends ShowStmt {
             .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
             .addColumn(new Column("State", ScalarType.createVarchar(64)))
             .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
-            .addColumn(new Column("Info", ScalarType.STRING)).build();
-
-    private static final ShowResultSetMetaData ALL_META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("User", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Host", ScalarType.createVarchar(16)))
-            .addColumn(new Column("LoginTime", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Catalog", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Db", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Command", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
-            .addColumn(new Column("State", ScalarType.createVarchar(64)))
-            .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
             .addColumn(new Column("Info", ScalarType.STRING))
-            .addColumn(new Column("FE", ScalarType.createVarchar(16))).build();
+            .addColumn(new Column("FE", ScalarType.createVarchar(16)))
+            .addColumn(new Column("CloudCluster", ScalarType.createVarchar(16))).build();
 
     private boolean isFull;
     private boolean isShowAllFe;
@@ -87,6 +74,6 @@ public class ShowProcesslistStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return isShowAllFe ? ALL_META_DATA : META_DATA;
+        return META_DATA;
     }
 }

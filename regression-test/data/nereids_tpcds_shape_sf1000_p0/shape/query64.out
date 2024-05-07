@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF14 RF15
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF13 cs_item_sk->[ss_item_sk,i_item_sk]
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF13 cs_item_sk->[i_item_sk,ss_item_sk]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF12 cd_demo_sk->[ss_cdemo_sk]
@@ -64,7 +64,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF5 cr_order_number->[cs_order_number];RF6 cr_item_sk->[cs_item_sk]
+------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF5 cr_item_sk->[cs_item_sk];RF6 cr_order_number->[cs_order_number]
 --------------------------------------------------------PhysicalProject
 ----------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF5 RF6
 --------------------------------------------------------PhysicalProject

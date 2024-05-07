@@ -139,7 +139,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
@@ -217,7 +216,6 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
         if (config::enable_stream_load_record && !config::is_cloud_mode()) {
             str = ctx->prepare_stream_load_record(str);
@@ -377,6 +375,7 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
     }
     // remove stream load context from stream load manager and the resource will be released
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
@@ -475,8 +474,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
     }
+    // timezone first. if not, try time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
+    } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
@@ -626,6 +628,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             // used for wait_internal_group_commit_finish
             request.__set_group_commit_mode("sync_mode");
         }
+    }
+
+    if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
+        request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
 #ifndef BE_TEST

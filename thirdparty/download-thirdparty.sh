@@ -50,6 +50,32 @@ fi
 
 mkdir -p "${TP_DIR}/src"
 
+SPEC_ARCHIVES=(
+)
+while [[ $# -gt 0 ]]; do
+    GIVEN_LIB=$1
+    SPEC_LIB=
+    for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+        if [[ "${GIVEN_LIB,,}" = "${TP_ARCH,,}" ]]; then
+            SPEC_LIB=${TP_ARCH}
+            break
+        fi
+    done
+    shift 1
+    if [[ "${SPEC_LIB}" = "" ]]; then
+        echo "given lib: ${GIVEN_LIB} not found"
+        exit 1
+    fi
+    SPEC_ARCHIVES=(
+        "${SPEC_ARCHIVES[@]}"
+        "${SPEC_LIB}"
+    )
+done
+if [[ "${SPEC_LIB}" != "" ]]; then
+    TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
+    echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
+fi
+
 md5sum_bin='md5sum'
 if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
     echo "Warn: md5sum is not installed"
@@ -222,202 +248,256 @@ echo "===== Patching thirdparty archives..."
 PATCHED_MARK="patched_mark"
 
 # abseil patch
-cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " ABSEIL " ]]; then
+    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/absl.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ABSEIL_SOURCE}"
 fi
-cd -
-echo "Finished patching ${ABSEIL_SOURCE}"
 
 # glog patch
-if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
+    if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
-elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
+    echo "Finished patching ${GLOG_SOURCE}"
 fi
-echo "Finished patching ${GLOG_SOURCE}"
 
 # gtest patch
-cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/googletest-release-1.11.0.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " GTEST " ]]; then
+    cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/googletest-release-1.11.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${GTEST_SOURCE}"
 fi
-cd -
-echo "Finished patching ${GTEST_SOURCE}"
 
 # mysql patch
-cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/mysql-server-mysql-5.7.18.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
+    cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/mysql-server-mysql-5.7.18.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${MYSQL_SOURCE}"
 fi
-cd -
-echo "Finished patching ${MYSQL_SOURCE}"
 
 # libevent patch
-cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBEVENT " ]]; then
+    cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${LIBEVENT_SOURCE}"
 fi
-cd -
-echo "Finished patching ${LIBEVENT_SOURCE}"
 
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos
-cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
-if [[ ! -f ${PATCHED_MARK} ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/libgsasl-1.8.0.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " GSASL " ]]; then
+    cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/libgsasl-1.8.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${GSASL_SOURCE}"
 fi
-cd -
-echo "Finished patching ${GSASL_SOURCE}"
 
 # cyrus-sasl patch to force compile gssapi plugin when static linking
 # this is for librdkafka with sasl
-cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
-if [[ ! -f ${PATCHED_MARK} ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/cyrus-sasl-2.1.27.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " CYRUS_SASL " ]]; then
+    cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/cyrus-sasl-2.1.27.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${CYRUS_SASL_SOURCE}"
 fi
-cd -
-echo "Finished patching ${CYRUS_SASL_SOURCE}"
 
 #patch sqltypes.h, change TCAHR to TWCHAR to avoid conflict with clucene TCAHR
-cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
-if [[ ! -f ${PATCHED_MARK} ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
-    touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " ODBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ODBC_SOURCE}"
 fi
-cd -
-echo "Finished patching ${ODBC_SOURCE}"
 
 # rocksdb patch to fix compile error
-if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
-    cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/rocksdb-5.14.2.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
+    if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/rocksdb-5.14.2.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${ROCKSDB_SOURCE}"
 fi
-echo "Finished patching ${ROCKSDB_SOURCE}"
 
 # arrow patch is used to get the raw orc reader for filter prune.
-if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${ARROW_SOURCE}"
 fi
-echo "Finished patching ${ARROW_SOURCE}"
 
 # patch librdkafka to avoid crash
-if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
-    cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 fi
-echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 
 # patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC " ]]; then
+    if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 fi
-echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.11" ]]; then
-    cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.11.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " HYPERSCAN " ]]; then
+    if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.11" ]]; then
+        cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.11.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${HYPERSCAN_SOURCE}"
 fi
-echo "Finished patching ${HYPERSCAN_SOURCE}"
 
-cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.11.119" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.11.119.tar.gz -O aws-crt-cpp-1.11.119.tar.gz; then
-            tar xzf aws-crt-cpp-1.11.119.tar.gz
+# patch aws sdk
+if [[ " ${TP_ARCHIVES[*]} " =~ " AWS_SDK " ]]; then
+    cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.11.119" ]]; then
+            if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.11.119.tar.gz -O aws-crt-cpp-1.11.119.tar.gz; then
+                tar xzf aws-crt-cpp-1.11.119.tar.gz
+            else
+                bash ./prefetch_crt_dependency.sh
+            fi
+            patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
         else
             bash ./prefetch_crt_dependency.sh
         fi
-        patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
-    else
-        bash ./prefetch_crt_dependency.sh
-    fi
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${AWS_SDK_SOURCE}"
-
-# patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
-if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
-    cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
+    echo "Finished patching ${AWS_SDK_SOURCE}"
 fi
-echo "Finished patching ${SIMDJSON_SOURCE}"
 
-if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
-    cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
-            patch -p1 <"${patch_file}"
-        done
-        touch "${PATCHED_MARK}"
+# patch simdjson, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
+if [[ " ${TP_ARCHIVES[*]} " =~ " SIMDJSON " ]]; then
+    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+        cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${SIMDJSON_SOURCE}"
 fi
-echo "Finished patching ${BRPC_SOURCE}"
+
+# patch brpc
+if [[ " ${TP_ARCHIVES[*]} " =~ " BRPC " ]]; then
+    if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
+        cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+                echo "patch ${patch_file}"
+                patch -p1 <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${BRPC_SOURCE}"
+fi
 
 # patch ali sdk
-if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
-    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " ALI_SDK " ]]; then
+    if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
+        cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${ALI_SDK_SOURCE}"
 fi
-echo "Finished patching ${ALI_SDK_SOURCE}"
 
 # patch base64
-if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
-    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
-        touch "${PATCHED_MARK}"
+if [[ " ${TP_ARCHIVES[*]} " =~ " BASE64 " ]]; then
+    if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
-    cd -
+    echo "Finished patching ${BASE64_SOURCE}"
 fi
-echo "Finished patching ${BASE64_SOURCE}"
+
+# patch krb
+if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
+    if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
+        cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/krb5-1.19.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${KRB5_SOURCE}"
+fi
+
+# vim: ts=4 sw=4 ts=4 tw=100:

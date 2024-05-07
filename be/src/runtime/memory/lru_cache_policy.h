@@ -45,8 +45,7 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        init_mem_tracker(
-                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -64,8 +63,7 @@ public:
             CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
-        init_mem_tracker(
-                fmt::format("{}[{}]", type_string(_type), lru_cache_type_string(_lru_cache_type)));
+        init_mem_tracker(lru_cache_type_string(_lru_cache_type));
     }
 
     ~LRUCachePolicy() override { _cache.reset(); }
@@ -94,15 +92,20 @@ public:
     }
 
     // Insert and cache value destroy will be manually consume tracking_bytes to mem tracker.
-    // If memory is allocated from Allocator, tracking_bytes will is 0, no longer manual tracking.
-    // If lru cache is LRUCacheType::SIZE, tracking_bytes will be equal to charge.
+    // If lru cache is LRUCacheType::SIZE, tracking_bytes usually equal to charge.
     Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
                           CachePriority priority = CachePriority::NORMAL) {
         size_t bytes_with_handle = _get_bytes_with_handle(key, charge, tracking_bytes);
-        if (value != nullptr && tracking_bytes > 0) {
-            ((LRUCacheValueBase*)value)->mem_tracker()->cache_consume(bytes_with_handle);
+        if (value != nullptr) { // if tracking_bytes = 0, only tracking handle size.
+            ((LRUCacheValueBase*)value)->mem_tracker()->consume(bytes_with_handle);
             ((LRUCacheValueBase*)value)->set_tracking_bytes(bytes_with_handle);
         }
+        return _cache->insert(key, value, charge, priority);
+    }
+
+    Cache::Handle* insert_no_tracking(const CacheKey& key, void* value, size_t charge,
+                                      CachePriority priority = CachePriority::NORMAL) {
+        DCHECK(_mem_tracker_by_allocator != nullptr); // must be tracking in Allcator.
         return _cache->insert(key, value, charge, priority);
     }
 

@@ -223,6 +223,10 @@ public:
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
+    IntAtomicCounter* num_io_bytes_read_total = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

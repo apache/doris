@@ -276,9 +276,8 @@ public class MTMVTask extends AbstractTask {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
-                Env.getCurrentEnv().getCatalogMgr()
-                        .refreshExternalTable(hmsTable.getDbName(), hmsTable.getName(), hmsTable.getCatalog().getName(),
-                                true);
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
             }
 
         }
@@ -300,11 +299,11 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public TRow getTvfInfo() {
+    public TRow getTvfInfo(String jobName) {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
-        trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
         String dbName = "";
         String mvName = "";
         try {
@@ -442,9 +441,6 @@ public class MTMVTask extends AbstractTask {
                 + ", needRefreshPartitions=" + needRefreshPartitions
                 + ", completedPartitions=" + completedPartitions
                 + ", refreshMode=" + refreshMode
-                + ", mtmv=" + mtmv
-                + ", relation=" + relation
-                + ", executor=" + executor
                 + "} " + super.toString();
     }
 }

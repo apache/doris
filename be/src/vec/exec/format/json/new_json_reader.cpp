@@ -86,6 +86,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -98,6 +99,12 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -114,6 +121,7 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -121,6 +129,12 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _io_ctx(io_ctx) {
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -153,6 +167,10 @@ Status NewJsonReader::init_reader(
         const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx) {
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
+
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
 
 #ifdef __AVX2__
     if (config::enable_simdjson_reader) {
@@ -401,7 +419,7 @@ Status NewJsonReader::_open_line_reader() {
         _skip_first_line = false;
     }
     _line_reader = NewPlainTextLineReader::create_unique(
-            _profile, _file_reader, nullptr,
+            _profile, _file_reader, _decompressor.get(),
             std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
             _current_offset);
     return Status::OK();
@@ -478,7 +496,9 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
                 objectValue = _json_doc;
             }
             _next_row = 0;
-            if (_fuzzy_parse) {
+            // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"}
+            // If a Json Array comes here, it maybe crashed in it->name.GetString()
+            if (_fuzzy_parse && objectValue->IsObject()) {
                 for (auto* v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
@@ -1052,7 +1072,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 

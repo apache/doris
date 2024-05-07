@@ -104,7 +104,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV, Privilege.STAGE_USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
@@ -158,10 +158,15 @@ public class PrivBitSet implements Writable {
         StringBuilder sb = new StringBuilder();
         Privilege.privileges.keySet().forEach(idx -> {
             if (get(idx)) {
-                sb.append(Privilege.getPriv(idx)).append(" ");
+                sb.append(Privilege.getPriv(idx)).append(",");
             }
         });
-        return sb.toString();
+        String res = sb.toString();
+        if (res.length() > 0) {
+            return res.substring(0, res.length() - 1);
+        } else {
+            return res;
+        }
     }
 
     public static PrivBitSet read(DataInput in) throws IOException {
@@ -190,6 +195,8 @@ public class PrivBitSet implements Writable {
 
             if (resourcePattern.isClusterResource()) {
                 privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
+            } else if (resourcePattern.isStageResource()) {
+                privs.or(PrivBitSet.of(Privilege.STAGE_USAGE_PRIV));
             }
         }
         return new HashSet<>(privs.toPrivilegeList());

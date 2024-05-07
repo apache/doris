@@ -17,6 +17,9 @@
 
 
 suite("test_build_index", "inverted_index"){
+    if (isCloudMode()) {
+        return // TODO enable this case after enable light index in cloud mode
+    }
     // prepare test table
     def timeout = 300000
     def delta_time = 1000

@@ -24,20 +24,20 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ctr_store_sk]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((store.s_state = 'SD'))
-----------------------------PhysicalOlapScan[store]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashAgg[LOCAL]
---------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------PhysicalProject
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ctr_store_sk]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((store.s_state = 'SD'))
+------------------------------PhysicalOlapScan[store]
+--------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

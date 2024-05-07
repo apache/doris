@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -429,6 +430,25 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     return counter;
 }
 
+RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
+        const std::string& name, TUnit::type type, const std::string& parent_counter_name,
+        int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+    if (_counter_map.find(name) != _counter_map.end()) {
+        DCHECK(dynamic_cast<NonZeroCounter*>(_counter_map[name]));
+        return static_cast<NonZeroCounter*>(_counter_map[name]);
+    }
+
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
 RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
         const std::string& name, TUnit::type type, const DerivedCounterFunction& counter_fn,
         const std::string& parent_counter_name) {
@@ -576,14 +596,8 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         node.child_counters_map = _child_counter_map;
     }
 
-    for (std::map<std::string, Counter*>::const_iterator iter = counter_map.begin();
-         iter != counter_map.end(); ++iter) {
-        TCounter counter;
-        counter.name = iter->first;
-        counter.value = iter->second->value();
-        counter.type = iter->second->type();
-        counter.__set_level(iter->second->level());
-        node.counters.push_back(counter);
+    for (auto&& [name, counter] : counter_map) {
+        counter->to_thrift(name, node.counters, node.child_counters_map);
     }
 
     {
@@ -617,7 +631,7 @@ int64_t RuntimeProfile::units_per_second(const RuntimeProfile::Counter* total_co
     }
 
     double secs = static_cast<double>(timer->value()) / 1000.0 / 1000.0 / 1000.0;
-    return total_counter->value() / secs;
+    return int64_t(total_counter->value() / secs);
 }
 
 int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {
@@ -701,6 +715,17 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
                                                  child_counter_map, s);
         }
     }
+}
+
+void RuntimeProfile::sort_children_by_total_time() {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto cmp = [](const std::pair<RuntimeProfile*, bool>& L,
+                  const std::pair<RuntimeProfile*, bool>& R) {
+        const RuntimeProfile* L_profile = L.first;
+        const RuntimeProfile* R_profile = R.first;
+        return L_profile->_counter_total_time.value() > R_profile->_counter_total_time.value();
+    };
+    std::sort(_children.begin(), _children.end(), cmp);
 }
 
 } // namespace doris

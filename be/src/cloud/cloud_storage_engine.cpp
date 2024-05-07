@@ -18,23 +18,33 @@
 #include "cloud/cloud_storage_engine.h"
 
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+
+#include <algorithm>
+#include <variant>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/hdfs_util.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
@@ -64,11 +74,31 @@ int get_base_thread_num() {
 CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
         : BaseStorageEngine(Type::CLOUD, backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
-          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
-          _cumulative_compaction_policy(
-                  std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>()) {}
+          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)) {
+    _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
+            std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
+    _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
+            std::make_shared<CloudTimeSeriesCumulativeCompactionPolicy>();
+}
 
-CloudStorageEngine::~CloudStorageEngine() = default;
+CloudStorageEngine::~CloudStorageEngine() {
+    stop();
+}
+
+static Status vault_process_error(std::string_view id,
+                                  std::variant<S3Conf, cloud::HdfsVaultInfo>& vault, Status err) {
+    std::stringstream ss;
+    std::visit(
+            [&]<typename T>(T& val) {
+                if constexpr (std::is_same_v<T, S3Conf>) {
+                    ss << val.to_string();
+                } else if constexpr (std::is_same_v<T, cloud::HdfsVaultInfo>) {
+                    val.SerializeToOstream(&ss);
+                }
+            },
+            vault);
+    return Status::IOError("Invalid vault, id {}, err {}, detail conf {}", id, err, ss.str());
+}
 
 struct VaultCreateFSVisitor {
     VaultCreateFSVisitor(const std::string& id) : id(id) {}
@@ -82,9 +112,11 @@ struct VaultCreateFSVisitor {
     }
 
     // TODO(ByteYue): Make sure enable_java_support is on
-    Status operator()(const THdfsParams& hdfs_params) const {
-        auto fs = DORIS_TRY(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr));
+    Status operator()(const cloud::HdfsVaultInfo& vault) const {
+        auto hdfs_params = io::to_hdfs_params(vault);
+        auto fs =
+                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
+                                                     vault.has_prefix() ? vault.prefix() : ""));
         put_storage_resource(id, {std::move(fs), 0});
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
@@ -94,7 +126,8 @@ struct VaultCreateFSVisitor {
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(std::string_view id, io::FileSystemSPtr fs) : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
+            : id(id), fs(std::move(fs)) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -107,17 +140,22 @@ struct RefreshFSVaultVisitor {
         return st;
     }
 
-    Status operator()(const THdfsParams& hdfs_params) const {
-        // TODO(ByteYue): Implmente the hdfs fs refresh logic
+    Status operator()(const cloud::HdfsVaultInfo& vault) const {
+        auto hdfs_params = io::to_hdfs_params(vault);
+        auto hdfs_fs =
+                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
+                                                     vault.has_prefix() ? vault.prefix() : ""));
+        auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
+        put_storage_resource(id, {std::move(hdfs), 0});
         return Status::OK();
     }
 
-    std::string_view id;
+    const std::string& id;
     io::FileSystemSPtr fs;
 };
 
 Status CloudStorageEngine::open() {
-    std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>> vault_infos;
+    cloud::StorageVaultInfos vault_infos;
     do {
         auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
         if (st.ok()) {
@@ -126,14 +164,13 @@ Status CloudStorageEngine::open() {
 
         LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
         std::this_thread::sleep_for(5s);
-    } while (true);
-
-    CHECK(!vault_infos.empty()) << "no vault infos";
+    } while (vault_infos.empty());
 
     for (auto& [id, vault_info] : vault_infos) {
-        RETURN_IF_ERROR(std::visit(VaultCreateFSVisitor {id}, vault_info));
+        if (auto st = std::visit(VaultCreateFSVisitor {id}, vault_info); !st.ok()) [[unlikely]] {
+            return vault_process_error(id, vault_info, std::move(st));
+        }
     }
-
     set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
 
     // TODO(plat1ko): DeleteBitmapTxnManager
@@ -149,7 +186,16 @@ Status CloudStorageEngine::open() {
             std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
-    return Status::OK();
+    _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
+
+    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+
+    _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+            .set_max_threads(config::sync_load_for_tablets_thread)
+            .set_min_threads(config::sync_load_for_tablets_thread)
+            .build(&_sync_load_for_tablets_thread_pool);
 }
 
 void CloudStorageEngine::stop() {
@@ -230,50 +276,92 @@ Status CloudStorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "lease_compaction_thread",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
+
+    if (config::file_cache_ttl_valid_check_interval_second != 0) {
+        RETURN_IF_ERROR(Thread::create(
+                "StorageEngine", "check_file_cache_ttl_block_valid_thread",
+                [this]() { this->_check_file_cache_ttl_block_valid(); },
+                &_bg_threads.emplace_back()));
+        LOG(INFO) << "check file cache ttl block valid thread started";
+    }
+
     LOG(INFO) << "lease compaction thread started";
 
     return Status::OK();
+}
+
+void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
+    int64_t interval_seconds = config::file_cache_ttl_valid_check_interval_second / 2;
+    auto check_ttl = [](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto tablet = tablet_wk.lock();
+        if (!tablet) return;
+        if (tablet->tablet_meta()->ttl_seconds() == 0) return;
+        auto rowsets = tablet->get_snapshot_rowset();
+        for (const auto& rowset : rowsets) {
+            int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
+            if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
+            for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
+                auto seg_path = rowset->segment_file_path(seg_id);
+                auto hash = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
+                file_cache->update_ttl_atime(hash);
+            }
+        }
+    };
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
+        auto weak_tablets = tablet_mgr().get_weak_tablets();
+        std::for_each(weak_tablets.begin(), weak_tablets.end(), check_ttl);
+    }
+}
+
+void CloudStorageEngine::sync_storage_vault() {
+    cloud::StorageVaultInfos vault_infos;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get storage vault info. err=" << st;
+        return;
+    }
+
+    if (vault_infos.empty()) {
+        LOG(WARNING) << "no storage vault info";
+        return;
+    }
+
+    for (auto& [id, vault_info] : vault_infos) {
+        auto fs = get_filesystem(id);
+        auto st = (fs == nullptr)
+                          ? std::visit(VaultCreateFSVisitor {id}, vault_info)
+                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+        }
+    }
+
+    if (auto& id = std::get<0>(vault_infos.back());
+        latest_fs() == nullptr || latest_fs()->id() != id) {
+        set_latest_fs(get_filesystem(id));
+    }
 }
 
 // We should enable_java_support if we want to use hdfs vault
 void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
-        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>> vault_infos;
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get storage vault info. err=" << st;
-            continue;
-        }
-
-        CHECK(!vault_infos.empty()) << "no s3 infos";
-        for (auto& [id, vault_info] : vault_infos) {
-            auto fs = get_filesystem(id);
-            auto st = (fs == nullptr)
-                              ? std::visit(VaultCreateFSVisitor {id}, vault_info)
-                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to refresh storage vault. err=" << st;
-            }
-        }
-
-        if (auto& id = std::get<0>(vault_infos.back()); latest_fs()->id() != id) {
-            set_latest_fs(get_filesystem(id));
-        }
+        sync_storage_vault();
     }
 }
 
 void CloudStorageEngine::_vacuum_stale_rowsets_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::vacuum_stale_rowsets_interval_s))) {
-        _tablet_mgr->vacuum_stale_rowsets();
+        _tablet_mgr->vacuum_stale_rowsets(_stop_background_threads_latch);
     }
 }
 
 void CloudStorageEngine::_sync_tablets_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::schedule_sync_tablets_interval_s))) {
-        _tablet_mgr->sync_tablets();
+        _tablet_mgr->sync_tablets(_stop_background_threads_latch);
     }
 }
 
@@ -286,8 +374,14 @@ void CloudStorageEngine::get_cumu_compaction(
     }
 }
 
-void CloudStorageEngine::_adjust_compaction_thread_num() {
+Status CloudStorageEngine::_adjust_compaction_thread_num() {
     int base_thread_num = get_base_thread_num();
+
+    if (!_base_compaction_thread_pool || !_cumu_compaction_thread_pool) {
+        LOG(WARNING) << "base or cumu compaction thread pool is not created";
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("");
+    }
+
     if (_base_compaction_thread_pool->max_threads() != base_thread_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
         Status status = _base_compaction_thread_pool->set_max_threads(base_thread_num);
@@ -322,6 +416,7 @@ void CloudStorageEngine::_adjust_compaction_thread_num() {
                         << " to " << cumu_thread_num;
         }
     }
+    return Status::OK();
 }
 
 void CloudStorageEngine::_compaction_tasks_producer_callback() {
@@ -342,7 +437,10 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
-            _adjust_compaction_thread_num();
+            Status st = _adjust_compaction_thread_num();
+            if (!st.ok()) {
+                break;
+            }
 
             bool check_score = false;
             int64_t cur_time = UnixMillis();
@@ -725,6 +823,14 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     root.Accept(writer);
     *result = std::string(strbuf.GetString());
     return Status::OK();
+}
+
+std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compaction_policy(
+        std::string_view compaction_policy) {
+    if (!_cumulative_compaction_policies.contains(compaction_policy)) {
+        return _cumulative_compaction_policies.at(CUMULATIVE_SIZE_BASED_POLICY);
+    }
+    return _cumulative_compaction_policies.at(compaction_policy);
 }
 
 } // namespace doris

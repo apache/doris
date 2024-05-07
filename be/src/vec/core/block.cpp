@@ -692,6 +692,7 @@ std::string Block::print_use_count() {
 }
 
 void Block::clear_column_data(int column_size) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
@@ -707,16 +708,27 @@ void Block::clear_column_data(int column_size) noexcept {
 }
 
 void Block::swap(Block& other) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
     row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     clear();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
+}
+
+void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
+    Container tmp_data;
+    tmp_data.reserve(result_column_ids.size());
+    for (const int result_column_id : result_column_ids) {
+        tmp_data.push_back(data[result_column_id]);
+    }
+    swap(Block {tmp_data});
 }
 
 void Block::update_hash(SipHash& hash) const {
@@ -935,6 +947,7 @@ size_t MutableBlock::rows() const {
 }
 
 void MutableBlock::swap(MutableBlock& another) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
@@ -942,6 +955,7 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     clear();
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
@@ -1125,6 +1139,7 @@ size_t MutableBlock::allocated_bytes() const {
 }
 
 void MutableBlock::clear_column_data() noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     for (auto& col : _columns) {
         if (col) {
             col->clear();
@@ -1133,6 +1148,7 @@ void MutableBlock::clear_column_data() noexcept {
 }
 
 void MutableBlock::reset_column_data() noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
     _columns.clear();
     for (int i = 0; i < _names.size(); i++) {
         _columns.emplace_back(_data_types[i]->create_column());

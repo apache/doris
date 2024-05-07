@@ -78,12 +78,14 @@ Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* p
     if (parent->runtime_filters().empty()) {
         return Status::OK();
     }
-    parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            parent->_build_expr_ctxs, parent->runtime_filters(), is_global);
+    uint64_t rows = block->rows();
+    {
+        SCOPED_TIMER(parent->_runtime_filter_init_timer);
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->init_filters(state, rows));
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->ignore_filters(state));
+    }
 
-    RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
-
-    if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
+    if (!parent->_runtime_filter_slots->empty() && rows > 1) {
         SCOPED_TIMER(parent->_runtime_filter_compute_timer);
         parent->_runtime_filter_slots->insert(block);
     }

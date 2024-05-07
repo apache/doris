@@ -734,15 +734,21 @@ public abstract class ScanNode extends PlanNode {
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
+                * (numScanBackends() > 0 ? numScanBackends() : numBackends);
+    }
+
+    public int numScanBackends() {
+        return 0;
     }
 
     public int getScanRangeNum() {
         return Integer.MAX_VALUE;
     }
 
-    public boolean shouldUseOneInstance() {
-        return hasLimit() && conjuncts.isEmpty();
+    public boolean shouldUseOneInstance(ConnectContext ctx) {
+        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
+        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.

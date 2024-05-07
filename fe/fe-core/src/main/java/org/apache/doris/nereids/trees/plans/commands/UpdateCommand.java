@@ -94,6 +94,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
                 executor);
     }
@@ -166,7 +167,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
         if (isPartialUpdate) {
             for (Column column : targetTable.getFullSchema()) {
-                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                Expression expr = new UnboundSlot(tableName, column.getName());
                 boolean existInExpr = false;
                 for (String colName : partialUpdateColNameToExpression.keySet()) {
                     if (colName.equalsIgnoreCase(column.getName())) {

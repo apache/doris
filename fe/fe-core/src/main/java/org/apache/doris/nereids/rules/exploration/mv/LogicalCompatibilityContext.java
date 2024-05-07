@@ -56,7 +56,7 @@ public class LogicalCompatibilityContext {
         this.queryToViewNodeMapping = queryToViewNodeMapping;
         this.queryToViewEdgeExpressionMapping = queryToViewEdgeExpressionMapping;
         this.queryToViewNodeIDMapping = HashBiMap.create();
-        this.planNodeId = queryStructInfo.getOriginalPlan().getGroupExpression()
+        this.planNodeId = queryStructInfo.getTopPlan().getGroupExpression()
                 .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         queryToViewNodeMapping.forEach((k, v) -> queryToViewNodeIDMapping.put(k.getIndex(), v.getIndex()));
     }

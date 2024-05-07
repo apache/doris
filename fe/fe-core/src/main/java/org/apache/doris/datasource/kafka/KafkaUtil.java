@@ -42,18 +42,21 @@ import java.util.stream.Collectors;
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
     private static final int MAX_KAFKA_PARTITION_TIMEOUT_SECOND = 60;
+    private static final int MAX_GET_OFFSET_TIMEOUT_SECOND = 5;
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
         TNetworkAddress address = null;
         Backend be = null;
+        long beId = -1L;
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
             Collections.shuffle(backendIds);
-            be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            beId = backendIds.get(0);
+            be = Env.getCurrentSystemInfo().getBackend(beId);
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
@@ -79,9 +82,9 @@ public class KafkaUtil {
                 return result.getKafkaMetaResult().getPartitionIdsList();
             }
         } catch (Exception e) {
-            LOG.warn("failed to get partitions from backend[{}].", be.getId(), e);
+            LOG.warn("failed to get partitions from backend[{}].", beId, e);
             throw new LoadException(
-                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + be.getId()
+                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + beId
                         + "]. error: " + e.getMessage());
         }
     }
@@ -126,11 +129,11 @@ public class KafkaUtil {
             }
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                    metaRequestBuilder).setTimeoutSecs(MAX_GET_OFFSET_TIMEOUT_SECOND).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            InternalService.PProxyResult result = future.get(MAX_GET_OFFSET_TIMEOUT_SECOND, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 throw new UserException("failed to get offsets for times: " + result.getStatus().getErrorMsgsList());
@@ -188,11 +191,11 @@ public class KafkaUtil {
                 metaRequestBuilder.addPartitionIdForLatestOffsets(partitionId);
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                    metaRequestBuilder).setTimeoutSecs(MAX_GET_OFFSET_TIMEOUT_SECOND).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            InternalService.PProxyResult result = future.get(MAX_GET_OFFSET_TIMEOUT_SECOND, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 throw new UserException("failed to get latest offsets: " + result.getStatus().getErrorMsgsList());

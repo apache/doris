@@ -20,15 +20,14 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -38,8 +37,10 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -148,42 +149,31 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
             AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         boolean pushedDown = false;
+        int projIndex = -1;
+        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
+        if (probeSlot == null) {
+            return false;
+        }
+        List<NamedExpression> output = getOutputs();
+        for (int j = 0; j < output.size(); j++) {
+            NamedExpression expr = output.get(j);
+            if (expr.getName().equals(probeSlot.getName())) {
+                projIndex = j;
+                break;
+            }
+        }
+        if (projIndex == -1) {
+            return false;
+        }
         for (int i = 0; i < this.children().size(); i++) {
+            Map<Expression, Expression> map = Maps.newHashMap();
+            // probeExpr only has one input slot
+            map.put(probeExpr.getInputSlots().iterator().next(), regularChildrenOutputs.get(i).get(projIndex));
+            Expression newProbeExpr = probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
             AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
-            // TODO: replace this special logic with dynamic handling and the name matching
-            if (child instanceof PhysicalDistribute) {
-                child = (AbstractPhysicalPlan) child.child(0);
-            }
-            if (child instanceof PhysicalProject) {
-                PhysicalProject<?> project = (PhysicalProject<?>) child;
-                int projIndex = -1;
-                Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-                if (probeSlot == null) {
-                    continue;
-                }
-                for (int j = 0; j < project.getProjects().size(); j++) {
-                    NamedExpression expr = project.getProjects().get(j);
-                    if (expr.getName().equals(probeSlot.getName())) {
-                        projIndex = j;
-                        break;
-                    }
-                }
-                if (projIndex < 0 || projIndex >= project.getProjects().size()) {
-                    continue;
-                }
-                Expression newProbeExpr = project.getProjects().get(projIndex);
-                if (newProbeExpr instanceof Alias) {
-                    newProbeExpr = newProbeExpr.child(0);
-                }
-                Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
-                    continue;
-                }
-                pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
+            pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
                         newProbeExpr, type, buildSideNdv, exprOrder);
-            }
         }
         return pushedDown;
     }

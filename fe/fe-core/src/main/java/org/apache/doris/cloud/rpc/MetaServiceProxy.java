@@ -226,6 +226,16 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
         try {
@@ -446,15 +456,21 @@ public class MetaServiceProxy {
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
-        if (metaServiceHostPort == null) {
-            throw new RpcException("", "cloud mode, please configure cloud_unique_id and meta_service_endpoint");
-        }
-        TNetworkAddress metaAddress = new TNetworkAddress(metaServiceHostPort.first, metaServiceHostPort.second);
         try {
-            final MetaServiceClient client = getProxy(metaAddress);
+            final MetaServiceClient client = getProxy();
             return client.getRLTaskCommitAttach(request);
         } catch (Exception e) {
-            throw new RpcException(metaAddress.hostname, e.getMessage(), e);
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.GetObjStoreInfoResponse
+            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
         }
     }
 }

@@ -31,6 +31,8 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -40,6 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -57,6 +60,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -93,9 +97,9 @@ import java.util.stream.Collectors;
 public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
-    private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
-    private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
-    private LoadJobScheduler loadJobScheduler;
+    protected Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
+    protected Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
+    protected LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private MysqlLoadManager mysqlLoadManager;
@@ -192,7 +196,7 @@ public class LoadManager implements Writable {
     }
 
     // add load job and also add to callback factory
-    private void createLoadJob(LoadJob loadJob) {
+    protected void createLoadJob(LoadJob loadJob) {
         if (loadJob.isExpired(System.currentTimeMillis())) {
             // This can happen in replay logic.
             return;
@@ -340,6 +344,11 @@ public class LoadManager implements Writable {
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
+
+        // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
+        if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
+            removeOldLoadJob();
+        }
     }
 
     /**
@@ -383,6 +392,7 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
             for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -461,6 +471,8 @@ public class LoadManager implements Writable {
     }
 
     private void removeLoadJobIf(Predicate<LoadJob> pred) {
+        long removeJobNum = 0;
+        StopWatch stopWatch = StopWatch.createStarted();
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
@@ -469,10 +481,14 @@ public class LoadManager implements Writable {
                 if (pred.test(job)) {
                     iter.remove();
                     jobRemovedTrigger(job);
+                    removeJobNum++;
                 }
             }
         } finally {
             writeUnlock();
+            stopWatch.stop();
+            LOG.info("end to removeOldLoadJob, removeJobNum:{} cost:{} ms",
+                    removeJobNum, stopWatch.getTime());
         }
     }
 
@@ -611,9 +627,16 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // check auth
+                    try {
+                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getName(),
+                                loadJob.getTableNames());
+                    } catch (AnalysisException e) {
+                        continue;
+                    }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (RuntimeException | DdlException e) {
+                } catch (RuntimeException | DdlException | MetaNotFoundException e) {
                     // ignore this load job
                     LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }
@@ -621,6 +644,27 @@ public class LoadManager implements Writable {
             return loadJobInfos;
         } finally {
             readUnlock();
+        }
+    }
+
+    public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
+        if (tableNames.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.LOAD.getPrivs().toString(), dbName);
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                                tblName, PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                            PrivPredicate.LOAD.getPrivs().toString(), tblName);
+                    return;
+                }
+            }
         }
     }
 
@@ -632,6 +676,7 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
             for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -719,7 +764,7 @@ public class LoadManager implements Writable {
         }
     }
 
-    private Database checkDb(String dbName) throws DdlException {
+    protected Database checkDb(String dbName) throws DdlException {
         return Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
     }
 
@@ -837,19 +882,19 @@ public class LoadManager implements Writable {
                 counter, dbId, label, isReplay);
     }
 
-    private void readLock() {
+    protected void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    protected void readUnlock() {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
+    protected void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    protected void writeUnlock() {
         lock.writeLock().unlock();
     }
 
