@@ -889,7 +889,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     InvertedIndexQueryCacheHandle cache_handler;
     auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
     if (cache_status.ok()) {
-        LOG(ERROR) << "cache_key: " << cache_key.encode();
+        LOG(ERROR) << "cache_key: " << cache_key.encode() << ", count: " << bit_map->cardinality();
         return Status::OK();
     }
 
