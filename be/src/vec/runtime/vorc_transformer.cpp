@@ -167,6 +167,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
     case TYPE_SMALLINT: {
         return orc::createPrimitiveType(orc::SHORT);
     }
+    case TYPE_IPV4:
     case TYPE_INT: {
         return orc::createPrimitiveType(orc::INT);
     }
@@ -188,6 +189,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(const TypeDescriptor
     case TYPE_STRING: {
         return orc::createPrimitiveType(orc::STRING);
     }
+    case TYPE_IPV6:
     case TYPE_BINARY: {
         return orc::createPrimitiveType(orc::STRING);
     }
