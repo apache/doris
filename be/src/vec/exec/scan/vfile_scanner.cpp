@@ -290,6 +290,15 @@ Status VFileScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    Status st = _get_block_wrapped(state, block, eof);
+    if (!st.ok()) {
+        // add cur path in error msg for easy debugging
+        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+    }
+    return st;
+}
+
 // For query:
 //                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
@@ -309,7 +318,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _fill_columns_from_path      -     -    -  -                 x                x      -
 // _fill_missing_columns        -     -    -  x                 -                x      -
 // _convert_to_output_block     -     -    -  -                 -                -      x
-Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {

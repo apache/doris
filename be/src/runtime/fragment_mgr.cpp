@@ -1556,7 +1556,7 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
         }
 
         *exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_non_pipeline(
-                query_id, instance_profiles, load_channel_profiles);
+                query_id, instance_profiles, load_channel_profiles, /*is_done=*/false);
     }
 
     return Status::OK();

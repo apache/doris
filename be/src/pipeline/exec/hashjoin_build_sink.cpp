@@ -28,14 +28,6 @@
 
 namespace doris::pipeline {
 
-template <typename... Callables>
-struct Overload : Callables... {
-    using Callables::operator()...;
-};
-
-template <typename... Callables>
-Overload(Callables&&... callables) -> Overload<Callables...>;
-
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -286,37 +278,38 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
 
     st = std::visit(
-            Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
-                          LOG(FATAL) << "FATAL: uninited hash table";
-                          __builtin_unreachable();
-                          return Status::OK();
-                      },
-                      [&](auto&& arg, auto&& join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
-                          using HashTableCtxType = std::decay_t<decltype(arg)>;
-                          using JoinOpType = std::decay_t<decltype(join_op)>;
-                          vectorized::ProcessHashTableBuild<HashTableCtxType,
-                                                            HashJoinBuildSinkLocalState>
-                                  hash_table_build_process(rows, raw_ptrs, this,
-                                                           state->batch_size(), state);
-                          auto old_hash_table_size = arg.hash_table->get_byte_size();
-                          auto old_key_size = arg.serialized_keys_size(true);
-                          auto st = hash_table_build_process.template run<
-                                  JoinOpType::value, has_null_value,
-                                  short_circuit_for_null_in_build_side, with_other_conjuncts>(
-                                  arg,
-                                  has_null_value || short_circuit_for_null_in_build_side
-                                          ? &null_map_val->get_data()
-                                          : nullptr,
-                                  &_shared_state->_has_null_in_build_side);
-                          _mem_tracker->consume(arg.hash_table->get_byte_size() -
-                                                old_hash_table_size);
-                          _mem_tracker->consume(arg.serialized_keys_size(true) - old_key_size);
-                          return st;
-                      }},
+            vectorized::Overload {
+                    [&](std::monostate& arg, auto join_op, auto has_null_value,
+                        auto short_circuit_for_null_in_build_side,
+                        auto with_other_conjuncts) -> Status {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
+                        return Status::OK();
+                    },
+                    [&](auto&& arg, auto&& join_op, auto has_null_value,
+                        auto short_circuit_for_null_in_build_side,
+                        auto with_other_conjuncts) -> Status {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        using JoinOpType = std::decay_t<decltype(join_op)>;
+                        vectorized::ProcessHashTableBuild<HashTableCtxType,
+                                                          HashJoinBuildSinkLocalState>
+                                hash_table_build_process(rows, raw_ptrs, this, state->batch_size(),
+                                                         state);
+                        auto old_hash_table_size = arg.hash_table->get_byte_size();
+                        auto old_key_size = arg.serialized_keys_size(true);
+                        auto st = hash_table_build_process.template run<
+                                JoinOpType::value, has_null_value,
+                                short_circuit_for_null_in_build_side, with_other_conjuncts>(
+                                arg,
+                                has_null_value || short_circuit_for_null_in_build_side
+                                        ? &null_map_val->get_data()
+                                        : nullptr,
+                                &_shared_state->_has_null_in_build_side);
+                        _mem_tracker->consume(arg.hash_table->get_byte_size() -
+                                              old_hash_table_size);
+                        _mem_tracker->consume(arg.serialized_keys_size(true) - old_key_size);
+                        return st;
+                    }},
             *_shared_state->hash_table_variants, _shared_state->join_op_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
             vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
@@ -571,7 +564,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
                 state, local_state._shared_state->build_block->rows(),
-                (CountedFinishDependency*)(local_state._finish_dependency.get())));
+                local_state._finish_dependency));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {

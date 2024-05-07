@@ -50,20 +50,6 @@ class AsyncResultWriter;
 
 namespace doris::pipeline {
 
-/**
- * State of source operator.
- *                      |------> MORE_DATA ------|
- *                      |         ^    |         |
- * DEPEND_ON_SOURCE ----|         |----|         |----> FINISHED
- *    ^       |         |------------------------|
- *    |-------|
- */
-enum class SourceState : uint8_t {
-    DEPEND_ON_SOURCE = 0, // Need more data from source.
-    MORE_DATA = 1,        // Has more data to output. (e.g. RepeatNode)
-    FINISHED = 2
-};
-
 class OperatorBase;
 class OperatorXBase;
 class DataSinkOperatorXBase;

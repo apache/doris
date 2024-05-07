@@ -194,7 +194,7 @@ public:
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     // return the snapshot of rowset_meta
     // the return value is map<rowset_id_str, rowset_meta_sptr>
-    std::map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas() const;
+    std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -692,11 +692,11 @@ inline bool TabletMeta::all_beta() const {
     return true;
 }
 
-inline std::map<std::string, RowsetMetaSharedPtr> TabletMeta::snapshot_rs_metas() const {
+inline std::unordered_map<std::string, RowsetMetaSharedPtr> TabletMeta::snapshot_rs_metas() const {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
     std::shared_lock rlock(_meta_lock);
-    std::map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
     std::for_each(_rs_metas.cbegin(), _rs_metas.cend(), [&](const auto& rowset_meta) {
-        id_to_rowset_meta_map[rowset_meta->rowset_id().to_string()] = rowset_meta;
+        id_to_rowset_meta_map.emplace(rowset_meta->rowset_id().to_string(), rowset_meta);
     });
     return id_to_rowset_meta_map;
 }

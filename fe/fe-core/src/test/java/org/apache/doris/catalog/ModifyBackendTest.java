@@ -82,7 +82,8 @@ public class ModifyBackendTest {
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host.\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
@@ -153,7 +154,8 @@ public class ModifyBackendTest {
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
                         + "errCode = 2, detailMessage = Failed to find enough backend, "
-                        + "please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        + "please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host.\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));

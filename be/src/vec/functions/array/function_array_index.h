@@ -125,13 +125,22 @@ public:
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         auto* param_value = reinterpret_cast<ParamValue*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-
+        if (param_value == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, param_value is nullptr");
+        }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                 param_value->type, &param_value->value, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
+        if (is_string_type(param_value->type)) {
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
+        } else {
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        }
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE

@@ -303,9 +303,11 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
         return res;
     }
 
-    res.reserve(end - start);
-    for (size_t i = start; i < end; ++i) {
-        res.emplace_back(!(*null_bytemap)[i]);
+    res.resize(end - start);
+    auto* __restrict src_data = (*null_bytemap).data();
+    auto* __restrict res_data = res.data();
+    for (size_t i = 0; i < res.size(); ++i) {
+        res_data[i] = !src_data[i + start];
     }
     return res;
 }

@@ -147,7 +147,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-"${TP_DIR}/download-thirdparty.sh"
+eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -901,7 +901,7 @@ build_librdkafka() {
 }
 
 # libunixodbc
-build_libunixodbc() {
+build_odbc() {
     check_if_source_exist "${ODBC_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
@@ -1795,7 +1795,7 @@ build_base64() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
-        libunixodbc
+        odbc
         openssl
         libevent
         zlib

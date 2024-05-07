@@ -93,11 +93,45 @@ public:
                                 const std::vector<SyncPointPair>& dependencies,
                                 const std::vector<SyncPointPair>& markers);
 
+  class CallbackGuard {
+  public:
+    CallbackGuard() = default;
+    explicit CallbackGuard(std::string point) : _point(std::move(point)) {}
+    ~CallbackGuard() {
+      if (!_point.empty()) {
+        get_instance()->clear_call_back(_point);
+      }
+    }
+    CallbackGuard(const CallbackGuard&) = delete;
+    CallbackGuard& operator=(const CallbackGuard&) = delete;
+
+    CallbackGuard(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+    }
+
+    CallbackGuard& operator=(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+      return *this;
+    };
+
+  private:
+    std::string _point;
+  };
+
   // The argument to the callback is passed through from
   // TEST_SYNC_POINT_CALLBACK(); nullptr if TEST_SYNC_POINT or
   // TEST_IDX_SYNC_POINT was used.
+  // If `guard` is not nullptr, method will return a `CallbackGuard` object which will clear the
+  // callback when it is destructed.
   void set_call_back(const std::string& point,
-                     const std::function<void(std::vector<std::any>&&)>& callback);
+                     const std::function<void(std::vector<std::any>&&)>& callback,
+                     CallbackGuard* guard = nullptr);
 
   // Clear callback function by point
   void clear_call_back(const std::string& point);
