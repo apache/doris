@@ -273,8 +273,6 @@ public:
     // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
     std::vector<Version> get_all_local_versions();
 
-    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
-
     void calculate_cumulative_point();
     // TODO(ygl):
     bool is_primary_replica() { return false; }

@@ -593,14 +593,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 try {
                     List<TableIf> tables;
                     if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                        tables = db.getTablesOrEmpty();
+                        tables = db.getTablesIgnoreException();
                     } else {
                         switch (params.getType()) {
                             case "VIEW":
                                 tables = db.getViewsOrEmpty();
                                 break;
                             default:
-                                tables = db.getTablesOrEmpty();
+                                tables = db.getTablesIgnoreException();
                         }
                     }
                     for (TableIf table : tables) {
