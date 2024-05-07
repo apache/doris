@@ -706,11 +706,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (KeysType.AGG_KEYS != olapTable.getKeysType() && KeysType.UNIQUE_KEYS != olapTable.getKeysType()) {
                     Column oldCol = otherIndexSchema.get(modColIndex);
                     otherCol.setIsKey(oldCol.isKey());
-                    if (null != oldCol.getAggregationType()) {
-                        otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
-                    } else {
-                        otherCol.setAggregationType(null, oldCol.isAggregationTypeImplicit());
-                    }
+                    otherCol.setAggregationType(oldCol.getAggregationType(), oldCol.isAggregationTypeImplicit());
                 }
                 if (typeChanged && !lightSchemaChange) {
                     otherCol.setName(SHADOW_NAME_PREFIX + otherCol.getName());
