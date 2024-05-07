@@ -43,19 +43,18 @@ import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** NormalizeRepeat
@@ -125,19 +124,24 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         NormalizeToSlotContext argsContext = NormalizeToSlotContext.buildContext(existsAlias, needToSlotsArgs);
 
         // normalize grouping sets to List<List<Slot>>
-        List<List<Slot>> normalizedGroupingSets = repeat.getGroupingSets()
-                .stream()
-                .map(groupingSet -> (List<Slot>) (List) groupingExprContext.normalizeToUseSlotRef(groupingSet))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<List<Slot>> normalizedGroupingSetBuilder = ImmutableList.builder();
+        for (List<Expression> groupingSet : repeat.getGroupingSets()) {
+            List<Slot> normalizedSet = (List<Slot>) (List) groupingExprContext.normalizeToUseSlotRef(groupingSet);
+            normalizedGroupingSetBuilder.add(normalizedSet);
+        }
+        List<List<Slot>> normalizedGroupingSets = normalizedGroupingSetBuilder.build();
 
         // use argsContext
         // rewrite the arguments of grouping scalar function to slots
         // rewrite grouping scalar function to virtual slots
         // rewrite the arguments of agg function to slots
-        List<NamedExpression> normalizedAggOutput = repeat.getOutputExpressions().stream()
-                .map(expr -> (NamedExpression) expr.rewriteDownShortCircuit(
-                        e -> normalizeAggFuncChildrenAndGroupingScalarFunc(argsContext, e)))
-                .collect(Collectors.toList());
+        List<NamedExpression> normalizedAggOutput = Lists.newArrayList();
+        for (Expression expr : repeat.getOutputExpressions()) {
+            Expression rewrittenExpr = expr.rewriteDownShortCircuit(
+                    e -> normalizeAggFuncChildrenAndGroupingScalarFunc(argsContext, e));
+            normalizedAggOutput.add((NamedExpression) rewrittenExpr);
+        }
+
         // use groupingExprContext rewrite the normalizedAggOutput
         normalizedAggOutput = groupingExprContext.normalizeToUseSlotRef(normalizedAggOutput);
 
@@ -195,22 +199,24 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     private Set<Expression> collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(LogicalRepeat<Plan> repeat) {
         Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils.collect(
                 repeat.getOutputExpressions(), GroupingScalarFunction.class::isInstance);
-
-        ImmutableSet<Expression> argumentsOfGroupingScalarFunction = groupingScalarFunctions.stream()
-                .flatMap(function -> function.getArguments().stream())
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<Expression> argumentsSetBuilder = ImmutableSet.builder();
+        for (GroupingScalarFunction function : groupingScalarFunctions) {
+            argumentsSetBuilder.addAll(function.getArguments());
+        }
+        ImmutableSet<Expression> argumentsOfGroupingScalarFunction = argumentsSetBuilder.build();
 
         List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs.collect(repeat.getOutputExpressions());
-
-        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(function -> function.getArguments().stream().map(arg -> {
-                    if (arg instanceof OrderExpression) {
-                        return arg.child(0);
-                    } else {
-                        return arg;
-                    }
-                }))
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<Expression> argumentsOfAggregateFunctionBuilder = ImmutableSet.builder();
+        for (AggregateFunction function : aggregateFunctions) {
+            for (Expression arg : function.getArguments()) {
+                if (arg instanceof OrderExpression) {
+                    argumentsOfAggregateFunctionBuilder.add(arg.child(0));
+                } else {
+                    argumentsOfAggregateFunctionBuilder.add(arg);
+                }
+            }
+        }
+        ImmutableSet<Expression> argumentsOfAggregateFunction = argumentsOfAggregateFunctionBuilder.build();
 
         return ImmutableSet.<Expression>builder()
                 // grouping sets should be pushed down, e.g. grouping sets((k + 1)),
@@ -264,18 +270,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return Optional.of(new NormalizeToSlotTriplet(expression, newSlot, originTriplet.pushedExpr));
     }
 
-    private Expression normalizeGroupingScalarFunction(NormalizeToSlotContext context, Expression expr) {
-        if (expr instanceof GroupingScalarFunction) {
-            GroupingScalarFunction function = (GroupingScalarFunction) expr;
-            List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
-            function = function.withChildren(normalizedRealExpressions);
-            // eliminate GroupingScalarFunction and replace to VirtualSlotReference
-            return Repeat.generateVirtualSlotByFunction(function);
-        } else {
-            return expr;
-        }
-    }
-
     private Expression normalizeAggFuncChildrenAndGroupingScalarFunc(NormalizeToSlotContext context, Expression expr) {
         if (expr instanceof AggregateFunction) {
             AggregateFunction function = (AggregateFunction) expr;
@@ -323,54 +317,75 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     private LogicalAggregate<Plan> dealSlotAppearBothInAggFuncAndGroupingSets(
             @NotNull LogicalAggregate<Plan> aggregate) {
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
-
-        List<AggregateFunction> aggregateFunctions =
-                CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
-        Set<Slot> aggUsedSlots = aggregateFunctions.stream()
-                .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
-                .collect(ImmutableSet.toImmutableSet());
-        Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
-                .flatMap(Collection::stream)
-                .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
-                .collect(Collectors.toSet());
-
-        Set<Slot> resSet = new HashSet<>(aggUsedSlots);
-        resSet.retainAll(groupingSetsUsedSlot);
-        if (resSet.isEmpty()) {
+        Map<Slot, Alias> commonSlotToAliasMap = getCommonSlotToAliasMap(repeat, aggregate);
+        if (commonSlotToAliasMap.isEmpty()) {
             return aggregate;
         }
-        Map<Slot, Alias> slotMapping = resSet.stream().collect(
-                Collectors.toMap(key -> key, Alias::new)
-        );
-        Set<Alias> newAliases = new HashSet<>(slotMapping.values());
-        List<Slot> newSlots = newAliases.stream()
-                .map(Alias::toSlot)
-                .collect(Collectors.toList());
-
         // modify repeat child to a new project with more projections
+        Set<Alias> newAliases = new HashSet<>(commonSlotToAliasMap.values());
         List<Slot> originSlots = repeat.child().getOutput();
-        ImmutableList<NamedExpression> immList =
+        ImmutableList<NamedExpression> newProjects =
                 ImmutableList.<NamedExpression>builder().addAll(originSlots).addAll(newAliases).build();
-        LogicalProject<Plan> newProject = new LogicalProject<>(immList, repeat.child());
-        repeat = repeat.withChildren(ImmutableList.of(newProject));
+        LogicalProject<Plan> newLogicalProject = new LogicalProject<>(newProjects, repeat.child());
+        repeat = repeat.withChildren(ImmutableList.of(newLogicalProject));
 
         // modify repeat outputs
         List<Slot> originRepeatSlots = repeat.getOutput();
-        repeat = repeat.withAggOutput(ImmutableList
-                .<NamedExpression>builder()
-                .addAll(originRepeatSlots.stream().filter(slot -> ! (slot instanceof VirtualSlotReference))
-                        .collect(Collectors.toList()))
+        List<Slot> virtualSlots = Lists.newArrayList();
+        List<Slot> nonVirtualSlots = Lists.newArrayList();
+        for (Slot slot : originRepeatSlots) {
+            if (slot instanceof VirtualSlotReference) {
+                virtualSlots.add(slot);
+            } else {
+                nonVirtualSlots.add(slot);
+            }
+        }
+        List<Slot> newSlots = Lists.newArrayList();
+        for (Alias alias : newAliases) {
+            newSlots.add(alias.toSlot());
+        }
+        repeat = repeat.withAggOutput(ImmutableList.<NamedExpression>builder()
+                .addAll(nonVirtualSlots)
                 .addAll(newSlots)
-                .addAll(originRepeatSlots.stream().filter(slot -> (slot instanceof VirtualSlotReference))
-                        .collect(Collectors.toList()))
+                .addAll(virtualSlots)
                 .build());
         aggregate = aggregate.withChildren(ImmutableList.of(repeat));
 
-        List<NamedExpression> newOutputExpressions = aggregate.getOutputExpressions().stream()
-                .map(e -> (NamedExpression) e.accept(RewriteAggFuncWithoutWindowAggFunc.INSTANCE,
-                        slotMapping))
-                .collect(Collectors.toList());
+        ImmutableList.Builder<NamedExpression> newOutputExpressionBuilder = ImmutableList.builder();
+        for (NamedExpression expression : aggregate.getOutputExpressions()) {
+            NamedExpression newExpression = (NamedExpression) expression
+                    .accept(RewriteAggFuncWithoutWindowAggFunc.INSTANCE, commonSlotToAliasMap);
+            newOutputExpressionBuilder.add(newExpression);
+        }
+        List<NamedExpression> newOutputExpressions = newOutputExpressionBuilder.build();
         return aggregate.withAggOutput(newOutputExpressions);
+    }
+
+    private Map<Slot, Alias> getCommonSlotToAliasMap(LogicalRepeat<Plan> repeat, LogicalAggregate<Plan> aggregate) {
+        List<AggregateFunction> aggregateFunctions =
+                CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
+        ImmutableSet.Builder<Slot> aggUsedSlotBuilder = ImmutableSet.builder();
+        for (AggregateFunction function : aggregateFunctions) {
+            aggUsedSlotBuilder.addAll(function.<Set<SlotReference>>collect(SlotReference.class::isInstance));
+        }
+        ImmutableSet<Slot> aggUsedSlots = aggUsedSlotBuilder.build();
+
+        ImmutableSet.Builder<Slot> groupingSetsUsedSlotBuilder = ImmutableSet.builder();
+        for (List<Expression> groupingSet : repeat.getGroupingSets()) {
+            for (Expression expr : groupingSet) {
+                groupingSetsUsedSlotBuilder.addAll(expr.<Set<SlotReference>>collect(SlotReference.class::isInstance));
+            }
+        }
+        ImmutableSet<Slot> groupingSetsUsedSlot = groupingSetsUsedSlotBuilder.build();
+
+        Set<Slot> resSet = new HashSet<>(aggUsedSlots);
+        resSet.retainAll(groupingSetsUsedSlot);
+        Map<Slot, Alias> commonSlotToAliasMap = Maps.newHashMap();
+        for (Slot key : resSet) {
+            Alias alias = new Alias(key);
+            commonSlotToAliasMap.put(key, alias);
+        }
+        return commonSlotToAliasMap;
     }
 
     /**
