@@ -889,6 +889,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     InvertedIndexQueryCacheHandle cache_handler;
     auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
     if (cache_status.ok()) {
+        LOG(ERROR) << "cache_key: " << cache_key.encode();
         return Status::OK();
     }
 
@@ -911,7 +912,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
     query_bitmap->runOptimize();
     cache->insert(cache_key, query_bitmap, &cache_handler);
 
-    VLOG_DEBUG << "BKD index search column: " << column_name
+    LOG(ERROR) << "BKD index search column: " << column_name
                << " result: " << bit_map->cardinality();
 
     return Status::OK();
