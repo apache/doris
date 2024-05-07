@@ -146,13 +146,13 @@ public class FEFunctions {
     @FEFunction(name = "months_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
     public static DateLiteral monthsAddDateV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears(month.getLongValue());
+        return dateLiteral.plusMonths(month.getLongValue());
     }
 
     @FEFunction(name = "months_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static DateLiteral monthsAddDateTimeV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears(month.getLongValue());
+        return dateLiteral.plusMonths(month.getLongValue());
     }
 
     @FEFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -164,13 +164,13 @@ public class FEFunctions {
     @FEFunction(name = "days_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
     public static DateLiteral daysAddDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears(day.getLongValue());
+        return dateLiteral.plusDays(day.getLongValue());
     }
 
     @FEFunction(name = "days_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static DateLiteral daysAddDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears(day.getLongValue());
+        return dateLiteral.plusDays(day.getLongValue());
     }
 
     @FEFunction(name = "hours_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
