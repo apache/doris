@@ -715,9 +715,11 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         // get child condition result in compound conditions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
+        LOG(ERROR) << "yangsiyu pred_result_sign: " << pred_result_sign;
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
             auto apply_result = _rowid_result_for_index[pred_result_sign].second;
+            LOG(ERROR) << "yangsiyu apply_result: " << apply_result.cardinality();
             _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
@@ -839,6 +841,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
+        LOG(ERROR) << "yangsiyu pred: " << pred->pred_type_string(pred->type());
+
         bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred, true);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
@@ -866,6 +870,12 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
+        LOG(ERROR) << "yangsiyu pred_result_sign: " << pred_result_sign;
+    }
+
+    for (auto& iter : _rowid_result_for_index) {
+        LOG(ERROR) << "yangsiyu _rowid_result_for_index: " << iter.first << ", "
+                   << iter.second.first << ", " << iter.second.second.cardinality();
     }
 
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
