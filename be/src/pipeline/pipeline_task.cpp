@@ -169,23 +169,15 @@ void PipelineTask::_init_profile() {
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
-    _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
-    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
-    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
-
-    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
-    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
-    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {
-    COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
 }
@@ -233,12 +225,8 @@ Status PipelineTask::execute(bool* eos) {
         }
     }};
     *eos = false;
-    if (has_dependency()) {
-        set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-        return Status::OK();
-    }
-    if (_runtime_filter_blocked_dependency() != nullptr) {
-        set_state(PipelineTaskState::BLOCKED_FOR_RF);
+    if (has_dependency() || _runtime_filter_blocked_dependency() != nullptr) {
+        set_state(PipelineTaskState::BLOCKED);
         return Status::OK();
     }
     // The status must be runnable
@@ -247,24 +235,16 @@ Status PipelineTask::execute(bool* eos) {
             SCOPED_RAW_TIMER(&time_spent);
             RETURN_IF_ERROR(_open());
         }
-        if (!source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            return Status::OK();
-        }
-        if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+        if (!source_can_read() || !sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED);
             return Status::OK();
         }
     }
 
     Status status = Status::OK();
     while (!_fragment_context->is_canceled()) {
-        if (_root->need_data_from_children(_state) && !source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            break;
-        }
-        if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+        if ((_root->need_data_from_children(_state) && !source_can_read()) || !sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED);
             break;
         }
 
@@ -379,34 +359,8 @@ void PipelineTask::set_state(PipelineTaskState state) {
     if (_cur_state == state) {
         return;
     }
-    if (_cur_state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_source_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_SINK) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_sink_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_RF) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_bf_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::RUNNABLE) {
+    if (_cur_state == PipelineTaskState::RUNNABLE && state != PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
-        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
-            _wait_source_watcher.start();
-            COUNTER_UPDATE(_block_by_source_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
-            _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_by_sink_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
-            _wait_bf_watcher.start();
-            COUNTER_UPDATE(_wait_bf_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
-            COUNTER_UPDATE(_wait_dependency_counts, 1);
-        } else if (state == PipelineTaskState::PENDING_FINISH) {
-            COUNTER_UPDATE(_pending_finish_counts, 1);
-        }
     }
 
     _cur_state = state;

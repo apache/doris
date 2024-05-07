@@ -176,19 +176,57 @@ Status Channel<Parent>::open(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename Parent>
-std::shared_ptr<pipeline::Dependency> PipChannel<Parent>::get_local_channel_dependency() {
-    if (!Channel<Parent>::_local_recvr) {
-        if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "_local_recvr is null: " +
-                                    std::to_string(Channel<Parent>::_parent->parent()->node_id()));
+std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
+    if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
+        throw Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "_local_recvr is null: " +
+                        std::to_string(Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()
+                                               ->node_id()));
+    }
+    return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
+            Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
+}
+
+Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    std::unique_ptr<PBlock> pblock_ptr;
+    pblock_ptr.reset(block);
+
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
         } else {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+            _eos_send = true;
         }
     }
-    return Channel<Parent>::_local_recvr->get_local_channel_dependency(
-            Channel<Parent>::_parent->sender_id());
+    if (eos || block->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, exec_status}));
+    }
+    return Status::OK();
+}
+
+Status PipChannel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
+        }
+        _eos_send = true;
+    }
+    if (eos || block->get_block()->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+    }
+    return Status::OK();
+}
+
+Status PipChannel::send_current_block(bool eos, Status exec_status) {
+    if (Channel<pipeline::ExchangeSinkLocalState>::is_local()) {
+        return Channel<pipeline::ExchangeSinkLocalState>::send_local_block(exec_status, eos);
+    }
+    SCOPED_CONSUME_MEM_TRACKER(Channel<pipeline::ExchangeSinkLocalState>::_parent->mem_tracker());
+    RETURN_IF_ERROR(send_remote_block(_pblock.release(), eos, exec_status));
+    return Status::OK();
 }
 
 template <typename Parent>
@@ -885,10 +923,9 @@ Status VDataStreamSender::_get_next_available_buffer(
     }
 }
 
-void VDataStreamSender::register_pipeline_channels(
-        pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
+void VDataStreamSender::register_pipeline_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : _channels) {
-        ((PipChannel<VDataStreamSender>*)channel)->register_exchange_buffer(buffer);
+        ((PipChannel*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -910,8 +947,6 @@ bool VDataStreamSender::channel_all_can_write() {
 
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
-template class PipChannel<pipeline::ExchangeSinkLocalState>;
-template class PipChannel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ExchangeSinkLocalState>;

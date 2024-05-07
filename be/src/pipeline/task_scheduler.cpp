@@ -227,10 +227,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         auto pipeline_state = task->get_state();
         switch (pipeline_state) {
-        case PipelineTaskState::BLOCKED_FOR_SOURCE:
-        case PipelineTaskState::BLOCKED_FOR_SINK:
-        case PipelineTaskState::BLOCKED_FOR_RF:
-        case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
+        case PipelineTaskState::BLOCKED:
             task->set_running(false);
             break;
         case PipelineTaskState::RUNNABLE:
