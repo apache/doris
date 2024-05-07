@@ -1872,7 +1872,7 @@ public class TabletScheduler extends MasterDaemon {
                     tabletCtx.setErrMsg("tablet scheduler is disabled");
                     cancelTablets.add(tabletCtx);
                 } else if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
-                    tabletCtxs.setErrMsg("balance is disabled");
+                    tabletCtx.setErrMsg("balance is disabled");
                     cancelTablets.add(tabletCtx);
                 } else if (tabletCtx.isTimeout()) {
                     tabletCtx.setErrMsg("timeout");
