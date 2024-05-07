@@ -230,56 +230,61 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair, queryStructInfo);
-        Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
+        Set<? extends Expression> queryChildrenGroupBySet = queryGroupAndFunctionPair.key();
         Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
+        List<Expression> queryExpressions = new ArrayList<>(queryTopPlan.getOutput());
+        queryExpressions.addAll(queryChildrenGroupBySet);
         // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
                 materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQuerySlotMapping)
                         .flattenMap().get(0);
-        for (Expression topExpression : queryTopPlanGroupBySet) {
-            // if group by expression, try to rewrite group by expression
-            Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
-                    topExpression, queryTopPlan, queryStructInfo.getTableBitSet());
-            AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
-                    mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
-            // group by expression maybe group by a + b, so we need expression rewriter
-            Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
-                    context);
-            if (!context.isValid()) {
-                // group expr can not rewrite by view
-                materializationContext.recordFailReason(queryStructInfo,
-                        "View dimensions doesn't not cover the query dimensions",
-                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
-                                mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
-                return null;
-            }
-            NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
-                    ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-            finalOutputExpressions.add(groupByExpression);
-            finalGroupExpressions.add(groupByExpression);
-        }
-        for (Expression topExpression : queryTopPlanFunctionSet) {
+        for (Expression topExpression : queryExpressions) {
             // if agg function, try to roll up and rewrite
-            Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
-                    topExpression,
-                    queryTopPlan,
-                    queryStructInfo.getTableBitSet());
-            AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(
-                    false, mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
-            // queryFunctionShuttled maybe sum(column) + count(*), so need to use expression rewriter
-            Expression rollupedExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
-                    context);
-            if (!context.isValid()) {
-                materializationContext.recordFailReason(queryStructInfo,
-                        "Query function roll up fail",
-                        () -> String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
-                                queryFunctionShuttled, mvExprToMvScanExprQueryBased));
-                return null;
+            if (queryTopPlanFunctionSet.contains(topExpression)) {
+                Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                        topExpression,
+                        queryTopPlan,
+                        queryStructInfo.getTableBitSet());
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(
+                        false, mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
+                // queryFunctionShuttled maybe sum(column) + count(*), so need to use expression rewriter
+                Expression rollupedExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "Query function roll up fail",
+                            () -> String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                    queryFunctionShuttled, mvExprToMvScanExprQueryBased));
+                    return null;
+                }
+                finalOutputExpressions.add(new Alias(rollupedExpression));
+            } else {
+                // if group by expression, try to rewrite group by expression
+                Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
+                        topExpression, queryTopPlan, queryStructInfo.getTableBitSet());
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
+                        mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
+                // group by expression maybe group by a + b, so we need expression rewriter
+                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
+                    // group expr can not rewrite by view
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "View dimensions doesn't not cover the query dimensions",
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                    mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
+                    return null;
+                }
+                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                if (!queryChildrenGroupBySet.contains(topExpression)) {
+                    finalOutputExpressions.add(groupByExpression);
+                }
+                finalGroupExpressions.add(groupByExpression);
             }
-            finalOutputExpressions.add(new Alias(rollupedExpression));
         }
         // add project to guarantee group by column ref is slot reference,
         // this is necessary because physical createHash will need slotReference later
@@ -425,8 +430,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 topGroupByExpressions.add(expression);
             }
         });
-        topGroupByExpressions.addAll(groupByExpressionSet);
-        return Pair.of(topGroupByExpressions, topFunctionExpressions);
+        groupByExpressionSet.removeAll(topGroupByExpressions);
+        return Pair.of(groupByExpressionSet, topFunctionExpressions);
     }
 
     private Pair<Plan, LogicalAggregate<Plan>> splitToTopPlanAndAggregate(StructInfo structInfo) {
