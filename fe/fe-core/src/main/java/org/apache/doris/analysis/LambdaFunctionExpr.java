@@ -23,15 +23,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
 public class LambdaFunctionExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(LambdaFunctionExpr.class);
     private ArrayList<String> names = new ArrayList<>();
     private ArrayList<Expr> slotExpr = new ArrayList<>();
     private ArrayList<Expr> params = new ArrayList<>();
