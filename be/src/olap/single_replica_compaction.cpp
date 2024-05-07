@@ -100,15 +100,12 @@ Status SingleReplicaCompaction::_do_single_replica_compaction() {
 }
 
 Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
-    DBUG_EXECUTE_IF("do_single_compaction_return_ok", {
-        return Status::OK();
-    });
+    DBUG_EXECUTE_IF("do_single_compaction_return_ok", { return Status::OK(); });
     TReplicaInfo addr;
     std::string token;
     //  1. get peer replica info
-    DBUG_EXECUTE_IF("single_compaction_failed_get_peer", {
-        return Status::Aborted("tablet don't have peer replica");
-    });
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer",
+                    { return Status::Aborted("tablet don't have peer replica"); });
     if (!_engine.get_peer_replica_info(_tablet->tablet_id(), &addr, &token)) {
         LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica";
         return Status::Aborted("tablet don't have peer replica");
@@ -163,9 +160,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
 
 Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
         const TReplicaInfo& addr, std::vector<Version>* peer_versions) {
-    DBUG_EXECUTE_IF("single_compaction_failed_get_peer_versions", {
-        return Status::Aborted("tablet failed get peer versions");
-    });
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer_versions",
+                    { return Status::Aborted("tablet failed get peer versions"); });
     PGetTabletVersionsRequest request;
     request.set_tablet_id(_tablet->tablet_id());
     PGetTabletVersionsResponse response;
@@ -353,9 +349,8 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
         if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
             snapshot_path->append("/");
         }
-        DBUG_EXECUTE_IF("single_compaction_failed_make_snapshot", {
-            return Status::InternalError("failed snapshot");
-        });
+        DBUG_EXECUTE_IF("single_compaction_failed_make_snapshot",
+                        { return Status::InternalError("failed snapshot"); });
     } else {
         return Status::InternalError("success snapshot without snapshot path");
     }
@@ -441,10 +436,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
-            
-            DBUG_EXECUTE_IF("single_compaction_failed_download_file", {
-                return Status::InternalError("failed to download file");
-            });
+
+            DBUG_EXECUTE_IF("single_compaction_failed_download_file",
+                            { return Status::InternalError("failed to download file"); });
             // Check file length
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
