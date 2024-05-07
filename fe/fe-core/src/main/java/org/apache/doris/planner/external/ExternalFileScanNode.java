@@ -339,7 +339,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
             ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
             setDefaultValueExprs(scanProvider, context);
-            setColumnPositionMappingForTextFile(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
@@ -358,6 +357,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             if (scanProvider instanceof IcebergScanProvider) {
                 ((IcebergScanProvider) scanProvider).updateRequiredSlots(context);
             }
+            setColumnPositionMappingForTextFile(scanProvider, context);
         }
     }
 
