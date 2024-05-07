@@ -26,8 +26,8 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import com.dmetasoul.lakesoul.meta.DBManager;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
+import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -55,7 +55,7 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         List<TableInfo> tifs = dbManager.getTableInfosByNamespace(dbName);
-        List<String> tableNames = new ArrayList<>(100);
+        List<String> tableNames = Lists.newArrayList();
         for (TableInfo item : tifs) {
             tableNames.add(item.getTableName());
         }

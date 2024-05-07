@@ -28,7 +28,7 @@ public class LakeSoulExternalDatabase extends ExternalDatabase<LakeSoulExternalT
     }
 
     @Override
-    protected LakeSoulExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected LakeSoulExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new LakeSoulExternalTable(tblId, tableName, name, (LakeSoulExternalCatalog) catalog);
     }
 }

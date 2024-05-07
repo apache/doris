@@ -361,9 +361,9 @@ struct TTrinoConnectorTable {
 }
 
 struct TLakeSoulTable {
-  1: required string db_name
-  2: required string table_name
-  3: required map<string, string> properties
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
 }
 
 // "Union" of all table types.
