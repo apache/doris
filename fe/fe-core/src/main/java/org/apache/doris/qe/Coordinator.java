@@ -219,7 +219,7 @@ public class Coordinator implements CoordInterface {
     // It is supposed to be the subset of backendExecStates.
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
-    private ResultReceiver receiver;
+    private List<ResultReceiver> receivers = Lists.newArrayList();
     protected final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -689,10 +689,18 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
+            Set<TNetworkAddress> addrs = new HashSet<>();
+            for (FInstanceExecParam param : topParams.instanceExecParams) {
+                if (addrs.contains(param.host)) {
+                    continue;
+                }
+                addrs.add(param.host);
+                receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
+                        toBrpcHost(param.host), this.timeoutDeadline,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver()));
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
 
             if (!context.isReturnResultFromLocal()) {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
@@ -1325,13 +1333,13 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public RowBatch getNext() throws Exception {
-        if (receiver == null) {
+        if (receivers.isEmpty()) {
             throw new UserException("There is no receiver.");
         }
 
         RowBatch resultBatch;
         Status status = new Status();
-        resultBatch = receiver.getNext(status);
+        resultBatch = receivers.get(receivers.size() - 1).getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1370,8 +1378,15 @@ public class Coordinator implements CoordInterface {
         }
 
         if (resultBatch.isEos()) {
-            this.returnedAllResults = true;
+            receivers.remove(receivers.size() - 1);
+            if (receivers.isEmpty()) {
+                returnedAllResults = true;
+            } else {
+                resultBatch.setEos(false);
+            }
+        }
 
+        if (returnedAllResults) {
             // if this query is a block query do not cancel.
             Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
             boolean hasLimit = numLimitRows > 0;
@@ -1505,8 +1520,10 @@ public class Coordinator implements CoordInterface {
     }
 
     private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
-        if (null != receiver) {
-            receiver.cancel(cancelReason);
+        if (receivers.isEmpty()) {
+            for (ResultReceiver receiver : receivers) {
+                receiver.cancel(cancelReason);
+            }
         }
         if (null != pointExec) {
             pointExec.cancel();

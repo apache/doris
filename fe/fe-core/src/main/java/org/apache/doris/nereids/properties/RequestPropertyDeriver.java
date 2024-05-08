@@ -142,7 +142,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 

@@ -42,10 +42,7 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
 
-    // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
-            state->execution_timeout()));
+    _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
     return Status::OK();
 }
@@ -101,6 +98,11 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+
+    // create sender
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+            state->query_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
+            state->execution_timeout()));
     return Status::OK();
 }
 

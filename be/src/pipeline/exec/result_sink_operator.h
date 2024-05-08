@@ -77,6 +77,8 @@ private:
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
+
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
 };
 
 } // namespace pipeline

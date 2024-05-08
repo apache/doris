@@ -85,7 +85,7 @@ public:
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
-    Status close(Status exec_status);
+    virtual Status close(Status exec_status);
     // this is called by RPC, called from coordinator
     virtual void cancel();
 
@@ -156,13 +156,16 @@ public:
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 
+    Status close(Status exec_status) override;
+
 private:
     void _update_dependency();
     bool _get_batch_queue_empty() override { return _batch_queue_empty; }
     void _update_batch_queue_empty() override;
 
     std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::Dependency> _result_sink_dependency;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    size_t close_cnt = 0;
 };
 
 } // namespace doris

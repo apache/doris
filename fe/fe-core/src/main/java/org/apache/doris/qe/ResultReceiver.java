@@ -84,7 +84,7 @@ public class ResultReceiver {
         try {
             while (!isDone && !isCancel()) {
                 InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
-                        .setFinstId(finstId)
+                        .setFinstId(queryId)
                         .setRespInAttachment(false)
                         .build();
 

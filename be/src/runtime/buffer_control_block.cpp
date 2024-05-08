@@ -140,7 +140,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
         }
         _buffer_rows += num_rows;
     } else {
-        auto ctx = _waiting_rpc.front();
+        auto* ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
         ctx->on_data(result, _packet_num);
         _packet_num++;
@@ -298,22 +298,51 @@ void PipBufferControlBlock::cancel() {
 
 void PipBufferControlBlock::set_dependency(
         std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
-    _result_sink_dependency = result_sink_dependency;
+    _result_sink_dependencys.push_back(result_sink_dependency);
 }
 
 void PipBufferControlBlock::_update_dependency() {
-    if (_result_sink_dependency &&
-        (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled)) {
-        _result_sink_dependency->set_ready();
-    } else if (_result_sink_dependency &&
-               (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled)) {
-        _result_sink_dependency->block();
+    if (_batch_queue_empty || _buffer_rows < _buffer_limit || _is_cancelled) {
+        for (auto dependency : _result_sink_dependencys) {
+            dependency->set_ready();
+        }
+    } else if (!_batch_queue_empty && _buffer_rows < _buffer_limit && !_is_cancelled) {
+        for (auto dependency : _result_sink_dependencys) {
+            dependency->block();
+        }
     }
 }
 
 void PipBufferControlBlock::_update_batch_queue_empty() {
     _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
     _update_dependency();
+}
+
+Status PipBufferControlBlock::close(Status exec_status) {
+    std::unique_lock<std::mutex> l(_lock);
+    close_cnt++;
+    if (close_cnt != _result_sink_dependencys.size()) {
+        return Status::OK();
+    }
+
+    _is_close = true;
+    _status = exec_status;
+
+    // notify blocked get thread
+    _data_arrival.notify_all();
+    if (!_waiting_rpc.empty()) {
+        if (_status.ok()) {
+            for (auto& ctx : _waiting_rpc) {
+                ctx->on_close(_packet_num, _query_statistics.get());
+            }
+        } else {
+            for (auto& ctx : _waiting_rpc) {
+                ctx->on_failure(_status);
+            }
+        }
+        _waiting_rpc.clear();
+    }
+    return Status::OK();
 }
 
 } // namespace doris
