@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -1108,6 +1109,25 @@ public class ConnectContext {
         }
     }
 
+    public static String cloudNoBackendsReason() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" ");
+        if (ConnectContext.get() != null) {
+            String clusterName = ConnectContext.get().getCloudCluster();
+            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudStatusByName(clusterName);
+            if (!Strings.isNullOrEmpty(clusterStatus)
+                    && Cloud.ClusterStatus.valueOf(clusterStatus)
+                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+                LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
+                sb.append("cluster ").append(clusterName)
+                    .append(" is shutdown manually, please start it first");
+            } else {
+                sb.append("or you may not have permission to access the current cluster = ").append(clusterName);
+            }
+        }
+        return sb.toString();
+    }
 
     // can't get cluster from context, use the following strategy to obtain the cluster name
     // 当用户有多个集群的权限时，会按照如下策略进行拉取：
