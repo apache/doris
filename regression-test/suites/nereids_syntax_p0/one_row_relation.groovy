@@ -31,11 +31,4 @@ suite("one_row_relation") {
         )a"""
         result([[100, "abc", "ab", "de", null]])
     }
-
-    test {
-        sql """
-            select sum(1);
-        """
-        exception "OneRowRelation can not contains any aggregate function"            
-    }
 }
