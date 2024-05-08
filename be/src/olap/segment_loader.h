@@ -81,7 +81,7 @@ public:
     };
 
     SegmentCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::SIZE,
                              config::tablet_rowset_stale_sweep_time_sec) {}
 
     // Lookup the given segment in the cache.

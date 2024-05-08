@@ -39,8 +39,9 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
-    auto* lru_handle = LRUCachePolicy::insert(
-            key.encode(), &value, 1, value.segment->meta_mem_usage(), CachePriority::NORMAL);
+    auto* lru_handle =
+            LRUCachePolicy::insert(key.encode(), &value, value.segment->meta_mem_usage(),
+                                   value.segment->meta_mem_usage(), CachePriority::NORMAL);
     handle->push_segment(this, lru_handle);
 }
 
