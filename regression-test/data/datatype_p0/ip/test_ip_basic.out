@@ -63,6 +63,12 @@ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 -- !sql8 --
 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
+-- !sql8_2 --
+ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+-- !sql8_3 --
+ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
 -- !sql9 --
 \N	0
 0.0.0.0	1
@@ -354,3 +360,4 @@ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	4
 120.239.82.212	2a0c:3240::1
 121.25.82.29	2620:44:a000::1
 121.25.160.80	2001:418:0:5000::c2d
+
