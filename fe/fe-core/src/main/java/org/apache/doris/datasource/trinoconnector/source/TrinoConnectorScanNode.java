@@ -171,7 +171,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("The TrinoConnectorTableHandle is " + source.getTrinoConnectorTableHandle()
-                    + "after pushing down.");
+                    + " after pushing down.");
         }
 
         // TODO(ftw): push down projection
