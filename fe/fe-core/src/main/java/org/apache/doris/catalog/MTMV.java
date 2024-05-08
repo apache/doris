@@ -333,8 +333,6 @@ public class MTMV extends OlapTable {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
         }
-        LOG.warn("calculatePartitionMappings use [{}] mills, mvName is [{}]",
-                System.currentTimeMillis() - start, name);
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
                     System.currentTimeMillis() - start, name);
