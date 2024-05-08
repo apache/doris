@@ -104,7 +104,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
 
     vectorized::Block data_block;
     std::shared_ptr<ShuffleBlockWrapper> new_block_wrapper;
-    if (_free_blocks.try_enqueue(data_block)) {
+    if (_free_blocks.try_dequeue(data_block)) {
         new_block_wrapper = ShuffleBlockWrapper::create_shared(std::move(data_block));
     } else {
         new_block_wrapper = ShuffleBlockWrapper::create_shared(block->clone_empty());
