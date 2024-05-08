@@ -38,6 +38,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -256,10 +258,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeExpr);
         if (targetPair == null) {
             /* cases for "targetPair is null"
-             1. when probeExpr is output slot of setOperator, targetPair is null
-             2. join (topn(table1), table2)
-                when aliasTransferMap goes through topn, all slots from table1
-                are cleared to avoid generate rf(table2->table1)
+             when probeExpr is output slot of setOperator, targetPair is null
             */
             return false;
         }
@@ -338,6 +337,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             for (NamedExpression namedExpression : project.getProjects()) {
                 if (namedExpression instanceof Alias
                         && namedExpression.getExprId() == ((SlotReference) ctx.probeExpr).getExprId()) {
+                    if (((Alias) namedExpression).child().getInputSlots().size() > 1) {
+                        // only support one-slot probeExpr
+                        return false;
+                    }
                     ctxProjectProbeExpr = ctx.withNewProbeExpression(((Alias) namedExpression).child());
                     break;
                 }
@@ -346,6 +349,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             for (NamedExpression namedExpression : project.getProjects()) {
                 if (namedExpression instanceof Alias
                         && ctx.probeExpr.getInputSlots().contains(namedExpression.toSlot())) {
+                    if (((Alias) namedExpression).child().getInputSlots().size() > 1) {
+                        // only support one-slot probeExpr
+                        return false;
+                    }
                     Map<Expression, Expression> map = Maps.newHashMap();
                     // probeExpr only has one input slot
                     map.put(ctx.probeExpr.getInputSlots().iterator().next(),
@@ -399,4 +406,19 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
         return pushedDown;
     }
+
+    @Override
+    public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PushDownContext ctx) {
+        return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PushDownContext ctx) {
+        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
+        if (commonPartitionKeys.containsAll(ctx.probeExpr.getInputSlots())) {
+            return window.child().accept(this, ctx);
+        }
+        return false;
+    }
+
 }

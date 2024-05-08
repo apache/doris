@@ -52,8 +52,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -257,10 +255,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
-        }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
@@ -440,12 +434,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // TODO: we need to support all type join
         join.right().accept(this, context);
         join.left().accept(this, context);
-
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
-            return join;
-        }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
@@ -592,26 +580,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return false;
-    }
-
-    @Override
-    public PhysicalPlan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
-        topN.child().accept(this, context);
-        PhysicalPlan child = (PhysicalPlan) topN.child();
-        for (Slot slot : child.getOutput()) {
-            context.getRuntimeFilterContext().aliasTransferMapRemove(slot);
-        }
-        return topN;
-    }
-
-    @Override
-    public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
-        window.child().accept(this, context);
-        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
-        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
-                slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot)
-        );
-        return window;
     }
 
     /**
