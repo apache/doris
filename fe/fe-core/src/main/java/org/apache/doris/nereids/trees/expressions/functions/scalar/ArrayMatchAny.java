@@ -22,11 +22,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -43,11 +43,15 @@ import java.util.List;
  * expression: array_match_any(["a", "b", "c", 'd'], "e,f") with result false.
  */
 public class ArrayMatchAny extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
-                    .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0)));
+                    .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0)),
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0),
+                            MapType.of(StringType.INSTANCE, StringType.INSTANCE))
+    );
 
     /**
      * constructor with 2 arguments.
@@ -56,7 +60,11 @@ public class ArrayMatchAny extends ScalarFunction
         super("array_match_any", arg0, arg1);
     }
 
-    public ArrayMatchAny(Expression arg0, Expression arg1, MapLiteral invertedIndexParserMap) {
+    /**
+     * constructor with 3 arguments.
+     * Note the last argument is invertedIndexParserMap which is produced by ArrayMatchAnyExpander rule.
+     */
+    private ArrayMatchAny(Expression arg0, Expression arg1, Expression invertedIndexParserMap) {
         super("array_match_any", arg0, arg1, invertedIndexParserMap);
     }
 
@@ -69,7 +77,7 @@ public class ArrayMatchAny extends ScalarFunction
         if (children.size() == 2) {
             return new ArrayMatchAny(children.get(0), children.get(1));
         }
-        return new ArrayMatchAny(children.get(0), children.get(1), (MapLiteral) children.get(2));
+        return new ArrayMatchAny(children.get(0), children.get(1), children.get(2));
     }
 
     @Override

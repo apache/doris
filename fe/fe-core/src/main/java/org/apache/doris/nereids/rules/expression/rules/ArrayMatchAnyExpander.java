@@ -38,9 +38,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -83,6 +81,10 @@ public class ArrayMatchAnyExpander extends OneRewriteRuleFactory {
         List<Literal> keys = Lists.newArrayList(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY,
                         InvertedIndexUtil.INVERTED_INDEX_PARSER_MODE_KEY).stream()
                         .map(StringLiteral::new).collect(Collectors.toList());
+        List<Literal> values = Lists.newArrayList(invertedIndexParser, invertedIndexParserMode).stream()
+                .map(StringLiteral::new).collect(Collectors.toList());
+        MapLiteral defaultInvertedIndexParserMap = new MapLiteral(keys, values);
+
         if (arrayMatchAny.child(0) instanceof SlotReference
                 && ((SlotReference) arrayMatchAny.child(0)).getTable().isPresent()
                 && ((SlotReference) arrayMatchAny.child(0)).getTable().get() instanceof OlapTable) {
@@ -91,38 +93,33 @@ public class ArrayMatchAnyExpander extends OneRewriteRuleFactory {
             OlapTable olapTbl = (OlapTable) ((SlotReference) arrayMatchAny.child(0)).getTable().get();
             List<Index> indexes = olapTbl.getIndexes();
             if (indexes != null) {
-                Map<String, String> invertedIndexCharFilter = new HashMap<>();
                 for (Index index : indexes) {
                     if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
                         List<String> columns = index.getColumns();
                         if (columns != null && !columns.isEmpty() && left.getName().equals(columns.get(0))) {
-                            invertedIndexParser = index.getInvertedIndexParser();
-                            invertedIndexParserMode = index.getInvertedIndexParserMode();
-                            invertedIndexCharFilter = index.getInvertedIndexCharFilter();
-                            break;
+                            if (index.getProperties().isEmpty()) {
+                                // here should make a none parser not english
+                                List<Literal> vals = Lists.newArrayList(
+                                        InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE, invertedIndexParserMode).stream()
+                                        .map(StringLiteral::new).collect(Collectors.toList());
+                                MapLiteral invertedIndexParserMap = new MapLiteral(keys, vals);
+                                return arrayMatchAny.withChildren(arrayMatchAny.child(0), arrayMatchAny.child(1),
+                                        invertedIndexParserMap);
+                            } else {
+                                MapLiteral invertedIndexParserMap = new MapLiteral(
+                                        index.getProperties().keySet().stream()
+                                                .map(StringLiteral::new).collect(Collectors.toList()),
+                                        index.getProperties().values().stream().map(StringLiteral::new)
+                                                .collect(Collectors.toList()));
+                                return arrayMatchAny.withChildren(arrayMatchAny.child(0), arrayMatchAny.child(1),
+                                        invertedIndexParserMap);
+                            }
                         }
                     }
                 }
-                List<Literal> values = Lists.newArrayList(invertedIndexParser, invertedIndexParserMode).stream()
-                                .map(StringLiteral::new).collect(Collectors.toList());
-                invertedIndexCharFilter.forEach((key, value) -> {
-                    keys.add(new StringLiteral(key));
-                    values.add(new StringLiteral(value));
-                });
-
-                MapLiteral invertedIndexParserMap = new MapLiteral(keys, values);
-                return new ArrayMatchAny(arrayMatchAny.child(0), arrayMatchAny.child(1), invertedIndexParserMap);
-            } else {
-                List<Literal> values = Lists.newArrayList(invertedIndexParser, invertedIndexParserMode).stream()
-                                .map(StringLiteral::new).collect(Collectors.toList());
-                MapLiteral invertedIndexParserMap = new MapLiteral(keys, values);
-                return new ArrayMatchAny(arrayMatchAny.child(0), arrayMatchAny.child(1), invertedIndexParserMap);
             }
-        } else {
-            List<Literal> values = Lists.newArrayList(invertedIndexParser, invertedIndexParserMode).stream()
-                            .map(StringLiteral::new).collect(Collectors.toList());
-            MapLiteral invertedIndexParserMap = new MapLiteral(keys, values);
-            return new ArrayMatchAny(arrayMatchAny.child(0), arrayMatchAny.child(1), invertedIndexParserMap);
         }
+        return arrayMatchAny.withChildren(arrayMatchAny.child(0), arrayMatchAny.child(1),
+                defaultInvertedIndexParserMap);
     }
 }
