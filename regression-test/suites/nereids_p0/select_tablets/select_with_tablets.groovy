@@ -44,7 +44,11 @@ suite("select_with_tablets") {
     logger.info("insert result: " + insert_res.toString())
     order_qt_select1 """ SELECT * FROM ${table_name1} """
 
-    def res = sql_return_maparray """ show tablets from ${table_name1} where version = 2 """
+    def res = sql_return_maparray """ show tablets from ${table_name1}"""
+    res = deduplicate_tablets(res)
+    log.info("res: " + res.toString())
+
+    res = sql_return_maparray """ show tablets from ${table_name1} where version = 2 """
     res = deduplicate_tablets(res)
     log.info("res: " + res.toString())
     assertEquals(res.size(), 1)
