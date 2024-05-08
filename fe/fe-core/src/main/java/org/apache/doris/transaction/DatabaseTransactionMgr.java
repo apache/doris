@@ -50,6 +50,8 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
+import org.apache.doris.event.EventType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
@@ -409,7 +411,7 @@ public class DatabaseTransactionMgr {
             writeUnlock();
         }
         LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
-                    tid, label, coordinator, listenerId);
+                tid, label, coordinator, listenerId);
         return tid;
     }
 
@@ -475,7 +477,7 @@ public class DatabaseTransactionMgr {
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
 
         checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
-                          tableToPartition, totalInvolvedBackends);
+                tableToPartition, totalInvolvedBackends);
 
         unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
                 totalInvolvedBackends, db);
@@ -483,9 +485,9 @@ public class DatabaseTransactionMgr {
     }
 
     private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
-                                   List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
-                                   Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
-                                   Set<Long> totalInvolvedBackends) throws UserException {
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
+            Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
+            Set<Long> totalInvolvedBackends) throws UserException {
         long transactionId = transactionState.getTransactionId();
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
@@ -632,8 +634,8 @@ public class DatabaseTransactionMgr {
                                     tabletVersionFailedReplicas);
 
                             String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
-                                    + " < load required replica num %s. table %s, partition: [ id=%s, commit version %s"
-                                    + ", visible version %s ], this tablet detail: %s",
+                                            + " < load required replica num %s. table %s, partition: [ id=%s, commit version %s"
+                                            + ", visible version %s ], this tablet detail: %s",
                                     transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
                                     partition.getId(), partition.getCommittedVersion(), partition.getVisibleVersion(),
                                     writeDetail);
@@ -732,7 +734,7 @@ public class DatabaseTransactionMgr {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
                                     + "] check schema compatibility failed, partial update can't commit with"
-                                            + " old schema sucessfully .");
+                                    + " old schema sucessfully .");
                         }
                     }
                 }
@@ -742,7 +744,7 @@ public class DatabaseTransactionMgr {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
                                     + "] check schema compatibility failed, partial update can't commit with"
-                                            + " old schema sucessfully .");
+                                    + " old schema sucessfully .");
                         }
                     }
                 }
@@ -760,7 +762,7 @@ public class DatabaseTransactionMgr {
      * 6. update nextVersion because of the failure of persistent transaction resulting in error version
      */
     public void commitTransaction(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
-                                  TxnCommitAttachment txnCommitAttachment, Boolean is2PC)
+            TxnCommitAttachment txnCommitAttachment, Boolean is2PC)
             throws UserException {
         // check status
         // the caller method already own tables' write lock
@@ -1202,13 +1204,13 @@ public class DatabaseTransactionMgr {
                 if (partition == null) {
                     partitionCommitInfoIterator.remove();
                     LOG.warn("partition {} is dropped, skip version check"
-                                    + " and remove it from transaction state {}", partitionId, transactionState);
+                            + " and remove it from transaction state {}", partitionId, transactionState);
                     continue;
                 }
                 if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("for table {} partition {}, transactionId {} partition commitInfo version {} is not"
-                                                + " equal with partition visible version {} plus one, need wait",
+                                        + " equal with partition visible version {} plus one, need wait",
                                 table.getId(), partition.getId(), transactionState.getTransactionId(),
                                 partitionCommitInfo.getVersion(), partition.getVisibleVersion());
                     }
@@ -1434,8 +1436,8 @@ public class DatabaseTransactionMgr {
     }
 
     protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
-                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+            Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
+            Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1481,8 +1483,8 @@ public class DatabaseTransactionMgr {
     }
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
-                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+            Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
+            Database db) {
         checkBeforeUnprotectedCommitTransaction(transactionState, errorReplicaIds);
 
         for (long tableId : tableToPartition.keySet()) {
@@ -2267,19 +2269,22 @@ public class DatabaseTransactionMgr {
             long tableVersion = tableCommitInfo.getVersion();
             long tableVersionTime = tableCommitInfo.getVersionTime();
             table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
+            // TODO: 2024/5/8 partitionNames
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(EventType.DATA_CHANGE, db.getCatalog().getId(), db.getId(), tableId, null));
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         tableIdToTotalNumDeltaRows
-                        .forEach((tableId, numRows) -> {
-                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                            if (table != null) {
-                                short replicaNum = table.getTableProperty()
-                                        .getReplicaAllocation()
-                                        .getTotalReplicaNum();
-                                tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
-                            }
-                        });
+                .forEach((tableId, numRows) -> {
+                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                    if (table != null) {
+                        short replicaNum = table.getTableProperty()
+                                .getReplicaAllocation()
+                                .getTotalReplicaNum();
+                        tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
+                    }
+                });
         if (LOG.isDebugEnabled()) {
             LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
         }
@@ -2391,7 +2396,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
-        boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
+        boolean shouldAddTableListLock = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
         Database db = null;
         List<? extends TableIf> tableList = null;
@@ -2413,7 +2418,7 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
             LOG.info("replay a {} transaction {}",
-                     transactionState.getTransactionStatus(), transactionState);
+                    transactionState.getTransactionStatus(), transactionState);
             if (shouldAddTableListLock) {
                 MetaLockUtils.writeUnlockTables(tableList);
             }
@@ -2555,7 +2560,7 @@ public class DatabaseTransactionMgr {
         if (CollectionUtils.isEmpty(tableIds)) {
             return;
         }
-        //idToRunningTransactionState.get(transactionId).
+        // idToRunningTransactionState.get(transactionId).
         if (null == idToRunningTransactionState.get(transactionId)) {
             return;
         }

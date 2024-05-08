@@ -44,6 +44,12 @@ public class BaseTableInfo {
         this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
     }
 
+    public BaseTableInfo(Long tableId, Long dbId, Long ctlId) {
+        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
+        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
+        this.ctlId = java.util.Objects.requireNonNull(ctlId, "ctlId is null");
+    }
+
     public BaseTableInfo(TableIf table) {
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
@@ -210,9 +211,21 @@ public class MTMVJobManager implements MTMVHookService {
         job.cancelTaskById(info.getTaskId());
     }
 
+    // TODO: 2024/5/8 change name
+    public void processEvent(MTMV mtmv) throws DdlException, JobException {
+        MTMVJob job = getJobByMTMV(mtmv);
+        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(),
+                false);
+        Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
+    }
+
     private MTMVJob getJobByTableNameInfo(TableNameInfo info) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDb());
         MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getTbl(), TableType.MATERIALIZED_VIEW);
+        return getJobByMTMV(mtmv);
+    }
+
+    private MTMVJob getJobByMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
                 .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {

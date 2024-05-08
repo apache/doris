@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.event.Event;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -55,7 +56,7 @@ public class MTMVRelationManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVRelationManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
-    private Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
+    public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
     }
 
