@@ -157,12 +157,14 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
             if (channel->is_local()) {
-                _local_channels_dependency.push_back(channel->get_local_channel_dependency());
-                DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                _wait_channel_timer.push_back(_profile->add_nonzero_counter(
-                        fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                        timer_name, 1));
-                dep_id++;
+                if (auto dep = channel->get_local_channel_dependency()) {
+                    _local_channels_dependency.push_back(dep);
+                    DCHECK(_local_channels_dependency[dep_id] != nullptr);
+                    _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+                            fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
+                            timer_name, 1));
+                    dep_id++;
+                }
             }
         }
     }
