@@ -85,8 +85,11 @@ public:
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
+    // Used iff PFragmentRequestVersion = VERSION_4
     Status prepare(const doris::TPipelineFragmentParams& request,
                    const TQueryOptions& query_options);
+    // Used iff PFragmentRequestVersion = VERSION_3
+    Status prepare(const doris::TPipelineFragmentParams& request);
 
     Status submit();
 

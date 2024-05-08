@@ -927,7 +927,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                       this, std::placeholders::_1, std::placeholders::_2));
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        auto prepare_st = context->prepare(params, params.query_options);
+        auto prepare_st = context->prepare(params);
         if (!prepare_st.ok()) {
             context->close_if_prepare_failed(prepare_st);
             query_ctx->set_execution_dependency_ready();
