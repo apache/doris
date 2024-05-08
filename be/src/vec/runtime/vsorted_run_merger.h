@@ -61,7 +61,7 @@ public:
 
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
-
+    Status VSortedRunMerger::get_next_data(Block* output_block, bool* eos);
     void set_pipeline_engine_enabled(bool value) { _pipeline_engine_enabled = value; }
 
 protected:
