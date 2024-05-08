@@ -267,15 +267,18 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
+option(ENABLE_HDFS "Enable HDFS support" ON)
+if (ENABLE_HDFS)
+    if ("${DORIS_JAVA_HOME}" STREQUAL "")
+        set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+    endif()
 
-include_directories(${DORIS_JAVA_HOME}/include)
-if (NOT OS_MACOSX)
-    include_directories(${DORIS_JAVA_HOME}/include/linux)
-else()
-    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
 endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
@@ -287,25 +290,28 @@ set(DORIS_LINK_LIBS
     ${WL_END_GROUP}
 )
 
-if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
+if (ENABLE_HDFS)
+    add_definitions(-DENABLE_HDFS)
+    if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
+        add_library(hadoop_hdfs STATIC IMPORTED)
+        set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
 
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hadoop_hdfs
-    )
-    add_definitions(-DUSE_HADOOP_HDFS)
-else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
+        set(COMMON_THIRDPARTY
+            ${COMMON_THIRDPARTY}
+            hadoop_hdfs
+        )
+        add_definitions(-DUSE_HADOOP_HDFS)
+    else()
+        add_library(hdfs3 STATIC IMPORTED)
+        set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
 
-    # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
-    add_definitions(-DUSE_LIBHDFS3)
+        # TODO: use arm hadoop hdfs to replace this
+        set(COMMON_THIRDPARTY
+            ${COMMON_THIRDPARTY}
+            hdfs3
+        )
+        add_definitions(-DUSE_LIBHDFS3)
+    endif()
 endif()
 
 set(DORIS_DEPENDENCIES
@@ -316,10 +322,6 @@ set(DORIS_DEPENDENCIES
 )
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
-
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
 
 # Add all external dependencies. They should come after the project's libs.
 # static link gcc's lib
@@ -337,9 +339,12 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libgcc
     -lstdc++fs
     -lresolv
-    -L${DORIS_JAVA_HOME}/lib/server
-    -ljvm
 )
+if (ENABLE_HDFS)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -L${DORIS_JAVA_HOME}/lib/server
+        -ljvm)
+endif()
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)

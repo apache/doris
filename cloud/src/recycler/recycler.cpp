@@ -34,7 +34,9 @@
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "recycler/checker.h"
+#ifdef EANBLE_HDFS
 #include "recycler/hdfs_accessor.h"
+#endif
 #include "recycler/s3_accessor.h"
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
@@ -506,6 +508,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
                 return -1;
             }
 
+#ifdef ENABLE_HDFS
             if (vault.has_hdfs_info()) {
                 auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
                 ret = accessor->init();
@@ -517,6 +520,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
 
                 accessor_map_.emplace(vault.id(), std::move(accessor));
             }
+#endif
             // TODO: more vault type
 
             if (!it->has_next()) {

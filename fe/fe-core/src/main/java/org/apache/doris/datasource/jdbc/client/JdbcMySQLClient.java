@@ -55,7 +55,8 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
             if (rs.next()) {
                 String versionComment = rs.getString("Value");
-                isDoris = versionComment.toLowerCase().contains("doris");
+                isDoris = versionComment.toLowerCase().contains("doris")
+                        || versionComment.toLowerCase().contains("selectdb");
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();

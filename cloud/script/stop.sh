@@ -23,7 +23,7 @@ DORIS_HOME="$(
 
 cd "${DORIS_HOME}" || exit 1
 
-process=doris_cloud
+process=selectdb_cloud
 
 if [[ ! -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     echo "no ${process}.pid found, process may have been stopped"

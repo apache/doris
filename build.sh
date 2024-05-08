@@ -159,7 +159,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
-BUILD_UI=1
+BUILD_UI=0
 if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
@@ -648,6 +648,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DENABLE_HDFS=OFF \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
@@ -667,6 +668,89 @@ if [[ "${BUILD_DOCS}" = "ON" ]]; then
     cd "${DORIS_HOME}/docs"
     ./build_help_zip.sh
     cd "${DORIS_HOME}"
+fi
+
+function md5sum_func() {
+    local FILENAME="$1"
+    local MD5SUM="$2"
+    local md5
+
+    md5="$(md5sum "${FILENAME}")"
+    if [[ "${md5}" != "${MD5SUM}  ${FILENAME}" ]]; then
+        echo "${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
+    fi
+    return 0
+}
+
+function build_jdbc_driver() {
+    echo "Build jdbc driver"
+    # download jdbc rivers
+    JDBC_DRIVER_URL=${JDBC_DRIVER_URL:-"https://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/release/jdbc_driver"}
+    JDBC_DRIVERS_DIR="${DORIS_THIRDPARTY}/src/jdbc_drivers/"
+    mkdir -p ${JDBC_DRIVERS_DIR}
+
+    local driver_array=(\
+    clickhouse-jdbc-0.3.2-patch11-all.jar \
+    mssql-jdbc-11.2.0.jre8.jar \
+    mysql-connector-java-8.0.25.jar \
+    ojdbc6.jar \
+    postgresql-42.5.0.jar)
+
+    local driver_md5_array=(\
+    9be22a93267dc4b066e0a3aefc2dd024 \
+    b204274eb02a848ac405961e6f43e7bd \
+    fdf55dcef04b09f2eaf42b75e61ccc9a \
+    621a393d7be9ff0f2fec6fbba2c8f9b6 \
+    20c8228267b6c9ce620fddb39467d3eb)
+
+    local i=0
+    for ((i=0; i<${#driver_array[@]}; i++)); do
+        local driver="${driver_array[i]}"
+        local dirver_md5=${driver_md5_array[${i}]}
+
+        # driver path in local file system
+        local driver_path=${DORIS_THIRDPARTY}/src/jdbc_drivers/${driver}
+        local driver_url=${JDBC_DRIVER_URL}/${driver}
+        echo "index: ${i}, dirver: ${driver} md5: ${dirver_md5}"
+
+        local status=1
+        for attemp in 1 2; do
+            if [[ -r "${driver_path}" ]]; then
+                if md5sum_func ${driver_path} ${dirver_md5}; then
+                    echo "Archive ${driver} already exist."
+                    status=0
+                    break
+                fi
+                echo "Archive ${driver} will be removed and download again."
+                rm -f "${driver_path}"
+            else
+                echo "Downloading ${driver} from ${driver_url} to ${driver_path}"
+                if wget --no-check-certificate -q "${driver_url}" -O "${driver_path}"; then
+                     if md5sum_func ${driver_path} ${dirver_md5}; then
+                        status=0
+                        echo "Success to download ${driver}"
+                        break
+                    fi
+                    echo "Archive ${driver} will be removed and download again."
+                    rm -f "${driver_path}"
+                else
+                    echo "Failed to download ${driver}. attemp: ${attemp}"
+                fi
+            fi
+        done
+
+        if [[ "${status}" -ne 0 ]]; then
+            echo "Failed to download ${driver}"
+            exit 1
+        fi
+    done
+}
+
+BUILD_JDBC_DRIVER=${BUILD_JDBC_DRIVER:-"ON"}
+if [[ "x${BUILD_JDBC_DRIVER}" = "xON" ]]; then
+    build_jdbc_driver
 fi
 
 function build_ui() {
@@ -755,6 +839,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
     mkdir -p "${DORIS_OUTPUT}/fe/connectors"
+
+    rm -rf "${DORIS_OUTPUT}/fe/jdbc_drivers"
+    if [[ "x${BUILD_JDBC_DRIVER}" = "xON" ]]; then
+        cp -rf "${DORIS_THIRDPARTY}/src/jdbc_drivers" "${DORIS_OUTPUT}/fe"/
+    fi
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -878,6 +967,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/log/tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/connectors"
+
+    rm -rf "${DORIS_OUTPUT}/be/jdbc_drivers"
+    if [[ "x${BUILD_JDBC_DRIVER}" = "xON" ]]; then
+        cp -rf "${DORIS_THIRDPARTY}/src/jdbc_drivers" "${DORIS_OUTPUT}/be"/
+    fi
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then
@@ -893,10 +987,9 @@ fi
 
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
-    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
-    fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
+    ln -srf "${DORIS_HOME}/output/ms/lib/doris_cloud" "${DORIS_HOME}/output/ms/lib/selectdb_cloud"
+    mv "${DORIS_HOME}/output/ms/conf/doris_cloud.conf" "${DORIS_HOME}/output/ms/conf/selectdb_cloud.conf"
 fi
 
 echo "***************************************"

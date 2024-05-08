@@ -25,6 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
@@ -153,6 +154,25 @@ public final class MetricRepo {
         if (isInit) {
             return;
         }
+
+        // version
+        GaugeMetric<Long> feVersion = new GaugeMetric<Long>("version", MetricUnit.NOUNIT, "") {
+            @Override
+            public Long getValue() {
+                try {
+                    return Long.parseLong("" + Version.DORIS_BUILD_VERSION_MAJOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_MINOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_PATCH
+                                            + (Version.DORIS_BUILD_VERSION_HOTFIX > 0
+                                                ? ("0" + Version.DORIS_BUILD_VERSION_HOTFIX)
+                                                : ""));
+                } catch (Throwable t) {
+                    LOG.warn("failed to init version metrics", t);
+                    return 0L;
+                }
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(feVersion);
 
         // load jobs
         for (EtlJobType jobType : EtlJobType.values()) {
