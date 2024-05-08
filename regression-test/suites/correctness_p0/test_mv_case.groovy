@@ -39,7 +39,6 @@ suite("test_mv_case") {
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}' ;"""
     qt_select_default """ select * from test_table_aaa2 order by dnt;"""
 
-    sql """set enable_nereids_planner=false;"""
     sql """drop table if exists test_mv_view_t;"""
     sql """drop view if exists test_mv_view_t_view;"""
     sql """CREATE TABLE `test_mv_view_t` (

@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_inlineview_with_lateralview") {
-    sql "set enable_nereids_planner=false"
     sql """
         drop table if exists lateralview_t1;
     """

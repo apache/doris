@@ -32,7 +32,7 @@ suite("redundant_conjuncts") {
     """
     
     qt_redundant_conjuncts """
-    EXPLAIN SELECT /*+SET_VAR(enable_nereids_planner=false, REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=2, parallel_fragment_exec_instance_num = 1, enable_shared_scan = false) */ v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+    EXPLAIN SELECT /*+SET_VAR(REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=2, parallel_fragment_exec_instance_num = 1, enable_shared_scan = false) */ v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
     """
 
     qt_redundant_conjuncts_gnerated_by_extract_common_filter """
