@@ -2117,8 +2117,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
-    } else {
+
         LOG(ERROR) << "yangsiyu: ------ 2 -------: " << block->rows();
+    } else {
+        LOG(ERROR) << "yangsiyu: ------ 3 -------: " << block->rows();
 
         uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
