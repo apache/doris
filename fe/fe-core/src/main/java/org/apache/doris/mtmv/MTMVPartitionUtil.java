@@ -156,8 +156,6 @@ public class MTMVPartitionUtil {
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
             service.apply(mvPartitionInfo, mvProperties, result);
         }
-        LOG.warn("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
-                System.currentTimeMillis() - start, mvPartitionInfo);
         if (LOG.isDebugEnabled()) {
             LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
                     System.currentTimeMillis() - start, mvPartitionInfo);
