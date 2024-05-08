@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -175,7 +176,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!this.rwLock.writeLock().tryLock(timeout, unit)) {
+                Thread owner = this.rwLock.getOwner();
+                if (owner != null) {
+                    LOG.info("database[{}] lock is held by: {}", getName(), Util.dumpThread(owner, 10));
+                }
+                return false;
+            }
+            return true;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
