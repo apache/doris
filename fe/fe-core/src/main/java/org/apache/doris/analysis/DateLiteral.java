@@ -426,6 +426,9 @@ public class DateLiteral extends LiteralExpr {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
             } else {
+                if (s.contains("T")) {
+                    s = s.replace("T", " ");
+                }
                 String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
                 if (datePart.length != 3) {

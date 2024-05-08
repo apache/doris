@@ -217,6 +217,14 @@ public class RewriteDateLiteralRuleTest {
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03- 03 23:33:55' from " + DB_NAME + ".tb1";
         plainString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(plainString.contains("NULL"));
+
+        query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME  + ".tb1 where k1 > '2024-05-07T11:14:31'";
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains(
+                    "Incorrect datetime value: CAST('2024-05-07T11:14:31' AS DATETIMEV2(0)) in expression: (`k1` > CAST('2024-05-07T11:14:31' AS DATETIMEV2(0)))"));
+        }
     }
 
     public void testWithInvalidFormatDateV2() throws Exception {
