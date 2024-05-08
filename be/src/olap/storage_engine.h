@@ -233,6 +233,8 @@ public:
 
     std::set<string> get_broken_paths() { return _broken_paths; }
 
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -478,6 +480,8 @@ private:
     std::map<TStorageMedium::type, int> _last_use_index;
 
     std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
+
+    int64_t _memory_limitation_bytes_for_schema_change;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
