@@ -91,8 +91,8 @@ void VOrcOutputStream::write(const void* data, size_t length) {
         Status st = _file_writer->append({static_cast<const uint8_t*>(data), length});
         if (!st.ok()) {
             LOG(WARNING) << "Write to ORC file failed: " << st;
-            // When a write error occurs, 
-            // the error needs to be thrown to the upper layer. 
+            // When a write error occurs,
+            // the error needs to be thrown to the upper layer.
             // so that fe can get the exception.
             throw std::runtime_error(st.to_string());
         }
