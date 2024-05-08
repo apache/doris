@@ -185,10 +185,6 @@ public:
                _query_options.enable_common_expr_pushdown_for_inverted_index;
     };
 
-    bool enable_faster_float_convert() const {
-        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
-    }
-
     Status query_status();
 
     // Appends error to the _error_log if there is space
