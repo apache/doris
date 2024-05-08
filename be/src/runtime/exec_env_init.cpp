@@ -486,11 +486,18 @@ Status ExecEnv::_init_mem_env() {
     if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
         segment_cache_capacity = fd_number * 2 / 5;
     }
+
+    int64_t segment_cache_mem_limit =
+            MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
+    // config::segment_cache_memory_percentage;
+    int64_t min_segment_cache_mem_limit =
+            min(segment_cache_mem_limit, segment_cache_capacity *
+                                                 config::estimated_num_columns_per_segment *
+                                                 config::estimated_mem_per_column_reader);
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
-              << " segment_cache_capacity: " << segment_cache_capacity;
-    _segment_loader =
-            new SegmentLoader(segment_cache_capacity * config::estimated_num_columns_per_segment *
-                              config::estimated_mem_per_column_reader);
+              << " segment_cache_capacity: " << segment_cache_capacity
+              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 

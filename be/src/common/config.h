@@ -1101,6 +1101,7 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 DECLARE_mInt32(segment_cache_capacity);
 DECLARE_mInt32(estimated_num_columns_per_segment);
 DECLARE_mInt32(estimated_mem_per_column_reader);
+DECLARE_Int32(segment_cache_memory_percentage);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
