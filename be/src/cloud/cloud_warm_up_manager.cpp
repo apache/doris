@@ -51,15 +51,19 @@ CloudWarmUpManager::~CloudWarmUpManager() {
 
 void CloudWarmUpManager::handle_jobs() {
 #ifndef BE_TEST
+    constexpr int WAIT_TIME_SECONDS = 600;
     while (true) {
-        JobMeta* cur_job = nullptr;
+        JobMeta cur_job;
         {
             std::unique_lock lock(_mtx);
             _cond.wait(lock, [this]() { return _closed || !_pending_job_metas.empty(); });
             if (_closed) break;
-            cur_job = &_pending_job_metas.front();
+            cur_job = std::move(_pending_job_metas.front());
         }
-        for (int64_t tablet_id : cur_job->tablet_ids) {
+        for (int64_t tablet_id : cur_job.tablet_ids) {
+            if (_cur_job_id == 0) { // The job is canceled
+                break;
+            }
             auto res = _engine.tablet_mgr().get_tablet(tablet_id);
             if (!res.has_value()) {
                 LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
@@ -114,13 +118,15 @@ void CloudWarmUpManager::handle_jobs() {
                             });
                 }
             }
-            if (!wait->wait()) {
+            timespec time;
+            time.tv_sec = UnixSeconds() + WAIT_TIME_SECONDS;
+            if (!wait->timed_wait(time)) {
                 LOG_WARNING("Warm up tablet {} take a long time", tablet_meta->tablet_id());
             }
         }
         {
             std::unique_lock lock(_mtx);
-            _finish_job.push_back(std::move(*cur_job));
+            _finish_job.push_back(std::move(cur_job));
             _pending_job_metas.pop_front();
         }
     }
