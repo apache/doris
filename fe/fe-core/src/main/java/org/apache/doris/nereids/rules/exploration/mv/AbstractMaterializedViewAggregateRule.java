@@ -235,8 +235,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
-        List<Expression> queryExpressions = new ArrayList<>(queryTopPlan.getOutput());
-        queryExpressions.addAll(queryChildrenGroupBySet);
+        List<? extends Expression> queryExpressions = queryTopPlan.getOutput();
         // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
                 materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQuerySlotMapping)
@@ -280,14 +279,32 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
                 NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
                         ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-                if (!queryChildrenGroupBySet.contains(topExpression)) {
-                    finalOutputExpressions.add(groupByExpression);
-                }
+                finalOutputExpressions.add(groupByExpression);
                 finalGroupExpressions.add(groupByExpression);
             }
         }
         // add project to guarantee group by column ref is slot reference,
         // this is necessary because physical createHash will need slotReference later
+        for (Expression expression : queryChildrenGroupBySet) {
+            Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
+                    expression, queryTopPlan, queryStructInfo.getTableBitSet());
+            AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
+                    mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
+            // group by expression maybe group by a + b, so we need expression rewriter
+            Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
+                    context);
+            if (!context.isValid()) {
+                // group expr can not rewrite by view
+                materializationContext.recordFailReason(queryStructInfo,
+                        "View dimensions doesn't not cover the query dimensions in bottom agg ",
+                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
+                return null;
+            }
+            NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                    ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+            finalGroupExpressions.add(groupByExpression);
+        }
         List<Expression> copiedFinalGroupExpressions = new ArrayList<>(finalGroupExpressions);
         List<NamedExpression> projectsUnderAggregate = copiedFinalGroupExpressions.stream()
                 .map(NamedExpression.class::cast)
