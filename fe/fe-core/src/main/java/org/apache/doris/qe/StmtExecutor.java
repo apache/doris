@@ -3127,8 +3127,6 @@ public class StmtExecutor {
         try {
             if (sessionVariable.isEnableNereidsPlanner()) {
                 try {
-                    // disable shuffle for http stream (only 1 sink)
-                    sessionVariable.disableStrictConsistencyDmlOnce();
                     httpStreamParams = generateHttpStreamNereidsPlan(queryId);
                 } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
