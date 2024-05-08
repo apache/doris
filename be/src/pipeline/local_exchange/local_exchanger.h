@@ -84,9 +84,13 @@ struct ShuffleBlockWrapper {
 };
 
 class ShuffleExchanger : public Exchanger {
-    using PartitionedBlock =
-            std::pair<std::shared_ptr<ShuffleBlockWrapper>,
-                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
+    struct PartitionedRowIdxs {
+        std::shared_ptr<vectorized::PODArray<uint32_t>> row_idxs;
+        uint32_t offset_start;
+        uint32_t length;
+    };
+
+    using PartitionedBlock = std::pair<std::shared_ptr<ShuffleBlockWrapper>, PartitionedRowIdxs>;
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
