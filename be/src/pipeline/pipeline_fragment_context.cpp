@@ -707,28 +707,46 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join ? _total_instances : _num_instances);
+                is_shuffled_hash_join ? _total_instances : _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
-                ignore_data_hash_distribution);
+                ignore_data_hash_distribution,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASSTHROUGH:
-        shared_state->exchanger =
-                PassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = PassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BROADCAST:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
-        shared_state->exchanger =
-                AdaptivePassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
