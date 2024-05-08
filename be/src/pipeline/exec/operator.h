@@ -50,20 +50,6 @@ class AsyncResultWriter;
 
 namespace doris::pipeline {
 
-/**
- * State of source operator.
- *                      |------> MORE_DATA ------|
- *                      |         ^    |         |
- * DEPEND_ON_SOURCE ----|         |----|         |----> FINISHED
- *    ^       |         |------------------------|
- *    |-------|
- */
-enum class SourceState : uint8_t {
-    DEPEND_ON_SOURCE = 0, // Need more data from source.
-    MORE_DATA = 1,        // Has more data to output. (e.g. RepeatNode)
-    FINISHED = 2
-};
-
 class OperatorBase;
 class OperatorXBase;
 class DataSinkOperatorXBase;
@@ -79,10 +65,10 @@ using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
-    const std::vector<TScanRangeParams> scan_ranges;
+    const std::vector<TScanRangeParams>& scan_ranges;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const int task_idx;
 };
 
@@ -92,8 +78,8 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const TDataSink& tsink;
 };
 
@@ -891,9 +877,9 @@ public:
     using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency = std::make_shared<FinishDependency>(
-                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-                state->get_query_ctx());
+        _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                          parent->get_name() + "_FINISH_DEPENDENCY",
+                                                          true, state->get_query_ctx());
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

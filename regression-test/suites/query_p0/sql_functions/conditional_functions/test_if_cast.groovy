@@ -16,24 +16,10 @@
 // under the License.
 
 suite("test_if_cast") {
-    // test old planner
-    sql "set enable_nereids_planner=false"
     qt_select """ select if(job_d is null, cast(array() as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
     qt_select """ select if(job_d is null, cast(array(null) as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
     qt_select """ select if(job_d is null, cast(array('1970-01-01') as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
     qt_select """ select if(job_d is null, job_d, cast(array() as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
     qt_select """ select if(job_d is null, job_d, cast(array('1970-01-01') as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
     qt_select """ select if(job_d is null, job_d, cast(array(null) as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-
-    // test new planner
-    sql "set enable_nereids_planner=true"
-    sql "set enable_fallback_to_original_planner = false"
-    qt_select_nereid """ select if(job_d is null, cast(array() as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-    qt_select_nereid """ select if(job_d is null, cast(array(null) as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-    qt_select_nereid """ select if(job_d is null, cast(array('1970-01-01') as array<varchar(10)>), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-    qt_select_nereid """ select if(job_d is null, job_d, cast(array() as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-    qt_select_nereid """ select if(job_d is null, job_d, cast(array('1970-01-01') as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-    qt_select_nereid """ select if(job_d is null, job_d, cast(array(null) as array<varchar(10)>)) as test from (select array('1970-01-01', '1970-01-01') as job_d) t; """
-
-
 }

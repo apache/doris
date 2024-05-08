@@ -120,7 +120,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             long rowsToSample = pair.second;
             Map<String, String> params = new HashMap<>();
             params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+            params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
             params.put("catalogId", String.valueOf(catalog.getId()));
             params.put("catalogName", catalog.getName());
             params.put("dbId", String.valueOf(db.getId()));
@@ -217,7 +217,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));

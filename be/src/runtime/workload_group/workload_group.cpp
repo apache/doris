@@ -112,7 +112,7 @@ int64_t WorkloadGroup::memory_used() {
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
-            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
+            used_memory += tracker->consumption();
         }
     }
     return used_memory;
@@ -477,7 +477,7 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 }
 
 void WorkloadGroup::try_stop_schedulers() {
-    std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
     }

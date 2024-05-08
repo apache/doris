@@ -19,14 +19,14 @@
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <string>
 
 #include "common/logging.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/workload_group/workload_group.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
 TaskQueue::~TaskQueue() = default;
 
@@ -139,7 +139,7 @@ int PriorityTaskQueue::task_size() {
 MultiCoreTaskQueue::~MultiCoreTaskQueue() = default;
 
 MultiCoreTaskQueue::MultiCoreTaskQueue(size_t core_size) : TaskQueue(core_size), _closed(false) {
-    _prio_task_queue_list.reset(new PriorityTaskQueue[core_size]);
+    _prio_task_queue_list = std::make_unique<PriorityTaskQueue[]>(core_size);
 }
 
 void MultiCoreTaskQueue::close() {
@@ -211,5 +211,4 @@ void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
                                                                      time_spent);
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

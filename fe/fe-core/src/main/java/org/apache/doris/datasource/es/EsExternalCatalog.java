@@ -136,14 +136,7 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (db != null && db.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            db.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return esRestClient.listTable(enableIncludeHiddenIndex());
-        }
+        return esRestClient.listTable(enableIncludeHiddenIndex());
     }
 
     @Override

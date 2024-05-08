@@ -138,14 +138,14 @@ class FunctionalDependenciesTest extends TestWithFeService {
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUniform(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id, uni.id from agg full outer join uni "
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id from agg left outer join uni "
@@ -298,8 +298,10 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .analyze("select name from agg where id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutputSet()));
     }
 
     @Test

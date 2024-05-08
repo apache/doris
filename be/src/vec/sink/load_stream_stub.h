@@ -104,7 +104,7 @@ private:
     std::weak_ptr<LoadStreamStub> _stub;
 };
 
-class LoadStreamStub {
+class LoadStreamStub : public std::enable_shared_from_this<LoadStreamStub> {
     friend class LoadStreamReplyHandler;
 
 public:
@@ -125,8 +125,7 @@ public:
             ~LoadStreamStub();
 
     // open_load_stream
-    Status open(std::shared_ptr<LoadStreamStub> self,
-                BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
+    Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
                 int64_t idle_timeout_ms, bool enable_profile);

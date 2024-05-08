@@ -115,30 +115,8 @@ public class FunctionCallExpr extends Expr {
                 return returnType;
             }
         };
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
-            } else if (children.size() == 2) {
-                Preconditions.checkArgument(children.get(1) instanceof IntLiteral
-                        || (children.get(1) instanceof CastExpr
-                                && children.get(1).getChild(0) instanceof IntLiteral),
-                        "2nd argument of function round/floor/ceil must be literal");
-                if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
-                    children.get(1).getChild(0).setType(children.get(1).getType());
-                    children.set(1, children.get(1).getChild(0));
-                } else {
-                    children.get(1).setType(Type.INT);
-                }
-                int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
-            } else {
-                return returnType;
-            }
-        };
 
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> truncateRule = (children, returnType) -> {
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
@@ -268,7 +246,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("dround", roundRule);
         PRECISION_INFER_RULE.put("dceil", roundRule);
         PRECISION_INFER_RULE.put("dfloor", roundRule);
-        PRECISION_INFER_RULE.put("truncate", truncateRule);
+        PRECISION_INFER_RULE.put("truncate", roundRule);
     }
 
     public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION = new ImmutableSortedSet.Builder(
