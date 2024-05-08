@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPaimonDeleteFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -136,8 +135,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setTblId(source.getTargetTable().getId());
         fileDesc.setLastUpdateTime(source.getTargetTable().getLastUpdateTime());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
-        if(optDeletionFile.isPresent()) {
-            fileDesc.setDeleteFile(optDeletionFile.get());
+        if (optDeletionFile.isPresent()) {
+            DeletionFile deletionFile = optDeletionFile.get();
+            fileDesc.setDeleteFileIsSet(true);
+            fileDesc.delete_file.setPath(deletionFile.path());
+            fileDesc.delete_file.setOffset(deletionFile.offset());
+            fileDesc.delete_file.setLength(deletionFile.length());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
@@ -147,7 +150,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     public List<Split> getSplits() throws UserException {
         boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
         List<Split> splits = new ArrayList<>();
-    int[] projected = desc.getSlots().stream().mapToInt(
+        int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
                 .toArray();
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
@@ -274,6 +277,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%spaimonNativeReadSplits=%d/%d\n",
-                prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
+                        prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
     }
 }

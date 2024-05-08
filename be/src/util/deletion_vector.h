@@ -21,26 +21,31 @@
 
 namespace doris {
 
+// TODO: complete DeletionVector function
 class DeletionVector {
 public:
-    const static uint32_t MAGIC_NUMBER = 1581511376;
-    const static uint32_t MAX_VALUE = std::numeric_limits<uint32_t>::max();
+    // const static uint32_t MAGIC_NUMBER = 1581511376;
+    // const static uint32_t MAX_VALUE = std::numeric_limits<uint32_t>::max();
     DeletionVector() = default;
     DeletionVector(roaring::Roaring roaring_bitmap) : _roaring_bitmap(std::move(roaring_bitmap)) {};
     ~DeletionVector() = default;
 
-    bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
+    // bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
 
     bool is_delete(uint32_t postition) const { return _roaring_bitmap.contains(postition); }
 
     bool is_empty() const { return _roaring_bitmap.isEmpty(); }
 
+    uint32_t maximum() const { return _roaring_bitmap.maximum(); }
+
+    uint32_t minimum() const { return _roaring_bitmap.minimum(); }
+
+    // TODO: handle std::runtime_error
     static DeletionVector deserialize(const char* buf, size_t maxbytes) {
         return {roaring::Roaring::readSafe(buf, maxbytes)};
     }
+
+private:
     roaring::Roaring _roaring_bitmap;
-
-    // private:
 };
-
 } // namespace doris

@@ -30,19 +30,15 @@
 #include <ostream>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
-#include "io/file_factory.h"
-#include "io/fs/file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/delete_vector.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -67,6 +63,7 @@
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
+#include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
@@ -855,6 +852,18 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                std::vector<std::string> place_holder;
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonParquetReader> paimon_reader =
+                        PaimonParquetReader::create_unique(std::move(parquet_reader), *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
@@ -879,42 +888,6 @@ Status VFileScanner::_get_next_reader() {
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
                     unsupported_pushdown_types);
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                auto delete_file = range.table_format_params.paimon_params.delete_file;
-                std::string data_file_path = delete_file.path;
-                io::FileSystemProperties properties;
-                properties.system_type = _params->file_type;
-                properties.properties = _params->properties;
-                properties.hdfs_params = _params->hdfs_params;
-                if (_params->__isset.broker_addresses) {
-                    properties.broker_addresses.assign(_params->broker_addresses.begin(),
-                                                       _params->broker_addresses.end());
-                }
-
-                io::FileDescription file_description;
-                file_description.path = delete_file.path;
-                file_description.file_size = -1;
-                file_description.fs_name = range.fs_name;
-                file_description.mtime = 0;
-                io::FileReaderOptions options = io::FileReaderOptions::DEFAULT;
-                auto delete_file_reader =
-                        FileFactory::create_file_reader(properties, file_description, options);
-                size_t bytes_read = delete_file.length;
-                Slice result;
-                (void)delete_file_reader->get()->read_at(delete_file.offset, result, &bytes_read);
-                auto delete_vector = DeletionVector::deserialize(result.data, result.size);
-                std::vector<int64_t> delete_rows {};
-                uint32_t i = 0;
-                for (auto it = delete_vector._roaring_bitmap.begin();
-                     it != delete_vector._roaring_bitmap.end(); it++) {
-                    if (delete_vector.is_delete(i)) {
-                        delete_rows.push_back(i);
-                    }
-                    i++;
-                }
-                orc_reader->set_position_delete_rowids(&delete_rows);
-            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -942,6 +915,16 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                init_status = orc_reader->init_reader(
+                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonOrcReader> paimon_reader =
+                        PaimonOrcReader::create_unique(std::move(orc_reader), *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
