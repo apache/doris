@@ -230,8 +230,9 @@ public:
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
 
-    static Status update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
-                                                    const RowsetSharedPtr& rowset);
+    static Status update_delete_bitmap_without_lock(
+            const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
+            const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
