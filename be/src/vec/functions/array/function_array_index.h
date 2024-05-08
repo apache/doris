@@ -77,6 +77,7 @@ struct ArrayCountEqual {
 struct ParamValue {
     PrimitiveType type;
     Field value;
+    [[maybe_unused]] bool is_evaled_inverted_idx = false;
 };
 
 template <typename ConcreteAction, bool OldVersion = false>
@@ -135,7 +136,7 @@ public:
         if (is_string_type(param_value->type)) {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
         } else {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),

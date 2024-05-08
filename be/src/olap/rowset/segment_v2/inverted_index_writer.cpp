@@ -394,9 +394,11 @@ public:
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
-                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
                             ts = _analyzer->tokenStream(new_field->name(),
-                                                        _char_string_reader.get());
+                                                        char_string_reader.release());
                             new_field->setValue(ts);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);

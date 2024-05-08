@@ -92,6 +92,7 @@ public enum RuleType {
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
 
     // rewrite rules
+    ARRAY_MATCH_ANY_EXPANDER(RuleTypeClass.REWRITE),
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     NORMALIZE_SORT(RuleTypeClass.REWRITE),
     NORMALIZE_REPEAT(RuleTypeClass.REWRITE),

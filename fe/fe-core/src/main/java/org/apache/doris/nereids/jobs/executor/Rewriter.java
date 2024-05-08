@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
+import org.apache.doris.nereids.rules.expression.rules.ArrayMatchAnyExpander;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -411,6 +412,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                             new CheckMatchExpression(),
+                            new ArrayMatchAnyExpander(),
                             new CheckMultiDistinct(),
                             new CheckAfterRewrite()
                     )
