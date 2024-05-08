@@ -138,8 +138,7 @@ public:
 private:
     std::unordered_map<int64_t, uint32_t> _counts;
 };
-
-// #TODO use template to reduce the Counts memery. Eg: Int do not need use int64_t
+template <typename Ty>
 class Counts {
 public:
     Counts() = default;
@@ -150,7 +149,7 @@ public:
         }
     }
 
-    void increment(int64_t key, uint32_t i) {
+    void increment(Ty key, uint32_t i) {
         auto old_size = _nums.size();
         _nums.resize(_nums.size() + i);
         for (uint32_t j = 0; j < i; ++j) {
@@ -163,7 +162,7 @@ public:
             pdqsort(_nums.begin(), _nums.end());
             size_t size = _nums.size();
             write_binary(size, buf);
-            buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(int64_t) * size);
+            buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(Ty) * size);
         } else {
             // convert _sorted_nums_vec to _nums and do seiralize again
             _convert_sorted_num_vec_to_nums();
@@ -175,7 +174,7 @@ public:
         size_t size;
         read_binary(size, buf);
         _nums.resize(size);
-        auto buff = buf.read(sizeof(int64_t) * size);
+        auto buff = buf.read(sizeof(Ty) * size);
         memcpy(_nums.data(), buff.data, buff.size);
     }
 
@@ -231,7 +230,7 @@ public:
 
 private:
     struct Node {
-        int64_t value;
+        Ty value;
         int array_index;
         int64_t element_index;
 
@@ -265,8 +264,8 @@ private:
         _sorted_nums_vec.clear();
     }
 
-    std::pair<int64_t, int64_t> _merge_sort_and_get_numbers(int64_t target, bool reverse) {
-        int64_t first_number = 0, second_number = 0;
+    std::pair<Ty, Ty> _merge_sort_and_get_numbers(int64_t target, bool reverse) {
+        Ty first_number = 0, second_number = 0;
         size_t count = 0;
         if (reverse) {
             std::priority_queue<Node> max_heap;
@@ -321,8 +320,8 @@ private:
         return {first_number, second_number};
     }
 
-    vectorized::PODArray<int64_t> _nums;
-    std::vector<vectorized::PODArray<int64_t>> _sorted_nums_vec;
+    vectorized::PODArray<Ty> _nums;
+    std::vector<vectorized::PODArray<Ty>> _sorted_nums_vec;
 };
 
 } // namespace doris
