@@ -227,6 +227,10 @@ suite("test_date_function") {
         contains "2024-01-17"
     }
     explain {
+        sql """select * from ${tableName} where test_datetime >= adddate('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
         sql """select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);"""
         contains "2024-02-16"
     }

@@ -118,6 +118,16 @@ public class FEFunctions {
         return daysAdd(date, day);
     }
 
+    @FEFunction(name = "adddate", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral addDateDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @FEFunction(name = "adddate", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral addDateDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
     @FEFunction(name = "years_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsAdd(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
