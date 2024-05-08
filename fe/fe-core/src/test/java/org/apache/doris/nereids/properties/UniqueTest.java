@@ -49,6 +49,7 @@ class UniqueTest extends TestWithFeService {
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test

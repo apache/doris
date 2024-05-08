@@ -3,3 +3,18 @@
 PhysicalOlapTableSink
 --PhysicalEmptyRelation
 
+-- !test_shape_union --
+PhysicalOlapTableSink
+--PhysicalEmptyRelation
+
+-- !test_shape_join --
+PhysicalOlapTableSink
+--PhysicalProject
+----PhysicalEmptyRelation
+
+-- !test_shape_agg_filter_limit --
+PhysicalOlapTableSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+------PhysicalEmptyRelation
+

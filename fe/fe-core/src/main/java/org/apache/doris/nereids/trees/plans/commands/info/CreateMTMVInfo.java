@@ -88,7 +88,7 @@ import java.util.stream.Collectors;
  */
 public class CreateMTMVInfo {
     public static final Logger LOG = LogManager.getLogger(CreateMTMVInfo.class);
-    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE";
+    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION";
     private final boolean ifNotExists;
     private final TableNameInfo mvName;
     private List<String> keys;

@@ -51,6 +51,7 @@ public class PlanVisitorTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("visitor_test");
         useDatabase("visitor_test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable("CREATE TABLE `table1` (\n"
                 + " `c1` varchar(20) NULL,\n"

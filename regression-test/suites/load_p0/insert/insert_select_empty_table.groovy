@@ -36,4 +36,21 @@ suite("insert_select_empty_table") {
         """
     sql "insert into insert_select_empty_table1 select * from insert_select_empty_table2;"
     qt_test_shape "explain shape plan insert into insert_select_empty_table1 select * from insert_select_empty_table2;"
+
+    sql """insert into insert_select_empty_table1 select * from insert_select_empty_table2 
+        union all select * from insert_select_empty_table2"""
+    qt_test_shape_union """explain shape plan insert into insert_select_empty_table1 select * from insert_select_empty_table2 
+        union all select * from insert_select_empty_table2 """
+
+    sql """insert into insert_select_empty_table1 select t1.* from insert_select_empty_table2 t1
+        inner join insert_select_empty_table2 t2 on t1.a=t2.a"""
+    qt_test_shape_join """explain shape plan insert into insert_select_empty_table1 select t1.* from insert_select_empty_table2 t1
+        inner join insert_select_empty_table2 t2 on t1.a=t2.a"""
+
+    sql """
+    insert into insert_select_empty_table1 select pk,a,b from insert_select_empty_table2 where a > 10 group by pk,a,b  limit 10;
+    """
+    qt_test_shape_agg_filter_limit """ explain shape plan
+    insert into insert_select_empty_table1 select pk,a,b from insert_select_empty_table2 where a > 10 group by pk,a,b  limit 10;
+    """
 }

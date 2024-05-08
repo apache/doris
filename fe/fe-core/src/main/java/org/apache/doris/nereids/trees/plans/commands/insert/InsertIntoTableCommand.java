@@ -30,6 +30,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -163,13 +164,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     // return;
                     throw new AnalysisException("group commit is not supported in Nereids now");
                 }
-                if (physicalSink.child(0) instanceof PhysicalEmptyRelation) {
-                    return null;
-                }
+                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
-                insertExecutor = ctx.isTxnModel() ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx)
-                        : new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
+                insertExecutor = ctx.isTxnModel()
+                        ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
+                        : new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
                                 ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
@@ -177,12 +178,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
-                if (physicalSink.child(0) instanceof PhysicalEmptyRelation) {
-                    return null;
-                }
+                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))));
+                        Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert);
                 // set hive query options
             } else {
                 // TODO: support other table types
@@ -210,7 +209,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
-        if (insertExecutor == null) {
+        // if the insert stmt data source is empty, directly return, no need to be executed.
+        if (insertExecutor.isEmptyInsert()) {
             return;
         }
         insertExecutor.executeSingleInsert(executor, jobId);
@@ -228,5 +228,17 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertIntoTableCommand(this, context);
+    }
+
+    private boolean leafIsEmptyRelation(TreeNode<Plan> node) {
+        if (node.children() == null || node.children().isEmpty()) {
+            return node instanceof PhysicalEmptyRelation;
+        }
+        for (TreeNode<Plan> child : node.children()) {
+            if (!leafIsEmptyRelation(child)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

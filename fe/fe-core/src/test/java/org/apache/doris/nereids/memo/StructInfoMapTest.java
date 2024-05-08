@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 class StructInfoMapTest extends SqlTestBase {
     @Test
     void testTableMap() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -60,7 +61,8 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+
+        createMvByNereids("create materialized view  if not exists mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
                 + "        as select T1.id from T1 inner join T2 "
@@ -85,6 +87,7 @@ class StructInfoMapTest extends SqlTestBase {
 
     @Test
     void testLazyRefresh() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -109,7 +112,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view if not exists mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
                 + "        as select T1.id from T1 inner join T2 "
@@ -135,6 +138,7 @@ class StructInfoMapTest extends SqlTestBase {
 
     @Test
     void testTableChild() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select T1.id from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -149,7 +153,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view if not exists mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
                 + "        as select T1.id from T1 inner join T2 "
