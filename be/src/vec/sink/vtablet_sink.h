@@ -229,7 +229,7 @@ public:
 
     Status open_wait();
 
-    Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
+    Status add_block(vectorized::Block* block, const Payload* payload);
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
