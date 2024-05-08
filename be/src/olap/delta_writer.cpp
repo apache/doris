@@ -112,13 +112,8 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status BaseDeltaWriter::append(const vectorized::Block* block) {
-    return write(block, {}, true);
-}
-
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                          bool is_append) {
-    if (UNLIKELY(row_idxs.empty() && !is_append)) {
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+    if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
     _lock_watch.start();
@@ -134,7 +129,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs);
 }
 
 Status BaseDeltaWriter::wait_flush() {
