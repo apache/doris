@@ -237,13 +237,8 @@ Status DeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::append(const vectorized::Block* block) {
-    return write(block, {}, true);
-}
-
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
-                          bool is_append) {
-    if (UNLIKELY(row_idxs.empty() && !is_append)) {
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+    if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
     _lock_watch.start();
@@ -263,12 +258,8 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
                 _req.load_id.hi(), _req.load_id.lo(), _req.txn_id);
     }
 
-    if (is_append) {
-        _total_received_rows += block->rows();
-    } else {
-        _total_received_rows += row_idxs.size();
-    }
-    _mem_table->insert(block, row_idxs, is_append);
+    _total_received_rows += row_idxs.size();
+    _mem_table->insert(block, row_idxs);
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
