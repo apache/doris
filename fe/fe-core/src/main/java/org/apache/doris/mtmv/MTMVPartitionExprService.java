@@ -50,5 +50,11 @@ public interface MTMVPartitionExprService {
             PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
             throws AnalysisException;
 
+    /**
+     * Check if user input is legal
+     *
+     * @param mtmvPartitionInfo
+     * @throws AnalysisException
+     */
     void analyze(MTMVPartitionInfo mtmvPartitionInfo) throws AnalysisException;
 }
