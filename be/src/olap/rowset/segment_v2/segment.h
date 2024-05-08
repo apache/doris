@@ -213,11 +213,11 @@ private:
     uint32_t _segment_id;
     uint32_t _num_rows;
 
-    // only for tracking memory use by segment meta data such as footer or index page.
+    // 1. Tracking memory use by segment meta data such as footer or index page.
+    // 2. Tracking memory use by segment column reader
     // The memory consumed by querying is tracked in segment iterator.
     // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
     // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
     int64_t _meta_mem_usage;
 
     RowsetId _rowset_id;

@@ -1099,7 +1099,8 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_mInt32(segment_cache_capacity);
-DECLARE_mInt32(each_segment_have_columns);
+DECLARE_mInt32(estimated_num_columns_per_segment);
+DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);

@@ -488,7 +488,9 @@ Status ExecEnv::_init_mem_env() {
     }
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
-    _segment_loader = new SegmentLoader(segment_cache_capacity * config::each_segment_have_columns);
+    _segment_loader =
+            new SegmentLoader(segment_cache_capacity * config::estimated_num_columns_per_segment *
+                              config::estimated_mem_per_column_reader);
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
