@@ -347,6 +347,7 @@ Status SegmentIterator::_lazy_init() {
                    << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
                    << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
+    LOG(ERROR) << "yangsiyu bitmap 5: " << _row_bitmap.cardinality();
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
@@ -485,6 +486,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     RETURN_IF_ERROR(_apply_inverted_index());
 
+    LOG(ERROR) << "yangsiyu bitmap 3: " << _row_bitmap.cardinality();
+
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
         auto* query_ctx = _opts.runtime_state->get_query_ctx();
@@ -500,6 +503,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
+
+    LOG(ERROR) << "yangsiyu bitmap 4: " << _row_bitmap.cardinality();
 
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
@@ -2117,6 +2122,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
+    LOG(ERROR) << "yangsiyu rows_read: " << _opts.stats->raw_rows_read << ", " << _current_batch_rows_read;
 
     if (_current_batch_rows_read == 0) {
         for (int i = 0; i < block->columns(); i++) {
