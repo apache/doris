@@ -50,7 +50,7 @@ public:
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _shutdown(false),
-              _name(name),
+              _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
@@ -66,8 +66,8 @@ public:
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
-    std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
-    std::atomic<bool> _shutdown;
+    std::vector<bool> _markers;
+    bool _shutdown;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 

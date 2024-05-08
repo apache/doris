@@ -65,10 +65,10 @@ using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
-    const std::vector<TScanRangeParams> scan_ranges;
+    const std::vector<TScanRangeParams>& scan_ranges;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const int task_idx;
 };
 
@@ -78,8 +78,8 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const TDataSink& tsink;
 };
 

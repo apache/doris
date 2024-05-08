@@ -138,13 +138,12 @@ public:
     }
 
     void set_previous_core_id(int id) {
-        if (id == _previous_schedule_id) {
-            return;
+        if (id != _previous_schedule_id) {
+            if (_previous_schedule_id != -1) {
+                COUNTER_UPDATE(_core_change_times, 1);
+            }
+            _previous_schedule_id = id;
         }
-        if (_previous_schedule_id != -1) {
-            COUNTER_UPDATE(_core_change_times, 1);
-        }
-        _previous_schedule_id = id;
     }
 
     void finalize();
@@ -381,6 +380,7 @@ private:
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
     std::shared_ptr<BasicSharedState> _sink_shared_state;
+    std::vector<TScanRangeParams> _scan_ranges;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _le_state_map;
     int _task_idx;

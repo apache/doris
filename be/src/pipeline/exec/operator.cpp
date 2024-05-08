@@ -418,7 +418,8 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
-            _shared_state = info.le_state_map[_parent->operator_id()].first.get();
+            DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
+            _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
 
             _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
@@ -500,7 +501,8 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
-            _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
+            DCHECK(info.le_state_map.find(_parent->dests_id().front()) != info.le_state_map.end());
+            _dependency = info.le_state_map.at(_parent->dests_id().front()).second.get();
             _shared_state = (SharedState*)_dependency->shared_state();
         } else {
             _shared_state = info.shared_state->template cast<SharedState>();
