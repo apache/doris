@@ -50,6 +50,7 @@ public class MTMVPartitionInfo {
     private String relatedCol;
     @SerializedName("pc")
     private String partitionCol;
+    @SerializedName("expr")
     private Expr expr;
 
     public MTMVPartitionInfo() {
