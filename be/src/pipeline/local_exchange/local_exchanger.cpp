@@ -58,24 +58,19 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
                  _data_queue[local_state._channel_id].try_dequeue(partitioned_block));
         *result_block = mutable_block->to_block();
     };
-    if (_running_sink_operators == 0) {
-        if (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
-            SCOPED_TIMER(local_state._copy_data_timer);
-            mutable_block = vectorized::MutableBlock::create_unique(
-                    partitioned_block.first->data_block.clone_empty());
-            get_data(block);
-        } else {
-            COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-            *eos = true;
-        }
-    } else if (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
+
+    if (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
         SCOPED_TIMER(local_state._copy_data_timer);
         mutable_block = vectorized::MutableBlock::create_unique(
                 partitioned_block.first->data_block.clone_empty());
         get_data(block);
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-        local_state._dependency->block();
+        if (_running_sink_operators == 0) {
+            *eos = true;
+        } else {
+            local_state._dependency->block();
+        }
     }
     return Status::OK();
 }
@@ -95,7 +90,6 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             local_state._partition_rows_histogram[i] +=
                     local_state._partition_rows_histogram[i - 1];
         }
-
         for (int32_t i = rows - 1; i >= 0; --i) {
             (*row_idx)[local_state._partition_rows_histogram[channel_ids[i]] - 1] = i;
             local_state._partition_rows_histogram[channel_ids[i]]--;
@@ -186,20 +180,7 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    if (_running_sink_operators == 0) {
-        if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-            block->swap(next_block);
-            local_state._shared_state->sub_mem_usage(local_state._channel_id,
-                                                     block->allocated_bytes());
-            if (_free_block_limit == 0 ||
-                _free_blocks.size_approx() < _free_block_limit * _num_sources) {
-                _free_blocks.enqueue(std::move(next_block));
-            }
-        } else {
-            COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-            *eos = true;
-        }
-    } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+    if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
         if (_free_block_limit == 0 ||
             _free_blocks.size_approx() < _free_block_limit * _num_sources) {
@@ -208,7 +189,11 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-        local_state._dependency->block();
+        if (_running_sink_operators == 0) {
+            *eos = true;
+        } else {
+            local_state._dependency->block();
+        }
     }
     return Status::OK();
 }
@@ -230,18 +215,15 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
         return Status::OK();
     }
     vectorized::Block next_block;
-    if (_running_sink_operators == 0) {
-        if (_data_queue[0].try_dequeue(next_block)) {
-            *block = std::move(next_block);
-        } else {
-            COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-            *eos = true;
-        }
-    } else if (_data_queue[0].try_dequeue(next_block)) {
+    if (_data_queue[0].try_dequeue(next_block)) {
         *block = std::move(next_block);
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-        local_state._dependency->block();
+        if (_running_sink_operators == 0) {
+            *eos = true;
+        } else {
+            local_state._dependency->block();
+        }
     }
     return Status::OK();
 }
@@ -261,18 +243,15 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
 Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                      LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    if (_running_sink_operators == 0) {
-        if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-            *block = std::move(next_block);
-        } else {
-            COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-            *eos = true;
-        }
-    } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+    if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         *block = std::move(next_block);
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-        local_state._dependency->block();
+        if (_running_sink_operators == 0) {
+            *eos = true;
+        } else {
+            local_state._dependency->block();
+        }
     }
     return Status::OK();
 }
@@ -367,20 +346,7 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, vectorized::
                                                bool* eos,
                                                LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    if (_running_sink_operators == 0) {
-        if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-            block->swap(next_block);
-            if (_free_block_limit == 0 ||
-                _free_blocks.size_approx() < _free_block_limit * _num_sources) {
-                _free_blocks.enqueue(std::move(next_block));
-            }
-            local_state._shared_state->sub_mem_usage(local_state._channel_id,
-                                                     block->allocated_bytes());
-        } else {
-            COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-            *eos = true;
-        }
-    } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+    if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
         if (_free_block_limit == 0 ||
             _free_blocks.size_approx() < _free_block_limit * _num_sources) {
@@ -389,7 +355,11 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, vectorized::
         local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
-        local_state._dependency->block();
+        if (_running_sink_operators == 0) {
+            *eos = true;
+        } else {
+            local_state._dependency->block();
+        }
     }
     return Status::OK();
 }

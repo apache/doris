@@ -118,7 +118,7 @@ protected:
     const bool _ignore_source_data_distribution = false;
 };
 
-class BucketShuffleExchanger : public ShuffleExchanger {
+class BucketShuffleExchanger final : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                            bool ignore_source_data_distribution, int free_block_limit)

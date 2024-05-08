@@ -96,7 +96,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _is_report_on_cancel(true),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
-    _start_time = VecDateTimeValue::local_time();
+    _fragment_watcher.start();
     _query_statistics = std::make_shared<QueryStatistics>();
     _query_ctx->register_query_statistics(_query_statistics);
     _query_thread_context = {_query_ctx->query_id(), query_ctx->query_mem_tracker};
@@ -417,14 +417,11 @@ Status PlanFragmentExecutor::execute() {
     return Status::OK();
 }
 
-bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
+bool PlanFragmentExecutor::is_timeout(timespec now) const {
     if (_timeout_second <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout_second) {
-        return true;
-    }
-    return false;
+    return _fragment_watcher.elapsed_time_seconds(now) > _timeout_second;
 }
 
 void PlanFragmentExecutor::report_profile() {

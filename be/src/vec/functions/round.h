@@ -693,7 +693,6 @@ public:
                                           ? assert_cast<const ColumnConst&>(*column_general.column)
                                                     .get_data_column_ptr()
                                           : column_general.column.get();
-
         ColumnPtr res;
 
         /// potential argument types:
