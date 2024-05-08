@@ -49,8 +49,8 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     io::FileDescription file_description = {
             .path = deletion_file.path,
             .file_size = -1,
-            .fs_name = range.fs_name,
             .mtime = 0,
+            .fs_name = range.fs_name,
     };
 
     // TODO: cache the file in local
