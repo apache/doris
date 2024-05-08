@@ -347,7 +347,6 @@ Status SegmentIterator::_lazy_init() {
                    << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
                    << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
-    LOG(ERROR) << "yangsiyu bitmap 5: " << _row_bitmap.cardinality();
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
@@ -464,9 +463,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 VLOG_DEBUG << "_execute_predicates_except_leafnode_of_andnode expr: "
                            << (*it)->debug_string() << " res: " << res;
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
-                    LOG(ERROR) << "yangsiyu bitmap 1: " << _row_bitmap.cardinality() << ", " << _pred_except_leafnode_of_andnode_evaluate_result[0].cardinality();
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
-                    LOG(ERROR) << "yangsiyu bitmap 2: " << _row_bitmap.cardinality();
                     // Delete expr after it obtains the final result.
                     {
                         std::erase_if(_common_expr_ctxs_push_down,
@@ -486,8 +483,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     RETURN_IF_ERROR(_apply_inverted_index());
 
-    LOG(ERROR) << "yangsiyu bitmap 3: " << _row_bitmap.cardinality();
-
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
         auto* query_ctx = _opts.runtime_state->get_query_ctx();
@@ -503,8 +498,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
-
-    LOG(ERROR) << "yangsiyu bitmap 4: " << _row_bitmap.cardinality();
 
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
@@ -700,9 +693,6 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         RETURN_IF_ERROR(_execute_predicates_except_leafnode_of_andnode(children[i]));
     }
 
-    LOG(ERROR) << "yangsiyu: " << expr->node_type() << ", " << expr->expr_name() << ", "
-               << expr->op() << ", " << expr->fn().name.function_name;
-
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         _column_predicate_info->column_name = expr->expr_name();
@@ -748,31 +738,17 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
                                            size);
         }
-        LOG(ERROR) << "yangsiyu and 1: "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality() << ", "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(1).cardinality();
-
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
-
-        LOG(ERROR) << "yangsiyu and 2: "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality();
     } else if (function_name == "or") {
         if (size < 2) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
                                            size);
         }
-        LOG(ERROR) << "yangsiyu or 1: "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality() << ", "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(1).cardinality();
-
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
-
-        LOG(ERROR) << "yangsiyu or 2: "
-                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality();
     } else if (function_name == "not") {
         if (size < 1) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 1", function_name,
@@ -2108,7 +2084,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _init_current_block(block, _current_return_columns);
 
     _current_batch_rows_read = 0;
-    uint32_t nrows_read_limit = _opts.block_row_max;
+    uint32_t nrows_read_limit = 50;
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
@@ -2137,9 +2113,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        LOG(ERROR) << "yangsiyu: ------ 1 -------: " << block->rows();
+
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
     } else {
+        LOG(ERROR) << "yangsiyu: ------ 2 -------: " << block->rows();
+
         uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
 
