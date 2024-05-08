@@ -21,6 +21,12 @@ import org.apache.doris.catalog.Column;
 
 import java.util.List;
 
+/**
+ * The cache value of ExternalSchemaCache.
+ * Different external table type has different schema cache value.
+ * For example, Hive table has HMSSchemaCacheValue, Paimon table has PaimonSchemaCacheValue.
+ * All objects that should be refreshed along with schema should be put in this class.
+ */
 public class SchemaCacheValue {
     protected List<Column> schema;
 
