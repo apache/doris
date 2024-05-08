@@ -39,7 +39,7 @@ public class PaimonSource {
     public PaimonSource(PaimonExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
         this.paimonExtTable = table;
-        this.originTable = paimonExtTable.getOriginTable();
+        this.originTable = paimonExtTable.getPaimonTable();
         this.desc = desc;
     }
 
