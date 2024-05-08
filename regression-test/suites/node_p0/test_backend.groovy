@@ -52,7 +52,7 @@ suite("test_backend") {
                 break
             }
             sql """CANCEL DECOMMISSION BACKEND "${decommissionBe.Host}:${decommissionBe.HeartbeatPort}" """
-            result = sql """ALTER SYSTEM DECOMMISSION BACKEND "${decommissionBe.BackendId}" """
+            result = sql """ALTER SYSTEM DECOMMISSION BACKEND "${decommissionBe.Host}:${decommissionBe.HeartbeatPort}" """
             logger.info("ALTER SYSTEM DECOMMISSION BACKEND ${result}")
             result = sql_return_maparray """SHOW BACKENDS;"""
             for (def res : result) {
