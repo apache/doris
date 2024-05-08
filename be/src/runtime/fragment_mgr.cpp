@@ -922,7 +922,7 @@ std::shared_ptr<QueryContext> FragmentMgr::get_query_context(const TUniqueId& qu
     }
 }
 
-void FragmentMgr::cancel_query(const TUniqueId& query_id, const Status& reason) {
+void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx;
     std::vector<TUniqueId> all_instance_ids;
     {
@@ -940,22 +940,23 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const Status& reason) 
         all_instance_ids = query_ctx->fragment_instance_ids;
     }
     if (query_ctx->enable_pipeline_x_exec()) {
-        query_ctx->cancel_all_pipeline_context(reason, msg);
+        query_ctx->cancel_all_pipeline_context(reason);
     } else {
         for (auto it : all_instance_ids) {
-            cancel_instance(it, reason, msg);
+            cancel_instance(it, reason);
         }
     }
 
-    query_ctx->cancel(msg, Status::Cancelled(msg));
+    query_ctx->cancel(reason);
     {
         std::lock_guard<std::mutex> state_lock(_lock);
         _query_ctx_map.erase(query_id);
     }
-    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled and removed. Reason: " << msg;
+    LOG(INFO) << "Query " << print_id(query_id)
+              << " is cancelled and removed. Reason: " << reason.to_string();
 }
 
-void FragmentMgr::cancel_instance(const TUniqueId& instance_id, const Status& reason) {
+void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reason) {
     std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_ctx;
     std::shared_ptr<PlanFragmentExecutor> non_pipeline_ctx;
     {
@@ -990,8 +991,8 @@ void FragmentMgr::cancel_instance(const TUniqueId& instance_id, const Status& re
     }
 }
 
-void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
-                                  const Status& reason) {
+void FragmentMgr::cancel_fragment(const TUniqueId query_id, int32_t fragment_id,
+                                  const Status reason) {
     std::unique_lock<std::mutex> lock(_lock);
     auto q_ctx_iter = _query_ctx_map.find(query_id);
     if (q_ctx_iter != _query_ctx_map.end()) {

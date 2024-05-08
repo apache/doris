@@ -100,13 +100,13 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId& instance_id, const Status& reason);
+    void cancel_instance(const TUniqueId instance_id, const Status reason);
     // Cancel fragment (only pipelineX).
     // {query id fragment} -> PipelineFragmentContext
-    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id, const Status& reason);
+    void cancel_fragment(const TUniqueId query_id, int32_t fragment_id, const Status reason);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId& query_id, const Status& reason);
+    void cancel_query(const TUniqueId query_id, const Status reason);
 
     void cancel_worker();
 
