@@ -76,8 +76,8 @@ public enum SchemaTableType {
     SCHE_USER("user", "user", TSchemaTableType.SCH_USER),
     SCH_PROCS_PRIV("procs_priv", "procs_priv", TSchemaTableType.SCH_PROCS_PRIV),
 
-    SCH_WORKLOAD_SCHEDULE_POLICY("WORKLOAD_SCHEDULE_POLICY", "WORKLOAD_SCHEDULE_POLICY",
-            TSchemaTableType.SCH_WORKLOAD_SCHEDULE_POLICY);
+    SCH_WORKLOAD_POLICY("WORKLOAD_POLICY", "WORKLOAD_POLICY",
+            TSchemaTableType.SCH_WORKLOAD_POLICY);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
