@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "paimon_reader.h"
+#include "paimon_jni_reader.h"
 
 #include <map>
 #include <ostream>

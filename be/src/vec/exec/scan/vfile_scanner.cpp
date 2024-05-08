@@ -66,7 +66,7 @@
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
-#include "vec/exec/format/table/paimon_reader.h"
+#include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"

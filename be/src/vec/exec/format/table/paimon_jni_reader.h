@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
 #include "vec/exec/jni_connector.h"
 
 namespace doris {
