@@ -503,8 +503,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _backend_num,
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
-            std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2)};
+            std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
