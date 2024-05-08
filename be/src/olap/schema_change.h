@@ -43,6 +43,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -231,7 +232,9 @@ public:
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VSchemaChangeWithSorting>(
-                    changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+                    changer, ExecEnv::GetInstance()
+                                     ->storage_engine()
+                                     ->memory_limitation_bytes_per_thread_for_schema_change());
         }
 
         if (sc_directly) {

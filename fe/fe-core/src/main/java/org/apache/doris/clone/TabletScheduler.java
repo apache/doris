@@ -1388,7 +1388,9 @@ public class TabletScheduler extends MasterDaemon {
         List<BePathLoadStatPair> allFitPaths =
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
+            throw new SchedException(Status.UNRECOVERABLE, String.format("unable to find dest path for new replica"
+                    + " for replica allocation { %s } with tag %s storage medium %s",
+                    tabletCtx.getReplicaAlloc(), tag, tabletCtx.getStorageMedium()));
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
