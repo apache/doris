@@ -308,7 +308,7 @@ int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
-    extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
+    // extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
     // Some developers will modify status.h and we use a very ticky logic to init error_states
     // and it maybe not inited. So add a check here.
     doris::ErrorCode::error_code_init.check_init();
