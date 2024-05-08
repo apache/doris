@@ -96,16 +96,15 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
-    std::vector<TScanRangeParams> no_scan_ranges;
-    auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                         _operators.front()->node_id(), no_scan_ranges);
+    _scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                     _operators.front()->node_id(), _scan_ranges);
     auto* parent_profile = _state->get_sink_local_state()->profile();
     query_ctx->register_query_statistics(
             _state->get_sink_local_state()->get_query_statistics_ptr());
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
-        LocalStateInfo info {parent_profile, scan_ranges, get_op_shared_state(op->operator_id()),
+        LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
@@ -124,7 +123,7 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
-    for (auto op : _operators) {
+    for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
             return result.error();
@@ -152,12 +151,9 @@ Status PipelineTask::_extract_dependencies() {
 }
 
 void PipelineTask::_init_profile() {
-    std::stringstream ss;
-    ss << "PipelineTask"
-       << " (index=" << _index << ")";
-    auto* task_profile = new RuntimeProfile(ss.str());
-    _parent_profile->add_child(task_profile, true, nullptr);
-    _task_profile.reset(task_profile);
+    _task_profile =
+            std::make_unique<RuntimeProfile>(fmt::format("PipelineTask (index={})", _index));
+    _parent_profile->add_child(_task_profile.get(), true, nullptr);
     _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
 
     static const char* exec_time = "ExecuteTime";
@@ -344,6 +340,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     }
 }
+
 void PipelineTask::finalize() {
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
