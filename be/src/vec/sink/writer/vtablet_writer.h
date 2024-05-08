@@ -244,7 +244,7 @@ public:
     // this function will called multi times. NON_REENTRANT
     Status open_wait();
 
-    Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
+    Status add_block(vectorized::Block* block, const Payload* payload);
 
     // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
