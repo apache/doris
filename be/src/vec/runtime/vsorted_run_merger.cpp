@@ -96,8 +96,17 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
 
     return Status::OK();
 }
-
 Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
+    try {
+        get_next_data(output_block, eos);
+    } catch (const std::runtime_error& e) {
+        return Status::RuntimeError(e.what());
+    } catch (...) {
+        return Status::RuntimeError("SortMerger error");
+    }
+}
+
+Status VSortedRunMerger::get_next_data(Block* output_block, bool* eos) {
     ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
     // Only have one receive data queue of data, no need to do merge and
     // copy the data of block.
