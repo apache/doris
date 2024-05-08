@@ -64,6 +64,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -2532,6 +2533,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
         for (Long tabletId : tabletIds) {
+            if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
+                LOG.info("enable getTabletReplicaInfos.returnEmpty");
+                continue;
+            }
             List<TReplicaInfo> replicaInfos = Lists.newArrayList();
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
