@@ -1390,7 +1390,7 @@ alter_stmt ::=
     {:
         RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
     :}
-    | KW_ALTER KW_WORKLOAD KW_SCHEDULE KW_POLICY ident_or_text:policyName opt_properties:properties
+    | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
     {:
         RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
     :}
@@ -1932,7 +1932,7 @@ create_stmt ::=
         RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
     :}
     /* workload schedule policy */
-    | KW_CREATE KW_WORKLOAD KW_SCHEDULE KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
+    | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
     {:
         RESULT = new CreateWorkloadSchedPolicyStmt(ifNotExists, workloadPolicyName, conditions, actions, properties);
     :}
@@ -3053,7 +3053,7 @@ drop_stmt ::=
     {:
         RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
     :}
-    | KW_DROP KW_WORKLOAD KW_SCHEDULE KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
+    | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
     {:
         RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
     :}
