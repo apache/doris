@@ -222,44 +222,35 @@ public class ConnectProcessor {
         packetBuf.get();
         // iteration_count always 1,
         packetBuf.getInt();
-        LOG.debug("execute prepared statement {}", stmtId);
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
-        if (prepareCtx == null) {
-            LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
-            return;
-        }
-        ctx.setStartTime();
-        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
-            ctx.getState().setIsQuery(true);
-        }
-        prepareCtx.stmt.setIsPrepared();
         int paramCount = prepareCtx.stmt.getParmCount();
+        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
-        byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
-        packetBuf.get(nullbitmapData);
         String stmtStr = "";
         try {
-            // new_params_bind_flag
-            if ((int) packetBuf.get() != 0) {
-                // parse params's types
-                for (int i = 0; i < paramCount; ++i) {
-                    int typeCode = packetBuf.getChar();
-                    LOG.debug("code {}", typeCode);
-                    prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
-                }
-            }
             List<LiteralExpr> realValueExprs = new ArrayList<>();
-            // parse param data
-            for (int i = 0; i < paramCount; ++i) {
-                if (isNull(nullbitmapData, i)) {
-                    realValueExprs.add(new NullLiteral());
-                    continue;
+            if (paramCount > 0) {
+                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+                packetBuf.get(nullbitmapData);
+                // new_params_bind_flag
+                if ((int) packetBuf.get() != 0) {
+                    // parse params's types
+                    for (int i = 0; i < paramCount; ++i) {
+                        int typeCode = packetBuf.getChar();
+                        LOG.debug("code {}", typeCode);
+                        prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
+                    }
                 }
-                LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                l.setupParamFromBinary(packetBuf);
-                realValueExprs.add(l);
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        realValueExprs.add(new NullLiteral());
+                        continue;
+                    }
+                    LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
+                    l.setupParamFromBinary(packetBuf);
+                    realValueExprs.add(l);
+                }
             }
             ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
             // TODO set real origin statement
@@ -571,7 +562,6 @@ public class ConnectProcessor {
         LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
-
         switch (command) {
             case COM_INIT_DB:
                 handleInitDb();

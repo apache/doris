@@ -672,6 +672,12 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> exec(Object stmt) {
+        logger.info("Execute sql: ${stmt}".toString())
+        def (result, meta )= JdbcUtils.executeToList(context.getConnection(),  (PreparedStatement) stmt)
+        return result
+    }
+
     void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null

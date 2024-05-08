@@ -311,5 +311,7 @@ public class StringLiteral extends LiteralExpr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("parsed value '{}'", value);
         }
+        // Set it's literal type from binary info
+        type = Type.VARCHAR;
     }
 }

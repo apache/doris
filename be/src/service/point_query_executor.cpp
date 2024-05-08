@@ -41,7 +41,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/jsonb/serialize.h"
-#include "vec/sink/vmysql_result_writer.cpp"
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
