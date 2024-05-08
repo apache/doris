@@ -57,6 +57,16 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     fs_properties.properties = &_hadoop_conf;
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
+    // If the destination path contains a schema, use the schema directly.
+    // If not, use defaultFS.
+    // Otherwise a write error will occur.
+    string::size_type idx = file_description.path.find("://");
+    if (idx != string::npos) {
+        idx = file_description.path.find("/", idx + 3);
+        if (idx != string::npos) {
+            file_description.fs_name = file_description.path.substr(0, idx);
+        }
+    }
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
