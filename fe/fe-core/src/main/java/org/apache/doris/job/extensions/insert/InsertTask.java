@@ -166,7 +166,19 @@ public class InsertTask extends AbstractTask {
         }
 
         super.before();
+    }
 
+    @Override
+    protected void closeOrReleaseResources() {
+        if (null != stmtExecutor) {
+            stmtExecutor = null;
+        }
+        if (null != command) {
+            command = null;
+        }
+        if (null != ctx) {
+            ctx = null;
+        }
     }
 
     protected TUniqueId generateQueryId(String taskIdString) {
@@ -202,7 +214,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void cancel() throws JobException {
+    protected void executeCancelLogic() {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }
@@ -210,7 +222,6 @@ public class InsertTask extends AbstractTask {
         if (null != stmtExecutor) {
             stmtExecutor.cancel();
         }
-        super.cancel();
     }
 
     @Override

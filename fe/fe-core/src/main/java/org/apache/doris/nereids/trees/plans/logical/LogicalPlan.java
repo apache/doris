@@ -19,12 +19,15 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -64,8 +67,23 @@ public interface LogicalPlan extends Plan {
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slot dependents unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUnique()) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all unique slot
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniform()) {
+                fdBuilder.addDeps(o, uniformSlot);
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            fdBuilder.addDepsByEqualSet(Sets.intersection(getOutputSet(), equalSet));
+        }
         return fdBuilder.build();
     }
 
@@ -76,4 +94,6 @@ public interface LogicalPlan extends Plan {
     void computeUniform(FunctionalDependencies.Builder fdBuilder);
 
     void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    void computeFd(FunctionalDependencies.Builder fdBuilder);
 }

@@ -276,18 +276,7 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                if (Config.isCloudMode()) {
-                    String cloudClusterName = getCloudClusterName(request);
-                    if (Strings.isNullOrEmpty(cloudClusterName)) {
-                        LOG.warn("cluster name is empty in stream load");
-                        return new RestBaseResult("No cloud cluster name selected.");
-                    }
-                    String reqHostStr = request.getHeader(HttpHeaderNames.HOST.toString());
-                    LOG.info("host header {}", reqHostStr);
-                    redirectAddr = selectCloudRedirectBackend(cloudClusterName, reqHostStr, groupCommit);
-                } else {
-                    redirectAddr = selectRedirectBackend(request, groupCommit);
-                }
+                redirectAddr = selectRedirectBackend(request, groupCommit);
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
@@ -320,19 +309,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            TNetworkAddress redirectAddr;
-            if (Config.isCloudMode()) {
-                String cloudClusterName = getCloudClusterName(request);
-                if (Strings.isNullOrEmpty(cloudClusterName)) {
-                    LOG.warn("cluster name is empty in stream load");
-                    return new RestBaseResult("No cloud cluster name selected.");
-                }
-                String reqHostStr = request.getHeader(HttpHeaderNames.HOST.toString());
-                LOG.info("host header {}", reqHostStr);
-                redirectAddr = selectCloudRedirectBackend(cloudClusterName, reqHostStr, false);
-            } else {
-                redirectAddr = selectRedirectBackend(request, false);
-            }
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, false);
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 

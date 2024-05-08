@@ -58,7 +58,6 @@ PipelineTask::PipelineTask(
           _opened(false),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
-          _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
           _operators(pipeline->operator_xs()),
@@ -97,16 +96,15 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
-    std::vector<TScanRangeParams> no_scan_ranges;
-    auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                         _operators.front()->node_id(), no_scan_ranges);
+    _scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                     _operators.front()->node_id(), _scan_ranges);
     auto* parent_profile = _state->get_sink_local_state()->profile();
     query_ctx->register_query_statistics(
             _state->get_sink_local_state()->get_query_statistics_ptr());
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
-        LocalStateInfo info {parent_profile, scan_ranges, get_op_shared_state(op->operator_id()),
+        LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
@@ -125,7 +123,7 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
-    for (auto op : _operators) {
+    for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
             return result.error();
@@ -153,12 +151,9 @@ Status PipelineTask::_extract_dependencies() {
 }
 
 void PipelineTask::_init_profile() {
-    std::stringstream ss;
-    ss << "PipelineTask"
-       << " (index=" << _index << ")";
-    auto* task_profile = new RuntimeProfile(ss.str());
-    _parent_profile->add_child(task_profile, true, nullptr);
-    _task_profile.reset(task_profile);
+    _task_profile =
+            std::make_unique<RuntimeProfile>(fmt::format("PipelineTask (index={})", _index));
+    _parent_profile->add_child(_task_profile.get(), true, nullptr);
     _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
 
     static const char* exec_time = "ExecuteTime";
@@ -170,23 +165,15 @@ void PipelineTask::_init_profile() {
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
-    _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
-    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
-    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
-
-    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
-    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
-    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {
-    COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
 }
@@ -234,12 +221,8 @@ Status PipelineTask::execute(bool* eos) {
         }
     }};
     *eos = false;
-    if (has_dependency()) {
-        set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-        return Status::OK();
-    }
-    if (_runtime_filter_blocked_dependency() != nullptr) {
-        set_state(PipelineTaskState::BLOCKED_FOR_RF);
+    if (has_dependency() || _runtime_filter_blocked_dependency() != nullptr) {
+        set_state(PipelineTaskState::BLOCKED);
         return Status::OK();
     }
     // The status must be runnable
@@ -248,24 +231,16 @@ Status PipelineTask::execute(bool* eos) {
             SCOPED_RAW_TIMER(&time_spent);
             RETURN_IF_ERROR(_open());
         }
-        if (!source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            return Status::OK();
-        }
-        if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+        if (!source_can_read() || !sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED);
             return Status::OK();
         }
     }
 
     Status status = Status::OK();
     while (!_fragment_context->is_canceled()) {
-        if (_root->need_data_from_children(_state) && !source_can_read()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-            break;
-        }
-        if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+        if ((_root->need_data_from_children(_state) && !source_can_read()) || !sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED);
             break;
         }
 
@@ -365,6 +340,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     }
 }
+
 void PipelineTask::finalize() {
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
@@ -380,34 +356,8 @@ void PipelineTask::set_state(PipelineTaskState state) {
     if (_cur_state == state) {
         return;
     }
-    if (_cur_state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_source_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_SINK) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_sink_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_RF) {
-        if (state == PipelineTaskState::RUNNABLE) {
-            _wait_bf_watcher.stop();
-        }
-    } else if (_cur_state == PipelineTaskState::RUNNABLE) {
+    if (_cur_state == PipelineTaskState::RUNNABLE && state != PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
-        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
-            _wait_source_watcher.start();
-            COUNTER_UPDATE(_block_by_source_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
-            _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_by_sink_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
-            _wait_bf_watcher.start();
-            COUNTER_UPDATE(_wait_bf_counts, 1);
-        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
-            COUNTER_UPDATE(_wait_dependency_counts, 1);
-        } else if (state == PipelineTaskState::PENDING_FINISH) {
-            COUNTER_UPDATE(_pending_finish_counts, 1);
-        }
     }
 
     _cur_state = state;

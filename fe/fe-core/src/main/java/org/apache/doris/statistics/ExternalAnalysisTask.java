@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
@@ -37,10 +36,6 @@ import java.util.Set;
 
 public class ExternalAnalysisTask extends BaseAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(ExternalAnalysisTask.class);
-
-    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ROUND(COUNT(1) * ${scaleFactor}) as rowCount "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints}";
-    private boolean isTableLevelTask;
     private boolean isPartitionOnly;
     private ExternalTable table;
 
@@ -50,7 +45,6 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
 
     public ExternalAnalysisTask(AnalysisInfo info) {
         super(info);
-        isTableLevelTask = info.externalTableLevelTask;
         isPartitionOnly = info.partitionOnly;
         table = (ExternalTable) tbl;
     }
@@ -59,33 +53,12 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (killed) {
             return;
         }
-        if (isTableLevelTask) {
-            getTableStats();
-        } else {
-            getColumnStats();
-        }
+        getColumnStats();
     }
 
     // For test
     protected void setTable(ExternalTable table) {
         this.table = table;
-    }
-
-    /**
-     * Get table row count
-     */
-    private void getTableStats() {
-        Map<String, String> params = buildStatsParams(null);
-        Pair<Double, Long> sampleInfo = getSampleInfo();
-        params.put("scaleFactor", String.valueOf(sampleInfo.first));
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).get(0);
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTableStatsStatus(
-                        new TableStatsMeta(Long.parseLong(rowCount), info, tbl));
-        job.rowCountDone(this);
     }
 
     // Get column stats
@@ -162,7 +135,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             commonParams.put("partId", "\'" + partId + "\'");
         }
         commonParams.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        commonParams.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        commonParams.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         commonParams.put("id", id);
         commonParams.put("catalogId", String.valueOf(catalog.getId()));
         commonParams.put("dbId", String.valueOf(db.getId()));

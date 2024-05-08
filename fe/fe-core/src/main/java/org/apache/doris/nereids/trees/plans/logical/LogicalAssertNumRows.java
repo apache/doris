@@ -151,4 +151,9 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

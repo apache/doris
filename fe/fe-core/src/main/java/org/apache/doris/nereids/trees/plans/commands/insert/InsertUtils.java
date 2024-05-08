@@ -84,7 +84,7 @@ public class InsertUtils {
      */
     public static void executeBatchInsertTransaction(ConnectContext ctx, String dbName, String tableName,
             List<Column> columns, List<List<NamedExpression>> constantExprsList) {
-        if (ctx.isTxnIniting()) { // first time, begin txn
+        if (ctx.isInsertValuesTxnIniting()) { // first time, begin txn
             beginBatchInsertTransaction(ctx, dbName, tableName, columns);
         }
         if (!ctx.getTxnEntry().getTxnConf().getDb().equals(dbName)

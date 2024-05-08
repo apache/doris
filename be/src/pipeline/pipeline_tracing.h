@@ -23,6 +23,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <cstdint>
+#include <filesystem>
 
 #include "common/config.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
@@ -38,7 +39,7 @@ struct ScheduleRecord {
     uint64_t thread_id;
     uint64_t start_time;
     uint64_t end_time;
-    std::string state_name;
+    std::string_view state_name;
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
     std::string to_string(uint64_t append_value) const {
@@ -69,6 +70,8 @@ private:
     // dump data to disk. one query or all.
     void _dump_query(TUniqueId query_id);
     void _dump_timeslice();
+
+    std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
 
     std::mutex _data_lock; // lock for map, not map items.
     phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;

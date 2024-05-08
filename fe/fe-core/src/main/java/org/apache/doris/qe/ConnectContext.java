@@ -375,12 +375,8 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isTxnModel();
     }
 
-    public boolean isTxnIniting() {
-        return txnEntry != null && txnEntry.isTxnIniting();
-    }
-
-    public boolean isTxnBegin() {
-        return txnEntry != null && txnEntry.isTxnBegin();
+    public boolean isInsertValuesTxnIniting() {
+        return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
     public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {

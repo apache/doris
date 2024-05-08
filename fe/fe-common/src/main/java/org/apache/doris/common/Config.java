@@ -637,6 +637,12 @@ public class Config extends ConfigBase {
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "对于 tablet 数量小于该数目的 DUPLICATE KEY 表，将不会启用 shuffle",
+            "Shuffle won't be enabled for DUPLICATE KEY tables if its tablet num is lower than this number"},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int min_tablets_for_dup_table_shuffle = 64;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
@@ -1773,7 +1779,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 4;
+    public static int max_be_exec_version = 5;
 
     /**
      * Min data version of backends serialize block.
@@ -1964,7 +1970,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
     public static String fuzzy_test_type = "";
 
     /**

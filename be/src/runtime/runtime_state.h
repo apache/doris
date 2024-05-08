@@ -435,7 +435,7 @@ public:
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }
 
-    bool data_queue_max_blocks() const {
+    int64_t data_queue_max_blocks() const {
         return _query_options.__isset.data_queue_max_blocks ? _query_options.data_queue_max_blocks
                                                             : 1;
     }
@@ -581,7 +581,7 @@ public:
 
     std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
 
-    std::vector<std::shared_ptr<RuntimeProfile>>& build_pipeline_profile(std::size_t pipeline_size);
+    std::vector<std::shared_ptr<RuntimeProfile>> build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;

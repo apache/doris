@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_cast_in") {
-    sql """
-        set enable_nereids_planner=false;
-    """
     sql """DROP TABLE IF EXISTS date_dim_table_x;"""
     sql """
         CREATE TABLE IF NOT EXISTS date_dim_table_x (
