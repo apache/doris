@@ -398,12 +398,12 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
-int StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
+int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
     double disk_used = data_dir->get_usage(0);
     double remain_used = 1 - disk_used;
     DCHECK(remain_used >= 0 && remain_used <= 1);
     DCHECK(config::path_gc_check_interval_second >= 0);
-    int ret = 0;
+    int32_t ret = 0;
     if (remain_used > 0.9) {
         // if config::path_gc_check_interval_second == 24h
         ret = config::path_gc_check_interval_second;

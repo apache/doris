@@ -383,7 +383,7 @@ private:
 
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
-    int _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+    int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
 private:
     EngineOptions _options;
