@@ -463,8 +463,9 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 VLOG_DEBUG << "_execute_predicates_except_leafnode_of_andnode expr: "
                            << (*it)->debug_string() << " res: " << res;
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
-                    LOG(ERROR) << _row_bitmap.cardinality() << ", " << _pred_except_leafnode_of_andnode_evaluate_result[0].cardinality();
+                    LOG(ERROR) << "yangsiyu bitmap 1: " << _row_bitmap.cardinality() << ", " << _pred_except_leafnode_of_andnode_evaluate_result[0].cardinality();
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
+                    LOG(ERROR) << "yangsiyu bitmap 2: " << _row_bitmap.cardinality();
                     // Delete expr after it obtains the final result.
                     {
                         std::erase_if(_common_expr_ctxs_push_down,
