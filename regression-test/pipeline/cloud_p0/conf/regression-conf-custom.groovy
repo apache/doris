@@ -22,6 +22,9 @@ testGroups = "p0"
 // * sort lines in vim: select lines and then type :sort
 // * sort lines in vscode: https://ulfschneider.io/2023-09-01-sort-in-vscode/
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_routine_load," + // depends on kafka docker which has gone away, fixing
+    "test_routine_load_error," + // depends on kafka docker which has gone away, fixing
+    "test_routine_load_condition," + // depends on kafka docker which has gone away, fixing
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_bitmap_filter," +
@@ -39,9 +42,11 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_set_partition_version," +
     "test_show_transaction," + // not supported yet
     "test_spark_load," +
-    "test_array_index1," +
-    "test_array_index2," +
     "test_index_lowercase_fault_injection," +
+    "test_partial_update_2pc_schema_change," + // mow 2pc
+    "test_query_sys_rowsets," + // rowsets sys table
+    "test_unique_table_debug_data," + // disable auto compaction
+    "test_insert," + // txn insert
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line

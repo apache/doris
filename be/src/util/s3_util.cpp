@@ -71,6 +71,10 @@ bool to_int(std::string_view str, int& res) {
 const std::string USE_PATH_STYLE = "use_path_style";
 
 } // namespace
+S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
+    CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
+    return _rate_limiters[static_cast<size_t>(type)].get();
+}
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:
@@ -197,6 +201,11 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
+
+    if (config::s3_client_http_scheme == "http") {
+        aws_config.scheme = Aws::Http::Scheme::HTTP;
+    }
+
     aws_config.retryStrategy =
             std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
     std::shared_ptr<Aws::S3::S3Client> new_client;

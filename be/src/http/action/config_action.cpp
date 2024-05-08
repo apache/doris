@@ -62,7 +62,7 @@ void ConfigAction::handle_show_config(HttpRequest* req) {
 
     writer.StartArray();
     for (const auto& _config : config_info) {
-        if (conf_item != nullptr || conf_item != "") {
+        if (conf_item != nullptr || !conf_item.empty()) {
             if (_config[0] == conf_item) {
                 writer.StartArray();
                 for (const std::string& config_filed : _config) {

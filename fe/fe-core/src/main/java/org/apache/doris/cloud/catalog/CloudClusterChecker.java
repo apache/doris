@@ -26,6 +26,7 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
@@ -172,14 +173,12 @@ public class CloudClusterChecker extends MasterDaemon {
             if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONING) {
                 if (!be.isDecommissioned()) {
                     LOG.info("decommissioned backend: {} status: {}", be, status);
-                    // TODO(merge-cloud): add it when has CloudUpgradeMgr.
-                    /*
                     try {
-                    } catch (AnalysisException e) {
+                        ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().registerWaterShedTxnId(be.getId());
+                    } catch (UserException e) {
                         LOG.warn("failed to register water shed txn id, decommission be {}", be.getId(), e);
                     }
                     be.setDecommissioned(true);
-                     */
                 }
             }
         }

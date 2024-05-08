@@ -46,6 +46,44 @@ TEST_F(StatusTest, OK) {
     }
 }
 
+// This test is used to make sure TStatusCode is defined in status.h
+TEST_F(StatusTest, TStatusCodeWithStatus) {
+    // The definition in status.h
+    //extern ErrorCode::ErrorCodeState error_states[ErrorCode::MAX_ERROR_CODE_DEFINE_NUM];
+    extern ErrorCode::ErrorCodeState error_states;
+    extern ErrorCode::ErrorCodeInitializer error_code_init;
+    // The definition in Status_types.h
+    extern const std::map<int, const char*> _TStatusCode_VALUES_TO_NAMES;
+    ErrorCode::error_code_init.check_init();
+    // Check if all code in status.h with error_code > 0, is in Status_types.h
+    for (int i = 0; i < ErrorCode::MAX_ERROR_CODE_DEFINE_NUM; ++i) {
+        //std::cout << "begin to check number " << i << ", error status "
+        //          << ErrorCode::error_states[i].error_code << std::endl;
+        if (ErrorCode::error_states[i].error_code > 0) {
+            //std::cout << "Status info " << ErrorCode::error_states[i].error_code << ","
+            //          << ErrorCode::error_states[i].description << ","
+            //          << ::doris::_TStatusCode_VALUES_TO_NAMES.at(i) << std::endl;
+            EXPECT_TRUE(::doris::_TStatusCode_VALUES_TO_NAMES.find(i) !=
+                        ::doris::_TStatusCode_VALUES_TO_NAMES.end());
+            // also check name is equal
+            EXPECT_TRUE(ErrorCode::error_states[i].description.compare(
+                                ::doris::_TStatusCode_VALUES_TO_NAMES.at(i)) == 0);
+        }
+    }
+    // Check all code in Status_types.h in status.h
+    for (auto& tstatus_st : _TStatusCode_VALUES_TO_NAMES) {
+        // std::cout << "TStatusCode info " << tstatus_st.first << "," << tstatus_st.second
+        //          << std::endl;
+        if (tstatus_st.first < 1) {
+            // OK with error code == 0, is not defined with tstatus, ignore it.
+            continue;
+        }
+        EXPECT_TRUE(tstatus_st.first < ErrorCode::MAX_ERROR_CODE_DEFINE_NUM);
+        EXPECT_TRUE(ErrorCode::error_states[tstatus_st.first].description.compare(
+                            tstatus_st.second) == 0);
+    }
+}
+
 TEST_F(StatusTest, Error) {
     // default
     Status st = Status::InternalError("123");

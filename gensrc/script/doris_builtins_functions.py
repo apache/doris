@@ -1080,6 +1080,8 @@ visible_functions = {
         [['weeks_sub'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_add', 'date_add', 'adddate'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['days_sub', 'date_sub', 'subdate'], 'DATEV2', ['DATEV2', 'INT'], ''],
+        [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'], ''],
+        [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'], ''],
         [['hours_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['hours_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['minutes_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],

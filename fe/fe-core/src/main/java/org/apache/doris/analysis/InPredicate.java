@@ -35,8 +35,6 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +45,6 @@ import java.util.List;
  * of values (remaining children).
  */
 public class InPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(InPredicate.class);
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
@@ -163,11 +160,6 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        super.vectorizedAnalyze(analyzer);
-    }
-
-    @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         this.checkIncludeBitmap();
@@ -206,7 +198,6 @@ public class InPredicate extends Predicate {
             }
         } else {
             analyzer.castAllToCompatibleType(children);
-            vectorizedAnalyze(analyzer);
         }
 
         boolean allConstant = true;
@@ -273,7 +264,6 @@ public class InPredicate extends Predicate {
         msg.in_predicate = new TInPredicate(isNotIn);
         msg.node_type = TExprNodeType.IN_PRED;
         msg.setOpcode(opcode);
-        msg.setVectorOpcode(vectorOpcode);
     }
 
     @Override

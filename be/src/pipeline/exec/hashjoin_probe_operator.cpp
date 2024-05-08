@@ -22,10 +22,7 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 
-namespace doris {
-namespace pipeline {
-
-OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
+namespace doris::pipeline {
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
@@ -247,9 +244,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
-    // only support nereids
-    if (local_state._shared_state->empty_right_table_need_probe_dispose &&
-        !Base::_projections.empty()) {
+    if (local_state.empty_right_table_shortcut()) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         // we could get the result is probe table + null-column(if need output)
         // If we use a short-circuit strategy, should return block directly by add additional null data.
@@ -369,36 +364,52 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 }
 
 Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
-                                                     vectorized::ColumnUInt8::MutablePtr& null_map,
-                                                     vectorized::ColumnRawPtrs& raw_ptrs,
                                                      const std::vector<int>& res_col_ids) {
+    if (empty_right_table_shortcut()) {
+        return Status::OK();
+    }
+
+    _probe_columns.resize(_probe_expr_ctxs.size());
+
+    if (!_has_set_need_null_map_for_probe) {
+        _has_set_need_null_map_for_probe = true;
+        _need_null_map_for_probe = _need_probe_null_map(block, res_col_ids);
+    }
+    if (_need_null_map_for_probe) {
+        if (_null_map_column == nullptr) {
+            _null_map_column = vectorized::ColumnUInt8::create();
+        }
+        _null_map_column->get_data().assign(block.rows(), (uint8_t)0);
+    }
+
     auto& shared_state = *_shared_state;
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
         if (p._should_convert_to_nullable[i]) {
             _key_columns_holder.emplace_back(
                     vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
-            raw_ptrs[i] = _key_columns_holder.back().get();
+            _probe_columns[i] = _key_columns_holder.back().get();
             continue;
         }
 
         if (shared_state.is_null_safe_eq_join[i]) {
-            raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
+            _probe_columns[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
-            auto column = block.get_by_position(res_col_ids[i]).column.get();
-            if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                auto& col_nested = nullable->get_nested_column();
-                auto& col_nullmap = nullable->get_null_map_data();
+            const auto* column = block.get_by_position(res_col_ids[i]).column.get();
+            if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+                const auto& col_nested = nullable->get_nested_column();
+                const auto& col_nullmap = nullable->get_null_map_data();
 
-                DCHECK(null_map != nullptr);
-                vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+                DCHECK(_null_map_column != nullptr);
+                vectorized::VectorizedUtils::update_null_map(_null_map_column->get_data(),
+                                                             col_nullmap);
                 if (shared_state.store_null_in_hash_table[i]) {
-                    raw_ptrs[i] = nullable;
+                    _probe_columns[i] = nullable;
                 } else {
-                    raw_ptrs[i] = &col_nested;
+                    _probe_columns[i] = &col_nested;
                 }
             } else {
-                raw_ptrs[i] = column;
+                _probe_columns[i] = column;
             }
         }
     }
@@ -477,10 +488,7 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
     local_state._probe_eos = eos;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(local_state._probe_rows_counter, input_block->rows());
-        int probe_expr_ctxs_sz = local_state._probe_expr_ctxs.size();
-        local_state._probe_columns.resize(probe_expr_ctxs_sz);
-
-        std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+        std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
@@ -488,22 +496,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
                     local_state._convert_block_to_null(*input_block);
         }
 
-        // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
-        //  so we have to initialize this flag by the first probe block.
-        if (!local_state._has_set_need_null_map_for_probe) {
-            local_state._has_set_need_null_map_for_probe = true;
-            local_state._need_null_map_for_probe =
-                    local_state._need_probe_null_map(*input_block, res_col_ids);
-        }
-        if (local_state._need_null_map_for_probe) {
-            if (local_state._null_map_column == nullptr) {
-                local_state._null_map_column = vectorized::ColumnUInt8::create();
-            }
-            local_state._null_map_column->get_data().assign(input_block->rows(), (uint8_t)0);
-        }
+        RETURN_IF_ERROR(local_state._extract_join_column(*input_block, res_col_ids));
 
-        RETURN_IF_ERROR(local_state._extract_join_column(*input_block, local_state._null_map_column,
-                                                         local_state._probe_columns, res_col_ids));
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
         }
@@ -637,5 +631,4 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

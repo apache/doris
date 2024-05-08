@@ -126,6 +126,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,

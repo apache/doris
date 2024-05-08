@@ -398,68 +398,7 @@ void VPartitionSortNode::release_resource(RuntimeState* state) {
 }
 
 void VPartitionSortNode::_init_hash_method() {
-    if (_partition_exprs_num == 0) {
-        return;
-    } else if (_partition_exprs_num == 1) {
-        auto is_nullable = _partition_expr_ctxs[0]->root()->is_nullable();
-        switch (_partition_expr_ctxs[0]->root()->result_type()) {
-        case TYPE_TINYINT:
-        case TYPE_BOOLEAN:
-            _partitioned_data->init(PartitionedHashMapVariants::Type::int8_key, is_nullable);
-            return;
-        case TYPE_SMALLINT:
-            _partitioned_data->init(PartitionedHashMapVariants::Type::int16_key, is_nullable);
-            return;
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-            _partitioned_data->init(PartitionedHashMapVariants::Type::int32_key, is_nullable);
-            return;
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATETIMEV2:
-            _partitioned_data->init(PartitionedHashMapVariants::Type::int64_key, is_nullable);
-            return;
-        case TYPE_LARGEINT: {
-            _partitioned_data->init(PartitionedHashMapVariants::Type::int128_key, is_nullable);
-            return;
-        }
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
-            DataTypePtr& type_ptr = _partition_expr_ctxs[0]->root()->data_type();
-            TypeIndex idx = is_nullable ? assert_cast<const DataTypeNullable&>(*type_ptr)
-                                                  .get_nested_type()
-                                                  ->get_type_id()
-                                        : type_ptr->get_type_id();
-            WhichDataType which(idx);
-            if (which.is_decimal32()) {
-                _partitioned_data->init(PartitionedHashMapVariants::Type::int32_key, is_nullable);
-            } else if (which.is_decimal64()) {
-                _partitioned_data->init(PartitionedHashMapVariants::Type::int64_key, is_nullable);
-            } else {
-                _partitioned_data->init(PartitionedHashMapVariants::Type::int128_key, is_nullable);
-            }
-            return;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            _partitioned_data->init(PartitionedHashMapVariants::Type::string_key, is_nullable);
-            break;
-        }
-        default:
-            _partitioned_data->init(PartitionedHashMapVariants::Type::serialized);
-        }
-    } else {
-        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, PartitionDataPtr>(
-                    _partitioned_data->method_variant, _partition_expr_ctxs)) {
-            _partitioned_data->init(PartitionedHashMapVariants::Type::serialized);
-        }
-    }
+    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true);
 }
 
 void VPartitionSortNode::debug_profile() {

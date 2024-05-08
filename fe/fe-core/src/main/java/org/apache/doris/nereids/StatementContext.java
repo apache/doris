@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -54,7 +54,6 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -97,15 +96,14 @@ public class StatementContext implements Closeable {
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
-    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private final IdGenerator<ExprId> exprIdGenerator;
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
-    private final Map<CTEId, Set<NamedExpression>> cteIdToProjects = new HashMap<>();
+    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
-    private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
@@ -131,24 +129,38 @@ public class StatementContext implements Closeable {
     // Relation for example LogicalOlapScan
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
+    // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
+    private final Set<Column> keyColumns = Sets.newHashSet();
     private BitSet disableRules;
 
     // table locks
-    private Stack<CloseableResource> plannerResources = new Stack<>();
+    private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
     // and value is the new string used for replacement.
-    private TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
+    private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
+            = new TreeMap<>(new Pair.PairComparator<>());
 
     public StatementContext() {
-        this(ConnectContext.get(), null);
+        this(ConnectContext.get(), null, 0);
     }
 
-    /** StatementContext */
+    public StatementContext(int initialId) {
+        this(ConnectContext.get(), null, initialId);
+    }
+
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, 0);
+    }
+
+    /**
+     * StatementContext
+     */
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
                 && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
@@ -205,10 +217,6 @@ public class StatementContext implements Closeable {
         return Optional.ofNullable(sqlCacheContext);
     }
 
-    public int getMaxContinuousJoin() {
-        return joinCount;
-    }
-
     public Set<SlotReference> getAllPathsSlots() {
         Set<SlotReference> allSlotReferences = Sets.newHashSet();
         for (Map<List<String>, SlotReference> slotReferenceMap : subColumnSlotRefMap.values()) {
@@ -229,19 +237,16 @@ public class StatementContext implements Closeable {
      * Add a slot ref attached with paths in context to avoid duplicated slot
      */
     public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
-        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(new Comparator<List<String>>() {
-            @Override
-            public int compare(List<String> lst1, List<String> lst2) {
-                Iterator<String> it1 = lst1.iterator();
-                Iterator<String> it2 = lst2.iterator();
-                while (it1.hasNext() && it2.hasNext()) {
-                    int result = it1.next().compareTo(it2.next());
-                    if (result != 0) {
-                        return result;
-                    }
+        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap((lst1, lst2) -> {
+            Iterator<String> it1 = lst1.iterator();
+            Iterator<String> it2 = lst2.iterator();
+            while (it1.hasNext() && it2.hasNext()) {
+                int result = it1.next().compareTo(it2.next());
+                if (result != 0) {
+                    return result;
                 }
-                return Integer.compare(lst1.size(), lst2.size());
             }
+            return Integer.compare(lst1.size(), lst2.size());
         }));
         subColumnSlotRefMap.get(root).put(paths, slotRef);
         subColumnOriginalExprMap.put(slotRef, originalExpr);
@@ -338,16 +343,12 @@ public class StatementContext implements Closeable {
         return cteIdToConsumers;
     }
 
-    public Map<CTEId, Set<NamedExpression>> getCteIdToProjects() {
-        return cteIdToProjects;
+    public Map<CTEId, Set<Slot>> getCteIdToOutputIds() {
+        return cteIdToOutputIds;
     }
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return consumerIdToFilters;
-    }
-
-    public Map<CTEId, Set<RelationId>> getCteIdToConsumerUnderProjects() {
-        return cteIdToConsumerUnderProjects;
     }
 
     public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
@@ -486,5 +487,13 @@ public class StatementContext implements Closeable {
             return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
                     + ",\n  sql:\n" + sql + "\n}";
         }
+    }
+
+    public void addKeyColumn(Column column) {
+        keyColumns.add(column);
+    }
+
+    public boolean isKeyColumn(Column column) {
+        return keyColumns.contains(column);
     }
 }

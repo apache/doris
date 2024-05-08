@@ -75,6 +75,7 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
     size_t size = elems.size();
     if (names.size() != size) {
         LOG(FATAL) << "Wrong number of names passed to constructor of DataTypeStruct";
+        __builtin_unreachable();
     }
 
     Status st = check_tuple_names(names);
@@ -272,6 +273,7 @@ void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
                 // This is not a logical error because it may work with
                 // user-supplied data.
                 LOG(FATAL) << "Cannot read a tuple because not all elements are present";
+                __builtin_unreachable();
             }
         }
     } catch (...) {
@@ -342,6 +344,7 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
         }
     }
     LOG(FATAL) << "Struct doesn't have element with name '" + name + "'";
+    __builtin_unreachable();
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {

@@ -36,6 +36,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -128,6 +129,8 @@ public:
 
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
 
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -148,6 +151,8 @@ protected:
     std::mutex _quering_rowsets_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
     scoped_refptr<Thread> _evict_quering_rowset_thread;
+
+    int64_t _memory_limitation_bytes_for_schema_change;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -408,8 +413,6 @@ private:
     scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
-    // threads to scan disk paths
-    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
@@ -443,6 +446,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;

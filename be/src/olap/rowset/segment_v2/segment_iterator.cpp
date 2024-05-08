@@ -362,6 +362,12 @@ Status SegmentIterator::_lazy_init() {
         _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+    // extract for index apply col id which is slot_ref
+    if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
+        for (auto expr : _remaining_conjunct_roots) {
+            RETURN_IF_ERROR(_extract_common_expr_columns_for_index(expr));
+        }
+    }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
@@ -726,6 +732,20 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
+Status SegmentIterator::_extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr) {
+    auto& children = expr->children();
+    for (int i = 0; i < children.size(); ++i) {
+        RETURN_IF_ERROR(_extract_common_expr_columns_for_index(children[i]));
+    }
+
+    auto node_type = expr->node_type();
+    if (node_type == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
+        _common_expr_columns_for_index.insert(slot_expr->column_id());
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         const vectorized::VExprSPtr& expr) {
     if (expr == nullptr) {
@@ -742,10 +762,17 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = std::dynamic_pointer_cast<doris::vectorized::VLiteral>(expr);
-        _column_predicate_info->query_value = v_literal_expr->value();
-    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED) {
+        _column_predicate_info->query_values.push_back(v_literal_expr->value());
+    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
+               node_type == TExprNodeType::IN_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
+        } else if (node_type == TExprNodeType::IN_PRED) {
+            if (expr->op() == TExprOpcode::type::FILTER_IN) {
+                _column_predicate_info->query_op = "in_list";
+            } else {
+                _column_predicate_info->query_op = "not_in_list";
+            }
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
@@ -815,6 +842,17 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     return true;
 }
 
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnId col_id) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return false;
+    }
+    if (_inverted_index_iterators[col_id] == nullptr) {
+        //this column without inverted index
+        return false;
+    }
+    return true;
+}
+
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
@@ -870,7 +908,9 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                           pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
-                          pred_type == PredicateType::MATCH;
+                          pred_type == PredicateType::MATCH ||
+                          pred_type == PredicateType::IN_LIST ||
+                          pred_type == PredicateType::NOT_IN_LIST;
         if (!is_support) {
             continue;
         }
@@ -951,7 +991,8 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
     auto pred_type = predicate->type();
     auto predicate_params = predicate->predicate_params();
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_" +
-                       predicate->pred_type_string(pred_type) + "_" + predicate_params->value;
+                       predicate->pred_type_string(pred_type) + "_" +
+                       join(predicate_params->values, ",");
 
     return pred_result_sign;
 }
@@ -959,7 +1000,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     std::string pred_result_sign;
     pred_result_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + predicate_info->column_name + "_" +
-                       predicate_info->query_op + "_" + predicate_info->query_value;
+                       predicate_info->query_op + "_" + join(predicate_info->query_values, ",");
     return pred_result_sign;
 }
 
@@ -1008,7 +1049,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         }
 
         auto pred_type = pred->type();
-        if (pred_type == PredicateType::MATCH) {
+        if (pred_type == PredicateType::MATCH || pred_type == PredicateType::IN_LIST) {
             std::string pred_result_sign = _gen_predicate_result_sign(pred);
             _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(false, _row_bitmap));
         }
@@ -1206,6 +1247,46 @@ Status SegmentIterator::_apply_inverted_index() {
                            << (*it)->root()->debug_string();
             } else {
                 ++it;
+            }
+        }
+    }
+
+    // add a switch for inverted index filter
+    if (_opts.runtime_state &&
+        _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
+        // support expr to evaluate inverted index
+        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+                iter_map;
+        for (auto col_id : _common_expr_columns_for_index) {
+            auto tablet_col_id = _schema->column_id(col_id);
+            if (_check_apply_by_inverted_index(tablet_col_id)) {
+                iter_map[col_id] = std::make_pair(_storage_name_and_type[tablet_col_id],
+                                                  _inverted_index_iterators[tablet_col_id].get());
+            }
+        }
+        for (auto expr_ctx : _common_expr_ctxs_push_down) {
+            // _inverted_index_iterators has all column ids which has inverted index
+            // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
+            // if current bitmap is already empty just return
+            if (_row_bitmap.isEmpty()) {
+                break;
+            }
+            std::shared_ptr<roaring::Roaring> result_bitmap = std::make_shared<roaring::Roaring>();
+            if (Status st =
+                        expr_ctx->eval_inverted_index(iter_map, num_rows(), result_bitmap.get());
+                !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    // other code is not to be handled, we should just break
+                    LOG(WARNING) << "failed to evaluate inverted index for expr_ctx: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
+            } else {
+                // every single result of expr_ctx must be `and` collection relationship
+                _row_bitmap &= *result_bitmap;
             }
         }
     }
@@ -1943,10 +2024,10 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
         return;
     }
 
-    auto column_desc = _schema->column(version_idx);
+    const auto* column_desc = _schema->column(version_idx);
     auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
     DCHECK(_schema->column(version_idx)->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-    auto col_ptr = reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(column.get());
+    auto* col_ptr = assert_cast<vectorized::ColumnInt64*>(column.get());
     for (size_t j = 0; j < num_rows; j++) {
         col_ptr->insert_value(_opts.version.second);
     }
@@ -1957,21 +2038,23 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
-    if (_is_need_vec_eval) {
-        _is_need_vec_eval = false;
-        for (const auto& pred : _pre_eval_block_predicate) {
-            _is_need_vec_eval |= (!pred->always_true());
+    bool all_pred_always_true = true;
+    for (const auto& pred : _pre_eval_block_predicate) {
+        if (!pred->always_true()) {
+            all_pred_always_true = false;
+            break;
         }
     }
-    if (!_is_need_vec_eval) {
-        for (uint32_t i = 0; i < selected_size; ++i) {
+    //If all predicates are always_true, then return directly.
+    if (all_pred_always_true || !_is_need_vec_eval) {
+        for (uint16_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
         }
         return selected_size;
     }
 
     uint16_t original_size = selected_size;
-    bool ret_flags[original_size];
+    _ret_flags.resize(original_size);
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
     for (auto& pred : _pre_eval_block_predicate) {
@@ -1981,10 +2064,10 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         auto column_id = pred->column_id();
         auto& column = _current_return_columns[column_id];
         if (is_first) {
-            pred->evaluate_vec(*column, original_size, ret_flags);
+            pred->evaluate_vec(*column, original_size, (bool*)_ret_flags.data());
             is_first = false;
         } else {
-            pred->evaluate_and_vec(*column, original_size, ret_flags);
+            pred->evaluate_and_vec(*column, original_size, (bool*)_ret_flags.data());
         }
     }
 
@@ -1996,7 +2079,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        auto mask = simd::bytes32_mask_to_bits32_mask(_ret_flags.data() + sel_pos);
         if (0 == mask) {
             //pass
         } else if (0xffffffff == mask) {
@@ -2014,7 +2097,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
 
     for (; sel_pos < sel_end; sel_pos++) {
-        if (ret_flags[sel_pos]) {
+        if (_ret_flags[sel_pos]) {
             sel_rowid_idx[new_size++] = sel_pos;
         }
     }
@@ -2032,14 +2115,14 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     }
 
     uint16_t original_size = selected_size;
-    for (auto predicate : _short_cir_eval_predicate) {
+    for (auto* predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
 
     // collect profile
-    for (auto p : _filter_info_id) {
+    for (auto* p : _filter_info_id) {
         _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
     }
     _opts.stats->short_circuit_cond_input_rows += original_size;
@@ -2248,25 +2331,28 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        if (_non_predicate_columns.empty()) {
+            return Status::InternalError("_non_predicate_columns is empty");
+        }
         RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
     } else {
         uint16_t selected_size = _current_batch_rows_read;
-        uint16_t sel_rowid_idx[selected_size];
+        _sel_rowid_idx.resize(selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
             _convert_dict_code_for_predicate_if_necessary();
 
             // step 1: evaluate vectorization predicate
-            selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+            selected_size = _evaluate_vectorization_predicate(_sel_rowid_idx.data(), selected_size);
 
             // step 2: evaluate short circuit predicate
             // todo(wb) research whether need to read short predicate after vectorization evaluation
             //          to reduce cost of read short circuit columns.
             //          In SSB test, it make no difference; So need more scenarios to test
-            selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+            selected_size = _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), selected_size);
 
             if (selected_size > 0) {
                 // step 3.1: output short circuit and predicate column
@@ -2274,7 +2360,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // see _vec_init_lazy_materialization
                 // todo(wb) need to tell input columnids from output columnids
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids,
-                                                          sel_rowid_idx, selected_size));
+                                                          _sel_rowid_idx.data(), selected_size));
 
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
@@ -2282,7 +2368,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                     if (!_second_read_column_ids.empty()) {
                         SCOPED_RAW_TIMER(&_opts.stats->second_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _second_read_column_ids, _block_rowids, sel_rowid_idx,
+                                _second_read_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 selected_size, &_current_return_columns));
                         if (std::find(_second_read_column_ids.begin(),
                                       _second_read_column_ids.end(), _schema->version_col_idx()) !=
@@ -2308,14 +2394,16 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         auto col_const = vectorized::ColumnConst::create(std::move(res_column),
                                                                          selected_size);
                         block->replace_by_position(0, std::move(col_const));
-                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
-                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                        RETURN_IF_ERROR(
+                                _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                         block->replace_by_position(0, std::move(col0));
                     } else {
-                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx);
-                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                        RETURN_IF_ERROR(
+                                _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                     }
                 }
             } else if (_is_need_expr_eval) {
@@ -2334,7 +2422,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
             }
             for (uint32_t i = 0; i < selected_size; ++i) {
-                sel_rowid_idx[i] = i;
+                _sel_rowid_idx[i] = i;
             }
 
             if (block->rows() == 0) {
@@ -2345,23 +2433,20 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(sel_rowid_idx, selected_size, block);
+                _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
-                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(sel_rowid_idx, selected_size, block);
+                _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
-                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
             }
         }
 
         if (UNLIKELY(_opts.record_rowids)) {
             _sel_rowid_idx.resize(selected_size);
             _selected_size = selected_size;
-            for (auto i = 0; i < _selected_size; i++) {
-                _sel_rowid_idx[i] = sel_rowid_idx[i];
-            }
         }
 
         if (_non_predicate_columns.empty()) {
@@ -2373,7 +2458,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         // step4: read non_predicate column
         if (selected_size > 0) {
             RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                    sel_rowid_idx, selected_size,
+                                                    _sel_rowid_idx.data(), selected_size,
                                                     &_current_return_columns));
             if (std::find(_non_predicate_columns.begin(), _non_predicate_columns.end(),
                           _schema->version_col_idx()) != _non_predicate_columns.end()) {
@@ -2386,7 +2471,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _output_non_pred_columns(block);
 
         if (!_is_need_expr_eval) {
-            _output_index_result_column(sel_rowid_idx, selected_size, block);
+            _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
         }
     }
 
@@ -2614,13 +2699,28 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
-        _column_predicate_info->column_name = expr->expr_name();
+        if (_column_predicate_info->column_name.empty()) {
+            _column_predicate_info->column_name = expr->expr_name();
+        } else {
+            // If column name already exists, create a new ColumnPredicateInfo
+            // if expr is columnA > columnB, then column name will exist, in this situation, we need to add it to _column_pred_in_remaining_vconjunct
+            auto new_column_pred_info = std::make_shared<ColumnPredicateInfo>();
+            new_column_pred_info->column_name = expr->expr_name();
+            _column_pred_in_remaining_vconjunct[new_column_pred_info->column_name].push_back(
+                    *new_column_pred_info);
+        }
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
-        _column_predicate_info->query_value = v_literal_expr->value();
+        _column_predicate_info->query_values.push_back(v_literal_expr->value());
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
+        } else if (node_type == TExprNodeType::IN_PRED) {
+            if (expr->op() == TExprOpcode::type::FILTER_IN) {
+                _column_predicate_info->query_op = "in_list";
+            } else {
+                _column_predicate_info->query_op = "not_in_list";
+            }
         } else if (node_type != TExprNodeType::COMPOUND_PRED) {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }

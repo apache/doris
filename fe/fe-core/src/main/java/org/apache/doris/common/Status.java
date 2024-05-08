@@ -26,14 +26,6 @@ public class Status {
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
     public static final Status TIMEOUT = new Status(TStatusCode.TIMEOUT, "Timeout");
 
-    public TStatusCode getErrorCode() {
-        return errorCode;
-    }
-
-    public String getErrorMsg() {
-        return errorMsg;
-    }
-
     private TStatusCode  errorCode; // anything other than OK
     private String errorMsg;
 
@@ -58,6 +50,25 @@ public class Status {
         }
     }
 
+    public Status(final PStatus status) {
+        TStatusCode mappingCode = TStatusCode.findByValue(status.getStatusCode());
+        // Not all pstatus code could be mapped to TStatusCode, see BE status.h file
+        // For those not mapped, set it to internal error.
+        if (mappingCode == null) {
+            this.errorCode = TStatusCode.INTERNAL_ERROR;
+        } else {
+            this.errorCode = mappingCode;
+        }
+        if (!status.getErrorMsgsList().isEmpty()) {
+            this.errorMsg = status.getErrorMsgs(0);
+        }
+    }
+
+    public void updateStatus(TStatusCode code, String errorMessage) {
+        this.errorCode = code;
+        this.errorMsg = errorMessage;
+    }
+
     public boolean ok() {
         return this.errorCode == TStatusCode.OK;
     }
@@ -70,27 +81,14 @@ public class Status {
         return this.errorCode == TStatusCode.THRIFT_RPC_ERROR;
     }
 
-    public void setStatus(Status status) {
-        this.errorCode = status.errorCode;
-        this.errorMsg = status.getErrorMsg();
+    public TStatusCode getErrorCode() {
+        return errorCode;
     }
 
-    public void setStatus(String msg) {
-        this.errorCode = TStatusCode.INTERNAL_ERROR;
-        this.errorMsg = msg;
+    public String getErrorMsg() {
+        return errorMsg;
     }
 
-    public void setPstatus(PStatus status) {
-        this.errorCode = TStatusCode.findByValue(status.getStatusCode());
-        if (!status.getErrorMsgsList().isEmpty()) {
-            this.errorMsg = status.getErrorMsgs(0);
-        }
-    }
-
-    public void setRpcStatus(String msg) {
-        this.errorCode = TStatusCode.THRIFT_RPC_ERROR;
-        this.errorMsg = msg;
-    }
 
     public void rewriteErrorMsg() {
         if (ok()) {

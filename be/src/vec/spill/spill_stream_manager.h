@@ -108,14 +108,11 @@ public:
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
+    void async_cleanup_query(TUniqueId query_id);
+
     void gc(int64_t max_file_count);
 
-    ThreadPool* get_spill_io_thread_pool(const std::string& path) const {
-        const auto it = path_to_io_thread_pool_.find(path);
-        DCHECK(it != path_to_io_thread_pool_.end());
-        return it->second.get();
-    }
-    ThreadPool* get_async_task_thread_pool() const { return async_task_thread_pool_.get(); }
+    ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 
 private:
     Status _init_spill_store_map();
@@ -125,8 +122,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
-    std::unique_ptr<ThreadPool> async_task_thread_pool_;
-    std::unordered_map<std::string, std::unique_ptr<ThreadPool>> path_to_io_thread_pool_;
+    std::unique_ptr<ThreadPool> _spill_io_thread_pool;
     scoped_refptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;

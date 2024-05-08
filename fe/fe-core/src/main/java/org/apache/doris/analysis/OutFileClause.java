@@ -309,9 +309,13 @@ public class OutFileClause {
             case VARCHAR:
                 orcType = "varchar(" + dorisType.getLength() + ")";
                 break;
+            case IPV4:
+                orcType = "int";
+                break;
             case LARGEINT:
             case DATE:
             case DATETIME:
+            case IPV6:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -423,9 +427,13 @@ public class OutFileClause {
                 case VARCHAR:
                     checkOrcType(schema.second, "varchar", false, resultType.getPrimitiveType().toString());
                     break;
+                case IPV4:
+                    checkOrcType(schema.second, "int", false, resultType.getPrimitiveType().toString());
+                    break;
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
+                case IPV6:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:

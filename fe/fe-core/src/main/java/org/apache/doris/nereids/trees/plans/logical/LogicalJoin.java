@@ -696,4 +696,30 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
     }
+
+    @Override
+    public void computeEqualSet(Builder fdBuilder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addEqualSet(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addEqualSet(left().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (joinType.isInnerJoin()) {
+            for (Expression expression : getHashJoinConjuncts()) {
+                Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+                equalSlot.ifPresent(slotSlotPair -> fdBuilder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addFuncDepsDG(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addFuncDepsDG(left().getLogicalProperties().getFunctionalDependencies());
+        }
+    }
 }

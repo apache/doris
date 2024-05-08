@@ -321,12 +321,10 @@ suite("parse_sql_from_sql_cache") {
         }),
         extraThread("testAddRowPolicy", {
             def dbName = context.config.getDbNameByFile(context.file)
-            sql "set enable_nereids_planner=false"
             try_sql """
                 DROP ROW POLICY if exists test_cache_row_policy_2
                 ON ${dbName}.test_use_plan_cache13
                 FOR test_cache_user2"""
-            sql "set enable_nereids_planner=true"
 
             sql "drop user if exists test_cache_user2"
             sql "create user test_cache_user2 identified by 'DORIS@2024'"
@@ -359,13 +357,11 @@ suite("parse_sql_from_sql_cache") {
                 }
             }).get()
 
-            sql "set enable_nereids_planner=false"
             sql """
                 CREATE ROW POLICY test_cache_row_policy_2
                 ON ${dbName}.test_use_plan_cache13
                 AS RESTRICTIVE TO test_cache_user2
                 USING (id = 4)"""
-            sql "set enable_nereids_planner=true"
 
             sql "sync"
 
@@ -383,12 +379,10 @@ suite("parse_sql_from_sql_cache") {
         }),
         extraThread("testDropRowPolicy", {
             def dbName = context.config.getDbNameByFile(context.file)
-            sql "set enable_nereids_planner=false"
             try_sql """
             DROP ROW POLICY if exists test_cache_row_policy_3
             ON ${dbName}.test_use_plan_cache14
             FOR test_cache_user3"""
-            sql "set enable_nereids_planner=true"
 
             sql "drop user if exists test_cache_user3"
             sql "create user test_cache_user3 identified by 'DORIS@2024'"
@@ -403,13 +397,11 @@ suite("parse_sql_from_sql_cache") {
 
             createTestTable "test_use_plan_cache14"
 
-            sql "set enable_nereids_planner=false"
             sql """
             CREATE ROW POLICY test_cache_row_policy_3
             ON ${dbName}.test_use_plan_cache14
             AS RESTRICTIVE TO test_cache_user3
             USING (id = 4)"""
-            sql "set enable_nereids_planner=true"
 
             sql "sync"
 
@@ -429,12 +421,10 @@ suite("parse_sql_from_sql_cache") {
                 }
             }).get()
 
-            sql "set enable_nereids_planner=false"
             try_sql """
             DROP ROW POLICY if exists test_cache_row_policy_3
             ON ${dbName}.test_use_plan_cache14
             FOR test_cache_user3"""
-            sql "set enable_nereids_planner=true"
 
             sql "sync"
 

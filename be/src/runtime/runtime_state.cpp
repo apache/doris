@@ -33,8 +33,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -141,7 +140,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
             query_id, RuntimeFilterParamsContext::create(this), _query_mem_tracker));
 }
 
-RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
                            const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
@@ -531,9 +530,6 @@ Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilte
                                                       bool need_local_merge,
                                                       doris::IRuntimeFilter** producer_filter,
                                                       bool build_bf_exactly) {
-    // If runtime filter need to be local merged, `build_bf_exactly` will lead to bloom filters with
-    // different size need to be merged which is not allowed.
-    // So if `need_local_merge` is true, we will disable `build_bf_exactly`.
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_local_merge_producer_filter(
                 desc, query_options(), producer_filter, build_bf_exactly);
@@ -557,6 +553,30 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
 
 bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
+}
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
+    std::shared_lock lc(_pipeline_profile_lock);
+    return _pipeline_id_to_profile;
+}
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profile(
+        std::size_t pipeline_size) {
+    std::unique_lock lc(_pipeline_profile_lock);
+    if (!_pipeline_id_to_profile.empty()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "build_pipeline_profile can only be called once.");
+    }
+    _pipeline_id_to_profile.resize(pipeline_size);
+    {
+        size_t pip_idx = 0;
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            pipeline_profile =
+                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+            pip_idx++;
+        }
+    }
+    return _pipeline_id_to_profile;
 }
 
 } // end namespace doris

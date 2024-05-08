@@ -128,6 +128,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);

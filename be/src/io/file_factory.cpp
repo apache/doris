@@ -123,14 +123,10 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
-        io::HdfsHandler* handler;
+        std::shared_ptr<io::HdfsHandler> handler;
         RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
                 hdfs_params, hdfs_params.fs_name, &handler));
-        auto res = io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
-        if (!res.has_value()) {
-            handler->dec_ref();
-        }
-        return res;
+        return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
     default:
         return ResultError(
@@ -165,7 +161,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 });
     }
     case TFileType::FILE_HDFS: {
-        io::HdfsHandler* handler;
+        std::shared_ptr<io::HdfsHandler> handler;
         // FIXME(plat1ko): Explain the difference between `system_properties.hdfs_params.fs_name`
         // and `file_description.fs_name`, it's so confused.
         const auto* fs_name = &file_description.fs_name;
@@ -227,7 +223,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     }
 
     TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_exec()) {
+    if (runtime_state->enable_pipeline_x_exec()) {
         pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
                                                         runtime_state->fragment_id());
     } else {

@@ -189,7 +189,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
             break;
         }
 
-        if (!current->isLast()) {
+        if (!current->is_last()) {
             current->next();
             priority_queue.push(current);
         }

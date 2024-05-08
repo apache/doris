@@ -24,6 +24,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
@@ -31,9 +32,13 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -181,7 +186,16 @@ Status CloudStorageEngine::open() {
             std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
-    return Status::OK();
+    _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
+
+    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+
+    _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    return ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
+            .set_max_threads(config::sync_load_for_tablets_thread)
+            .set_min_threads(config::sync_load_for_tablets_thread)
+            .build(&_sync_load_for_tablets_thread_pool);
 }
 
 void CloudStorageEngine::stop() {
@@ -262,9 +276,42 @@ Status CloudStorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "lease_compaction_thread",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
+
+    if (config::file_cache_ttl_valid_check_interval_second != 0) {
+        RETURN_IF_ERROR(Thread::create(
+                "StorageEngine", "check_file_cache_ttl_block_valid_thread",
+                [this]() { this->_check_file_cache_ttl_block_valid(); },
+                &_bg_threads.emplace_back()));
+        LOG(INFO) << "check file cache ttl block valid thread started";
+    }
+
     LOG(INFO) << "lease compaction thread started";
 
     return Status::OK();
+}
+
+void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
+    int64_t interval_seconds = config::file_cache_ttl_valid_check_interval_second / 2;
+    auto check_ttl = [](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto tablet = tablet_wk.lock();
+        if (!tablet) return;
+        if (tablet->tablet_meta()->ttl_seconds() == 0) return;
+        auto rowsets = tablet->get_snapshot_rowset();
+        for (const auto& rowset : rowsets) {
+            int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
+            if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
+            for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
+                auto seg_path = rowset->segment_file_path(seg_id);
+                auto hash = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
+                file_cache->update_ttl_atime(hash);
+            }
+        }
+    };
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
+        auto weak_tablets = tablet_mgr().get_weak_tablets();
+        std::for_each(weak_tablets.begin(), weak_tablets.end(), check_ttl);
+    }
 }
 
 void CloudStorageEngine::sync_storage_vault() {

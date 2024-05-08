@@ -19,30 +19,11 @@
 
 #include <stdint.h>
 
-#include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
-#include "vec/exec/vaggregation_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class AggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSinkOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class AggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
-public:
-    AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class AggSinkOperatorX;
 
@@ -143,7 +124,7 @@ protected:
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs);
+                     const DescriptorTbl& descs, bool require_bucket_distribution);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -213,7 +194,8 @@ protected:
 
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

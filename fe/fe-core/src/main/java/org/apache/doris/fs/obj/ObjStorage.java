@@ -32,7 +32,7 @@ import java.io.File;
  * @param <C> cloud SDK Client
  */
 public interface ObjStorage<C> {
-    C getClient(String bucket) throws UserException;
+    C getClient() throws UserException;
 
     Triple<String, String, String> getStsToken() throws DdlException;
 

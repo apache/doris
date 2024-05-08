@@ -46,7 +46,6 @@ class SimplifiedScanScheduler;
 }
 
 namespace pipeline {
-class PipelineTask;
 class TaskScheduler;
 } // namespace pipeline
 
@@ -119,7 +118,7 @@ public:
             // If the workload group is set shutdown, then should not run any more,
             // because the scheduler pool and other pointer may be released.
             return Status::InternalError(
-                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    "Failed add query to wg {}, the workload group is shutdown. host: {}", _id,
                     BackendOptions::get_localhost());
         }
         _query_ctxs.insert({query_id, query_ctx});
@@ -136,12 +135,17 @@ public:
         _is_shutdown = true;
     }
 
+    bool can_be_dropped() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _is_shutdown && _query_ctxs.size() == 0;
+    }
+
     int query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_ctxs.size();
     }
 
-    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
 
     void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
 

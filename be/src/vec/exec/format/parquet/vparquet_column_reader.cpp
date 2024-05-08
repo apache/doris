@@ -40,15 +40,6 @@
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vparquet_column_chunk_reader.h"
 
-namespace cctz {
-class time_zone;
-} // namespace cctz
-namespace doris {
-namespace io {
-struct IOContext;
-} // namespace io
-} // namespace doris
-
 namespace doris::vectorized {
 
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
@@ -117,7 +108,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
-                                   size_t max_buf_size) {
+                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
@@ -153,7 +144,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         reader.reset(struct_reader.release());
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        auto scalar_reader = ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx);
+        auto scalar_reader =
+                ScalarColumnReader::create_unique(row_ranges, chunk, offset_index, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
         reader.reset(scalar_reader.release());
     }
@@ -199,7 +191,7 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
-                                                        _ctz, _io_ctx);
+                                                        _offset_index, _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }
@@ -574,8 +566,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
     } while (false);
 
-    auto converted_column = doris_column->assume_mutable();
-    return _converter->convert(resolved_column, converted_column);
+    return _converter->convert(resolved_column, _field_schema->type, type, doris_column,
+                               is_dict_filter);
 }
 
 Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_reader,

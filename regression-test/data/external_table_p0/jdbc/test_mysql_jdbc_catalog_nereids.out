@@ -191,6 +191,7 @@ triggers
 user_privileges
 views
 workload_groups
+workload_policy
 
 -- !test_insert1 --
 doris1	18

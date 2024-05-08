@@ -71,7 +71,8 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
     private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
         List<ResultRow> columnResults = null;
         try {
-            columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
+            columnResults = StatisticsRepository.loadColStats(
+                    key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
         } catch (InternalQueryExecutionException e) {
             LOG.info("Failed to load stats for table {} column {}. Reason:{}",
                     key.tableId, key.colName, e.getMessage());

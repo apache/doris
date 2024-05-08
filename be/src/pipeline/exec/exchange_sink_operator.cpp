@@ -27,68 +27,15 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
 class DataSink;
 } // namespace doris
 
 namespace doris::pipeline {
-
-ExchangeSinkOperatorBuilder::ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink,
-                                                         int mult_cast_id)
-        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink), _mult_cast_id(mult_cast_id) {}
-
-OperatorPtr ExchangeSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ExchangeSinkOperator>(this, _sink, _mult_cast_id);
-}
-
-ExchangeSinkOperator::ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                                           int mult_cast_id)
-        : DataSinkOperator(operator_builder, sink), _mult_cast_id(mult_cast_id) {}
-
-Status ExchangeSinkOperator::init(const TDataSink& tsink) {
-    // -1 means not the mult cast stream sender
-    if (_mult_cast_id == -1) {
-        _dest_node_id = tsink.stream_sink.dest_node_id;
-    } else {
-        _dest_node_id = tsink.multi_cast_stream_sink.sinks[_mult_cast_id].dest_node_id;
-    }
-    return Status::OK();
-}
-
-Status ExchangeSinkOperator::prepare(RuntimeState* state) {
-    _state = state;
-    PUniqueId id;
-    id.set_hi(_state->query_id().hi);
-    id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer<vectorized::VDataStreamSender>>(
-            id, _dest_node_id, _sink->_sender_id, _state->be_number(), state);
-
-    RETURN_IF_ERROR(DataSinkOperator::prepare(state));
-    _sink->register_pipeline_channels(_sink_buffer.get());
-    return Status::OK();
-}
-
-bool ExchangeSinkOperator::can_write() {
-    return _sink_buffer->can_write() && _sink->channel_all_can_write();
-}
-
-bool ExchangeSinkOperator::is_pending_finish() const {
-    return _sink_buffer->is_pending_finish();
-}
-
-Status ExchangeSinkOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperator::close(state));
-    if (_sink_buffer) {
-        _sink_buffer->update_profile(_sink->profile());
-        _sink_buffer->close();
-    }
-    return Status::OK();
-}
 
 Status ExchangeSinkLocalState::serialize_block(vectorized::Block* src, PBlock* dest,
                                                int num_receivers) {
@@ -138,9 +85,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
-            channel_shared_ptrs.emplace_back(new vectorized::PipChannel<ExchangeSinkLocalState>(
-                    this, p._row_desc, p._dests[i].brpc_server, fragment_instance_id,
-                    p._dest_node_id));
+            channel_shared_ptrs.emplace_back(
+                    new vectorized::PipChannel(this, p._row_desc, p._dests[i].brpc_server,
+                                               fragment_instance_id, p._dest_node_id));
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  channel_shared_ptrs.size() - 1);
             channels.push_back(channel_shared_ptrs.back().get());
@@ -184,8 +131,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer<ExchangeSinkLocalState>>(
-            id, p._dest_node_id, _sender_id, _state->be_number(), state);
+    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
+                                                        _state->be_number(), state);
 
     register_channels(_sink_buffer.get());
     _queue_dependency =
@@ -221,8 +168,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     }
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(channels.size()));
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
@@ -269,8 +216,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
         _partition_count =
                 channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_partition_count));
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                _partition_count));
         _partition_function.reset(new HashPartitionFunction(_partitioner.get()));
 
         scale_writer_partitioning_exchanger.reset(new vectorized::ScaleWriterPartitioningExchanger<
@@ -463,7 +410,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
-        vectorized::PipChannel<ExchangeSinkLocalState>* current_channel =
+        vectorized::PipChannel* current_channel =
                 local_state.channels[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
@@ -547,7 +494,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel
-        vectorized::PipChannel<ExchangeSinkLocalState>* current_channel =
+        vectorized::PipChannel* current_channel =
                 local_state.channels[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
@@ -613,11 +560,9 @@ Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vec
     return Status::OK();
 }
 
-void ExchangeSinkLocalState::register_channels(
-        pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer) {
+void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : channels) {
-        ((vectorized::PipChannel<ExchangeSinkLocalState>*)channel)
-                ->register_exchange_buffer(buffer);
+        ((vectorized::PipChannel*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -685,7 +630,8 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED &&
+        _block_convertor != nullptr && _tablet_finder != nullptr) {
         _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(

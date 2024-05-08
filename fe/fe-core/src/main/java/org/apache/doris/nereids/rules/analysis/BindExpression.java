@@ -777,9 +777,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 (self, unboundSlot) -> {
                     // first, try to bind slot in Scope(input.output)
                     List<Slot> slotsInInput = self.bindExactSlotsByThisScope(unboundSlot, inputScope);
-                    if (slotsInInput.size() == 1) {
+                    if (!slotsInInput.isEmpty()) {
                         // bind succeed
-                        return slotsInInput;
+                        return ImmutableList.of(slotsInInput.get(0));
                     }
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in input.output,

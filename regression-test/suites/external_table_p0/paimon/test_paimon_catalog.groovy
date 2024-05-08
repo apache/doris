@@ -56,10 +56,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
     sql """drop catalog ${hms_ctl_name}""";
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
-        if (enabled != null && enabled.equalsIgnoreCase("enable_deprecated_case")) {
-            // The timestamp type of paimon has no logical or converted type,
-            // and is conflict with column type change from bigint to timestamp.
-            // Deprecated currently.
+        if (enabled != null && enabled.equalsIgnoreCase("true")) {
             def qt_all_type = { String table_name ->
                 qt_all """select * from ${table_name} order by c1"""
                 qt_predict_like_1 """select * from ${table_name} where c13 like '%3%' order by c1"""
@@ -174,7 +171,10 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c100= """select * from array_nested order by c1;"""
 
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            def c102= """select * from row_native_test order by id;"""
+            def c103= """select * from row_jni_test order by id;"""
+
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -271,6 +271,10 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            qt_c102 c102
+            sql """ set force_jni_scanner=true; """
+            qt_c103 c103
+            sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon
             sql """ switch internal """

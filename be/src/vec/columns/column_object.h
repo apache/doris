@@ -463,6 +463,7 @@ public:
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
@@ -481,6 +482,7 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     bool is_variable_length() const override { return true; }
@@ -491,6 +493,7 @@ public:
 
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
+        __builtin_unreachable();
     }
 
     template <typename Func>

@@ -55,7 +55,7 @@ Status CloudFullCompaction::prepare_compact() {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
-    // always sync lastest rowset for full compaction
+    // always sync latest rowset for full compaction
     RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
 
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -90,7 +90,7 @@ Status CloudFullCompaction::prepare_compact() {
             cloud_tablet()->last_sync_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }
@@ -124,7 +124,7 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
     }
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
-                "insuffient compation input rowset, #rowsets={}", _input_rowsets.size());
+                "insufficent compaction input rowset, #rowsets={}", _input_rowsets.size());
     }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
@@ -200,16 +200,19 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
-    int64_t initiator =
-            boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-    RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
-    compaction_job->set_delete_bitmap_lock_initiator(initiator);
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        int64_t initiator =
+                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
+        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
+        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+    }
 
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }
@@ -231,8 +234,6 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
         cloud_tablet()->set_base_compaction_cnt(cloud_tablet()->base_compaction_cnt() + 1);
-        cloud_tablet()->set_cumulative_compaction_cnt(cloud_tablet()->cumulative_compaction_cnt() +
-                                                      1);
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (output_rowset_delete_bitmap) {
             _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);

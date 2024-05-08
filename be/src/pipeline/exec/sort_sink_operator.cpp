@@ -26,8 +26,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
-
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -162,7 +160,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
 
         if (_use_topn_opt) {
             auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
-            if (predicate.need_update()) {
+            if (predicate.inited()) {
                 vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
                 if (!new_top.is_null() && new_top != local_state.old_top) {
                     auto* query_ctx = state->get_query_ctx();

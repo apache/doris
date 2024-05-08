@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
@@ -165,5 +166,19 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public void computeUniform(Builder fdBuilder) {
         getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
         fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeEqualSet(Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+        for (Expression expression : getConjuncts()) {
+            Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+            equalSlot.ifPresent(slotSlotPair -> fdBuilder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+        }
+    }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

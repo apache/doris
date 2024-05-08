@@ -27,6 +27,10 @@ class S3Client;
 
 namespace doris::cloud {
 
+enum class S3RateLimitType;
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
+
 struct S3Conf {
     std::string ak;
     std::string sk;
@@ -88,6 +92,15 @@ private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;
     S3Conf conf_;
     std::string path_;
+};
+
+class GcsAccessor final : public S3Accessor {
+public:
+    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
+    ~GcsAccessor() override = default;
+
+    // returns 0 for success otherwise error
+    int delete_objects(const std::vector<std::string>& relative_paths) override;
 };
 
 } // namespace doris::cloud
