@@ -120,7 +120,7 @@ if [[ "$#" != 1 ]]; then
 fi
 
 if [[ -z "${PARALLEL}" ]]; then
-    PARALLEL="$(($(nproc) / 5 + 1))"
+    PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"

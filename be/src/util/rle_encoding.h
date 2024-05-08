@@ -210,12 +210,12 @@ private:
     // if we are in a literal run.  If the repeat_count_ get high enough, we switch
     // to encoding repeated runs.
     uint64_t current_value_;
-    int repeat_count_;
+    uint32_t repeat_count_;
 
     // Number of literals in the current run.  This does not include the literals
     // that might be in buffered_values_.  Only after we've got a group big enough
     // can we decide if they should part of the literal_count_ or repeat_count_
-    int literal_count_;
+    uint32_t literal_count_;
 
     // Index of a byte in the underlying buffer that stores the indicator byte.
     // This is reserved as soon as we need a literal run but the value is written
@@ -727,6 +727,10 @@ int32_t RleBatchDecoder<T>::OutputBufferedLiterals(int32_t max_to_output, T* val
             std::min<int32_t>(max_to_output, num_buffered_literals_ - literal_buffer_pos_);
     memcpy(values, &literal_buffer_[literal_buffer_pos_], sizeof(T) * num_to_output);
     literal_buffer_pos_ += num_to_output;
+    if (literal_count_ < num_to_output) {
+        LOG(WARNING) << fmt::format("the literal_count_ will less zero, literal_count_ = {}, num_to_output = {}", 
+                        literal_count_, num_to_output);
+    }
     literal_count_ -= num_to_output;
     return num_to_output;
 }
