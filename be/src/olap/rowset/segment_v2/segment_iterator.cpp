@@ -463,6 +463,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 VLOG_DEBUG << "_execute_predicates_except_leafnode_of_andnode expr: "
                            << (*it)->debug_string() << " res: " << res;
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
+                    LOG(ERROR) << _row_bitmap.cardinality() << ", " << _pred_except_leafnode_of_andnode_evaluate_result[0].cardinality();
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
                     // Delete expr after it obtains the final result.
                     {
@@ -741,17 +742,31 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
                                            size);
         }
+        LOG(ERROR) << "yangsiyu and 1: "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality() << ", "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(1).cardinality();
+
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
+
+        LOG(ERROR) << "yangsiyu and 2: "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality();
     } else if (function_name == "or") {
         if (size < 2) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
                                            size);
         }
+        LOG(ERROR) << "yangsiyu or 1: "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality() << ", "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(1).cardinality();
+
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
+
+        LOG(ERROR) << "yangsiyu or 2: "
+                   << _pred_except_leafnode_of_andnode_evaluate_result.at(0).cardinality();
     } else if (function_name == "not") {
         if (size < 1) {
             return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 1", function_name,
