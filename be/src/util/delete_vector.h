@@ -31,16 +31,16 @@ public:
 
     bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
 
-    bool is_delete(uint32_t postition) { return _roaring_bitmap.contains(postition); }
+    bool is_delete(uint32_t postition) const { return _roaring_bitmap.contains(postition); }
 
     bool is_empty() const { return _roaring_bitmap.isEmpty(); }
 
     static DeletionVector deserialize(const char* buf, size_t maxbytes) {
         return {roaring::Roaring::readSafe(buf, maxbytes)};
     }
-
-private:
     roaring::Roaring _roaring_bitmap;
+
+    // private:
 };
 
 } // namespace doris

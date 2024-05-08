@@ -30,15 +30,19 @@
 #include <ostream>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/file_factory.h"
+#include "io/fs/file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/delete_vector.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -875,6 +879,42 @@ Status VFileScanner::_get_next_reader() {
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
                     unsupported_pushdown_types);
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                auto delete_file = range.table_format_params.paimon_params.delete_file;
+                std::string data_file_path = delete_file.path;
+                io::FileSystemProperties properties;
+                properties.system_type = _params->file_type;
+                properties.properties = _params->properties;
+                properties.hdfs_params = _params->hdfs_params;
+                if (_params->__isset.broker_addresses) {
+                    properties.broker_addresses.assign(_params->broker_addresses.begin(),
+                                                       _params->broker_addresses.end());
+                }
+
+                io::FileDescription file_description;
+                file_description.path = delete_file.path;
+                file_description.file_size = -1;
+                file_description.fs_name = range.fs_name;
+                file_description.mtime = 0;
+                io::FileReaderOptions options = io::FileReaderOptions::DEFAULT;
+                auto delete_file_reader =
+                        FileFactory::create_file_reader(properties, file_description, options);
+                size_t bytes_read = delete_file.length;
+                Slice result;
+                (void)delete_file_reader->get()->read_at(delete_file.offset, result, &bytes_read);
+                auto delete_vector = DeletionVector::deserialize(result.data, result.size);
+                std::vector<int64_t> delete_rows {};
+                uint32_t i = 0;
+                for (auto it = delete_vector._roaring_bitmap.begin();
+                     it != delete_vector._roaring_bitmap.end(); it++) {
+                    if (delete_vector.is_delete(i)) {
+                        delete_rows.push_back(i);
+                    }
+                    i++;
+                }
+                orc_reader->set_position_delete_rowids(&delete_rows);
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
