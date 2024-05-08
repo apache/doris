@@ -171,7 +171,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
         for (size_t block_idx = 0; block_idx != build_blocks.size(); ++block_idx) {
             auto& build_block = build_blocks[block_idx];
-            const auto is_last_block = block_idx == build_blocks.size() - 1;
+            const auto is_last_block = (block_idx == (build_blocks.size() - 1));
             if (UNLIKELY(build_block.empty())) {
                 continue;
             }
@@ -207,8 +207,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                     partitions_indexes[partition_idx].clear();
                 }
 
-                build_block.clear();
-
                 if (partition_block->rows() >= reserved_size || is_last_block) {
                     if (!flush_rows(partition_block, spilling_stream)) {
                         return;
@@ -217,6 +215,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                             vectorized::MutableBlock::create_unique(build_block.clone_empty());
                 }
             }
+
+            build_block.clear();
         }
 
         _dependency->set_ready();
