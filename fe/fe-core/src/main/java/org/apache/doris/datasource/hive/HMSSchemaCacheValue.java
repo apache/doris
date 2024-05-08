@@ -36,7 +36,7 @@ public class HMSSchemaCacheValue extends SchemaCacheValue {
     public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
-    
+
     public List<Type> getPartitionColTypes() {
         return partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
     }
