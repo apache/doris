@@ -926,13 +926,6 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _runtime_state->runtime_profile()->total_time_counter()->update(
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
-    // Print profile content in info log is a tempoeray solution for stream load.
-    // Since stream load does not have someting like coordinator on FE, so
-    // backend can not report profile to FE, ant its profile can not be shown
-    // in the same way with other query. So we print the profile content to info log.
-    // Print profile content in log is harmful for log readability, info log will be
-    // full of profile content, and not just profile of stream load.
-    // We know it, but currently we do not have a cheap and good solution for this.
     if (_runtime_state->enable_profile()) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
@@ -941,10 +934,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
         // After add the operation, the print out like that:
         // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
         // We can easily know the exec node execute time without child time consumed.
-        for (const auto& runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
-            runtime_profile_ptr->pretty_print(&ss);
-        }
-
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->pretty_print(&ss);
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
