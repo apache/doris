@@ -370,7 +370,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
-            return metaCache.getMetaObj(tableName).get();
+            return metaCache.getMetaObj(tableName).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;

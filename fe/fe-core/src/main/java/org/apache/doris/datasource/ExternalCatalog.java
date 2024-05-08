@@ -505,7 +505,7 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObjById(dbId).get();
+            return metaCache.getMetaObjById(dbId).orElse(null);
         } else {
             return idToDb.get(dbId);
         }
