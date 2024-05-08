@@ -179,7 +179,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (!this.rwLock.writeLock().tryLock(timeout, unit)) {
                 Thread owner = this.rwLock.getOwner();
                 if (owner != null) {
-                    LOG.info("database[{}] lock is held by: {}", getName(), Util.dumpThread(owner, 10));
+                    LOG.info("database[{}] lock is held by: {}", getFullName(), Util.dumpThread(owner, 10));
                 }
                 return false;
             }
