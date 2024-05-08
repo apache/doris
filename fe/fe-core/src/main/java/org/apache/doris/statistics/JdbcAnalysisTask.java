@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -25,7 +24,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class JdbcAnalysisTask extends BaseAnalysisTask {
@@ -47,15 +45,10 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
-    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT COUNT(1) as rowCount "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
-
-    private final boolean isTableLevelTask;
     private JdbcExternalTable table;
 
     public JdbcAnalysisTask(AnalysisInfo info) {
         super(info);
-        isTableLevelTask = info.externalTableLevelTask;
         table = (JdbcExternalTable) tbl;
     }
 
@@ -63,24 +56,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         if (killed) {
             return;
         }
-        if (isTableLevelTask) {
-            getTableStats();
-        } else {
-            getColumnStats();
-        }
-    }
-
-    /**
-     * Get table row count and store the result to metadata.
-     */
-    private void getTableStats() throws Exception {
-        Map<String, String> params = buildTableStatsParams(null);
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).get(0);
-        Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStatsMeta(Long.parseLong(rowCount), info, table));
-        job.rowCountDone(this);
+        getColumnStats();
     }
 
     /**
