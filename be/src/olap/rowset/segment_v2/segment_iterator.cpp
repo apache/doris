@@ -2084,7 +2084,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _init_current_block(block, _current_return_columns);
 
     _current_batch_rows_read = 0;
-    uint32_t nrows_read_limit = 50;
+    uint32_t nrows_read_limit = _opts.block_row_max;
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
