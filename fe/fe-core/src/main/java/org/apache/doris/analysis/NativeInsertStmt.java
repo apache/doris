@@ -1157,7 +1157,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (isExplain() || isGroupCommit()) {
+        if (isExplain() || isGroupCommit() || (ConnectContext.get() != null && ConnectContext.get().isTxnModel())) {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;

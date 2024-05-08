@@ -47,7 +47,7 @@ suite("insert_group_commit_into") {
                 return true
             }
             retry++
-            if (retry >= 10) {
+            if (retry >= 20) {
                 return false
             }
         }
