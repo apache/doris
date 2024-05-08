@@ -171,7 +171,7 @@ public class MTMVService implements EventListener {
     @Override
     public void processEvent(Event event) throws EventException {
         Objects.requireNonNull(event);
-        if (event instanceof TableEvent) {
+        if (!(event instanceof TableEvent)) {
             return;
         }
         TableEvent tableEvent = (TableEvent) event;
