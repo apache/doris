@@ -1154,7 +1154,7 @@ Status VScanNode::_normalize_in_and_not_in_compound_predicate(vectorized::VExpr*
             }
             auto value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<false>(
-                    range, value, ColumnValueRange<T>::add_compound_value_range, fn_name));
+                    range, value, ColumnValueRange<T>::add_compound_value_range, fn_name, 0));
             iter->next();
         }
         *pdt = PushDownType::ACCEPTABLE;
