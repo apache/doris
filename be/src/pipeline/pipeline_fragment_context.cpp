@@ -393,7 +393,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     const auto& local_params = request.local_params[0];
     if (local_params.__isset.runtime_filter_params) {
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                local_params.runtime_filter_params);
+                local_params.runtime_filter_params.runtime_filter_merge_addr);
     }
     if (local_params.__isset.topn_filter_source_node_ids) {
         _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
