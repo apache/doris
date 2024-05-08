@@ -399,11 +399,15 @@ std::string PipelineXTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
+    //If thread 1 executes this pipeline task and finds it has been cancelled, it will clear the _blocked_dep.
+    // If at the same time FE cancel this pipeline task and logging debug_string before _blocked_dep is cleared,
+    // it will think _blocked_dep is not nullptr and call _blocked_dep->debug_string().
+    auto* cur_blocked_dep = _blocked_dep;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
                    "= {}s], block dependency = {}, is running = {}\noperators: ",
                    (void*)this, get_state_name(_cur_state), _dry_run, elapsed,
-                   _blocked_dep && !_finished ? _blocked_dep->debug_string() : "NULL",
+                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
