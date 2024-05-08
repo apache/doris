@@ -433,10 +433,11 @@ public class OlapTableSink extends DataSink {
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
-                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
-                                "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                        + " < quorum replica num " + quorum
-                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
+                        String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
+                                + " < quorumreplica num " + quorum
+                                + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
+                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
+                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }
 
                     if (singleReplicaLoad) {
