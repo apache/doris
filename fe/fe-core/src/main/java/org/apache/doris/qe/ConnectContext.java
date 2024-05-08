@@ -375,12 +375,8 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isTxnModel();
     }
 
-    public boolean isTxnIniting() {
-        return txnEntry != null && txnEntry.isTxnIniting();
-    }
-
-    public boolean isTxnBegin() {
-        return txnEntry != null && txnEntry.isTxnBegin();
+    public boolean isInsertValuesTxnIniting() {
+        return txnEntry != null && txnEntry.isInsertValuesTxnIniting();
     }
 
     public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
@@ -1013,7 +1009,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs, boolean showFe) {
+        public List<String> toRow(int connId, long nowMs) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -1042,10 +1038,8 @@ public class ConnectContext {
                 row.add("");
             }
 
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
-
+            row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            row.add(cloudCluster);
             return row;
         }
     }

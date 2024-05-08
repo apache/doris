@@ -20,18 +20,14 @@
 #include <glog/logging.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
-#include <new>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -56,6 +52,10 @@ template <typename, typename>
 struct DefaultHash;
 
 namespace doris::vectorized {
+
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 template <typename T>
 struct OverlapSetImpl {
@@ -237,7 +237,7 @@ public:
     }
 
 private:
-    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) const {
+    static Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;

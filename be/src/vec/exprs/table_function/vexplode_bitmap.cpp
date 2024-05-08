@@ -71,19 +71,19 @@ void VExplodeBitmapTableFunction::forward(int step) {
     TableFunction::forward(step);
 }
 
-void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeBitmapTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
         if (_is_nullable) {
             assert_cast<ColumnInt64*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->insert_value(**_cur_iter);
+                    ->insert_many_vals(**_cur_iter, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                    ->insert_default();
+                    ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
+            assert_cast<ColumnInt64*>(column.get())->insert_many_vals(**_cur_iter, length);
         }
     }
 }
@@ -107,4 +107,32 @@ void VExplodeBitmapTableFunction::process_close() {
     _value_column = nullptr;
 }
 
+int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+    max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    // should dispose the empty status, forward one step
+    if (current_empty()) {
+        column->insert_default();
+        max_step = 1;
+    } else {
+        ColumnInt64* target = nullptr;
+        if (_is_nullable) {
+            target = assert_cast<ColumnInt64*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                    ->insert_many_defaults(max_step);
+        } else {
+            target = assert_cast<ColumnInt64*>(column.get());
+        }
+        auto origin_size = target->size();
+        target->resize(origin_size + max_step);
+        auto target_data = target->get_data().data();
+        for (int i = 0; i < max_step; ++i) {
+            target_data[i + origin_size] = **_cur_iter;
+            ++(*_cur_iter);
+        }
+    }
+    TableFunction::forward(max_step);
+    return max_step;
+}
 } // namespace doris::vectorized

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -137,6 +138,34 @@ public class LogicalExcept extends LogicalSetOperation {
         if (qualifier == Qualifier.DISTINCT) {
             fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()

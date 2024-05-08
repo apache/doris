@@ -18,7 +18,6 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {
@@ -47,11 +46,6 @@ private:
 
     friend class SpillSortSinkOperatorX;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<SpillSortSharedState> _shared_state_holder;
-
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
@@ -79,7 +73,6 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _sort_sink_operator->required_data_distribution();

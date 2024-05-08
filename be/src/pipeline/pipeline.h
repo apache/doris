@@ -27,7 +27,6 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
@@ -41,8 +40,7 @@ using PipelineId = uint32_t;
 
 class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineTask;
-    friend class PipelineXTask;
-    friend class PipelineXFragmentContext;
+    friend class PipelineFragmentContext;
 
 public:
     Pipeline() = delete;
@@ -52,60 +50,21 @@ public:
         _init_profile();
     }
 
-    void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
-        pipeline->_parents.emplace_back(_operator_builders.size(), weak_from_this());
-        _dependencies.emplace_back(_operator_builders.size(), pipeline);
-    }
-
-    // If all dependencies are finished, this pipeline task should be scheduled.
-    // e.g. Hash join probe task will be scheduled once Hash join build task is finished.
-    void finish_one_dependency(int dep_opr, int dependency_core_id) {
-        std::lock_guard l(_depend_mutex);
-        if (!_operators.empty() && _operators[dep_opr - 1]->can_terminate_early()) {
-            _always_can_read = true;
-            _always_can_write = (dep_opr == _operators.size());
-
-            for (int i = 0; i < _dependencies.size(); ++i) {
-                if (dep_opr == _dependencies[i].first) {
-                    _dependencies.erase(_dependencies.begin(), _dependencies.begin() + i + 1);
-                    break;
-                }
-            }
-        } else {
-            for (int i = 0; i < _dependencies.size(); ++i) {
-                if (dep_opr == _dependencies[i].first) {
-                    _dependencies.erase(_dependencies.begin() + i);
-                    break;
-                }
-            }
-        }
-
-        if (_dependencies.empty()) {
-            _previous_schedule_id = dependency_core_id;
-        }
-    }
-
     bool has_dependency() {
         std::lock_guard l(_depend_mutex);
         return !_dependencies.empty();
     }
-
-    Status add_operator(OperatorBuilderPtr& op);
 
     // Add operators for pipelineX
     Status add_operator(OperatorXPtr& op);
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink_builder(OperatorBuilderPtr& sink_operator_builder);
     Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
-    OperatorBuilderBase* get_sink_builder() { return _sink_builder.get(); }
     DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
-
-    Status build_operators();
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
@@ -179,9 +138,6 @@ public:
 
 private:
     void _init_profile();
-
-    OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink_builder;    // put block to sink
 
     std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;

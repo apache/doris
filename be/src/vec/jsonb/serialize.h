@@ -16,8 +16,8 @@
 // under the License.
 
 #pragma once
-#include <stddef.h>
 
+#include <cstddef>
 #include <unordered_map>
 
 #include "olap/tablet_schema.h"

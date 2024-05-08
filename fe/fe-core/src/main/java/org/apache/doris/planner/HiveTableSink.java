@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveBucket;
 import org.apache.doris.thrift.THiveColumn;
 import org.apache.doris.thrift.THiveColumnType;
@@ -128,20 +129,35 @@ public class HiveTableSink extends DataSink {
         setCompressType(tSink, formatType);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        String location = sd.getLocation();
-
-        String writeTempPath = createTempPath(location);
-        locationParams.setWritePath(writeTempPath);
-        locationParams.setTargetPath(location);
-        locationParams.setFileType(LocationPath.getTFileTypeForBE(location));
+        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());
+        String location = locationPath.toString();
+        String storageLocation = locationPath.toStorageLocation().toString();
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        if (fileType == TFileType.FILE_S3) {
+            locationParams.setWritePath(storageLocation);
+            locationParams.setOriginalWritePath(location);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(storageLocation);
+            }
+        } else {
+            String writeTempPath = createTempPath(location);
+            locationParams.setWritePath(writeTempPath);
+            locationParams.setOriginalWritePath(writeTempPath);
+            locationParams.setTargetPath(location);
+            if (insertCtx.isPresent()) {
+                HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
+                tSink.setOverwrite(context.isOverwrite());
+                context.setWritePath(writeTempPath);
+            }
+        }
+        locationParams.setFileType(fileType);
         tSink.setLocation(locationParams);
 
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
 
-        if (insertCtx.isPresent()) {
-            HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
-            tSink.setOverwrite(context.isOverwrite());
-        }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
     }

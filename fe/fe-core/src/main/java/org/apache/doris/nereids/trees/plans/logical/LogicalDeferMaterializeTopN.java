@@ -209,4 +209,14 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
                 "columnIdSlot", columnIdSlot
         );
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

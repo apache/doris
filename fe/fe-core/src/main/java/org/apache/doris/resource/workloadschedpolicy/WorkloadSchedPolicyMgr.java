@@ -435,7 +435,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
             Map<String, String> properties = alterStmt.getProperties();
             List<Long> wgIdList = new ArrayList<>();
             checkProperties(properties, wgIdList);
-            policy.updateProperty(properties, wgIdList);
+            policy.updatePropertyIfNotNull(properties, wgIdList);
             policy.incrementVersion();
             Env.getCurrentEnv().getEditLog().logAlterWorkloadSchedPolicy(policy);
         } finally {

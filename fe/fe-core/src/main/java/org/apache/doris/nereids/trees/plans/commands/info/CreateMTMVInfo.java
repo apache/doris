@@ -136,6 +136,11 @@ public class CreateMTMVInfo {
     public void analyze(ConnectContext ctx) {
         // analyze table name
         mvName.analyze(ctx);
+        try {
+            FeNameFormat.checkTableName(mvName.getTbl());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",

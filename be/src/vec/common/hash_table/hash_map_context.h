@@ -48,7 +48,7 @@ struct MethodBaseInner {
     using Value = typename HashMap::value_type;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table;
+    std::shared_ptr<HashMap> hash_table = nullptr;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;

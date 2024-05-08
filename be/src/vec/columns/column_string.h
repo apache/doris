@@ -21,10 +21,10 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <typeinfo>
 #include <vector>
@@ -36,7 +36,6 @@
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/memcmp_small.h"
@@ -47,14 +46,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 /** Column for String values.
   */
@@ -99,9 +93,9 @@ private:
     template <bool positive>
     struct lessWithCollation;
 
-    ColumnStr<T>() = default;
+    ColumnStr() = default;
 
-    ColumnStr<T>(const ColumnStr<T>& src)
+    ColumnStr(const ColumnStr<T>& src)
             : offsets(src.offsets.begin(), src.offsets.end()),
               chars(src.chars.begin(), src.chars.end()) {}
 
@@ -554,11 +548,13 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
+        __builtin_unreachable();
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "Method replace_column_data_default is not supported for ColumnString";
+        __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

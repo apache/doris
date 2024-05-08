@@ -162,6 +162,8 @@ Status EngineCloneTask::execute() {
     }
     Status st = _do_clone();
     _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    _engine.tablet_manager()->update_partitions_visible_version(
+            {{_clone_req.partition_id, _clone_req.version}});
     return st;
 }
 

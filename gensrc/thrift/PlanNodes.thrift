@@ -292,11 +292,14 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    5: optional i32 content;
 }
 
 struct TIcebergFileDesc {
     1: optional i32 format_version;
     // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    // deprecated, a data file can have both position and delete files
     2: optional i32 content;
     // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
@@ -1303,6 +1306,8 @@ struct TPlanNode {
   // Intermediate projections will not materialize into the output block.
   104: optional list<list<Exprs.TExpr>> intermediate_projections_list
   105: optional list<Types.TTupleId> intermediate_output_tuple_id_list
+
+  106: optional list<i32> topn_filter_source_node_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

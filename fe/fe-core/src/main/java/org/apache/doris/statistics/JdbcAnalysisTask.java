@@ -60,6 +60,9 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -104,7 +107,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         sb.append(ANALYZE_SQL_TABLE_TEMPLATE);
         Map<String, String> params = buildTableStatsParams("NULL");
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         params.put("colName", col.getName());
         params.put("colId", info.colName);
         params.put("dataSizeFunction", getDataSizeFunction(col, false));

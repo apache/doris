@@ -68,7 +68,7 @@ suite("test_trino_prepare_hive_data_in_case", "p0,external,hive,external_docker,
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hms_port = context.config.otherConfigs.get("hms_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
 
             hive_docker """show databases;"""
             hive_docker """drop table if exists default.${catalog_name};  """

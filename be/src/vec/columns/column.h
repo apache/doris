@@ -241,6 +241,9 @@ public:
         }
     }
 
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          std::vector<size_t> positions);
+
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
@@ -339,22 +342,26 @@ public:
     virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                size_t max_row_byte_size) const {
         LOG(FATAL) << "serialize_vec not supported";
+        __builtin_unreachable();
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
         LOG(FATAL) << "deserialize_vec not supported";
+        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
+        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface

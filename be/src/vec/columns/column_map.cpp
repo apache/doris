@@ -51,6 +51,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
     if (!offsets_concrete) {
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
+        __builtin_unreachable();
     }
 
     if (!offsets_concrete->empty() && keys_column && values_column) {

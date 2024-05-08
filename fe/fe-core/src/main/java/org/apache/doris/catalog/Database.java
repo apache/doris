@@ -49,7 +49,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -243,6 +242,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {
@@ -292,7 +295,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
@@ -313,7 +316,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         try {
             long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -421,6 +424,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Override
     public boolean registerTable(TableIf table) {
         boolean result = true;
         Table olapTable = (Table) table;
@@ -460,6 +464,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public List<Table> getTables() {
         return new ArrayList<>(idToTable.values());
+    }
+
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
+    }
+
+    public List<Long> getTableIds() {
+        return new ArrayList<>(idToTable.keySet());
     }
 
     // tables must get read or write table in fixed order to avoid potential dead lock
@@ -550,7 +562,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         readLock();
         try {
             for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -856,11 +868,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return null;
     }
 
-    @Override
-    public Map<Long, TableIf> getIdToTable() {
-        return new HashMap<>(idToTable);
-    }
-
     public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
         if (PropertyAnalyzer.hasBinlogConfig(properties)) {
@@ -876,7 +883,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

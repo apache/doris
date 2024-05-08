@@ -108,7 +108,7 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
     }
 
     @Test
-    public void testHintWithReorderCrossJoin() throws Exception {
+    public void testHintWithReorderCrossJoin() {
         String sql = "select t1.a , t2.x, t.x from "
                 + "t1 join [shuffle] t2, (select x from t3) t where t1.a=t.x and t2.x=t.x";
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
@@ -116,19 +116,19 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
             MatchingUtils.assertMatches(plan,
                     physicalResultSink(
                             physicalDistribute(
-                                    physicalProject(
-                                            physicalHashJoin(
-                                                    physicalHashJoin(physicalDistribute().when(dis -> {
-                                                        DistributionSpec spec = dis.getDistributionSpec();
-                                                        Assertions.assertTrue(spec instanceof DistributionSpecHash);
-                                                        DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
-                                                        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
-                                                                hashSpec.getShuffleType());
-                                                        return true;
-                                                    }), physicalDistribute()),
-                                                    physicalDistribute()
-                                            ).when(join -> join.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT)
-                                    )
+                                    physicalHashJoin(
+                                            physicalHashJoin(physicalDistribute().when(dis -> {
+                                                DistributionSpec spec = dis.getDistributionSpec();
+                                                Assertions.assertInstanceOf(DistributionSpecHash.class, spec);
+                                                DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
+                                                Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
+                                                        hashSpec.getShuffleType());
+                                                return true;
+                                            }), physicalDistribute()),
+                                            physicalDistribute()
+                                    ).when(join -> join.getDistributeHint().distributeType
+                                            == DistributeType.SHUFFLE_RIGHT)
+
                             )
                     ));
         });

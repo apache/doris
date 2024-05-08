@@ -33,11 +33,12 @@ import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -197,14 +198,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                     || expr.getDataType().isIPv6Type()) {
                 return;
             }
-            if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)) {
+            // first need pass PlanTranslatorContext value,
+            // and ArrayItemReference translate, can't findColumnRef
+            // Match need give more info rather then as left child a NULL, in
+            // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
+            if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)
+                    || (expr instanceof ArrayItemReference) || (expr instanceof Match)) {
                 return;
-            }
-            // Tokenize function want check the second child literal must be string type
-            // and properties format, it's a little special,
-            // maybe check in checkLegalityBeforeTypeCoercion function?
-            if (expr instanceof Tokenize) {
-                expr.checkLegalityAfterRewrite();
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
@@ -213,6 +213,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 staleExpr = ExpressionTranslator.translate(expr, null);
             } catch (Exception e) {
                 LOG.warn("expression {} translate to legacy expr failed. ", expr, e);
+                return;
+            }
+            if (staleExpr == null) {
+                // just return, it's a fail-safe
+                LOG.warn("expression {} translate to legacy expr failed. ", expr);
                 return;
             }
             tExprMap.put(id, staleExpr.treeToThrift());
@@ -286,7 +291,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                             List<Literal> resultExpression = getResultExpression(type, resultContent);
                             if (resultExpression.isEmpty()) {
                                 ret = constMap.get(e1.getKey());
-                                LOG.debug("Be constant folding convert {} to {} failed query_id: {}", e1.getKey(), ret,
+                                LOG.warn("Be constant folding convert {} to {} failed query_id: {}", e1.getKey(), ret,
                                         DebugUtil.printId(context.queryId()));
                             } else {
                                 ret = resultExpression.get(0);
@@ -320,8 +325,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         if (type.isNullType()) {
             int num = resultContent.getNullMapCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new NullLiteral(type);
-                res.add(literal);
+                res.add(new NullLiteral(type));
             }
         } else if (type.isBooleanType()) {
             int num = resultContent.getUint32ValueCount();
@@ -412,19 +416,27 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             for (int i = 0; i < num; ++i) {
                 long uint64Value = resultContent.getUint64Value(i);
                 LocalDateTime dateTimeV2 = convertToJavaDateTimeV2(uint64Value);
-                Literal literal = new DateTimeV2Literal((DateTimeV2Type) type, dateTimeV2.getYear(),
-                        dateTimeV2.getMonthValue(), dateTimeV2.getDayOfMonth(), dateTimeV2.getHour(),
-                        dateTimeV2.getMinute(), dateTimeV2.getSecond(), dateTimeV2.getNano() / 1000);
-                res.add(literal);
+                if (dateTimeV2 == null && resultContent.hasHasNull()) {
+                    res.add(new NullLiteral(type));
+                } else {
+                    Literal literal = new DateTimeV2Literal((DateTimeV2Type) type, dateTimeV2.getYear(),
+                            dateTimeV2.getMonthValue(), dateTimeV2.getDayOfMonth(), dateTimeV2.getHour(),
+                            dateTimeV2.getMinute(), dateTimeV2.getSecond(), dateTimeV2.getNano() / 1000);
+                    res.add(literal);
+                }
             }
         } else if (type.isDateV2Type()) {
             int num = resultContent.getUint32ValueCount();
             for (int i = 0; i < num; ++i) {
                 int uint32Value = resultContent.getUint32Value(i);
                 LocalDate localDate = convertToJavaDateV2(uint32Value);
-                DateV2Literal dateV2Literal = new DateV2Literal(localDate.getYear(), localDate.getMonthValue(),
-                        localDate.getDayOfMonth());
-                res.add(dateV2Literal);
+                if (localDate == null && resultContent.hasHasNull()) {
+                    res.add(new NullLiteral(type));
+                } else {
+                    DateV2Literal dateV2Literal = new DateV2Literal(localDate.getYear(), localDate.getMonthValue(),
+                            localDate.getDayOfMonth());
+                    res.add(dateV2Literal);
+                }
             }
         } else if (type.isIPv4Type()) {
             int num = resultContent.getUint32ValueCount();
@@ -438,8 +450,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             for (int i = 0; i < num; ++i) {
                 String stringValue = resultContent.getStringValue(i);
                 // maybe need handle NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
-                JsonLiteral jsonLiteral = new JsonLiteral(stringValue);
-                res.add(jsonLiteral);
+                if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
+                    res.add(new NullLiteral(type));
+                } else {
+                    res.add(new JsonLiteral(stringValue));
+                }
             }
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();

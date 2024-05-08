@@ -152,7 +152,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                 }
             } else {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
             }
             if (tWgList.size() != 0) {
                 tExecPlanFragmentParams.setWorkloadGroups(tWgList);
@@ -185,7 +185,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                 }
             } else {
                 tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity());
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
             }
             if (tWgList.size() != 0) {
                 tExecPlanFragmentParams.setWorkloadGroups(tWgList);

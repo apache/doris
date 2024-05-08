@@ -128,8 +128,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
-    std::vector<RowsetSharedPtr> get_rowset_by_ids(const RowsetIdUnorderedSet* specified_rowset_ids,
-                                                   bool include_stale = false);
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(
+            const RowsetIdUnorderedSet* specified_rowset_ids);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -240,6 +240,13 @@ public:
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
     std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
+
+    virtual void clear_cache() = 0;
+
+    // Find the first consecutive empty rowsets. output->size() >= limit
+    void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
+                                        const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                                        int limit);
 
 protected:
     // Find the missed versions until the spec_version.

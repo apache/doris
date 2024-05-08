@@ -17,6 +17,7 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
@@ -88,6 +89,9 @@ public abstract class BaseExecutor {
         fn = request.fn;
         String jarFile = request.location;
         Type funcRetType = Type.fromThrift(request.fn.ret_type);
+        if (request.fn.is_udtf_function) {
+            funcRetType = ArrayType.create(funcRetType, true);
+        }
         init(request, jarFile, funcRetType, parameterTypes);
     }
 

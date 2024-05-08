@@ -445,21 +445,12 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
 }
 
 std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
-        const RowsetIdUnorderedSet* specified_rowset_ids, bool include_stale) {
+        const RowsetIdUnorderedSet* specified_rowset_ids) {
     std::vector<RowsetSharedPtr> rowsets;
     for (auto& rs : _rs_version_map) {
         if (!specified_rowset_ids ||
             specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
             rowsets.push_back(rs.second);
-        }
-    }
-
-    if (include_stale && specified_rowset_ids != nullptr &&
-        rowsets.size() != specified_rowset_ids->size()) {
-        for (auto& rs : _stale_rs_version_map) {
-            if (specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
-                rowsets.push_back(rs.second);
-            }
         }
     }
 
@@ -1456,6 +1447,44 @@ std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_
                        std::back_inserter(rowsets), [](auto& kv) { return kv.second; });
     }
     return rowsets;
+}
+
+void BaseTablet::calc_consecutive_empty_rowsets(
+        std::vector<RowsetSharedPtr>* empty_rowsets,
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, int limit) {
+    int len = candidate_rowsets.size();
+    for (int i = 0; i < len - 1; ++i) {
+        auto rowset = candidate_rowsets[i];
+        auto next_rowset = candidate_rowsets[i + 1];
+
+        // identify two consecutive rowsets that are empty
+        if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
+            !rowset->rowset_meta()->has_delete_predicate() &&
+            !next_rowset->rowset_meta()->has_delete_predicate() &&
+            rowset->end_version() == next_rowset->start_version() - 1) {
+            empty_rowsets->emplace_back(rowset);
+            empty_rowsets->emplace_back(next_rowset);
+            rowset = next_rowset;
+            int next_index = i + 2;
+
+            // keep searching for consecutive empty rowsets
+            while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
+                   !candidate_rowsets[next_index]->rowset_meta()->has_delete_predicate() &&
+                   rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
+                empty_rowsets->emplace_back(candidate_rowsets[next_index]);
+                rowset = candidate_rowsets[next_index++];
+            }
+            // if the number of consecutive empty rowset reach the limit,
+            // and there are still rowsets following them
+            if (empty_rowsets->size() >= limit && next_index < len) {
+                return;
+            } else {
+                // current rowset is not empty, start searching from that rowset in the next
+                i = next_index - 1;
+                empty_rowsets->clear();
+            }
+        }
+    }
 }
 
 } // namespace doris

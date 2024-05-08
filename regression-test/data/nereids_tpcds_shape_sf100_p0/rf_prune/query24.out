@@ -41,19 +41,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'beige'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'beige'))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

@@ -409,6 +409,8 @@ struct TQueryStatistics {
     7: optional i64 workload_group_id
     8: optional i64 shuffle_send_bytes
     9: optional i64 shuffle_send_rows
+    10: optional i64 scan_bytes_from_local_storage
+    11: optional i64 scan_bytes_from_remote_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -500,6 +502,9 @@ struct TReportExecStatusParams {
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
   27: optional TQueryProfile query_profile
+
+  28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
 }
 
 struct TFeResult {
@@ -942,6 +947,7 @@ enum TSchemaTableName {
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
+  WORKLOAD_SCHEDULE_POLICY = 5,
 }
 
 struct TMetadataTableRequestParams {
@@ -1464,6 +1470,18 @@ struct TReportCommitTxnResultRequest {
     4: optional binary payload
 }
 
+struct TQueryColumn {
+    1: optional string catalogId
+    2: optional string dbId
+    3: optional string tblId
+    4: optional string colName
+}
+
+struct TSyncQueryColumns {
+    1: optional list<TQueryColumn> highPriorityColumns;
+    2: optional list<TQueryColumn> midPriorityColumns;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1554,4 +1572,5 @@ service FrontendService {
     TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
+    Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 }
