@@ -29,6 +29,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,7 +59,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -84,7 +85,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private volatile String fullQualifiedName;
     @SerializedName(value = "clusterName")
     private String clusterName;
-    private ReentrantReadWriteLock rwLock;
+    private QueryableReentrantReadWriteLock rwLock;
 
     // table family group map
     private Map<Long, Table> idToTable;
@@ -134,7 +135,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (this.fullQualifiedName == null) {
             this.fullQualifiedName = "";
         }
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
@@ -175,7 +176,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!this.rwLock.writeLock().tryLock(timeout, unit)) {
+                Thread owner = this.rwLock.getOwner();
+                if (owner != null) {
+                    LOG.info("database[{}] lock is held by: {}", getFullName(), Util.dumpThread(owner, 10));
+                }
+                return false;
+            }
+            return true;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
