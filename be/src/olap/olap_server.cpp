@@ -894,7 +894,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            auto tablets = _tablet_manager->find_best_tablet_to_compaction(
+            auto tablets = _tablet_manager->find_best_tablets_to_compaction(
                     compaction_type, data_dir,
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]

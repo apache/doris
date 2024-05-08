@@ -430,7 +430,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     CUMULATIVE_TIME_SERIES_POLICY);
     uint32_t score = 0;
-    auto compact_tablets = _tablet_mgr->find_best_tablet_to_compaction(
+    auto compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
     EXPECT_TRUE(compact_tablets.size() == 1);
@@ -444,7 +444,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         create_tablet(id, true, rowset_size++);
     }
 
-    compact_tablets = _tablet_mgr->find_best_tablet_to_compaction(
+    compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
     EXPECT_TRUE(compact_tablets.size() == 2);

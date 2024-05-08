@@ -76,7 +76,7 @@ public:
     // Find two tablets.
     // One with the highest score to execute single compaction,
     // the other with the highest score to execute cumu or base compaction.
-    std::vector<TabletSharedPtr> find_best_tablet_to_compaction(
+    std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
