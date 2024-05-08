@@ -460,7 +460,7 @@ public class StatisticsUtil {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME));
+                                    StatisticConstants.TABLE_STATISTIC_TBL_NAME));
             // uncomment it when hist is available for user.
             // statsTbls.add(
             //         (OlapTable) StatisticsUtil
