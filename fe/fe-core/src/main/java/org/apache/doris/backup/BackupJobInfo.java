@@ -779,6 +779,20 @@ public class BackupJobInfo implements Writable {
         return getBrief();
     }
 
+    public void releaseSnapshotInfo() {
+        tabletBeMap.clear();
+        tabletSnapshotPathMap.clear();
+        for (BackupOlapTableInfo tableInfo : backupOlapTableObjects.values()) {
+            for (BackupPartitionInfo partInfo : tableInfo.partitions.values()) {
+                for (BackupIndexInfo indexInfo : partInfo.indexes.values()) {
+                    for (BackupTabletInfo tabletInfo : indexInfo.sortedTabletInfoList) {
+                        tabletInfo.files.clear();
+                    }
+                }
+            }
+        }
+    }
+
     public static BackupJobInfo read(DataInput in) throws IOException {
         return BackupJobInfo.readFields(in);
     }
