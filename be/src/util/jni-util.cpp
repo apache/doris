@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -207,19 +208,46 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 }
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
-    jclass cls = env->FindClass("java/lang/management/MemoryPoolMXBean");
-    jmethodID mid = env->GetStaticMethodID(
-            cls, "getPlatformMXBean",
-            "(Ljavax/management/MBeanServerConnection;)Ljava/lang/management/MemoryPoolMXBean;");
-    jobject bean = env->CallStaticObjectMethod(cls, mid, NULL);
+    // The start_be.sh would set JAVA_OPTS
+    std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    std::istringstream iss(java_opts);
+    std::string opt;
+    while (iss >> opt) {
+        if (opt.find("-Xmx") == 0) {
+            std::string xmxValue = opt.substr(4);
+            char unit = xmxValue.back();
+            xmxValue.pop_back();
+            long long value = std::stoll(xmxValue);
+            switch (unit) {
+            case 'g':
+            case 'G':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
+                break;
+            case 'm':
+            case 'M':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024;
+                break;
+            case 'k':
+            case 'K':
+                max_jvm_heap_memory_size_ = value * 1024;
+                break;
+            default:
+                max_jvm_heap_memory_size_ = value;
+                break;
+            }
+        }
+    }
+}
 
-    jclass beanClass = env->GetObjectClass(bean);
-    mid = env->GetMethodID(beanClass, "getUsage", "()Ljava/lang/management/MemoryUsage;");
-    jobject mu = env->CallObjectMethod(bean, mid);
-
-    jclass muClass = env->GetObjectClass(mu);
-    jfieldID max = env->GetFieldID(muClass, "max", "J");
-    max_jvm_heap_memory_size_ = env->GetLongField(mu, max);
+size_t JniUtil::get_max_jni_heap_memory_size() {
+    return max_jvm_heap_memory_size_;
+#ifdef USE_LIBHDFS3
+    return std::numeric_limits<size_t>::max();
+#elif defined BE_TEST
+    return std::numeric_limits<size_t>::max();
+#else
+    return max_jvm_heap_memory_size_;
+#endif
 }
 
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
@@ -238,11 +266,11 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     // the hadoop libhdfs will do all the stuff
     SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
-#endif
-    *env = tls_env_;
-    if (tls_env_ != nullptr) {
+    if (nullptr != tls_env_) {
         parse_max_heap_memory_size_from_jvm(tls_env_);
     }
+#endif
+    *env = tls_env_;
     return Status::OK();
 }
 
