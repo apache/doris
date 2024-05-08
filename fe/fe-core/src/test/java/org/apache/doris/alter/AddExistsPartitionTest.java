@@ -39,15 +39,18 @@ public class AddExistsPartitionTest extends TestWithFeService {
     public void testAddExistsPartition() throws Exception {
         DebugPointUtil.addDebugPoint("InternalCatalog.addPartition.noCheckExists", new DebugPoint());
         createDatabase("test");
-        createTable("CREATE TABLE test.tbl (k INT) DISTRIBUTED BY HASH(k) "
-                + " BUCKETS 5 PROPERTIES ( \"replication_num\" = \"" + backendNum() + "\" )");
+        createTable("CREATE TABLE test.tbl (k INT, s INT SUM DEFAULT '0')"
+                + " AGGREGATE KEY(`k`) "
+                + " PARTITION BY RANGE(`k`)"
+                + " ( PARTITION p1 VALUES LESS THAN ('100') )"
+                + " DISTRIBUTED BY HASH(`k`) BUCKETS 5"
+                + " PROPERTIES ( \"replication_num\" = \"" + backendNum() + "\" )");
         List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds();
         for (long backendId : backendIds) {
             Assertions.assertEquals(5, Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId).size());
         }
 
-        String addPartitionSql = "ALTER TABLE test.tbl  ADD PARTITION  IF NOT EXISTS tbl"
-                + " DISTRIBUTED BY HASH(k) BUCKETS 5";
+        String addPartitionSql = "ALTER TABLE test.tbl  ADD PARTITION  IF NOT EXISTS p1 VALUES LESS THAN ('200')";
         Assertions.assertNotNull(getSqlStmtExecutor(addPartitionSql));
         for (long backendId : backendIds) {
             Assertions.assertEquals(5, Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId).size());
