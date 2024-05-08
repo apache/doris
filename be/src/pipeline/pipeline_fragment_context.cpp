@@ -169,7 +169,7 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 // QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
 // Method like exchange sink buffer will call query ctx cancel. If we add lock here
 // There maybe dead lock.
-void PipelineFragmentContext::cancel(const Status& reason) {
+void PipelineFragmentContext::cancel(const Status reason) {
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -181,8 +181,8 @@ void PipelineFragmentContext::cancel(const Status& reason) {
             return;
         }
     }
-    _query_ctx->cancel(msg, reason, _fragment_id);
-    if (reason.is<ErrorCode::LIMIT_REACH>) {
+    _query_ctx->cancel(reason, _fragment_id);
+    if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
     } else {
         for (auto& id : _fragment_instance_ids) {
@@ -193,7 +193,7 @@ void PipelineFragmentContext::cancel(const Status& reason) {
     // For stream load the fragment's query_id == load id, it is set in FE.
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
     if (stream_load_ctx != nullptr) {
-        stream_load_ctx->pipe->cancel(msg);
+        stream_load_ctx->pipe->cancel(reason.to_string());
     }
 
     // Cancel the result queue manager used by spark doris connector
@@ -1499,7 +1499,7 @@ void PipelineFragmentContext::close_if_prepare_failed(Status st) {
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st, _fragment_id);
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could

@@ -95,7 +95,7 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const Status& reason);
+    void cancel(const Status reason);
 
     // TODO: Support pipeline runtime filter
 
