@@ -149,6 +149,8 @@ public:
 
     void finalize();
 
+    bool is_finished() const { return _finished.load(); }
+
     std::string debug_string();
 
     bool is_pending_finish() { return _finish_blocked_dependency() != nullptr; }
