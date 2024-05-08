@@ -410,6 +410,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
+        _meta_mem_usage += config::estimated_mem_per_column_reader;
     }
 
     // init by column path
