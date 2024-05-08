@@ -487,7 +487,6 @@ public class Role implements Writable, GsonPostProcessable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-
     public boolean checkWorkloadGroupPriv(String workloadGroupName, PrivPredicate wanted) {
         // For compatibility with older versions, it is not needed to check the privileges of the default group.
         if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {

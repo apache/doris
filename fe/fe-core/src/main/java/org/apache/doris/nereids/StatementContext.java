@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -128,6 +129,8 @@ public class StatementContext implements Closeable {
     // Relation for example LogicalOlapScan
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
+    // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
+    private final Set<Column> keyColumns = Sets.newHashSet();
     private BitSet disableRules;
 
     // table locks
@@ -484,5 +487,13 @@ public class StatementContext implements Closeable {
             return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
                     + ",\n  sql:\n" + sql + "\n}";
         }
+    }
+
+    public void addKeyColumn(Column column) {
+        keyColumns.add(column);
+    }
+
+    public boolean isKeyColumn(Column column) {
+        return keyColumns.contains(column);
     }
 }

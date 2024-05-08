@@ -33,6 +33,12 @@ import static org.apache.doris.regression.ConfigOptions.*
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+enum RunMode {
+    UNKNOWN,
+    NOT_CLOUD,
+    CLOUD
+}
+
 @Slf4j
 @CompileStatic
 class Config {
@@ -63,6 +69,8 @@ class Config {
     public String cloudUniqueId
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
+
+    public RunMode isCloudMode = RunMode.UNKNOWN
 
     public String suitePath
     public String dataPath
@@ -721,7 +729,7 @@ class Config {
 
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -827,8 +835,25 @@ class Config {
         }
     }
 
+    boolean fetchRunMode() {
+        if (isCloudMode == RunMode.UNKNOWN) {
+            try {
+                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            } catch (Throwable t) {
+                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+            }
+        }
+        return isCloudMode == RunMode.CLOUD
+
+    }
+
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getRootConnection() {
+        return DriverManager.getConnection(jdbcUrl, 'root', '')
     }
 
     Connection getConnectionByDbName(String dbName) {
@@ -854,6 +879,8 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())

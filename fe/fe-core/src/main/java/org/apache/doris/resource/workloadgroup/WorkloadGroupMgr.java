@@ -158,8 +158,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
         WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
                 properties);
-        nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-        idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+        boolean nameIsNull = true;
+        if (!nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
+            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
+            nameIsNull = false;
+        }
+        boolean idIsNull = true;
+        if (!idToWorkloadGroup.containsKey(DEFAULT_GROUP_ID)) {
+            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
+            idIsNull = false;
+        }
+        if ((nameIsNull && !idIsNull) || (!nameIsNull && idIsNull)) {
+            LOG.info("idMap({}) diff nameMap({})", nameIsNull, idIsNull);
+        }
     }
 
     private void readLock() {
@@ -223,7 +234,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return tWorkloadGroups;
     }
 
-    public List<TPipelineWorkloadGroup> getWorkloadGroupByUser(UserIdentity user) throws UserException {
+    public List<TPipelineWorkloadGroup> getWorkloadGroupByUser(UserIdentity user, boolean checkAuth)
+            throws UserException {
         String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(user.getQualifiedUser());
         List<TPipelineWorkloadGroup> ret = new ArrayList<>();
         WorkloadGroup wg = null;
@@ -232,14 +244,21 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             if (groupName == null || groupName.isEmpty()) {
                 wg = nameToWorkloadGroup.get(DEFAULT_GROUP_NAME);
                 if (wg == null) {
-                    throw new RuntimeException("can not find normal workload group for routineload");
+                    throw new RuntimeException("can not find normal workload group for user " + user);
                 }
             } else {
                 wg = nameToWorkloadGroup.get(groupName);
                 if (wg == null) {
                     throw new UserException(
-                            "can not find workload group " + groupName + " for user " + user.getQualifiedUser());
+                            "can not find workload group " + groupName + " for user " + user);
                 }
+            }
+            if (checkAuth && !Env.getCurrentEnv().getAccessManager()
+                    .checkWorkloadGroupPriv(user, wg.getName(), PrivPredicate.USAGE)) {
+                ErrorReport.reportAnalysisException(
+                        "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'."
+                                + " used id=(%s)",
+                        ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", wg.getName(), user.toString());
             }
             ret.add(wg.toThrift());
         } finally {

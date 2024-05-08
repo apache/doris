@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 
@@ -129,6 +130,8 @@ public:
     // try to reserve the new space for the new block if the cache is full
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    void update_ttl_atime(const UInt128Wrapper& hash);
 
     class LRUQueue {
     public:
@@ -370,6 +373,15 @@ private:
 
     void recycle_deleted_blocks();
 
+    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
+                                                      size_t size, int64_t cur_time,
+                                                      std::lock_guard<std::mutex>& cache_lock);
+
+    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+                                              size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -419,6 +431,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
 };
 
 } // namespace doris::io

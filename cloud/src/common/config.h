@@ -160,6 +160,15 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 // Whether to retry the txn conflict errors that returns by the underlying txn store.
 CONF_Bool(enable_retry_txn_conflict, "true");
 
+CONF_mBool(enable_s3_rate_limiter, "false");
+CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_get_token_limit, "0");
+
+CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_put_token_limit, "0");
+
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
 

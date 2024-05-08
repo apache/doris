@@ -357,7 +357,6 @@ private:
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
     PipelineTaskState _cur_state;
-    SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
     TaskQueue* _task_queue = nullptr;
