@@ -219,7 +219,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void exec(ConnectContext ctx, Set<Long> refreshPartitionIds,
-            Map<TableIf, String> tableWithPartKey)
+                      Map<TableIf, String> tableWithPartKey)
             throws Exception {
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
@@ -252,9 +252,8 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public synchronized void cancel() throws JobException {
+    protected synchronized void  executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
-        super.cancel();
         if (executor != null) {
             executor.cancel();
         }
@@ -380,10 +379,23 @@ public class MTMVTask extends AbstractTask {
                     .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation,
                             partitionSnapshots);
         }
-        mtmv = null;
-        relation = null;
-        executor = null;
-        partitionSnapshots = null;
+
+    }
+
+    @Override
+    protected void closeOrReleaseResources() {
+        if (null != mtmv) {
+            mtmv = null;
+        }
+        if (null != executor) {
+            executor = null;
+        }
+        if (null != relation) {
+            relation = null;
+        }
+        if (null != partitionSnapshots) {
+            partitionSnapshots = null;
+        }
     }
 
     private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
