@@ -398,7 +398,7 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
-int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
+int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir, bool logit) {
     double disk_used = data_dir->get_usage(0);
     double remain_used = 1 - disk_used;
     DCHECK(remain_used >= 0 && remain_used <= 1);
@@ -420,7 +420,9 @@ int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
         // 3h
         ret = config::path_gc_check_interval_second / 8;
     }
-    LOG(INFO) << "disk remain [" << remain_used << "] gc interval [" << ret << "]";
+    if (logit) {
+        LOG(INFO) << "disk remain [" << remain_used << "] gc interval [" << ret << "]";
+    }
     return ret;
 }
 
@@ -430,13 +432,14 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     do {
         int32_t current_time = time(nullptr);
 
-        int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
+        int32_t interval = _auto_get_interval_by_disk_capacity(data_dir, false);
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
         if (current_time - last_exec_time >= interval) {
+            interval = _auto_get_interval_by_disk_capacity(data_dir, true);
             LOG(INFO) << "try to perform path gc!";
             data_dir->perform_path_gc();
             last_exec_time = time(nullptr);
