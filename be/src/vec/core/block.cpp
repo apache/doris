@@ -541,7 +541,7 @@ std::string Block::dump_structure() const {
     std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out += ", \n";
+            out += ", ";
         }
         out += it->dump_structure();
     }

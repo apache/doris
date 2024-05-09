@@ -2252,6 +2252,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
+    LOG(ERROR) << "yangsiyu: " << block->dump_structure();
+
     return Status::OK();
 }
 
