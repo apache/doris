@@ -704,9 +704,6 @@ public class ScalarType extends Type {
             case JSONB:
                 stringBuilder.append("JSON");
                 break;
-            case AGG_STATE:
-                stringBuilder.append("AGG_STATE(UNKNOWN)");
-                break;
             default:
                 stringBuilder.append("unknown type: ").append(type);
                 break;
@@ -861,17 +858,6 @@ public class ScalarType extends Type {
     }
 
     @Override
-    public boolean isFixedLengthType() {
-        return type == PrimitiveType.BOOLEAN || type == PrimitiveType.TINYINT
-                || type == PrimitiveType.SMALLINT || type == PrimitiveType.INT
-                || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
-                || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
-                || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()
-                || type == PrimitiveType.CHAR || type == PrimitiveType.DATEV2 || type == PrimitiveType.DATETIMEV2
-                || type == PrimitiveType.TIMEV2;
-    }
-
-    @Override
     public boolean isSupported() {
         switch (type) {
             case BINARY:
@@ -880,14 +866,6 @@ public class ScalarType extends Type {
             default:
                 return true;
         }
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        if (!isSupported() || isComplexType()) {
-            return false;
-        }
-        return true;
     }
 
     @Override
