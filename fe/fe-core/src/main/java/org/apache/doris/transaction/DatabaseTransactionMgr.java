@@ -170,8 +170,6 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
-    private long maxFinalTxnsNum = Long.MAX_VALUE;
-
     private void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -195,9 +193,6 @@ public class DatabaseTransactionMgr {
         this.env = env;
         this.idGenerator = idGenerator;
         this.editLog = env.getEditLog();
-        if (Config.label_num_threshold >= 0) {
-            this.maxFinalTxnsNum = Config.label_num_threshold;
-        }
     }
 
     public long getDbId() {
@@ -1920,7 +1915,7 @@ public class DatabaseTransactionMgr {
                 break;
             }
         }
-        while (finalStatusTransactionStateDeque.size() > maxFinalTxnsNum
+        while ((Config.label_num_threshold > 0 && finalStatusTransactionStateDeque.size() > Config.label_num_threshold)
                 && numOfClearedTransaction < left) {
             TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.getFinishTime() != -1) {
