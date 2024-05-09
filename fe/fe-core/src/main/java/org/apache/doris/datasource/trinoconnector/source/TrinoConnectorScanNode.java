@@ -138,14 +138,14 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         applyPushDown(connectorSession);
 
         // 3. get splitSource
-        SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(), connectorTransactionHandle,
-                source.getTrinoConnectorTableHandle(),
-                DynamicFilter.EMPTY);
-        // 4. get trino.Splits and convert it to doris.Splits
         List<Split> splits = Lists.newArrayList();
-        while (!splitSource.isFinished()) {
-            for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+        try (SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(),
+                connectorTransactionHandle, source.getTrinoConnectorTableHandle(), DynamicFilter.EMPTY)) {
+            // 4. get trino.Splits and convert it to doris.Splits
+            while (!splitSource.isFinished()) {
+                for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
+                    splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+                }
             }
         }
         return splits;

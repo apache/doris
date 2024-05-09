@@ -236,7 +236,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
             Objects.requireNonNull(connectorPageSourceProvider,
                     String.format("Connector '%s' returned a null page source provider", catalogNameString));
         } catch (UnsupportedOperationException ignored) {
-            LOG.warn("exception when getPageSourceProvider: " + ignored.getMessage());
+            LOG.debug("exception when getPageSourceProvider: " + ignored.getMessage());
         }
 
         try {
@@ -249,7 +249,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
             }
             connectorPageSourceProvider = new RecordPageSourceProvider(connectorRecordSetProvider);
         } catch (UnsupportedOperationException ignored) {
-            LOG.warn("exception when getRecordSetProvider: " + ignored.getMessage());
+            LOG.debug("exception when getRecordSetProvider: " + ignored.getMessage());
         }
 
         return connectorPageSourceProvider;
@@ -336,9 +336,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
             trinoTypeList.add(columnMetadataList.get(index).getType());
             String hiveType = TrinoTypeToHiveTypeTranslator.fromTrinoTypeToHiveType(trinoTypeList.get(i));
             columnTypes[i] = ColumnType.parseType(fields[i], hiveType);
-
-            // LOG.info(String.format("Trino type: [%s], hive type: [%s], columnTypes: [%s].",
-            //         trinoTypeList.get(i), hiveType, columnTypes[i]));
         }
         super.types = columnTypes;
     }
