@@ -28,6 +28,7 @@ import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -182,9 +183,11 @@ public class MTMVService implements EventListener {
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {
                 // check if mtmv should trigger by event
-                jobManager.processEvent(MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId()));
+                MTMV mtmv = MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId());
+                if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT)) {
+                    jobManager.onCommit(mtmv);
+                }
             } catch (Exception e) {
-                // TODO: 2024/5/8 catch it
                 throw new EventException(e);
             }
         }

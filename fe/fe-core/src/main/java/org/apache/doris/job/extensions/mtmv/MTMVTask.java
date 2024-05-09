@@ -106,6 +106,7 @@ public class MTMVTask extends AbstractTask {
 
     public enum MTMVTaskTriggerMode {
         MANUAL,
+        COMMIT,
         SYSTEM
     }
 

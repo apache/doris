@@ -17,20 +17,13 @@
 
 package org.apache.doris.event;
 
-import java.util.Set;
-
 public class DataChangeEvent extends TableEvent {
-    private Set<String> partitionNames;
-
-    public DataChangeEvent(EventType eventType, long ctlId, long dbId, long tableId, Set<String> partitionNames) {
+    public DataChangeEvent(EventType eventType, long ctlId, long dbId, long tableId) {
         super(eventType, ctlId, dbId, tableId);
-        this.partitionNames = partitionNames;
     }
 
     @Override
     public String toString() {
-        return "DataChangeEvent{"
-                + "partitionNames=" + partitionNames
-                + "} " + super.toString();
+        return super.toString();
     }
 }

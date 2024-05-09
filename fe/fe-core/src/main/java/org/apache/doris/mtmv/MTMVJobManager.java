@@ -80,11 +80,10 @@ public class MTMVJobManager implements MTMVHookService {
 
     private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
-        if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
-                .equals(RefreshTrigger.SCHEDULE)) {
+        RefreshTrigger refreshTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger();
+        if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
             setScheduleJobConfig(jobExecutionConfiguration, mtmv);
-        } else if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
-                .equals(RefreshTrigger.MANUAL)) {
+        } else if (refreshTrigger.equals(RefreshTrigger.MANUAL) || refreshTrigger.equals(RefreshTrigger.COMMIT)) {
             setManualJobConfig(jobExecutionConfiguration, mtmv);
         }
         return jobExecutionConfiguration;
@@ -211,10 +210,9 @@ public class MTMVJobManager implements MTMVHookService {
         job.cancelTaskById(info.getTaskId());
     }
 
-    // TODO: 2024/5/8 change name
-    public void processEvent(MTMV mtmv) throws DdlException, JobException {
+    public void onCommit(MTMV mtmv) throws DdlException, JobException {
         MTMVJob job = getJobByMTMV(mtmv);
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(),
+        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.COMMIT, Lists.newArrayList(),
                 false);
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
     }

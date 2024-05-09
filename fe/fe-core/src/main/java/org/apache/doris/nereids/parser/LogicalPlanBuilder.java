@@ -695,6 +695,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.MANUAL() != null) {
             return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
         }
+        if (ctx.COMMIT() != null) {
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.COMMIT);
+        }
         if (ctx.SCHEDULE() != null) {
             return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
         }

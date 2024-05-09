@@ -43,6 +43,7 @@ public class MTMVRefreshEnum {
      */
     public enum RefreshTrigger {
         MANUAL, //manual
+        COMMIT, //manual
         SCHEDULE // schedule
     }
 

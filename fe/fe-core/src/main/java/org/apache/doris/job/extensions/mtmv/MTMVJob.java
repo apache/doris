@@ -140,22 +140,29 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
 
     /**
      * if user trigger, return true
-     * if system trigger, Check if there are any system triggered tasks, and if so, return false
+     * else, only can
      *
      * @param taskContext
      * @return
      */
     @Override
     public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
-        if (taskContext != null) {
+        if (taskContext != null && taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             return true;
         }
         List<MTMVTask> runningTasks = getRunningTasks();
+        int runningNum = 0;
         for (MTMVTask task : runningTasks) {
-            if (task.getTaskContext() == null || task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.SYSTEM) {
-                LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
-                        task);
-                return false;
+            if (!(task.getTaskContext() != null
+                    && task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.MANUAL)) {
+                runningNum++;
+                // TODO: 2024/5/9 When the scheduling framework supports running only one task simultaneously,
+                //  change to 2 to prevent message loss
+                if (runningNum >= 1) {
+                    LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
+                            task);
+                    return false;
+                }
             }
         }
         return true;

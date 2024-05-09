@@ -215,6 +215,7 @@ buildMode
 refreshTrigger
     : ON MANUAL
     | ON SCHEDULE refreshSchedule
+    | ON COMMIT
     ;
 
 refreshSchedule
