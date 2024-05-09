@@ -180,8 +180,7 @@ Status Channel<Parent>::open(RuntimeState* state) {
 
 std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
     if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
-        LOG(WARNING) << "_local_recvr is null: "
-                     << Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()->node_id();
+        // If downstream exchange operator was stopped earlier, `_local_recvr` will be nullptr here.
         return nullptr;
     }
     return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(

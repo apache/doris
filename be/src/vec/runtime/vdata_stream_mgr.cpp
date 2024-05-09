@@ -66,8 +66,6 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    LOG(INFO) << "Create local recvr by instance " << print_id(fragment_instance_id)
-              << " node : " << dest_node_id << " this: " << (int64_t)this;
     std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, state, row_desc,
                                                                  fragment_instance_id, dest_node_id,
                                                                  num_senders, is_merging, profile));
@@ -118,9 +116,8 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
         }
         ++range.first;
     }
-    return Status::InternalError(
-            "Could not find local receiver for node {} with instance {}, this: {}", node_id,
-            print_id(fragment_instance_id), (int64_t)this);
+    return Status::InternalError("Could not find local receiver for node {} with instance {}",
+                                 node_id, print_id(fragment_instance_id));
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
@@ -186,9 +183,6 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
                 targert_recvr = recvr;
                 _fragment_stream_set.erase(
                         std::make_pair(recvr->fragment_instance_id(), recvr->dest_node_id()));
-                LOG(INFO) << "deregister_recvr local recvr by instance "
-                          << print_id(fragment_instance_id) << " node : " << node_id
-                          << " this: " << (int64_t)this;
                 _receiver_map.erase(range.first);
                 break;
             }
