@@ -96,7 +96,8 @@ public:
     }
 
     static inline int64_t get_tc_metrics(const std::string& name) {
-#ifndef USE_JEMALLOC
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
         size_t value = 0;
         MallocExtension::instance()->GetNumericProperty(name.c_str(), &value);
         return value;

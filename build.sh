@@ -361,7 +361,7 @@ fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
-if [ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ];then
+if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
 # compatible with old thirdparty
 if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
     USE_JEMALLOC_HOOK='ON'
