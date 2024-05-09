@@ -21,7 +21,7 @@ suite("column_stats") {
         SET enable_nereids_planner=true;
         
         SET enable_fallback_to_original_planner=false;
-        set disable_nereids_rules=PRUNE_EMPTY_PARTITION
+        set disable_nereids_rules=PRUNE_EMPTY_PARTITION;
 
         
         drop table if exists region;
