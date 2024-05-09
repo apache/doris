@@ -147,11 +147,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("message")
     public String message;
 
-    // True means this task is a table level task for external table.
-    // This kind of task is mainly to collect the number of rows of a table.
-    @SerializedName("externalTableLevelTask")
-    public final boolean externalTableLevelTask;
-
     @SerializedName("partitionOnly")
     public final boolean partitionOnly;
 
@@ -211,7 +206,7 @@ public class AnalysisInfo implements Writable {
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
-            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForPartitionColumn, long tblUpdateTime, long rowCount, boolean userInject,
             long updateRows, JobPriority priority) {
@@ -238,7 +233,6 @@ public class AnalysisInfo implements Writable {
         this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
-        this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.isAllPartition = isAllPartition;

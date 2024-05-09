@@ -283,14 +283,14 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + ";");
 
-        createMvByNereids("create materialized view db4.mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view db4.mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "as "
                 + "select t1.c1, t2.c2, t2.k4 "
                 + "from db4.table1 t1 "
                 + "inner join db4.table2 t2 on t1.c1= t2.c2;");
 
-        createMvByNereids("create materialized view db4.mv2 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view db4.mv2 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY HASH(c1) BUCKETS 20 \n"
                 + "PROPERTIES ( 'colocate_with' = 'foo', 'replication_num' = '3' ) "
                 + "as "

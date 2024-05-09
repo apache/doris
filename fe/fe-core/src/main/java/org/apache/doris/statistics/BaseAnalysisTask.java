@@ -178,10 +178,6 @@ public abstract class BaseAnalysisTask {
         db = dbObjects.db;
         tbl = dbObjects.table;
         tableSample = getTableSample();
-        // External Table level task doesn't contain a column. Don't need to do the column related analyze.
-        if (info.externalTableLevelTask) {
-            return;
-        }
         if (info.analysisType != null && (info.analysisType.equals(AnalysisType.FUNDAMENTALS)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);

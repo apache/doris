@@ -89,6 +89,7 @@ import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionIdGenerator;
@@ -740,6 +741,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException {
+        throw new UnsupportedOperationException("commitAndPublishTransaction is not supported in cloud");
+    }
+
+    @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
@@ -1300,5 +1307,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation)
             throws Exception {
         throw new Exception(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
+    public void addSubTransaction(long dbId, long transactionId, long subTransactionId) {
+        throw new UnsupportedOperationException("addSubTransaction is not supported in cloud");
+    }
+
+    @Override
+    public void removeSubTransaction(long dbId, long subTransactionId) {
+        throw new UnsupportedOperationException("removeSubTransaction is not supported in cloud");
     }
 }

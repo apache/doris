@@ -9,13 +9,3 @@ b
 -- !select_null --
 \N
 
--- !select_all --
-\N
-b
-
--- !select_not_null --
-b
-
--- !select_null --
-\N
-
