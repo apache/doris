@@ -167,7 +167,8 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType() || type.isStructType(),
+        Preconditions.checkArgument(
+                type.isScalarType() || type.isArrayType() || type.isMapType() || type.isStructType(),
                 "only support scalar type and array serialization");
         if (type.isScalarType()) {
             ScalarType scalarType = (ScalarType) type;
