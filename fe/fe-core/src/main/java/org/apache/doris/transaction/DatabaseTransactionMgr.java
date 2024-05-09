@@ -1148,6 +1148,7 @@ public class DatabaseTransactionMgr {
                 }
             }
             updateCatalogAfterVisible(transactionState, db, partitionVisibleVersions, backendPartitions);
+            produceEvent(transactionState, db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -1174,6 +1175,24 @@ public class DatabaseTransactionMgr {
             }
             tableCommitInfo.setVersion(table.getNextVersion());
             tableCommitInfo.setVersionTime(System.currentTimeMillis());
+        }
+    }
+
+    private void produceEvent(TransactionState transactionState, Database db) {
+        List<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().isEmpty()
+                ? transactionState.getSubTxnTableCommitInfos()
+                : Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
+            long tableId = tableCommitInfo.getTableId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when produceEvent. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            // TODO: 2024/5/8 partitionNames
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(EventType.DATA_CHANGE, db.getCatalog().getId(), db.getId(), tableId, null));
         }
     }
 
@@ -2269,9 +2288,6 @@ public class DatabaseTransactionMgr {
             long tableVersion = tableCommitInfo.getVersion();
             long tableVersionTime = tableCommitInfo.getVersionTime();
             table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
-            // TODO: 2024/5/8 partitionNames
-            Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DataChangeEvent(EventType.DATA_CHANGE, db.getCatalog().getId(), db.getId(), tableId, null));
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
