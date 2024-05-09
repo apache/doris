@@ -30,11 +30,17 @@ public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                  const TFileScanRangeParams& params);
     ~PaimonReader() override = default;
+    // TODO: move these same functions into TableFormatReader
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final;
+    bool fill_all_columns() const final;
     Status init_row_filters(const TFileRangeDesc& range) final;
-    virtual void set_delete_rows() = 0;
 
 protected:
     std::vector<int64_t> _paimon_delete_rows;
+    virtual void set_delete_rows() = 0;
 
 private:
     const TFileScanRangeParams& _params;
