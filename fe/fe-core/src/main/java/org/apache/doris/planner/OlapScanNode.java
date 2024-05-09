@@ -168,7 +168,7 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private int selectedPartitionNum = 0;
-    private Collection<Long> selectedPartitionIds = Lists.newArrayList();
+    private List<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
 
     private SortInfo sortInfo = null;
@@ -327,7 +327,7 @@ public class OlapScanNode extends ScanNode {
         this.useTopnOpt = useTopnOpt;
     }
 
-    public Collection<Long> getSelectedPartitionIds() {
+    public List<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
     }
 
@@ -336,7 +336,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     // only used for UT and Nereids
-    public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
+    public void setSelectedPartitionIds(List<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
     }
 

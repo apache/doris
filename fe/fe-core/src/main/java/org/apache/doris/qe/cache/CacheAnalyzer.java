@@ -37,6 +37,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -58,6 +59,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -70,10 +72,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -699,13 +704,41 @@ public class CacheAnalyzer {
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
                 olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
         scanTables.add(scanTable);
-        for (Long partitionId : node.getSelectedPartitionIds()) {
-            Partition partition = olapTable.getPartition(partitionId);
-            scanTable.addScanPartition(partitionId);
-            if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
-                cacheTable.latestPartitionId = partition.getId();
-                cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                cacheTable.latestPartitionVersion = partition.getVisibleVersion();
+        if (Config.isCloudMode()) {
+            List<Long> partitionIds = node.getSelectedPartitionIds();
+            List<CloudPartition> partitions = partitionIds.stream()
+                .sorted()
+                .map(olapTable::getPartition)
+                .map(partition -> (CloudPartition)partition)
+                .collect(Collectors.toList());
+            List<Long> versions = null;
+            try {
+                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+            } catch (RpcException e) {
+                throw new RuntimeException(e);
+            }
+            Map<Long, Long> partitionIdVersionMap = new HashMap<>();
+            for (int i = 0; i < partitionIds.size(); i++) {
+                partitionIdVersionMap.put(partitionIds.get(i), versions.get(i));
+            }
+            for (Long partitionId : node.getSelectedPartitionIds()) {
+                Partition partition = olapTable.getPartition(partitionId);
+                scanTable.addScanPartition(partitionId);
+                if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
+                    cacheTable.latestPartitionId = partition.getId();
+                    cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
+                    cacheTable.latestPartitionVersion = partition.getVisibleVersion();
+                }
+            }
+        } else {
+            for (Long partitionId : node.getSelectedPartitionIds()) {
+                Partition partition = olapTable.getPartition(partitionId);
+                scanTable.addScanPartition(partitionId);
+                if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
+                    cacheTable.latestPartitionId = partition.getId();
+                    cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
+                    cacheTable.latestPartitionVersion = partition.getVisibleVersion();
+                }
             }
         }
         return cacheTable;

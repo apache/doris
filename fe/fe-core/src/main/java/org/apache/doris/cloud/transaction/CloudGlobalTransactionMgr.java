@@ -343,6 +343,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // a map to record <tableId, [firstLoadPartitionIds]>
         Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
         for (int idx = 0; idx < totalPartitionNum; ++idx) {
+            // TODO(zhengyu): // should update the version time got from ms or be
             long version = commitTxnResponse.getVersions(idx);
             long tableId = commitTxnResponse.getTableIds(idx);
             if (version == 2) {
