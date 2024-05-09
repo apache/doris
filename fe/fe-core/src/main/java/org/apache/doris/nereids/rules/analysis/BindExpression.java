@@ -74,12 +74,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -95,7 +93,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -716,7 +713,8 @@ public class BindExpression implements AnalysisRuleFactory {
         SlotBinder bindByAggChildOutput = new SlotBinder(aggChildOutputScope, ctx, true, false, true);
         // Find in the outputs of aggregate without aggregate function output
         Scope aggregateOutputWithoutAggFuncScope = toScope(ctx, aggregateOutputWithoutAggFunc);
-        SlotBinder bindByAggregateOutputWithoutAggFunc = new SlotBinder(aggregateOutputWithoutAggFuncScope, ctx, true, false, true);
+        SlotBinder bindByAggregateOutputWithoutAggFunc = new SlotBinder(aggregateOutputWithoutAggFuncScope,
+                ctx, true, false, true);
 
         FunctionRegistry functionRegistry = connectContext.getEnv().getFunctionRegistry();
         Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
@@ -966,25 +964,5 @@ public class BindExpression implements AnalysisRuleFactory {
             }
             return false;
         });
-    }
-
-    private interface SimpleExprAnalyzer {
-        Expression analyze(Expression expr);
-
-        default <E extends Expression> List<E> analyzeToList(List<E> exprs) {
-            ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
-            for (E expr : exprs) {
-                result.add((E) analyze(expr));
-            }
-            return result.build();
-        }
-
-        default <E extends Expression> Set<E> analyzeToSet(List<E> exprs) {
-            ImmutableSet.Builder<E> result = ImmutableSet.builderWithExpectedSize(exprs.size() * 2);
-            for (E expr : exprs) {
-                result.add((E) analyze(expr));
-            }
-            return result.build();
-        }
     }
 }
