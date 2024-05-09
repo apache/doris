@@ -1471,7 +1471,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     public final Expr castTo(Type targetType) throws AnalysisException {
-        if (this instanceof PlaceHolderExpr && this.type.isInvalid()) {
+        if (this instanceof PlaceHolderExpr && this.type.isUnsupported()) {
             return this;
         }
         // If the targetType is NULL_TYPE then ignore the cast because NULL_TYPE

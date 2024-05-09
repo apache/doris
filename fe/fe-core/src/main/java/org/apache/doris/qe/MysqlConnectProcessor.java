@@ -110,32 +110,33 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         prepareCtx.stmt.setIsPrepared();
         int paramCount = prepareCtx.stmt.getParmCount();
+        LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
-        byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
-        packetBuf.get(nullbitmapData);
         String stmtStr = "";
         try {
-            // new_params_bind_flag
-            if ((int) packetBuf.get() != 0) {
-                // parse params's types
-                for (int i = 0; i < paramCount; ++i) {
-                    int typeCode = packetBuf.getChar();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("code {}", typeCode);
-                    }
-                    prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
-                }
-            }
             List<LiteralExpr> realValueExprs = new ArrayList<>();
-            // parse param data
-            for (int i = 0; i < paramCount; ++i) {
-                if (isNull(nullbitmapData, i)) {
-                    realValueExprs.add(new NullLiteral());
-                    continue;
+            if (paramCount > 0) {
+                byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+                packetBuf.get(nullbitmapData);
+                // new_params_bind_flag
+                if ((int) packetBuf.get() != 0) {
+                    // parse params's types
+                    for (int i = 0; i < paramCount; ++i) {
+                        int typeCode = packetBuf.getChar();
+                        LOG.debug("code {}", typeCode);
+                        prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
+                    }
                 }
-                LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                l.setupParamFromBinary(packetBuf);
-                realValueExprs.add(l);
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        realValueExprs.add(new NullLiteral());
+                        continue;
+                    }
+                    LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
+                    l.setupParamFromBinary(packetBuf);
+                    realValueExprs.add(l);
+                }
             }
             ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
             // TODO set real origin statement
@@ -151,7 +152,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             if (preparedStmtContext != null && !(preparedStmtContext.stmt.getInnerStmt() instanceof InsertStmt)) {
                 stmtStr = executeStmt.toSql();
             }
-        } catch (Throwable e) {
+        } catch (Throwable e)  {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
@@ -201,7 +202,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             case COM_QUERY:
             case COM_STMT_PREPARE:
-                // Process COM_QUERY statement,
                 handleQuery(command);
                 break;
             case COM_STMT_EXECUTE:
