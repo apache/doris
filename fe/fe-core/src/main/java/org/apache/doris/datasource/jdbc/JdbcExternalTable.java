@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.JdbcAnalysisTask;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Elasticsearch external table.
@@ -71,8 +73,9 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
-        return ((JdbcExternalCatalog) catalog).getJdbcClient().getColumnsFromJdbc(dbName, name);
+    public Optional<SchemaCacheValue> initSchema() {
+        return Optional.of(new SchemaCacheValue(((JdbcExternalCatalog) catalog).getJdbcClient()
+                .getColumnsFromJdbc(dbName, name)));
     }
 
     private JdbcTable toJdbcTable() {

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -44,13 +45,12 @@ import org.apache.paimon.types.RowType;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
-
-    private Table originTable = null;
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
@@ -63,23 +63,20 @@ public class PaimonExternalTable extends ExternalTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
-            schemaUpdateTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }
 
-    public Table getOriginTable() {
+    public Table getPaimonTable() {
         makeSureInitialized();
-        return originTable;
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
     }
 
     @Override
-    public List<Column> initSchema() {
-        //init schema need update lastUpdateTime and get latest schema
-        objectCreated = false;
-        Table table = getOriginTable();
-        TableSchema schema = ((FileStoreTable) table).schema();
+    public Optional<SchemaCacheValue> initSchema() {
+        Table paimonTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+        TableSchema schema = ((FileStoreTable) paimonTable).schema();
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
@@ -87,7 +84,7 @@ public class PaimonExternalTable extends ExternalTable {
                     paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
                     field.id()));
         }
-        return tmpSchema;
+        return Optional.of(new PaimonSchemaCacheValue(tmpSchema, paimonTable));
     }
 
     private Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
@@ -180,7 +177,13 @@ public class PaimonExternalTable extends ExternalTable {
         makeSureInitialized();
         try {
             long rowCount = 0;
-            List<Split> splits = originTable.newReadBuilder().newScan().plan().splits();
+            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+            Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
+                    .orElse(null);
+            if (paimonTable == null) {
+                return -1;
+            }
+            List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
             for (Split split : splits) {
                 rowCount += split.rowCount();
             }
