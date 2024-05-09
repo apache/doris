@@ -167,6 +167,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         indexSchemaVersionAndHashMap.put(shadowIdxId, new SchemaVersionAndHash(shadowSchemaVersion, shadowSchemaHash));
         indexShortKeyMap.put(shadowIdxId, shadowIdxShortKeyCount);
         indexSchemaMap.put(shadowIdxId, shadowIdxSchema);
+        for (Column col : shadowIdxSchema) {
+            LOG.info("lightman 0509 {}: {}", shadowIndexName, col.toString());
+        }
     }
 
     public void setBloomFilterInfo(boolean hasBfChange, Set<String> bfColumns, double bfFpp) {
@@ -430,30 +433,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-
-            Map<String, Expr> defineExprs = Maps.newHashMap();
-            List<Column> fullSchema = tbl.getBaseSchema(true);
-            DescriptorTable descTable = new DescriptorTable();
-            TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
-            for (Column column : fullSchema) {
-                SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                destSlotDesc.setIsMaterialized(true);
-                destSlotDesc.setColumn(column);
-                destSlotDesc.setIsNullable(column.isAllowNull());
-
-                if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                    Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                    if (newColumn.getType() != column.getType()) {
-                        try {
-                            SlotRef slot = new SlotRef(destSlotDesc);
-                            slot.setCol(column.getName());
-                            defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                        } catch (AnalysisException e) {
-                            throw new AlterCancelException(e.getMessage());
-                        }
-                    }
-                }
-            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -467,6 +446,30 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
                     long originIdxId = indexIdMap.get(shadowIdxId);
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+                    List<Column> fullSchema = tbl.getSchemaByIndexId(originIdxId, true);
+                    DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+                    for (Column column : fullSchema) {
+                        SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
+                        destSlotDesc.setIsMaterialized(true);
+                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setIsNullable(column.isAllowNull());
+
+                        if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
+                            Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                            if (newColumn.getType() != column.getType()) {
+                                LOG.info("lightman 0509 column {} to newColumn {}", column.toString(), newColumn.toString());
+                                try {
+                                    SlotRef slot = new SlotRef(destSlotDesc);
+                                    slot.setCol(column.getName());
+                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                                } catch (AnalysisException e) {
+                                    throw new AlterCancelException(e.getMessage());
+                                }
+                            }
+                        }
+                    }
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
                     List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId, true);
