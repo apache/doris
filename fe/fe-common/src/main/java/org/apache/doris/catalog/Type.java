@@ -600,7 +600,7 @@ public abstract class Type {
     }
 
     public boolean isScalarType(PrimitiveType t) {
-        return isScalarType() && ((ScalarType) this).getPrimitiveType() == t;
+        return isScalarType() && this.getPrimitiveType() == t;
     }
 
     public boolean isFixedPointType() {
@@ -630,11 +630,6 @@ public abstract class Type {
 
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);
-    }
-
-    // TODO: Handle complex types properly. Some instances may be fixed length.
-    public boolean isFixedLengthType() {
-        return false;
     }
 
     public boolean isNumericType() {
@@ -679,7 +674,7 @@ public abstract class Type {
     }
 
     public boolean isAggStateType() {
-        return isScalarType(PrimitiveType.AGG_STATE);
+        return this instanceof AggStateType;
     }
 
     public boolean isMultiRowType() {
@@ -771,13 +766,6 @@ public abstract class Type {
         return -1;
     }
 
-    /**
-     * Indicates whether we support partitioning tables on columns of this type.
-     */
-    public boolean supportsTablePartitioning() {
-        return false;
-    }
-
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.INVALID_TYPE;
     }
@@ -862,6 +850,27 @@ public abstract class Type {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
+        } else if (sourceType.isAggStateType() && targetType.getPrimitiveType().isCharFamily()) {
+            return true;
+        } else if (sourceType.isAggStateType() && targetType.isAggStateType()) {
+            AggStateType sourceAggState = (AggStateType) sourceType;
+            AggStateType targetAggState = (AggStateType) targetType;
+            if (!sourceAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())) {
+                return false;
+            }
+            if (sourceAggState.getSubTypes().size() != targetAggState.getSubTypes().size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
+                // target subtype is not null but source subtype is nullable
+                if (!targetAggState.getSubTypeNullables().get(i) && sourceAggState.getSubTypeNullables().get(i)) {
+                    return false;
+                }
+                if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
+                    return false;
+                }
+            }
+            return true;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -967,7 +976,7 @@ public abstract class Type {
             MapType mapType = (MapType) this;
             return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
-            Preconditions.checkState(isScalarType());
+            Preconditions.checkState(isScalarType() || isAggStateType());
         }
         return false;
     }
