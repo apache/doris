@@ -229,6 +229,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 }
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
+    LOG(ERROR) << "yangsiyu: " << block->get_by_position(0).name << ", " << block->rows();
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
