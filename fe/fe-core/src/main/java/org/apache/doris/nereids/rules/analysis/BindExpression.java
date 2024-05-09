@@ -74,13 +74,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
@@ -92,6 +95,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -430,14 +434,14 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalSort(aggregate()).thenApply(ctx -> {
                     LogicalSort<Aggregate<Plan>> sort = ctx.root;
                     Aggregate<Plan> aggregate = sort.child();
-                    return bindSort(sort, aggregate, ctx.cascadesContext);
+                    return bindSortAggregate(sort, aggregate, ctx.cascadesContext, ctx.connectContext);
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
                 logicalSort(logicalHaving(aggregate())).thenApply(ctx -> {
                     LogicalSort<LogicalHaving<Aggregate<Plan>>> sort = ctx.root;
                     Aggregate<Plan> aggregate = sort.child().child();
-                    return bindSort(sort, aggregate, ctx.cascadesContext);
+                    return bindSortAggregate(sort, aggregate, ctx.cascadesContext, ctx.connectContext);
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
@@ -691,6 +695,45 @@ public class BindExpression implements AnalysisRuleFactory {
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
     }
 
+    private Plan bindSortAggregate(LogicalSort<? extends Plan> sort, Aggregate<Plan> aggregate, CascadesContext ctx,
+            ConnectContext connectContext) {
+        List<Slot> aggOutput = aggregate.getOutput();
+        Plan aggChild = aggregate.child();
+        List<Slot> aggChildOutput = aggChild.getOutput();
+        List<Slot> aggregateOutputWithoutAggFunc = Lists.newArrayList();
+        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+        for (NamedExpression outputExpr : outputExpressions) {
+            if (!outputExpr.anyMatch(expr -> expr instanceof AggregateFunction)) {
+                aggregateOutputWithoutAggFunc.add(outputExpr.toSlot());
+            }
+        }
+
+        // find in agg outputs
+        Scope aggOutputScope = toScope(ctx, aggOutput);
+        SlotBinder bindByAggOutput = new SlotBinder(aggOutputScope, ctx, true, false, true);
+        // find in agg child outputs
+        Scope aggChildOutputScope = toScope(ctx, aggChildOutput);
+        SlotBinder bindByAggChildOutput = new SlotBinder(aggChildOutputScope, ctx, true, false, true);
+        // Find in the outputs of aggregate without aggregate function output
+        Scope aggregateOutputWithoutAggFuncScope = toScope(ctx, aggregateOutputWithoutAggFunc);
+        SlotBinder bindByAggregateOutputWithoutAggFunc = new SlotBinder(aggregateOutputWithoutAggFuncScope, ctx, true, false, true);
+
+        FunctionRegistry functionRegistry = connectContext.getEnv().getFunctionRegistry();
+        Builder<OrderKey> boundOrderKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
+        for (OrderKey orderKey : sort.getOrderKeys()) {
+            Expression boundKey;
+            if (hasAggregateFunction(orderKey.getExpr(), functionRegistry)) {
+                boundKey = bindByAggregateOutputWithoutAggFunc.bind(orderKey.getExpr());
+            } else {
+                boundKey = bindByAggOutput.bind(orderKey.getExpr());
+            }
+            boundKey = bindByAggChildOutput.bind(boundKey);
+            boundKey = bindFunction(boundKey, sort, ctx);
+            boundOrderKeys.add(orderKey.withExpression(boundKey));
+        }
+        return new LogicalSort<>(boundOrderKeys.build(), sort.child());
+    }
+
     private Plan bindSort(LogicalSort<? extends Plan> sort, Plan plan, CascadesContext ctx) {
         // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
         //    ambiguous slots exist.
@@ -923,5 +966,25 @@ public class BindExpression implements AnalysisRuleFactory {
             }
             return false;
         });
+    }
+
+    private interface SimpleExprAnalyzer {
+        Expression analyze(Expression expr);
+
+        default <E extends Expression> List<E> analyzeToList(List<E> exprs) {
+            ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
+            for (E expr : exprs) {
+                result.add((E) analyze(expr));
+            }
+            return result.build();
+        }
+
+        default <E extends Expression> Set<E> analyzeToSet(List<E> exprs) {
+            ImmutableSet.Builder<E> result = ImmutableSet.builderWithExpectedSize(exprs.size() * 2);
+            for (E expr : exprs) {
+                result.add((E) analyze(expr));
+            }
+            return result.build();
+        }
     }
 }
