@@ -29,7 +29,7 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
-import avro.shaded.com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,7 +56,7 @@ public class OtherJoinTest extends TPCHTestBase {
         plan = new LogicalProject(plan.getOutput(), plan);
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("tpch", cascadesContext);
         Plan optimizedPlan = PlanChecker.from(cascadesContext)
                 .dpHypOptimize()
                 .getBestPlanTree();

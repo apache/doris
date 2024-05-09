@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -272,10 +271,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     public R visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
         return visit(cteAnchor, context);
-    }
-
-    public R visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, C context) {
-        return visit(cteConsumer, context);
     }
 
     public R visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer, C context) {

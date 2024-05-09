@@ -279,7 +279,8 @@ public class CreateTableTest extends TestWithFeService {
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -288,7 +289,8 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"

@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -34,11 +30,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -167,74 +160,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 statistics,
                 child
         );
-    }
-
-    @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
-            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-        if (probeSlot == null) {
-            return false;
-        }
-
-        if (RuntimeFilterGenerator.checkPushDownPreconditionsForProjectOrDistribute(ctx, probeSlot)) {
-            PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
-            Preconditions.checkState(scan != null, "scan is null");
-            if (scan instanceof PhysicalCTEConsumer) {
-                // update the probeExpr
-                int projIndex = -1;
-                for (int i = 0; i < getProjects().size(); i++) {
-                    NamedExpression expr = getProjects().get(i);
-                    if (expr.getName().equals(probeSlot.getName())) {
-                        projIndex = i;
-                        break;
-                    }
-                }
-                if (projIndex < 0 || projIndex >= getProjects().size()) {
-                    // the pushed down path can't contain the probe expr
-                    return false;
-                }
-                NamedExpression newProbeExpr = this.getProjects().get(projIndex);
-                if (newProbeExpr instanceof Alias) {
-                    Expression child = ExpressionUtils.getExpressionCoveredByCast(newProbeExpr.child(0));
-                    if (child instanceof NamedExpression) {
-                        newProbeExpr = (NamedExpression) child;
-                    } else {
-                        return false;
-                    }
-                }
-                Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-                if (!RuntimeFilterGenerator.checkProbeSlot(ctx, newProbeSlot)) {
-                    return false;
-                }
-                scan = ctx.getAliasTransferPair(newProbeSlot).first;
-                probeExpr = newProbeExpr;
-            }
-            if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-                return false;
-            }
-            if (probeExpr instanceof SlotReference) {
-                for (NamedExpression namedExpression : projects) {
-                    if (namedExpression instanceof Alias
-                            && namedExpression.getExprId() == ((SlotReference) probeExpr).getExprId()) {
-                        probeExpr = ((Alias) namedExpression).child();
-                        break;
-                    }
-                }
-            }
-            AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-            return child.pushDownRuntimeFilter(context, generator, builderNode,
-                    src, probeExpr, type, buildSideNdv, exprOrder);
-        } else {
-            // if probe slot doesn't exist in aliasTransferMap, then try to pass it to child
-            AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-            return child.pushDownRuntimeFilter(context, generator, builderNode,
-                    src, probeExpr, type, buildSideNdv, exprOrder);
-        }
     }
 
     @Override

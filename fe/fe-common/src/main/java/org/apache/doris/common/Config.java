@@ -637,6 +637,12 @@ public class Config extends ConfigBase {
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "对于 tablet 数量小于该数目的 DUPLICATE KEY 表，将不会启用 shuffle",
+            "Shuffle won't be enabled for DUPLICATE KEY tables if its tablet num is lower than this number"},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int min_tablets_for_dup_table_shuffle = 64;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
@@ -979,6 +985,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int tablet_further_repair_max_times = 5;
+
+    /**
+     * publish version queue's size in be, report it to fe,
+     * if publish task in be exceed direct_publish_limit_number,
+     * fe will direct publish task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_version_queued_limit_number = 1000;
 
     /**
      * the default slot number per path for hdd in tablet scheduler
@@ -1475,11 +1489,11 @@ public class Config extends ConfigBase {
     public static int default_max_query_instances = -1;
 
     /*
-     * One master daemon thread will update global partition in memory
-     * info every partition_in_memory_update_interval_secs
+     * One master daemon thread will update global partition info, include in memory and visible version
+     * info every partition_info_update_interval_secs
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static int partition_in_memory_update_interval_secs = 300;
+    public static int partition_info_update_interval_secs = 60;
 
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
@@ -1613,7 +1627,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -1765,7 +1779,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 4;
+    public static int max_be_exec_version = 5;
 
     /**
      * Min data version of backends serialize block.
@@ -1956,7 +1970,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2553,6 +2567,15 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    /* https://forums.oracle.com/ords/apexds/post/je-log-checksumexception-2812
+      when meeting disk damage or other reason described in the oracle forums
+      and fe cannot start due to `com.sleepycat.je.log.ChecksumException`, we
+      add a param `ignore_bdbje_log_checksum_read` to ignore the exception, but
+      there is no guarantee of correctness for bdbje kv data
+    */
+    @ConfField
+    public static boolean ignore_bdbje_log_checksum_read = false;
+
     @ConfField(description = {"指定 mysql登录身份认证类型",
             "Specifies the authentication type"},
             options = {"default", "ldap"})
@@ -2689,6 +2712,40 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    /**
+     * Default number of waiting copy jobs for the whole cluster
+     */
+    @ConfField(mutable = true)
+    public static int cluster_max_waiting_copy_jobs = 100;
+
+    /**
+     * Default number of max file num for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_file_num_per_copy_into_job = 50;
+
+    /**
+     * Default number of max meta size for per copy into job
+     */
+    @ConfField(mutable = true)
+    public static int max_meta_size_per_copy_into_job = 51200;
+
+    // 0 means no limit
+    @ConfField(mutable = true)
+    public static int cloud_max_copy_job_per_table = 10000;
+
+    @ConfField(mutable = true)
+    public static int cloud_filter_copy_file_num_limit = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_delete_loaded_internal_stage_files = false;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_txn_conflict_error_retry_num = 5;
+
+    @ConfField(mutable = false)
+    public static int cloud_copy_into_statement_submitter_threads_num = 64;
+
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
@@ -2720,7 +2777,7 @@ public class Config extends ConfigBase {
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean cloud_preheating_enabled = false;
+    public static boolean enable_cloud_warm_up_for_rebalance = true;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -2743,6 +2800,33 @@ public class Config extends ConfigBase {
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fetch_cluster_cache_hotspot = true;
+
+    @ConfField(mutable = true)
+    public static long fetch_cluster_cache_hotspot_interval_ms = 600000;
+    // to control the max num of values inserted into cache hotspot internal table
+    // insert into cache table when the size of batch values reaches this limit
+    @ConfField(mutable = true)
+    public static long batch_insert_cluster_cache_hotspot_num = 50;
+
+    /**
+     * intervals between be status checks for CloudUpgradeMgr
+     */
+    @ConfField(mutable = true)
+    public static int cloud_upgrade_mgr_interval_second = 15;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_running_txn_check = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

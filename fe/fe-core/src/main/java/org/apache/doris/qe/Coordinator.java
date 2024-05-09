@@ -356,12 +356,12 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments);
-
     }
 
     // Used for broker load task/export task/update coordinator
+    // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance) {
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -369,6 +369,7 @@ public class Coordinator implements CoordInterface {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
+        this.queryOptions.setEnableProfile(enableProfile);
         this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
@@ -492,7 +493,7 @@ public class Coordinator implements CoordInterface {
         try {
             this.backendExecStates.clear();
             this.pipelineExecContexts.clear();
-            this.queryStatus.setStatus(new Status());
+            this.queryStatus.updateStatus(TStatusCode.OK, "");
             if (this.exportFiles == null) {
                 this.exportFiles = Lists.newArrayList();
             }
@@ -1106,7 +1107,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1187,7 +1188,7 @@ public class Coordinator implements CoordInterface {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
-                queryStatus.setStatus(errMsg);
+                queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
                 cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                 switch (code) {
                     case TIMEOUT:
@@ -1275,7 +1276,10 @@ public class Coordinator implements CoordInterface {
     private void updateCommitInfos(List<TTabletCommitInfo> commitInfos) {
         lock.lock();
         try {
-            this.commitInfos.addAll(commitInfos);
+            // in pipelinex, the commit info may be duplicate, so we remove the duplicate ones
+            Map<Pair<Long, Long>, TTabletCommitInfo> commitInfoMap = Maps.newHashMap();
+            commitInfos.forEach(info -> commitInfoMap.put(Pair.of(info.getBackendId(), info.getTabletId()), info));
+            this.commitInfos.addAll(commitInfoMap.values());
         } finally {
             lock.unlock();
         }
@@ -1311,7 +1315,7 @@ public class Coordinator implements CoordInterface {
                 return;
             }
 
-            queryStatus.setStatus(status);
+            queryStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
             if (status.getErrorCode() == TStatusCode.TIMEOUT) {
                 cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
             } else {
@@ -1475,7 +1479,7 @@ public class Coordinator implements CoordInterface {
                         + "so that send cancel to BE again",
                         DebugUtil.printId(queryId), queryStatus.toString(), new Exception());
             } else {
-                queryStatus.setStatus(Status.CANCELLED);
+                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());
@@ -2753,6 +2757,11 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+
+    public boolean isTimeout() {
+        return System.currentTimeMillis() > this.timeoutDeadline;
+    }
+
     public void setMemTableOnSinkNode(boolean enableMemTableOnSinkNode) {
         this.queryOptions.setEnableMemtableOnSinkNode(enableMemTableOnSinkNode);
     }
@@ -3142,8 +3151,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3328,8 +3336,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -3393,8 +3400,7 @@ public class Coordinator implements CoordInterface {
                         public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
                             cancelInProcess = false;
                             if (result.hasStatus()) {
-                                Status status = new Status();
-                                status.setPstatus(result.getStatus());
+                                Status status = new Status(result.getStatus());
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled = true;
                                 } else {
@@ -4094,12 +4100,34 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    @Override
+    public List<TNetworkAddress> getInvolvedBackends() {
+        List<TNetworkAddress> backendAddresses = Lists.newArrayList();
+        if (this.enablePipelineXEngine) {
+            for (Long backendId : this.beToPipelineExecCtxs.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        } else {
+            for (Long backendId : this.beToExecStates.keySet()) {
+                Backend backend = idToBackend.get(backendId);
+                backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+            }
+        }
+        return backendAddresses;
+    }
+
     public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
         return fragmentExecParamsMap;
     }
 
     public List<PlanFragment> getFragments() {
         return fragments;
+    }
+
+    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
+        Optional.ofNullable(context).map(ConnectContext::getExecutor).map(StmtExecutor::getSummaryProfile)
+                .ifPresent(profileAction);
     }
 
     // Runtime filter target fragment instance param
@@ -4112,13 +4140,6 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentInstanceId = id;
             this.targetFragmentInstanceAddr = host;
         }
-    }
-
-    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
-        Optional.ofNullable(context)
-                .map(ConnectContext::getExecutor)
-                .map(StmtExecutor::getSummaryProfile)
-                .ifPresent(profileAction);
     }
 }
 

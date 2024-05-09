@@ -189,6 +189,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         trinoConnectorProperties.putAll(catalogProperty.getProperties());
         trinoConnectorProperties.remove("create_time");
         trinoConnectorProperties.remove("type");
+        trinoConnectorProperties.remove("use_meta_cache");
         String connectorNameString = trinoConnectorProperties.remove("connector.name");
         Objects.requireNonNull(connectorNameString, "connectorName is null");
         if (connectorNameString.indexOf('-') >= 0) {

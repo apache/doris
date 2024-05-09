@@ -159,6 +159,7 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
+    BUILD_CLOUD=1
 
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'

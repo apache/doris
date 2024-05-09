@@ -205,7 +205,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
-    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz, nullptr);
+    ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, nullptr, &ctz,
+                                   nullptr);
     // initialize chunk reader
     static_cast<void>(chunk_reader.init());
     // seek to next page header
@@ -408,7 +409,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));
-    level_t defs[rows];
+    std::vector<level_t> defs(rows);
 
     for (int c = 0; c < 14; ++c) {
         auto& column_name_with_type = block->get_by_position(c);
@@ -417,7 +418,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[c],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(c)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
     // `date_v2_col` date, // 14 - 13, DATEV2
     {
@@ -427,7 +428,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[13],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(13)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
     // `timestamp_v2_col` timestamp, // 15 - 9, DATETIMEV2
     {
@@ -437,18 +438,18 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
         static_cast<void>(
                 get_column_values(reader, &t_metadata.row_groups[0].columns[9],
                                   const_cast<FieldSchema*>(schema_descriptor.get_column(9)),
-                                  data_column, data_type, defs));
+                                  data_column, data_type, defs.data()));
     }
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file(result_file, &result);
     EXPECT_TRUE(rst.ok());
-    uint8_t result_buf[result->size() + 1];
+    std::vector<uint8_t> result_buf(result->size() + 1);
     result_buf[result->size()] = '\0';
     size_t bytes_read;
-    Slice res(result_buf, result->size());
+    Slice res(result_buf.data(), result->size());
     static_cast<void>(result->read_at(0, res, &bytes_read));
-    ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
+    ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf.data()));
     delete metadata;
 }
 

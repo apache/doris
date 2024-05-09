@@ -140,6 +140,24 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
+    public void computeEqualSet(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addEqualSet(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
+    }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addFuncDepsDG(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
+    }
+
+    @Override
     public ImmutableSet<FdItem> computeFdItems() {
         Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();

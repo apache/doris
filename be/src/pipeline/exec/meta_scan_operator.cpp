@@ -44,7 +44,7 @@ void MetaScanLocalState::set_scan_ranges(RuntimeState* state,
     _scan_ranges = scan_ranges;
 }
 
-Status MetaScanLocalState::_process_conjuncts() {
+Status MetaScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 

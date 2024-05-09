@@ -191,7 +191,9 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        return false;
+        // Not support workload group privilege in ranger hive plugin.
+        // So always return true to pass the check
+        return true;
     }
 
     @Override

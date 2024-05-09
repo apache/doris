@@ -98,12 +98,12 @@ public class S3FileSystemTest {
             mockedClient.setMockedData(content.getBytes());
             new MockUp<S3ObjStorage>(S3ObjStorage.class) {
                 @Mock
-                public S3Client getClient(String bucket) throws UserException {
+                public S3Client getClient() throws UserException {
                     return mockedClient;
                 }
             };
             S3ObjStorage mockedStorage = new S3ObjStorage(properties);
-            Assertions.assertTrue(mockedStorage.getClient("mocked") instanceof MockedS3Client);
+            Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
             fileSystem = new S3FileSystem(mockedStorage);
             new MockUp<S3FileSystem>(S3FileSystem.class) {

@@ -31,9 +31,8 @@
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
+#include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
@@ -430,20 +429,16 @@ QueryContext::_collect_realtime_query_profile_x() const {
 
     for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
-            // In theory, cast result can not be nullptr since we have checked the pipeline X engine above
-            std::shared_ptr<pipeline::PipelineXFragmentContext> fragment_ctx_x =
-                    std::dynamic_pointer_cast<pipeline::PipelineXFragmentContext>(fragment_ctx);
-
-            if (fragment_ctx_x == nullptr) {
+            if (fragment_ctx == nullptr) {
                 std::string msg =
-                        fmt::format("PipelineXFragmentContext is nullptr, query {} fragment_id: {}",
+                        fmt::format("PipelineFragmentContext is nullptr, query {} fragment_id: {}",
                                     print_id(_query_id), fragment_id);
                 LOG_ERROR(msg);
                 DCHECK(false) << msg;
                 continue;
             }
 
-            auto profile = fragment_ctx_x->collect_realtime_profile_x();
+            auto profile = fragment_ctx->collect_realtime_profile_x();
 
             if (profile.empty()) {
                 std::string err_msg = fmt::format(
@@ -475,7 +470,7 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
         }
 
         exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
-                this->_query_id, realtime_query_profile, load_channel_profiles);
+                this->_query_id, realtime_query_profile, load_channel_profiles, /*is_done=*/false);
     } else {
         auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
         LOG_ERROR(msg);

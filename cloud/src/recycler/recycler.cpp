@@ -1550,7 +1550,7 @@ int InstanceRecycler::recycle_rowsets() {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
             }
-            num_recycled.fetch_add(rowset_keys.size(), std::memory_order_relaxed);
+            num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
         });
         return 0;
     };

@@ -55,7 +55,7 @@ Status CloudFullCompaction::prepare_compact() {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
-    // always sync lastest rowset for full compaction
+    // always sync latest rowset for full compaction
     RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
 
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -90,7 +90,7 @@ Status CloudFullCompaction::prepare_compact() {
             cloud_tablet()->last_sync_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }
@@ -124,7 +124,7 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
     }
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
-                "insuffient compation input rowset, #rowsets={}", _input_rowsets.size());
+                "insufficent compaction input rowset, #rowsets={}", _input_rowsets.size());
     }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
@@ -212,7 +212,7 @@ Status CloudFullCompaction::modify_rowsets() {
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }

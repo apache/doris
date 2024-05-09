@@ -66,4 +66,14 @@ public interface PropagateFuncDeps extends LogicalPlan {
     default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
+
+    @Override
+    default void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    default void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
 }

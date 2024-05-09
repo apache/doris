@@ -1133,16 +1133,18 @@ void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     result.__set_err_msg("query_ingest_binlog is not implemented");
 }
 
-void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                         const TPreCacheAsyncRequest& request) {
-    LOG(ERROR) << "pre_cache_async is not implemented";
-    response.__set_status(Status::NotSupported("pre_cache_async is not implemented").to_thrift());
+void BaseBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                                             const TWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("warm_up_cache_async is not implemented").to_thrift());
 }
 
-void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                         const TCheckPreCacheRequest& request) {
-    LOG(ERROR) << "check_pre_cache is not implemented";
-    response.__set_status(Status::NotSupported("check_pre_cache is not implemented").to_thrift());
+void BaseBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                                   const TCheckWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "check_warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("check_warm_up_cache_async is not implemented").to_thrift());
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -1180,6 +1182,7 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     }
 
     report_exec_status_params->__set_query_id(TUniqueId());
+    report_exec_status_params->__set_done(false);
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);

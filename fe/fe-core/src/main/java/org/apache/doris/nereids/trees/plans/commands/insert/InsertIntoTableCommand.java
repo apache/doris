@@ -132,7 +132,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
         }
 
-        AbstractInsertExecutor insertExecutor;
+        AbstractInsertExecutor insertExecutor = null;
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
@@ -164,7 +164,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
-                insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
+                insertExecutor = ctx.isTxnModel() ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx)
+                        : new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx);
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()
                                 ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode()
@@ -183,8 +184,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
-        } finally {
             targetTableIf.readUnlock();
+        } catch (Throwable e) {
+            targetTableIf.readUnlock();
+            // the abortTxn in onFail need to acquire table write lock
+            if (insertExecutor != null) {
+                insertExecutor.onFail(e);
+            }
+            throw e;
         }
 
         executor.setProfileType(ProfileType.LOAD);

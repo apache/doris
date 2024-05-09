@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -73,17 +72,8 @@ public class TableCollector extends DefaultPlanVisitor<Plan, TableCollectorConte
         if (!context.isExpand()) {
             return;
         }
-        try {
-            MTMVCache expandedMv = MTMVCache.from(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
-            expandedMv.getLogicalPlan().accept(this, context);
-        } catch (AnalysisException e) {
-            LOG.error(String.format(
-                    "table collector expand fail, mtmv name is %s, targetTableTypes is %s",
-                    mtmv.getName(), context.targetTableTypes), e);
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    String.format("expand mv and collect table fail, mv name is %s, mv sql is %s",
-                            mtmv.getName(), mtmv.getQuerySql()), e);
-        }
+        MTMVCache expandedMv = MTMVCache.from(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
+        expandedMv.getLogicalPlan().accept(this, context);
     }
 
     /**

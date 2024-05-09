@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -128,6 +129,13 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {
+        if (expr instanceof EqualTo && expr.child(0).isSlot() && expr.child(1).isSlot()) {
+            return Optional.of(Pair.of((Slot) expr.child(0), (Slot) expr.child(1)));
+        }
+        return Optional.empty();
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {

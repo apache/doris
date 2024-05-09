@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -90,6 +89,7 @@ import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionIdGenerator;
@@ -349,7 +349,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             // 3. update CloudPartition
             OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(dbId)
-                    .flatMap(db -> db.getTable(tableId)).filter(t -> t.getType() == TableType.OLAP)
+                    .flatMap(db -> db.getTable(tableId)).filter(t -> t.isManagedTable())
                     .orElse(null);
             if (olapTable == null) {
                 continue;
@@ -385,12 +385,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         for (Table table : tableList) {
             OlapTable olapTable = (OlapTable) table;
-            olapTable.getPartitions().stream()
-                    .map(Partition::getBaseIndex)
-                    .map(MaterializedIndex::getTablets)
-                    .flatMap(Collection::stream)
-                    .map(Tablet::getId)
-                    .forEach(baseTabletIds::add);
+            try {
+                olapTable.readLock();
+                olapTable.getPartitions().stream()
+                        .map(Partition::getBaseIndex)
+                        .map(MaterializedIndex::getTablets)
+                        .flatMap(Collection::stream)
+                        .map(Tablet::getId)
+                        .forEach(baseTabletIds::add);
+            } finally {
+                olapTable.readUnlock();
+            }
         }
         Set<Long> tabletIds = tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).collect(Collectors.toSet());
         baseTabletIds.retainAll(tabletIds);
@@ -736,6 +741,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException {
+        throw new UnsupportedOperationException("commitAndPublishTransaction is not supported in cloud");
+    }
+
+    @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
@@ -890,7 +901,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         throw new UserException("Disallow to call finishTransaction()");
     }
 
@@ -1295,5 +1307,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation)
             throws Exception {
         throw new Exception(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
+    public void addSubTransaction(long dbId, long transactionId, long subTransactionId) {
+        throw new UnsupportedOperationException("addSubTransaction is not supported in cloud");
+    }
+
+    @Override
+    public void removeSubTransaction(long dbId, long subTransactionId) {
+        throw new UnsupportedOperationException("removeSubTransaction is not supported in cloud");
     }
 }

@@ -142,7 +142,8 @@ public class HiveMetaStoreCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), refreshExecutor);
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
+                refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -160,7 +161,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, refreshExecutor);
+        }, null, refreshExecutor);
 
         setNewFileCache();
     }
@@ -198,7 +199,7 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
+        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }
@@ -349,9 +350,11 @@ public class HiveMetaStoreCache {
             List<String> partitionValues,
             String bindBrokerName) throws UserException {
         FileCacheValue result = new FileCacheValue();
+        Map<String, String> properties = new HashMap<>();
+        jobConf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
-                        location, bindBrokerName), jobConf, bindBrokerName));
+                        location, bindBrokerName), properties, bindBrokerName));
         result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location, jobConf));
         // For Tez engine, it may generate subdirectoies for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
@@ -366,7 +369,7 @@ public class HiveMetaStoreCache {
             for (RemoteFile remoteFile : remoteFiles) {
                 String srcPath = remoteFile.getPath().toString();
                 LocationPath locationPath = new LocationPath(srcPath, catalog.getProperties());
-                Path convertedPath = locationPath.toScanRangeLocation();
+                Path convertedPath = locationPath.toStorageLocation();
                 if (!convertedPath.toString().equals(srcPath)) {
                     remoteFile.setPath(convertedPath);
                 }
@@ -777,10 +780,12 @@ public class HiveMetaStoreCache {
                         return Collections.emptyList();
                     }
                     String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
+                    Map<String, String> properties = new HashMap<>();
+                    jobConf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                            bindBrokerName), jobConf, bindBrokerName));
+                                            bindBrokerName), properties, bindBrokerName));
                     Status status = fs.exists(acidVersionPath);
                     if (status != Status.OK) {
                         if (status.getErrCode() == ErrCode.NOT_FOUND) {
@@ -800,10 +805,12 @@ public class HiveMetaStoreCache {
                 List<DeleteDeltaInfo> deleteDeltas = new ArrayList<>();
                 for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
                     String location = delta.getPath().toString();
+                    Map<String, String> properties = new HashMap<>();
+                    jobConf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
-                                            jobConf, bindBrokerName));
+                                            properties, bindBrokerName));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
@@ -825,10 +832,12 @@ public class HiveMetaStoreCache {
                 // base
                 if (directory.getBaseDirectory() != null) {
                     String location = directory.getBaseDirectory().toString();
+                    Map<String, String> properties = new HashMap<>();
+                    jobConf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
-                                            jobConf, bindBrokerName));
+                                            properties, bindBrokerName));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {

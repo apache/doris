@@ -147,9 +147,9 @@ Status OlapScanLocalState::_init_profile() {
     return Status::OK();
 }
 
-Status OlapScanLocalState::_process_conjuncts() {
+Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
-    RETURN_IF_ERROR(ScanLocalState::_process_conjuncts());
+    RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
     }

@@ -173,7 +173,7 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
             doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY);
     if (query_tokens.empty()) {
-        LOG(WARNING) << fmt::format(
+        VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str, inverted_index_parser_type_to_string(parser_type));
@@ -223,7 +223,7 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
             doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY);
     if (query_tokens.empty()) {
-        LOG(WARNING) << fmt::format(
+        VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str, inverted_index_parser_type_to_string(parser_type));
@@ -340,6 +340,8 @@ Status FunctionMatchPhrasePrefix::execute_match(
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
     }
+    VLOG_DEBUG << "begin to run FunctionMatchPhrasePrefix::execute_match, parser_type: "
+               << inverted_index_parser_type_to_string(parser_type);
 
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
@@ -349,7 +351,7 @@ Status FunctionMatchPhrasePrefix::execute_match(
             doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
 
     if (query_tokens.empty()) {
-        LOG(WARNING) << fmt::format(
+        VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
                 "please check your query: '{}' and index parser: '{}'",
                 match_query_str, inverted_index_parser_type_to_string(parser_type));

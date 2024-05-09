@@ -23,6 +23,7 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
+#include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -43,6 +44,9 @@ bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
+bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
+                                                           &s3_bytes_read_total);
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const S3ClientHolder> client,
                                             std::string bucket, std::string key,
@@ -125,6 +129,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                                      _path.native(), *bytes_read, bytes_req);
     }
     s3_bytes_read_total << *bytes_read;
+    s3_bytes_per_read << *bytes_read;
     s3_file_reader_read_counter << 1;
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
     return Status::OK();

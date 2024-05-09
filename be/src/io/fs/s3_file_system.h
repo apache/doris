@@ -85,6 +85,9 @@ public:
 
     const std::shared_ptr<S3ClientHolder>& client_holder() const { return _client; }
 
+    const std::string& bucket() const { return _bucket; }
+    const std::string& prefix() const { return _prefix; }
+
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
                             const FileWriterOptions* opts) override;

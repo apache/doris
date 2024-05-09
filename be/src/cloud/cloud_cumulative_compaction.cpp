@@ -123,7 +123,7 @@ PREPARE_TRY_AGAIN:
             cloud_tablet()->last_sync_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_TABLET_BUSY) {
             if (config::enable_parallel_cumu_compaction && resp.version_in_compaction_size() > 0 &&
                 ++tried <= 2) {
@@ -238,9 +238,10 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
                             std::numeric_limits<int64_t>::max();
-        RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaciton(
+        RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
-                _stats.merged_rows, initiator, output_rowset_delete_bitmap));
+                _stats.merged_rows, initiator, output_rowset_delete_bitmap,
+                _allow_delete_in_cumu_compaction));
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
@@ -248,7 +249,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         return st;
     }
@@ -398,7 +399,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
             cloud_tablet()->last_sync_time_s = 0;
         } else if (start_resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         LOG_WARNING("failed to update cumulative point to meta srv")
                 .tag("job_id", _uuid)
@@ -414,7 +415,7 @@ void CloudCumulativeCompaction::update_cumulative_point() {
     st = _engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            cloud_tablet()->recycle_cached_data();
+            cloud_tablet()->clear_cache();
         }
         LOG_WARNING("failed to update cumulative point to meta srv")
                 .tag("job_id", _uuid)

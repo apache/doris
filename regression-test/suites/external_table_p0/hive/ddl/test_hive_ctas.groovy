@@ -17,7 +17,12 @@
 
 suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         def file_formats = ["parquet", "orc"]
         def generateSrcDDLForCTAS = { String file_format, String catalog_name ->
             sql """ switch `${catalog_name}` """
@@ -25,6 +30,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             sql """ switch internal """
             sql """ create database if not exists test_ctas_olap """;
             sql """ use internal.test_ctas_olap """
+            sql """ DROP TABLE IF EXISTS internal.test_ctas_olap.unpart_ctas_olap_src """
             sql """
                 CREATE TABLE `unpart_ctas_olap_src` (
                     `col1` INT COMMENT 'col1',
@@ -42,7 +48,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                 (2, 'another string value for col2'),
                 (3, 'yet another string value for col2'); 
             """
-
+            sql """ DROP TABLE IF EXISTS internal.test_ctas_olap.part_ctas_olap_src """
             sql """
                 CREATE TABLE `part_ctas_olap_src`(
                     `col1` INT COMMENT 'col1',
@@ -69,6 +75,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
             """
 
             sql """ use `${catalog_name}`.`test_ctas` """
+            sql """ DROP TABLE IF EXISTS `test_ctas`.unpart_ctas_src """
             sql """
                 CREATE TABLE `unpart_ctas_src`(
                   `col1` INT COMMENT 'col1',
@@ -508,9 +515,9 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
         }
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-            String catalog_name = "test_hive_ctas"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String catalog_name = "test_${hivePrefix}_ctas"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""

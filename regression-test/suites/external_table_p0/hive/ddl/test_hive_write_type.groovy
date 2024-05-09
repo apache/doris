@@ -17,7 +17,12 @@
 
 suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         def file_formats = ["parquet", "orc"]
         def test_complex_type_tbl = { String file_format, String catalog_name ->
             sql """ switch ${catalog_name} """
@@ -148,7 +153,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             order_qt_complex_type01 """ SELECT * FROM unpart_tbl_${file_format} """
             order_qt_complex_type02 """ SELECT * FROM unpart_tbl_${file_format} WHERE col2='b' """
 
-            sql """ DROP TABLE unpart_tbl_${file_format} """
+            sql """ drop table unpart_tbl_${file_format} """
             sql """ drop database if exists `test_complex_type` """;
         }
 
@@ -190,6 +195,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                     (true, 123, 987654321099, 'abcdefghij', 3.1214, 63.28, 123.4567, 'varcharval', 'stringval');
                 """
             } catch (Exception e) {
+                log.info(e.getMessage())
                 // BE err msg need use string contains to check
                 assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
@@ -201,6 +207,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                     ('1', 123, 987654319, 'abcdefghij', '3.15', '6.28', 123.4567, 432, 'stringval');
                 """
             } catch (Exception e) {
+                log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
 
@@ -260,9 +267,9 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
         }
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-            String catalog_name = "test_hive_write_type"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String catalog_name = "test_${hivePrefix}_write_type"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""

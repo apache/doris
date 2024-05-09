@@ -81,7 +81,7 @@ bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
 void HdfsHandlerCache::_clean_invalid() {
     std::vector<uint64> removed_handle;
     for (auto& item : _cache) {
-        if (item.second->invalid() && item.second->ref_cnt() == 0) {
+        if (item.second.use_count() == 1 && item.second->invalid()) {
             removed_handle.emplace_back(item.first);
         }
     }
@@ -94,7 +94,7 @@ void HdfsHandlerCache::_clean_oldest() {
     uint64_t oldest_time = ULONG_MAX;
     uint64 oldest = 0;
     for (auto& item : _cache) {
-        if (item.second->ref_cnt() == 0 && item.second->last_access_time() < oldest_time) {
+        if (item.second.use_count() == 1 && item.second->last_access_time() < oldest_time) {
             oldest_time = item.second->last_access_time();
             oldest = item.first;
         }
@@ -103,16 +103,16 @@ void HdfsHandlerCache::_clean_oldest() {
 }
 
 Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
-                                        HdfsHandler** fs_handle) {
+                                        std::shared_ptr<HdfsHandler>* fs_handle) {
     uint64 hash_code = hdfs_hash_code(hdfs_params);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _cache.find(hash_code);
         if (it != _cache.end()) {
-            HdfsHandler* handle = it->second.get();
+            std::shared_ptr<HdfsHandler> handle = it->second;
             if (!handle->invalid()) {
-                handle->inc_ref();
-                *fs_handle = handle;
+                handle->update_last_access_time();
+                *fs_handle = std::move(handle);
                 return Status::OK();
             }
             // fs handle is invalid, erase it.
@@ -129,12 +129,12 @@ Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const st
             _clean_oldest();
         }
         if (_cache.size() < MAX_CACHE_HANDLE) {
-            std::unique_ptr<HdfsHandler> handle = std::make_unique<HdfsHandler>(hdfs_fs, true);
-            handle->inc_ref();
-            *fs_handle = handle.get();
+            auto handle = std::make_shared<HdfsHandler>(hdfs_fs, true);
+            handle->update_last_access_time();
+            *fs_handle = handle;
             _cache[hash_code] = std::move(handle);
         } else {
-            *fs_handle = new HdfsHandler(hdfs_fs, false);
+            *fs_handle = std::make_shared<HdfsHandler>(hdfs_fs, false);
         }
     }
     return Status::OK();

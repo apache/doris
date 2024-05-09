@@ -751,6 +751,16 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
+size_t TabletMeta::version_count_cross_with_range(const Version& range) const {
+    size_t count = 0;
+    for (const auto& rs_meta : _rs_metas) {
+        if (!(range.first > rs_meta->version().second || range.second < rs_meta->version().first)) {
+            count++;
+        }
+    }
+    return count;
+}
+
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {

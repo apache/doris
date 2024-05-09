@@ -523,6 +523,31 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     if (is_append) {
+        if (_cur_mutable_block && !_cur_mutable_block->empty()) {
+            // When is-append is true, the previous block may not have been sent out yet.
+            // (e.x. The previous block is not load to single tablet, and its row num was
+            // 4064, which is smaller than the send batch size 8192).
+            // If we clear the previous block directly here, it will cause data loss.
+            {
+                SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
+                std::lock_guard<std::mutex> l(_pending_batches_lock);
+                // To simplify the add_row logic, postpone adding block into req until the time of sending req
+                _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
+                _cur_add_block_request->set_eos(
+                        false); // for multi-add, only when marking close we set it eos.
+                // Copy the request to tmp request to add to pend block queue
+                auto tmp_add_block_request = std::make_shared<PTabletWriterAddBlockRequest>();
+                *tmp_add_block_request = *_cur_add_block_request;
+                _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
+                _pending_batches_num++;
+                VLOG_DEBUG << "VTabletWriter:" << _parent << " VNodeChannel:" << this
+                           << " pending_batches_bytes:" << _pending_batches_bytes
+                           << " jobid:" << std::to_string(_state->load_job_id())
+                           << " loadinfo:" << _load_info;
+            }
+            _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+            _cur_add_block_request->clear_tablet_ids();
+        }
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_to_block_by_selector
         // TODO: we could write to local delta writer if single_replica_load is true
@@ -542,6 +567,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         for (auto tablet_id : payload->second) {
             _cur_add_block_request->add_tablet_ids(tablet_id);
         }
+        // need to reset to false avoid load data to incorrect tablet.
+        _cur_add_block_request->set_is_single_tablet_block(false);
     }
 
     if (is_append || _cur_mutable_block->rows() >= _batch_size ||
@@ -1649,6 +1676,12 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
+    // update incrementally so that FE can get the progress.
+    // the real 'num_rows_load_total' will be set when sink being closed.
+    _state->update_num_rows_load_total(rows);
+    _state->update_num_bytes_load_total(bytes);
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
@@ -1661,12 +1694,6 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
     _row_distribution_watch.stop();
 
-    // update incrementally so that FE can get the progress.
-    // the real 'num_rows_load_total' will be set when sink being closed.
-    _state->update_num_rows_load_total(rows);
-    _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =

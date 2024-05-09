@@ -34,13 +34,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
@@ -348,7 +348,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
-    void setQualifiedDbName(String qualifiedDbName) {
+    public void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
     }
 
@@ -362,6 +362,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public String getDBName() {
+        String[] strs = qualifiedDbName.split(":");
+        return strs.length == 2 ? strs[1] : strs[0];
     }
 
     public Constraint getConstraint(String name) {
@@ -384,11 +389,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
-    }
-
-    @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
-        return getBaseSchema();
     }
 
     public List<Column> getBaseSchema(boolean full) {
@@ -593,31 +593,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return table;
     }
 
-    /*
-     * 1. Only schedule OLAP table.
-     * 2. If table is colocate with other table, not schedule it.
-     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
-     *      schedule the tablet to repair it(only for VERSION_INCOMPLETE case, this will be checked in
-     *      TabletScheduler).
-     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
-     */
-    public boolean needSchedule() {
-        if (type != TableType.OLAP) {
-            return false;
-        }
-
-        OlapTable olapTable = (OlapTable) this;
-
-        if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("table {} is a colocate table, skip tablet checker.", name);
-            }
-            return false;
-        }
-
-        return true;
-    }
-
     public boolean isHasCompoundKey() {
         return hasCompoundKey;
     }
@@ -644,11 +619,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public void analyze(String dbName) {}
 
     @Override
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        return true;
-    }
-
-    @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
     }
@@ -659,8 +629,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-        return Lists.newArrayList();
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        return Sets.newHashSet();
     }
 
     @Override

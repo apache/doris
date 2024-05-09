@@ -153,20 +153,20 @@ void UDFTableFunction::process_close() {
     _array_offset = 0;
 }
 
-void UDFTableFunction::get_value(MutableColumnPtr& column) {
+void UDFTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     size_t pos = _array_offset + _cur_offset;
     if (current_empty() || (_array_column_detail.nested_nullmap_data &&
                             _array_column_detail.nested_nullmap_data[pos])) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
             auto nullmap_column = nullable_column->get_null_map_column_ptr();
-            nested_column->insert_from(*_array_column_detail.nested_col, pos);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_default();
+            nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
+            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
         } else {
-            column->insert_from(*_array_column_detail.nested_col, pos);
+            column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
     }
 }

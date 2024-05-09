@@ -27,9 +27,9 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
-import avro.shaded.com.google.common.collect.Lists;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
@@ -59,7 +59,7 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -67,7 +67,7 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {

@@ -397,4 +397,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
         return builder.build();
     }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

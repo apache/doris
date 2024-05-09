@@ -229,7 +229,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private List<String> getPartitionValues(int partitionId) {
         String sql = String.format("SELECT \"PART_KEY_VAL\" FROM \"PARTITION_KEY_VALS\""
-                + " WHERE \"PART_ID\" = " + partitionId);
+                + " WHERE \"PART_ID\" = " + partitionId + " ORDER BY \"INTEGER_IDX\"");
         if (LOG.isDebugEnabled()) {
             LOG.debug("getPartitionValues exec sql: {}", sql);
         }
@@ -366,7 +366,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private List<FieldSchema> getTablePartitionKeys(int tableId) {
         String sql = "SELECT \"PKEY_NAME\", \"PKEY_TYPE\", \"PKEY_COMMENT\" from \"PARTITION_KEYS\""
-                + " WHERE \"TBL_ID\"= " + tableId;
+                + " WHERE \"TBL_ID\"= " + tableId + " ORDER BY \"INTEGER_IDX\"";
         if (LOG.isDebugEnabled()) {
             LOG.debug("getTablePartitionKeys exec sql: {}", sql);
         }

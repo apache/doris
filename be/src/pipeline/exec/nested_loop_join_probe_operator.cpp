@@ -22,25 +22,12 @@
 #include "pipeline/exec/operator.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/core/block.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 
 namespace doris {
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
-
-Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_left_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
 
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)

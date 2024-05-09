@@ -7,17 +7,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalIntersect
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+--------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = d3.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = iss.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
+------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = iws.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ws_item_sk]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+----------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------filter((d1.d_year <= 2002) and (d1.d_year >= 2000))
+--------------------filter((d3.d_year <= 2002) and (d3.d_year >= 2000))
 ----------------------PhysicalOlapScan[date_dim]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalProject
@@ -35,17 +35,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[date_dim]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = d3.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ws_sold_date_sk]
+--------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ss_sold_date_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = iws.i_item_sk)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = iss.i_item_sk)) otherCondition=()
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[web_sales] apply RFs: RF5
+----------------------PhysicalOlapScan[store_sales] apply RFs: RF5
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------filter((d3.d_year <= 2002) and (d3.d_year >= 2000))
+--------------------filter((d1.d_year <= 2002) and (d1.d_year >= 2000))
 ----------------------PhysicalOlapScan[date_dim]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
@@ -95,80 +95,86 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalUnion
 ------------------------PhysicalProject
 --------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
-----------------------------hashAgg[GLOBAL]
-------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------hashAgg[LOCAL]
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF13 d_date_sk->[ss_sold_date_sk]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
-------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store_sales.ss_item_sk = cross_items.ss_item_sk)) otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashAgg[GLOBAL]
+--------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------hashAgg[LOCAL]
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF13 d_date_sk->[ss_sold_date_sk]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store_sales.ss_item_sk = cross_items.ss_item_sk)) otherCondition=()
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF13
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF13
---------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[item]
---------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
---------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------------PhysicalProject
+--------------------------------PhysicalAssertNumRows
+----------------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
 --------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
-----------------------------hashAgg[GLOBAL]
-------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------hashAgg[LOCAL]
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->[cs_sold_date_sk]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
-------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((catalog_sales.cs_item_sk = cross_items.ss_item_sk)) otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashAgg[GLOBAL]
+--------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------hashAgg[LOCAL]
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->[cs_sold_date_sk]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((catalog_sales.cs_item_sk = cross_items.ss_item_sk)) otherCondition=()
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF15
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF15
---------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[item]
---------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
---------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------------PhysicalProject
+--------------------------------PhysicalAssertNumRows
+----------------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
 --------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
-----------------------------hashAgg[GLOBAL]
-------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------hashAgg[LOCAL]
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF18 d_date_sk->[ws_sold_date_sk]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
-------------------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=()
---------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalProject
+------------------------------hashAgg[GLOBAL]
+--------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------hashAgg[LOCAL]
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF18 d_date_sk->[ws_sold_date_sk]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=()
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF18
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF18
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[item]
---------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
---------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------------PhysicalProject
+--------------------------------PhysicalAssertNumRows
+----------------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
