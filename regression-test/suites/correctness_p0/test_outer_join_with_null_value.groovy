@@ -220,7 +220,6 @@ suite("test_outer_join_with_null_value") {
         WHERE
             `P`.`AREA_ID` = 2;"""
 
-    sql """set enable_nereids_planner=false;"""
     qt_select_xx """SELECT
                         COUNT(1) AS `m0`
                     FROM
