@@ -88,14 +88,14 @@ public class MTMVPlanUtil {
     }
 
     public static MTMVRelation generateMTMVRelation(Plan plan) {
-        return new MTMVRelation(getBaseTables(plan), getBaseViews(plan));
+        return new MTMVRelation(getBaseTables(plan, true), getBaseTables(plan, false), getBaseViews(plan));
     }
 
-    private static Set<BaseTableInfo> getBaseTables(Plan plan) {
+    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.values()), true);
+                                .newHashSet(TableType.values()), expand);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
