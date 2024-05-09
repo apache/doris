@@ -15,36 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
-
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.nereids.types.coercion.RangeScalable;
+package org.apache.doris.nereids.types.coercion;
 
 /**
- * Datetime type in Nereids.
+ * numeric type/ date related type are range scalable
+ * RangeScalable Column can be estimated by filter like "A < 10" more accurate.
+ * For example, for a given relation R, which contains 10 rows. R.A in (1, 100),
+ * the selectivity of filter "A<10" is "(10-1) / (100 -1)"
+ * But for string column A, the filter selectivity of "A<'abc'" can not be estimated by range, although we could
+ * have an order reserved mapping from string value to double.
+ *
  */
-public class TimeType extends PrimitiveType implements RangeScalable {
-
-    public static final TimeType INSTANCE = new TimeType();
-
-    private static final int WIDTH = 8;
-
-    private TimeType() {
-    }
-
-    @Override
-    public Type toCatalogDataType() {
-        return Type.TIME;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof TimeType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
-    }
+public interface RangeScalable {
 }
