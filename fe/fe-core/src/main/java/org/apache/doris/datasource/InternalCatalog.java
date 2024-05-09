@@ -123,6 +123,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -1405,8 +1406,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
-                    LOG.info("add partition[{}] which already exists", partitionName);
-                    return;
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
+                    if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
+                        return;
+                    }
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
@@ -1567,6 +1570,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
             storagePolicy = dataProperty.getStoragePolicy();
         }
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
@@ -1593,8 +1601,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
+                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        LOG.info("add partition[{}] which already exists", partitionName);
+                        failedCleanCallback.run();
                         return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
@@ -1643,8 +1652,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
 
-
-
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
@@ -1684,9 +1691,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.writeUnlock();
             }
         } catch (DdlException e) {
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
     }
@@ -2622,10 +2627,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
-                // register or remove table from DynamicPartition after table created
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                // register or remove table from DynamicPartition after table created
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
