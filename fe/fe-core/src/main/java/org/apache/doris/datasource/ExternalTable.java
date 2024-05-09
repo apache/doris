@@ -143,7 +143,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public List<Column> getFullSchema() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchema(dbName, name);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(dbName, name);
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
     @Override
@@ -160,7 +161,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public List<Column> getBaseSchema(boolean full) {
         return getFullSchema();
     }
-
 
     @Override
     public void setNewFullSchema(List<Column> newSchema) {
@@ -301,12 +301,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public List<Column> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
         schemaUpdateTime = System.currentTimeMillis();
         return initSchema();
     }
 
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         throw new NotImplementedException("implement in sub class");
     }
 
@@ -364,5 +364,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    protected Optional<SchemaCacheValue> getSchemaCacheValue() {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        return cache.getSchemaValue(dbName, name);
     }
 }

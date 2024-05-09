@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -386,7 +385,7 @@ public abstract class ExternalCatalog
         }
     }
 
-    public final List<Column> getSchema(String dbName, String tblName) {
+    public final Optional<SchemaCacheValue> getSchema(String dbName, String tblName) {
         makeSureInitialized();
         Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(dbName);
         if (db.isPresent()) {
@@ -395,9 +394,7 @@ public abstract class ExternalCatalog
                 return table.get().initSchemaAndUpdateTime();
             }
         }
-        // return one column with unsupported type.
-        // not return empty to avoid some unexpected issue.
-        return Lists.newArrayList(Column.UNSUPPORTED_COLUMN);
+        return Optional.empty();
     }
 
     @Override
@@ -507,7 +504,7 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObjById(dbId).get();
+            return metaCache.getMetaObjById(dbId).orElse(null);
         } else {
             return idToDb.get(dbId);
         }
