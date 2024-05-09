@@ -27,10 +27,13 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
@@ -117,7 +120,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         Type partitionColumnType = MTMVPartitionUtil
                 .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
         // mtmv only support one partition column
-        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral beginTime = dateTrunc(
+        DateTimeV2Literal beginTime = dateTrunc(
                 partitionKeyDesc.getLowerValues().get(0).getStringValue(),
                 Optional.empty(), false);
 
@@ -128,67 +131,63 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                         getUpperValue(partitionKeyDesc.getUpperValues().get(0), beginTime, partitionColumnType)));
     }
 
-    private PartitionValue getUpperValue(PartitionValue upperValue,
-            org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral beginTruncTime,
-            Type partitionColumnType)
-            throws AnalysisException {
+    private PartitionValue getUpperValue(PartitionValue upperValue, DateTimeV2Literal beginTruncTime,
+            Type partitionColumnType) throws AnalysisException {
         if (upperValue.isMax()) {
             throw new AnalysisException("date trunc not support MAXVALUE partition");
         }
         // begin time and end time dateTrunc should has same result
-        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral endTruncTime = dateTrunc(
-                upperValue.getStringValue(),
-                Optional.empty(), true);
+        DateTimeV2Literal endTruncTime = dateTrunc(upperValue.getStringValue(), Optional.empty(), true);
         if (!Objects.equals(beginTruncTime, endTruncTime)) {
             throw new AnalysisException(
                     String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s", beginTruncTime,
                             endTruncTime));
         }
-        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral endTime = dateAdd(beginTruncTime);
+        DateTimeV2Literal endTime = dateAdd(beginTruncTime);
         return new PartitionValue(timeToStr(endTime, partitionColumnType));
     }
 
-    private org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral dateTrunc(String value,
+    private DateTimeV2Literal dateTrunc(String value,
             Optional<String> dateFormat, boolean isUpper) throws AnalysisException {
-        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral dateTimeLiteral = strToDate(value,
-                dateFormat);
+        DateTimeV2Literal dateTimeLiteral = strToDate(value, dateFormat);
         // for (2020-01-31,2020-02-01),if not -1, lower value and upper value will not same after rollup
         if (isUpper) {
-            dateTimeLiteral = (DateTimeLiteral) DateTimeArithmetic.secondsSub(dateTimeLiteral, new IntegerLiteral(1));
+            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.secondsSub(dateTimeLiteral, new IntegerLiteral(1));
         }
-        org.apache.doris.nereids.trees.expressions.Expression expression = DateTimeExtractAndTransform
-                .dateTrunc(dateTimeLiteral,
-                        new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral(timeUnit));
-        if (!(expression instanceof org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral)) {
+        Expression expression = DateTimeExtractAndTransform.dateTrunc(dateTimeLiteral, new VarcharLiteral(timeUnit));
+        if (!(expression instanceof DateTimeV2Literal)) {
             throw new AnalysisException("dateTrunc() should return DateLiteral, expression: " + expression);
         }
-        return (org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral) expression;
+        return (DateTimeV2Literal) expression;
     }
 
-    private org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral strToDate(String value,
+    private DateTimeV2Literal strToDate(String value,
             Optional<String> dateFormat) throws AnalysisException {
         try {
-            return new org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral(value);
+            return new DateTimeV2Literal(value);
         } catch (Exception e) {
             if (!dateFormat.isPresent()) {
                 throw e;
             }
-            org.apache.doris.nereids.trees.expressions.Expression strToDate = DateTimeExtractAndTransform
-                    .strToDate(new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral(value),
-                            new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral(dateFormat.get()));
-            if (!(strToDate instanceof org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral)) {
+            Expression strToDate = DateTimeExtractAndTransform
+                    .strToDate(new VarcharLiteral(value),
+                            new VarcharLiteral(dateFormat.get()));
+            if (strToDate instanceof DateV2Literal) {
+                DateV2Literal dateV2Literal = (DateV2Literal) strToDate;
+                return new DateTimeV2Literal(dateV2Literal.getYear(), dateV2Literal.getMonth(), dateV2Literal.getDay(),
+                        0, 0, 0);
+            } else if (strToDate instanceof DateTimeV2Literal) {
+                return (DateTimeV2Literal) strToDate;
+            } else {
                 throw new AnalysisException(
                         String.format("strToDate failed, stringValue: %s, dateFormat: %s", value,
                                 dateFormat));
             }
-            return (org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral) strToDate;
         }
     }
 
-    private org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral dateAdd(
-            org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral value)
-            throws AnalysisException {
-        org.apache.doris.nereids.trees.expressions.Expression result;
+    private DateTimeV2Literal dateAdd(DateTimeV2Literal value) throws AnalysisException {
+        Expression result;
         switch (timeUnit) {
             case "year":
                 result = value.plusYears(1L);
@@ -202,13 +201,13 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             default:
                 throw new AnalysisException("MTMV partition roll up not support timeUnit: " + timeUnit);
         }
-        if (!(result instanceof org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral)) {
+        if (!(result instanceof DateTimeV2Literal)) {
             throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
         }
-        return (org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral) result;
+        return (DateTimeV2Literal) result;
     }
 
-    private String timeToStr(org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral literal,
+    private String timeToStr(DateTimeV2Literal literal,
             Type partitionColumnType) throws AnalysisException {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
