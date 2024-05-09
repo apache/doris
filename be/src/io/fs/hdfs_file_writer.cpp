@@ -27,6 +27,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
@@ -52,18 +53,35 @@ public:
     HdfsMaxConnectionLimiter() = default;
     ~HdfsMaxConnectionLimiter() = default;
 
-    void add_inflight_writer() {
+    Status add_inflight_writer() {
+        int retry = config::hdfs_jni_write_max_retry_time;
         std::unique_lock lck {_latch};
-        _cv.wait(lck, [&]() {
-            return _cur_inflight_writer < config::max_inflight_hdfs_write_connection;
-        });
+        while (!_cv.wait_for(
+                lck, std::chrono::milliseconds(config::hdfs_jni_write_sleep_milliseconds), [&]() {
+                    return _cur_inflight_writer < config::max_inflight_hdfs_write_connection;
+                })) {
+            if (retry > 0) {
+                retry--;
+                continue;
+            }
+        }
+        if (_cur_inflight_writer >= config::max_inflight_hdfs_write_connection) {
+            return Status::InternalError(
+                    "No avaiable hdfs connection, current connections num is {}",
+                    _cur_inflight_writer);
+        }
+
         _cur_inflight_writer++;
+        return Status::OK();
     }
 
     void reduce_inflight_writer() {
         std::unique_lock lck {_latch};
+        auto origin = _cur_inflight_writer;
         _cur_inflight_writer--;
-        _cv.notify_one();
+        if (origin == config::max_inflight_hdfs_write_connection) {
+            _cv.notify_one();
+        }
     }
 
 private:
@@ -440,8 +458,11 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
     }
 #endif
     // open file
+    if (auto st = g_hdfs_max_write_connection_limiter.add_inflight_writer(); !st.ok()) {
+        return ResultError(std::move(st));
+    }
+
     hdfsFile hdfs_file = nullptr;
-    g_hdfs_max_write_connection_limiter.add_inflight_writer();
     {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
         hdfs_file = hdfsOpenFile(handler->hdfs_fs, path.c_str(), O_WRONLY, 0, 0, 0);

@@ -248,7 +248,7 @@ size_t JniUtil::get_max_jni_heap_memory_size() {
 #else
     return max_jvm_heap_memory_size_;
 #endif
-
+}
 
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
