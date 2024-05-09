@@ -538,7 +538,7 @@ void PlanFragmentExecutor::stop_report_thread() {
 
 void PlanFragmentExecutor::cancel(const Status& reason) {
     std::lock_guard<std::mutex> l(_status_lock);
-    LOG_INFO("PlanFragmentExecutor::cancel {} reason {} error msg {}",
+    LOG_INFO("PlanFragmentExecutor::cancel {} reason {}",
              PrintInstanceStandardInfo(query_id(), fragment_instance_id()), reason.to_string());
 
     // NOTE: Not need to check if already cancelled.
