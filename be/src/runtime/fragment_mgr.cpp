@@ -837,7 +837,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
-#endif
     DCHECK((params.query_options.__isset.enable_pipeline_x_engine &&
             params.query_options.enable_pipeline_x_engine) ||
            (params.query_options.__isset.enable_pipeline_engine &&
