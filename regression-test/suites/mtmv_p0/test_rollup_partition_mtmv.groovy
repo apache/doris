@@ -62,7 +62,7 @@ suite("test_rollup_partition_mtmv") {
     assertEquals(2, showPartitionsResult.size())
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -126,7 +126,7 @@ suite("test_rollup_partition_mtmv") {
     assertEquals(2, showPartitionsResult.size())
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -173,7 +173,7 @@ suite("test_rollup_partition_mtmv") {
     assertEquals(2, showPartitionsResult.size())
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
