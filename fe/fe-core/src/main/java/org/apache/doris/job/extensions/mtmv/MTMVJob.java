@@ -140,7 +140,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
 
     /**
      * if user trigger, return true
-     * else, only can
+     * else, only can have 2 task. because every task can refresh all data.
      *
      * @param taskContext
      * @return
