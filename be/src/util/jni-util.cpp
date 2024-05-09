@@ -237,6 +237,7 @@ void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
             }
         }
     }
+    LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
 }
 
 size_t JniUtil::get_max_jni_heap_memory_size() {

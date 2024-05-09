@@ -97,20 +97,25 @@ public:
     Status acquire_memory(size_t memory_size) {
 #ifdef USE_LIBHDFS3
         return Status::OK();
-#endif
+#elif BE_TEST
+        return Status::OK();
+#else
         if (cur_memory_comsuption + memory_size > max_usage()) {
             return Status::InternalError("Run out of Jni jvm heap space, current limit size is {}",
                                          max_usage());
         }
         cur_memory_comsuption.fetch_add(memory_size);
         return Status::OK();
+#endif
     }
 
     void release_memory(size_t memory_size) {
 #ifdef USE_LIBHDFS3
         return;
-#endif
+#elif BE_TEST
+#else
         cur_memory_comsuption.fetch_sub(memory_size);
+#endif
     }
 
 private:
