@@ -627,8 +627,12 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
-        new_delete_bitmap->merge({std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
-                                 iter->second);
+        // skip sentinel mark, which is used for delete bitmap correctness check
+        if (std::get<1>(iter->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            new_delete_bitmap->merge(
+                    {std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
+                    iter->second);
+        }
     }
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(

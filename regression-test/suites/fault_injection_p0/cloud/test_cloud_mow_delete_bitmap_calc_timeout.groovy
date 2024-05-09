@@ -29,7 +29,7 @@ suite("test_cloud_mow_delete_bitmap_calc_timeout","nonConcurrent") {
             (k bigint,   v1 string, v2 string, v3 string, v4 string )
             UNIQUE KEY(k)
             DISTRIBUTED BY HASH (k) 
-            BUCKETS 32   
+            BUCKETS 4
             PROPERTIES(
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write"="true");

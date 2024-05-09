@@ -2377,8 +2377,11 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     // will update delete bitmap, handle compaction with _rowset_update_lock
     // and publish_txn runs sequential so no need to lock here
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
-                                            bitmap);
+        // skip sentinel mark, which is used for delete bitmap correctness check
+        if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
+                                                bitmap);
+        }
     }
 
     return Status::OK();
