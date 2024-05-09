@@ -439,7 +439,6 @@ public:
     using Container = typename ColumnType::Container;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtractPath>(); }
     String get_name() const override { return name; }
-    bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         // it only needs to indicate existence and does not need to return nullable values.
@@ -448,8 +447,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
-
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -460,29 +457,23 @@ public:
                 assert_cast<const ColumnString*>(jsonb_data_column.get())->get_offsets();
 
         // prepare parse path column prepare
-        std::vector<const ColumnString*> jsonb_path_columns;
-        std::vector<bool> path_const(arguments.size() - 1);
-        for (int i = 0; i < arguments.size() - 1; ++i) {
-            ColumnPtr path_column;
-            bool is_const = false;
-            std::tie(path_column, is_const) =
-                    unpack_if_const(block.get_by_position(arguments[i + 1]).column);
-            path_const[i] = is_const;
-            jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
-        }
+        ColumnPtr path_column;
+        bool path_const = false;
+        std::tie(path_column, path_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto* jsonb_path_column = assert_cast<const ColumnString*>(path_column.get());
+
         auto res = ColumnType::create();
 
         bool is_invalid_json_path = false;
 
-        // not support other extract type for now (e.g. int, double, ...)
-        DCHECK_EQ(jsonb_path_columns.size(), 1);
-        const auto& rdata = jsonb_path_columns[0]->get_chars();
-        const auto& roffsets = jsonb_path_columns[0]->get_offsets();
+        const auto& rdata = jsonb_path_column->get_chars();
+        const auto& roffsets = jsonb_path_column->get_offsets();
         if (jsonb_data_const) {
             scalar_vector(context, jsonb_data_column->get_data_at(0), rdata, roffsets,
                           res->get_data(), is_invalid_json_path);
-        } else if (path_const[0]) {
-            vector_scalar(context, ldata, loffsets, jsonb_path_columns[0]->get_data_at(0),
+        } else if (path_const) {
+            vector_scalar(context, ldata, loffsets, jsonb_path_column->get_data_at(0),
                           res->get_data(), is_invalid_json_path);
         } else {
             vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
@@ -511,21 +502,19 @@ private:
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
         JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
-        if (UNLIKELY(!value)) {
-            return;
+        if (value) {
+            res[i] = 1;
         }
-        res[i] = 1;
     }
-    // for jsonb_extract_int/int64/double
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
                               bool& is_invalid_json_path) {
-        size_t size = loffsets.size();
+        const size_t size = loffsets.size();
         res.resize_fill(size, 0);
 
-        for (size_t i = 0; i < loffsets.size(); i++) {
+        for (size_t i = 0; i < size; i++) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
@@ -545,7 +534,7 @@ private:
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
                               bool& is_invalid_json_path) {
-        size_t size = roffsets.size();
+        const size_t size = roffsets.size();
         res.resize_fill(size, 0);
 
         for (size_t i = 0; i < size; i++) {
@@ -564,7 +553,7 @@ private:
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets, const StringRef& rdata,
                               Container& res, bool& is_invalid_json_path) {
-        size_t size = loffsets.size();
+        const size_t size = loffsets.size();
         res.resize_fill(size, 0);
 
         JsonbPath path;
@@ -573,7 +562,7 @@ private:
             return;
         }
 
-        for (size_t i = 0; i < loffsets.size(); i++) {
+        for (size_t i = 0; i < size; i++) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
