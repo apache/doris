@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * build agg plan for querying random distributed table
@@ -57,14 +58,19 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
                         .then(project -> preAggForRandomDistribution(project, project.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_PROJECT_SCAN),
                 // agg(scan)
-                logicalAggregate(logicalOlapScan()).when(agg -> isRandomDistributedTbl(agg.child()))
-                        .whenNot(agg -> agg.getAggregateFunctions().stream().allMatch(this::aggTypeMatch))
+                logicalAggregate(logicalOlapScan()).when(agg -> isRandomDistributedTbl(agg.child())).whenNot(agg -> {
+                            Set<AggregateFunction> functions = agg.getAggregateFunctions();
+                            List<Expression> groupByExprs = agg.getGroupByExpressions();
+                            return functions.stream().allMatch(this::aggTypeMatch) && groupByExprs.stream()
+                                    .allMatch(this::isKeyOrConstantExpr);
+                        })
                         .then(agg -> preAggForRandomDistribution(agg, agg.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_AGG_SCAN),
                 // filter(scan)
                 logicalFilter(logicalOlapScan()).when(filter -> isRandomDistributedTbl(filter.child()))
                         .then(filter -> preAggForRandomDistribution(filter, filter.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_FILTER_SCAN));
+
     }
 
     /**
@@ -172,5 +178,22 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
         }
         List<Expression> children = expression.children();
         return children.stream().allMatch(child -> aggTypeMatch(functionName, child));
+    }
+
+    /**
+     * check if the columns in expr is key column or constant, if group by clause contains value column, need rewrite
+     *
+     * @param expr expr to check
+     * @return true if all columns is key column or constant
+     */
+    private boolean isKeyOrConstantExpr(Expression expr) {
+        if (expr instanceof SlotReference && ((SlotReference) expr).getColumn().isPresent()) {
+            Column col = ((SlotReference) expr).getColumn().get();
+            return col.isKey();
+        } else if (expr.isConstant()) {
+            return true;
+        }
+        List<Expression> children = expr.children();
+        return children.stream().allMatch(this::isKeyOrConstantExpr);
     }
 }

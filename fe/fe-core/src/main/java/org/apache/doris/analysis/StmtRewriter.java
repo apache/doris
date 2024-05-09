@@ -43,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -1461,7 +1462,10 @@ public class StmtRewriter {
             boolean aggTypeMatch = true;
             if (selectStmt.getAggInfo() != null) {
                 ArrayList<FunctionCallExpr> aggExprs = selectStmt.getAggInfo().getAggregateExprs();
-                if (aggExprs.stream().allMatch(expr -> aggTypeMatch(expr.getFnName().getFunction(), expr))) {
+                GroupByClause groupBy = selectStmt.getGroupByClause();
+                List<Expr> groupByExprs = groupBy == null ? Collections.emptyList() : groupBy.getGroupingExprs();
+                if (aggExprs.stream().allMatch(expr -> aggTypeMatch(expr.getFnName().getFunction(), expr))
+                        && groupByExprs.stream().allMatch(StmtRewriter::isKeyOrConstantExpr)) {
                     continue;
                 }
                 aggTypeMatch = false;
@@ -1533,5 +1537,22 @@ public class StmtRewriter {
         }
         List<Expr> children  = expr.getChildren();
         return children.stream().allMatch(child -> aggTypeMatch(functionName, child));
+    }
+
+    /**
+     * check if the columns in expr is key column or constant, if group by clause contains value column, need rewrite
+     *
+     * @param expr expr to check
+     * @return true if all columns is key column or constant
+     */
+    private static boolean isKeyOrConstantExpr(Expr expr) {
+        if (expr instanceof SlotRef) {
+            Column col = ((SlotRef) expr).getDesc().getColumn();
+            return col.isKey();
+        } else if (expr.isConstant()) {
+            return true;
+        }
+        List<Expr> children = expr.getChildren();
+        return children.stream().allMatch(StmtRewriter::isKeyOrConstantExpr);
     }
 }

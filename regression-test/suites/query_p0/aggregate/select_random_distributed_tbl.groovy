@@ -103,6 +103,10 @@ suite("select_random_distributed_tbl") {
 
             def sql11 = "select sum(min_dwell_time) from ${tableName} ${whereStr}"
             qt_sql "${sql11}"
+
+            // test group by value
+            def sql12 = "select min_dwell_time, sum(cost) from ${tableName} ${whereStr} group by min_dwell_time order by min_dwell_time"
+            qt_sql "${sql12}"
         }
     }
 
