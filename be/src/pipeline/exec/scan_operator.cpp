@@ -71,8 +71,8 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _scan_dependency =
             Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                       _parent->get_name() + "_DEPENDENCY", state->get_query_ctx());
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
+    ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, WaitForDependencyTime, 1);
+    _wait_for_dependency_timer = add_dependency_timer(_scan_dependency->name());
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();

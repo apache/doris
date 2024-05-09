@@ -61,7 +61,7 @@ using OperatorXPtr = std::shared_ptr<OperatorXBase>;
 using OperatorXs = std::vector<OperatorXPtr>;
 
 using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
-
+static const std::string WaitForDependencyTime = "WaitForDependencyTime";
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
@@ -188,7 +188,9 @@ public:
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
-
+    RuntimeProfile::Counter* add_dependency_timer(const std::string& name) {
+        return ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, name, WaitForDependencyTime, 1);
+    }
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
@@ -359,6 +361,10 @@ public:
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
+
+    RuntimeProfile::Counter* add_dependency_timer(const std::string& name) {
+        return ADD_CHILD_TIMER_WITH_LEVEL(_profile, name, WaitForDependencyTime, 1);
+    }
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }

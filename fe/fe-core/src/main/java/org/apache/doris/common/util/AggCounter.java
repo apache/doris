@@ -67,7 +67,7 @@ public class AggCounter extends Counter {
                     + RuntimeProfile.MIN_TIME_PRE
                     + RuntimeProfile.printCounter(min.getValue(), min.getType());
             return infoString;
-        } else {
+        } else if (!isNoneType()) {
             Counter avg = new Counter(sum.getType(), sum.getValue());
             avg.divValue(number);
             String infoString = ""
@@ -80,6 +80,8 @@ public class AggCounter extends Counter {
                     + RuntimeProfile.MIN_TIME_PRE
                     + RuntimeProfile.printCounter(min.getValue(), min.getType());
             return infoString;
+        } else {
+            return RuntimeProfile.printCounter(0, getType());
         }
     }
 }

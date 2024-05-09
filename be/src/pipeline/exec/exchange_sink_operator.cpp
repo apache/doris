@@ -46,8 +46,6 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
-static const std::string timer_name = "WaitForDependencyTime";
-
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -74,9 +72,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             "");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
-    _wait_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitForRpcBufferQueue", timer_name, 1);
+    ADD_LABEL_COUNTER_WITH_LEVEL(_profile, WaitForDependencyTime, 1);
+    _wait_queue_timer = add_dependency_timer("WaitForRpcBufferQueue");
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
@@ -151,8 +148,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
             _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
 
-        _wait_broadcast_buffer_timer =
-                ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
+        _wait_broadcast_buffer_timer = add_dependency_timer("WaitForBroadcastBuffer");
+
     } else if (local_size > 0) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
@@ -161,7 +158,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
                 _wait_channel_timer.push_back(_profile->add_nonzero_counter(
                         fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                        timer_name, 1));
+                        WaitForDependencyTime, 1));
                 dep_id++;
             }
         }
