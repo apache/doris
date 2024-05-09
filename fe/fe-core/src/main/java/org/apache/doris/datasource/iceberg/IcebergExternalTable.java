@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -29,6 +30,7 @@ import org.apache.doris.thrift.TTableType;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -48,8 +50,8 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
+    public Optional<SchemaCacheValue> initSchema() {
+        return Optional.of(new SchemaCacheValue(IcebergUtils.getSchema(catalog, dbName, name)));
     }
 
     @Override
