@@ -368,7 +368,11 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
-            textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
+            if (delimiter.get(PROP_FIELD_DELIMITER).length() == 0) {
+                textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
+            } else {
+                textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
+            }
         } else if (delimiter.containsKey(PROP_SEPARATOR_CHAR)) {
             textParams.setColumnSeparator(delimiter.get(PROP_SEPARATOR_CHAR));
         } else {
