@@ -40,7 +40,7 @@ suite("test_cloud_mow_delete_bitmap_calc_timeout","nonConcurrent") {
     try {
         sql "insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
         qt_select_1 "select * from ${tableName} order by k;"
-        GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.calc_delete_bitmap_random_timeout", [percent: 1])
+        GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.calc_delete_bitmap_random_timeout", [percent: 1, execute: 4])
         sql "insert into ${tableName} values(1,2,2,2,2),(3,4,4,4,4);"
     } catch (Exception e) {
         logger.info(e.getMessage())
