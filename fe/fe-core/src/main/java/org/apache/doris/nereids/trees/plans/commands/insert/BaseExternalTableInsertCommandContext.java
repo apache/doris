@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 /**
- * For Iceberg Table
+ * For Base External Table
  */
-public class IcebergInsertCommandContext extends InsertCommandContext {
-    private boolean overwrite = false;
-    private String writePath;
+public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
+    protected boolean overwrite = false;
 
     public boolean isOverwrite() {
         return overwrite;

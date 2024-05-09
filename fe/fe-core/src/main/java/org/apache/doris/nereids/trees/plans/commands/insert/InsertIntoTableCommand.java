@@ -189,7 +189,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
                 insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                        Optional.of(insertCtx.orElse((new IcebergInsertCommandContext()))));
+                        Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))));
                 // set hive query options
             } else {
                 // TODO: support other table types

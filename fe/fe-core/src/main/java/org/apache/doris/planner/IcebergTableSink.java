@@ -18,9 +18,10 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -42,17 +43,27 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public class IcebergTableSink extends DataSink {
+public class IcebergTableSink extends BaseExternalTableDataSink {
 
-    private IcebergExternalTable targetTable;
-    protected TDataSink tDataSink;
+    private final IcebergExternalTable targetTable;
+    private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
+            add(TFileFormatType.FORMAT_ORC);
+            add(TFileFormatType.FORMAT_PARQUET);
+        }};
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
         this.targetTable = targetTable;
+    }
+
+    @Override
+    protected Set<TFileFormatType> supportedFileFormatTypes() {
+        return supportedTypes;
     }
 
     @Override
@@ -67,24 +78,6 @@ public class IcebergTableSink extends DataSink {
     }
 
     @Override
-    protected TDataSink toThrift() {
-        return tDataSink;
-    }
-
-    public PlanNodeId getExchNodeId() {
-        return null;
-    }
-
-    @Override
-    public DataPartition getOutputPartition() {
-        return DataPartition.RANDOM;
-    }
-
-    /**
-     * check sink params and generate thrift data sink to BE
-     * @param insertCtx insert info context
-     * @throws AnalysisException if source file format cannot be read
-     */
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
 
@@ -124,28 +117,22 @@ public class IcebergTableSink extends DataSink {
             tSink.setSortFields(sortFields.build());
         }
 
-        tSink.setFileFormat(getTFileType(icebergTable));
-        tSink.setOutputPath(icebergTable.location());
+        tSink.setFileFormat(getFileFormatType(IcebergUtils.getFileFormat(icebergTable)));
         HashMap<String, String> props = new HashMap<>(icebergTable.properties());
-        props.putAll(targetTable.getCatalog().getProperties());
+        Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
+        props.putAll(catalogProps);
         tSink.setHadoopConfig(props);
+
+        LocationPath locationPath = new LocationPath(icebergTable.location(), catalogProps);
+        tSink.setOutputPath(locationPath.toStorageLocation().toString());
+        tSink.setOriginalOutputPath(icebergTable.location());
+        tSink.setFileType(locationPath.getTFileTypeForBE());
+
         if (insertCtx.isPresent()) {
-            IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
+            BaseExternalTableInsertCommandContext context = (BaseExternalTableInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
         tDataSink.setIcebergTableSink(tSink);
-    }
-
-    private TFileFormatType getTFileType(Table icebergTable) throws AnalysisException {
-        String fileFormat = IcebergUtils.getFileFormat(icebergTable);
-        switch (fileFormat.toLowerCase()) {
-            case "orc":
-                return TFileFormatType.FORMAT_ORC;
-            case "parquet":
-                return TFileFormatType.FORMAT_PARQUET;
-            default:
-                throw new AnalysisException("Unsupported input format type: " + fileFormat);
-        }
     }
 }

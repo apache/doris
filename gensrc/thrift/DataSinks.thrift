@@ -387,9 +387,11 @@ struct TIcebergTableSink {
     5: optional i32 partition_spec_id
     6: optional list<TSortField> sort_fields
     7: optional PlanNodes.TFileFormatType file_format
-    8: optional string outputPath
+    8: optional string output_path
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
+    11: optional Types.TFileType file_type
+    12: optional string original_output_path
 }
 
 struct TDataSink {
