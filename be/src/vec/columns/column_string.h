@@ -133,7 +133,7 @@ public:
     }
 
     StringRef get_data_at(size_t n) const override {
-        assert(n < size());
+        DCHECK_LT(n, size());
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
