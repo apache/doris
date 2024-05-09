@@ -37,6 +37,18 @@ public abstract class Event {
         this.eventType = eventType;
     }
 
+    public long getEventId() {
+        return eventId;
+    }
+
+    public long getEventTime() {
+        return eventTime;
+    }
+
+    public EventType getEventType() {
+        return eventType;
+    }
+
     @Override
     public String toString() {
         return "Event{"
