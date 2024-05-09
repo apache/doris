@@ -483,7 +483,7 @@ struct Dispatcher {
             //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
             // Case 3: scale_arg >= input_scale
             //      do nothing
-            
+
             if (scale_arg <= 0) {
                 for (size_t i = 0; i < input_rows_count; ++i) {
                     vec_res[i].value *= int_exp10(result_scale);
