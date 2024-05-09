@@ -24,6 +24,7 @@ import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -166,7 +167,7 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType(),
+        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType() || type.isStructType(),
                 "only support scalar type and array serialization");
         if (type.isScalarType()) {
             ScalarType scalarType = (ScalarType) type;
@@ -188,6 +189,18 @@ public abstract class ColumnType {
             write(out, mapType.getValueType());
             out.writeBoolean(mapType.getIsKeyContainsNull());
             out.writeBoolean(mapType.getIsValueContainsNull());
+        } else if (type.isStructType()) {
+            StructType structType = (StructType) type;
+            Text.writeString(out, structType.getPrimitiveType().name());
+            out.writeInt(structType.getFields().size());
+            for (int i = 0; i < structType.getFields().size(); ++i) {
+                StructField structField = structType.getFields().get(i);
+                Text.writeString(out, structField.getName());
+                write(out, structField.getType());
+                Text.writeString(out, structField.getComment());
+                out.writeInt(structField.getPosition());
+                out.writeBoolean(structField.getContainsNull());
+            }
         }
     }
 
@@ -203,6 +216,20 @@ public abstract class ColumnType {
             boolean keyContainsNull = in.readBoolean();
             boolean valueContainsNull = in.readBoolean();
             return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
+        } else if (primitiveType == PrimitiveType.STRUCT) {
+            int size = in.readInt();
+            ArrayList<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < size; ++i) {
+                String name = Text.readString(in);
+                Type type = read(in);
+                String comment = Text.readString(in);
+                int pos = in.readInt();
+                boolean containsNull = in.readBoolean();
+                StructField field = new StructField(name, type, comment, containsNull);
+                field.setPosition(pos);
+                fields.add(field);
+            }
+            return new StructType(fields);
         } else {
             int scale = in.readInt();
             int precision = in.readInt();
