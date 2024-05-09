@@ -588,7 +588,6 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.BITXOR), "^");
     tokenIdMap.put(new Integer(SqlParserSymbols.NUMERIC_OVERFLOW), "NUMERIC OVERFLOW");
     tokenIdMap.put(new Integer(SqlParserSymbols.PLACEHOLDER), "?");
-
   }
 
   public static boolean isKeyword(Integer tokenId) {

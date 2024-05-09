@@ -343,14 +343,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return getStringValue();
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
-    }
-
     public static LiteralExpr getLiteralByMysqlType(int mysqlType) throws AnalysisException {
         switch (mysqlType) {
             // MYSQL_TYPE_TINY
@@ -498,5 +490,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");
         }
+    }
+
+    // Parse from binary data, the format follows mysql binary protocal
+    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
+    // Return next offset
+    public void setupParamFromBinary(ByteBuffer data) {
+        Preconditions.checkState(false,
+                "should implement this in derived class. " + this.type.toSql());
     }
 }
