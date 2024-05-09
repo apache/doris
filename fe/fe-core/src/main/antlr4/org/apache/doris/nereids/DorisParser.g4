@@ -381,9 +381,9 @@ primaryExpression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
       (OVER windowSpec)?                                                                        #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
-    | ATSIGN identifierOrText                                                                        #userVariable
-    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
-    | identifier                                                                               #columnReference
+    | ATSIGN identifierOrText                                                                  #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
+    | BINARY? identifier                                                                       #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
@@ -454,7 +454,7 @@ constant
     | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING_LITERAL                                                                           #stringLiteral
+    | BINARY? STRING_LITERAL                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -570,6 +570,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
     | BEGIN
@@ -749,6 +750,7 @@ nonReserved
     | PASSWORD_HISTORY
     | PASSWORD_LOCK_TIME
     | PASSWORD_REUSE
+    | PARTITIONS
     | PATH
     | PAUSE
     | PERCENT

@@ -4519,7 +4519,7 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_table_alias:alias opt_partition_names:partitionNames opt_using_clause:fromClause where_clause:wherePredicate
+    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames opt_table_alias:alias opt_using_clause:fromClause where_clause:wherePredicate
     {:
         RESULT = new DeleteStmt(new TableRef(table, alias), partitionNames, fromClause, wherePredicate);
     :}
@@ -7406,6 +7406,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ARRAY:id
     {: RESULT = id; :}
+    | KW_AUTO_INCREMENT:id
+    {: RESULT = id; :}
     | KW_BACKUP:id
     {: RESULT = id; :}
     | KW_BEGIN:id
@@ -7629,6 +7631,8 @@ keyword ::=
     | KW_OPEN:id
     {: RESULT = id; :}
     | KW_PARAMETER:id
+    {: RESULT = id; :}
+    | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}
