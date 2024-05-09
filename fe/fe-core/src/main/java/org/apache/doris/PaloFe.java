@@ -134,6 +134,14 @@ public class PaloFe {
                 return;
             }
 
+            // To resolve: "SdkClientException: Multiple HTTP implementations were found on the classpath"
+            // Currently, there are 2 implements of HTTP client: ApacheHttpClient and UrlConnectionHttpClient
+            // The UrlConnectionHttpClient is introduced by #16602, and it causes the exception.
+            // So we set the default HTTP client to UrlConnectionHttpClient.
+            // TODO: remove this after we remove ApacheHttpClient
+            System.setProperty("software.amazon.awssdk.http.service.impl",
+                    "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
+
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
