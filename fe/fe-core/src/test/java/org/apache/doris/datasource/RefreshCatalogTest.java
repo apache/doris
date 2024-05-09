@@ -144,7 +144,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         // not triggered init method
         long l3 = test2.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
-        Assertions.assertTrue(table.isObjectCreated());
+        Assertions.assertFalse(table.isObjectCreated());
         test2.getDbNullable("db1").getTables();
         // Assertions.assertFalse(table.isObjectCreated());
         try {
