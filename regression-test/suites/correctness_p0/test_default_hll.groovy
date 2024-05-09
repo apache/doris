@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_default_hll") {
-    sql "SET enable_nereids_planner=true;"
-    sql "SET enable_fallback_to_original_planner=false;"
     def tableName = "test_default_hll"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

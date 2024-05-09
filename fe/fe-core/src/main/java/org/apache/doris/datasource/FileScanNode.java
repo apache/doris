@@ -195,7 +195,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                     expr = null;
                 }
             }
-            // if there is already a expr , just skip it.
+            // if there is already an expr , just skip it.
             // eg:
             // (a, b, c, c=hll_hash(c)) in stream load
             // c will be filled with hll_hash(column c) , don't need to specify it.
