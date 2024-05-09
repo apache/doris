@@ -167,9 +167,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         indexSchemaVersionAndHashMap.put(shadowIdxId, new SchemaVersionAndHash(shadowSchemaVersion, shadowSchemaHash));
         indexShortKeyMap.put(shadowIdxId, shadowIdxShortKeyCount);
         indexSchemaMap.put(shadowIdxId, shadowIdxSchema);
-        for (Column col : shadowIdxSchema) {
-            LOG.info("lightman 0509 {}: {}", shadowIndexName, col.toString());
-        }
     }
 
     public void setBloomFilterInfo(boolean hasBfChange, Set<String> bfColumns, double bfFpp) {
@@ -457,9 +454,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
                         if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
-                            Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
+                            Column newColumn = indexColumnMap.get(
+                                    SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
                             if (newColumn.getType() != column.getType()) {
-                                LOG.info("lightman 0509 column {} to newColumn {}", column.toString(), newColumn.toString());
                                 try {
                                     SlotRef slot = new SlotRef(destSlotDesc);
                                     slot.setCol(column.getName());
