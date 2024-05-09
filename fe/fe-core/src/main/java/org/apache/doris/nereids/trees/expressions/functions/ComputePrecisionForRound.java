@@ -41,7 +41,7 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             // then we will try to use its value as result scale
             // In any other cases, we will make sure result decimal has same scale with input.
             if ((floatLength.isLiteral() && floatLength.getDataType() instanceof Int32OrLessType)
-                || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
+                    || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
                     && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {
                 if (floatLength instanceof Cast) {
                     scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();
