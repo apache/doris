@@ -24,6 +24,8 @@ suite("eliminate_outer_join") {
     sql "set enable_bucket_shuffle_join=false"
     sql "set runtime_filter_mode=OFF"
     sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     String database = context.config.getDbNameByFile(context.file)
     sql "drop database if exists ${database}"
     sql "create database ${database}"

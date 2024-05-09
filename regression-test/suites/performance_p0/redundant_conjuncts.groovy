@@ -16,8 +16,6 @@
 // under the License.
 
 suite("redundant_conjuncts") {
-    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
     sql """
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
