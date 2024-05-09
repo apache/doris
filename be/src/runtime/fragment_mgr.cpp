@@ -837,6 +837,26 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+    LOG(INFO) << "222222 ";
+#ifdef USE_JEMALLOC_HOOK
+    int64_t scope_mem = 0;
+    void* ptr1;
+    {
+        SCOPED_MEM_COUNT_BY_HOOK(&scope_mem);
+        ptr1 = malloc(1000);
+    }
+    free(ptr1);
+    LOG(INFO) << "111111 " << std::to_string(scope_mem);
+#else
+    int64_t scope_mem = 0;
+    void* ptr1;
+    {
+        SCOPED_MEM_COUNT_BY_HOOK(&scope_mem);
+        ptr1 = malloc(1000);
+    }
+    free(ptr1);
+    LOG(INFO) << "111111 " << std::to_string(scope_mem);
+#endif
     DCHECK((params.query_options.__isset.enable_pipeline_x_engine &&
             params.query_options.enable_pipeline_x_engine) ||
            (params.query_options.__isset.enable_pipeline_engine &&

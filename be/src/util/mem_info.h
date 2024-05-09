@@ -36,7 +36,9 @@
 #include "common/logging.h"
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
-#else
+#endif
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 #include "common/config.h"
@@ -105,9 +107,15 @@ public:
 #ifdef USE_JEMALLOC
         size_t value = 0;
         size_t sz = sizeof(value);
+#ifdef USE_JEMALLOC_HOOK
         if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
             return value;
         }
+#else
+        if (mallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+            return value;
+        }
+#endif
 #endif
         return 0;
     }
@@ -128,8 +136,13 @@ public:
         if (config::enable_je_purge_dirty_pages) {
             try {
                 // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+#ifdef USE_JEMALLOC_HOOK
                 jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
                           nullptr, nullptr, 0);
+#else
+                mallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
+                        nullptr, 0);
+#endif
             } catch (...) {
                 LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
             }
