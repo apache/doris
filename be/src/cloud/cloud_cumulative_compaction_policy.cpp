@@ -158,8 +158,7 @@ int32_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     *compaction_score = new_compaction_score;
 
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
-                  << *compaction_score << ", total_size = "
-                  << total_size
+                  << *compaction_score << ", total_size = " << total_size
                   << ", calc promotion size value = " << promotion_size
                   << ", tablet = " << tablet->tablet_id() << ", input_rowset size "
                   << input_rowsets->size();
