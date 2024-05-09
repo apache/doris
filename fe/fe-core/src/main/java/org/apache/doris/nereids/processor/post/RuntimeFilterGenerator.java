@@ -255,6 +255,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         join.left().accept(this, context);
+        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
+            // do not generate RF on this join
+            return join;
+        }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
@@ -278,19 +282,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 if (equalTo.left().getInputSlots().size() == 1) {
-                    if (DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-                        // skip
-                    } else {
-                        RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
-                                RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
-                                        equalTo.right(), equalTo.left(), ctx, generator, type, join,
-                                        context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
-                        // pushDownContext is not valid, if the target is an agg result.
-                        // Currently, we only apply RF on PhysicalScan. So skip this rf.
-                        // example: (select sum(x) as s from A) T join B on T.s=B.s
-                        if (pushDownContext.isValid()) {
-                            join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
-                        }
+                    RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                            RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
+                                    equalTo.right(), equalTo.left(), ctx, generator, type, join,
+                                    context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
+                    // pushDownContext is not valid, if the target is an agg result.
+                    // Currently, we only apply RF on PhysicalScan. So skip this rf.
+                    // example: (select sum(x) as s from A) T join B on T.s=B.s
+                    if (pushDownContext.isValid()) {
+                        join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
                     }
                 }
             }
@@ -434,6 +434,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // TODO: we need to support all type join
         join.right().accept(this, context);
         join.left().accept(this, context);
+        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
+            // do not generate RF on this join
+            return join;
+        }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
