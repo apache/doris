@@ -574,8 +574,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {
         GroupExpression child = children.get(index);
-        Pair<Cost, List<PhysicalProperties>> lowest = child.getLowestCostTable().get(childrenProperties.get(index));
         PhysicalProperties output = child.getOutputProperties(childrenProperties.get(index));
+        if (output.satisfy(targetProperties)) {
+            return;
+        }
+        Pair<Cost, List<PhysicalProperties>> lowest = child.getLowestCostTable().get(childrenProperties.get(index));
         DistributionSpec target = targetProperties.getDistributionSpec();
         updateChildEnforceAndCost(child, output, target, lowest.first);
         childrenProperties.set(index, targetProperties);
