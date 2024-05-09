@@ -64,7 +64,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
-    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.001;
+    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
     private Set<Slot> aggSlots;
 
     private boolean isOnBaseTable = false;
