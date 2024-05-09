@@ -1839,7 +1839,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
         streamvbyte
