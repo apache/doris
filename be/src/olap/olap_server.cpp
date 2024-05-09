@@ -426,18 +426,22 @@ int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     LOG(INFO) << "try to start path gc thread!";
-    int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
+    int32_t last_exec_time = 0;
     do {
-        LOG(INFO) << "try to perform path gc!";
-        data_dir->perform_path_gc();
+        int32_t current_time = time(nullptr);
 
-        interval = _auto_get_interval_by_disk_capacity(data_dir);
+        int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+        if (current_time - last_exec_time >= interval) {
+            LOG(INFO) << "try to perform path gc!";
+            data_dir->perform_path_gc();
+            last_exec_time = time(nullptr);
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));
     LOG(INFO) << "stop path gc thread!";
 }
 
