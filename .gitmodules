@@ -16,6 +16,9 @@
 [submodule ".github/actions/ccache-action"]
 	path = .github/actions/ccache-action
 	url = https://github.com/hendrikmuhs/ccache-action
+[submodule ".github/actions/lfs-warning"]
+	path = .github/actions/lfs-warning
+	url = https://github.com/ppremk/lfs-warning
 [submodule "be/src/apache-orc"]
 	path = be/src/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
