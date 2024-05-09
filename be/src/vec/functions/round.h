@@ -543,7 +543,7 @@ struct Dispatcher {
         } else if constexpr (IsDecimalNumber<T>) {
             const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
             const Int32 input_scale = decimal_col->get_scale();
-            auto col_res = ColumnDecimal<T>::create(input_row_count, input_scale);
+            auto col_res = ColumnDecimal<T>::create(input_row_count, result_scale);
 
             for (size_t i = 0; i < input_row_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
