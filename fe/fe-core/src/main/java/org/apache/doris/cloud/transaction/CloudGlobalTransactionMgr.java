@@ -65,6 +65,8 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -106,6 +108,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -115,6 +118,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -726,10 +730,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn(errMsg);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR, errMsg);
+        } else {
+            // Sometimes BE calc delete bitmap succeed, but FE wait timeout for some unknown reasons,
+            // FE will retry the calculation on BE, this debug point simulates such situation.
+            debugCalcDeleteBitmapRandomTimeout();
         }
         stopWatch.stop();
         LOG.info("calc delete bitmap task successfully. txns: {}. time cost: {} ms.",
                 transactionId, stopWatch.getTime());
+    }
+
+    private void debugCalcDeleteBitmapRandomTimeout() throws UserException {
+        DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                "CloudGlobalTransactionMgr.calc_delete_bitmap_random_timeout");
+        if (debugPoint == null) {
+            return;
+        }
+
+        double percent = debugPoint.param("percent", 0.5);
+        if (new SecureRandom().nextInt() % 100 < 100 * percent) {
+            throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                    "DebugPoint: Failed to calculate delete bitmap: Timeout.");
+        }
     }
 
     @Override
