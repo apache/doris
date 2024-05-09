@@ -2098,7 +2098,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
-    LOG(ERROR) << "yangsiyu rows_read: " << _opts.stats->raw_rows_read << ", " << _current_batch_rows_read;
 
     if (_current_batch_rows_read == 0) {
         for (int i = 0; i < block->columns(); i++) {
@@ -2113,15 +2112,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        LOG(ERROR) << "yangsiyu: ------ 1 -------: " << block->rows();
-
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
-
-        LOG(ERROR) << "yangsiyu: ------ 2 -------: " << block->rows();
     } else {
-        LOG(ERROR) << "yangsiyu: ------ 3 -------: " << block->rows();
-
         uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
 

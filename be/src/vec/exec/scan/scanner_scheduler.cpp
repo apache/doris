@@ -424,6 +424,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         raw_rows_read = scanner->get_rows_read();
     } // end for while
 
+    LOG(ERROR) << "yangsiyu raw_rows_read: " << raw_rows_read;
+
     // if we failed, check status.
     if (UNLIKELY(!status.ok())) {
         // _transfer_done = true;
