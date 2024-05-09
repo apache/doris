@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
@@ -47,11 +46,6 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    NOW() AS create_time "
             + "FROM "
             + "    `${dbName}`.`${tblName}`";
-
-    @VisibleForTesting
-    public HistogramTask() {
-        super();
-    }
 
     public HistogramTask(AnalysisInfo info) {
         super(info);

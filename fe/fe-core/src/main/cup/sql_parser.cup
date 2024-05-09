@@ -6552,7 +6552,7 @@ with_analysis_properties ::=
     | KW_SQL
     {:
         RESULT = new HashMap<String, String>() {{
-             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+             put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         }};
     :}
 
