@@ -255,23 +255,7 @@ private:
                                   int row_idx, bool col_const) const {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                if (UNLIKELY(0 != result.push_null())) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            }
-        } else {
-            if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
+        result.push_string(string_val.data, string_val.size);
         return Status::OK();
     }
 };
