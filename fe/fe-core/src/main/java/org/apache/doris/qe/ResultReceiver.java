@@ -111,6 +111,7 @@ public class ResultReceiver {
                         // continue to get result
                         LOG.warn("Future of ResultReceiver of query {} got interrupted Exception",
                                 DebugUtil.printId(this.queryId), e);
+                        // If runstatus != ok, then no need to update it, may overwrite the actual cancel reason.
                         if (runStatus.ok()) {
                             runStatus.updateStatus(TStatusCode.INTERNAL_ERROR, "got interrupted Exception");
                         }
@@ -192,8 +193,9 @@ public class ResultReceiver {
 
     public synchronized void cancel(Status reason) {
         if (!runStatus.ok()) {
-            LOG.info("ResultReceiver of query {} cancel failed, because its status not ok, maybe cancelled already",
-                            DebugUtil.printId(queryId), runStatus.toString());
+            LOG.info("ResultReceiver of query {} cancel failed, because its status not ok, "
+                    + "maybe cancelled already. current run status is {}, new status is {}.",
+                    DebugUtil.printId(queryId), runStatus.toString(), reason.toString());
             return;
         }
         runStatus.updateStatus(reason.getErrorCode(), reason.getErrorMsg());
@@ -206,10 +208,12 @@ public class ResultReceiver {
         }
         if (fetchDataAsyncFuture != null) {
             if (fetchDataAsyncFuture.cancel(true)) {
-                LOG.info("ResultReceiver of query {} is cancelled", DebugUtil.printId(queryId));
+                LOG.info("ResultReceiver of query {} is cancelled, reason is {}",
+                        DebugUtil.printId(queryId), reason.toString());
             } else {
-                LOG.warn("ResultReceiver of query {} cancel failed, typically means the future is finished",
-                        DebugUtil.printId(queryId));
+                LOG.warn("ResultReceiver of query {} cancel failed, typically means the future is finished, "
+                        + "cancel reason is {}",
+                        DebugUtil.printId(queryId), reason.toString());
             }
         }
     }
