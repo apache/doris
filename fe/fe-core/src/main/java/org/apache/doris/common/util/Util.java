@@ -44,6 +44,9 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -650,5 +653,22 @@ public class Util {
         PrintWriter pw = new PrintWriter(sw);
         p.printStackTrace(pw);
         return sw.toString();
+    }
+
+    public static long sha256long(String str) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(str.getBytes());
+            ByteBuffer buffer = ByteBuffer.wrap(hash);
+            return buffer.getLong();
+        } catch (NoSuchAlgorithmException e) {
+            return str.hashCode();
+        }
+    }
+
+    // Only used for external table's id generation
+    // And the table's id must >=0, see DescriptorTable.toThrift()
+    public static long genTableIdByName(String tblName) {
+        return Math.abs(sha256long(tblName));
     }
 }

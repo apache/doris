@@ -814,6 +814,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute hive ql: ${sqlStr}".toString())
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(hivePrefix), cleanedSqlStr)
         if (isOrder) {

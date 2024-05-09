@@ -248,14 +248,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        JdbcExternalDatabase db = (JdbcExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (db != null && db.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            db.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return jdbcClient.getTablesNameList(dbName);
-        }
+        return jdbcClient.getTablesNameList(dbName);
     }
 
     @Override
@@ -265,10 +258,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
-        if (isReplay) {
-            return;
-        }
+    public void checkWhenCreating() throws DdlException {
+        super.checkWhenCreating();
         Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(JdbcResource.DRIVER_URL)) {
             String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
