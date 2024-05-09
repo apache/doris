@@ -24,6 +24,8 @@ namespace doris::pipeline {
 
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
+class LocalExchangeSourceOperatorX;
+class LocalExchangeSinkOperatorX;
 struct ShuffleBlockWrapper;
 
 class Exchanger {
@@ -47,6 +49,12 @@ public:
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
 
+    void set_sperator(std::shared_ptr<LocalExchangeSourceOperatorX> source,
+                      std::shared_ptr<LocalExchangeSinkOperatorX> sink) {
+        _source = source;
+        _sink = sink;
+    }
+
 protected:
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
@@ -58,6 +66,8 @@ protected:
     const int _num_sources;
     const int _free_block_limit = 0;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
+    std::shared_ptr<LocalExchangeSourceOperatorX> _source;
+    std::shared_ptr<LocalExchangeSinkOperatorX> _sink;
 };
 
 class LocalExchangeSourceLocalState;

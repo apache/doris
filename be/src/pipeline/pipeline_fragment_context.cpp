@@ -704,9 +704,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     const bool is_shuffled_hash_join = operator_xs.size() > idx
                                                ? operator_xs[idx]->is_shuffled_hash_join()
                                                : cur_pipe->sink_x()->is_shuffled_hash_join();
-    sink.reset(new LocalExchangeSinkOperatorX(
+    auto local_exchange_sink = std::make_shared<LocalExchangeSinkOperatorX>(
             sink_id, local_exchange_id, is_shuffled_hash_join ? _total_instances : _num_instances,
-            data_distribution.partition_exprs, bucket_seq_to_instance_idx));
+            data_distribution.partition_exprs, bucket_seq_to_instance_idx);
+    sink = local_exchange_sink;
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink_x()->init(data_distribution.distribution_type, num_buckets,
                                             is_shuffled_hash_join, shuffle_idx_to_instance_idx));
@@ -780,8 +781,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
 
     // 4. Initialize LocalExchangeSource and insert it into this pipeline.
-    OperatorXPtr source_op;
-    source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    auto source_op = std::make_shared<LocalExchangeSourceOperatorX>(pool, local_exchange_id);
     RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
     RETURN_IF_ERROR(source_op->init(data_distribution.distribution_type));
     if (!operator_xs.empty()) {
@@ -791,6 +791,8 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 
     shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id(),
                                              _query_ctx.get());
+    // Set sink and soucrce in exchanger
+    shared_state->exchanger->set_sperator(source_op, local_exchange_sink);
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
