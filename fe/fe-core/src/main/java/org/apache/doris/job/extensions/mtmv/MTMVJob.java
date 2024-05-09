@@ -147,14 +147,13 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
      */
     @Override
     public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
-        if (taskContext != null && taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
+        if (isManual(taskContext)) {
             return true;
         }
         List<MTMVTask> runningTasks = getRunningTasks();
         int runningNum = 0;
         for (MTMVTask task : runningTasks) {
-            if (!(task.getTaskContext() != null
-                    && task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.MANUAL)) {
+            if (!isManual(task.getTaskContext())) {
                 runningNum++;
                 // TODO: 2024/5/9 When the scheduling framework supports running only one task simultaneously,
                 //  change to 2 to prevent message loss
@@ -166,6 +165,10 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
             }
         }
         return true;
+    }
+
+    private boolean isManual(MTMVTaskContext taskContext) {
+        return taskContext != null && taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL;
     }
 
     @Override
