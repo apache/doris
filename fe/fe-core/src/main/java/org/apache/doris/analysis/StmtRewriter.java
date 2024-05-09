@@ -43,9 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Class representing a statement rewriter. A statement rewriter performs subquery
@@ -1459,24 +1457,35 @@ public class StmtRewriter {
             }
 
             // check agg function and column agg type
+            AggregateInfo aggInfo = selectStmt.getAggInfo();
+            GroupByClause groupByClause = selectStmt.getGroupByClause();
             boolean aggTypeMatch = true;
-            if (selectStmt.getAggInfo() != null) {
-                ArrayList<FunctionCallExpr> aggExprs = selectStmt.getAggInfo().getAggregateExprs();
-                GroupByClause groupBy = selectStmt.getGroupByClause();
-                List<Expr> groupByExprs = groupBy == null ? Collections.emptyList() : groupBy.getGroupingExprs();
-                if (aggExprs.stream().allMatch(expr -> aggTypeMatch(expr.getFnName().getFunction(), expr))
-                        && groupByExprs.stream().allMatch(StmtRewriter::isKeyOrConstantExpr)) {
+            if (aggInfo != null || groupByClause != null) {
+                if (aggInfo != null) {
+                    ArrayList<FunctionCallExpr> aggExprs = aggInfo.getAggregateExprs();
+                    if (aggExprs.stream().anyMatch(expr -> !aggTypeMatch(expr.getFnName().getFunction(), expr))) {
+                        aggTypeMatch = false;
+                    }
+                    List<Expr> groupExprs = aggInfo.getGroupingExprs();
+                    if (groupExprs.stream().anyMatch(expr -> !isKeyOrConstantExpr(expr))) {
+                        aggTypeMatch = false;
+                    }
+                }
+                if (groupByClause != null) {
+                    List<Expr> groupByExprs = groupByClause.getGroupingExprs();
+                    if (groupByExprs.stream().anyMatch(expr -> !isKeyOrConstantExpr(expr))) {
+                        aggTypeMatch = false;
+                    }
+                }
+                if (aggTypeMatch) {
                     continue;
                 }
-                aggTypeMatch = false;
             }
             // construct a new InlineViewRef for pre-agg
             boolean canRewrite = true;
             SelectList selectList = new SelectList();
             ArrayList<Expr> groupingExprs = new ArrayList<>();
-            TupleDescriptor desc = tableRef.getDesc();
-            List<Column> columns = desc.getSlots().stream().map(SlotDescriptor::getColumn).collect(Collectors.toList());
-            columns = columns.isEmpty() || !aggTypeMatch ? olapTable.getBaseSchema() : columns;
+            List<Column> columns = olapTable.getBaseSchema();
             for (Column col : columns) {
                 if (!rewriteSelectList(col, selectList, groupingExprs)) {
                     canRewrite = false;

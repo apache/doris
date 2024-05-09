@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -59,11 +60,11 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_PROJECT_SCAN),
                 // agg(scan)
                 logicalAggregate(logicalOlapScan()).when(agg -> isRandomDistributedTbl(agg.child())).whenNot(agg -> {
-                            Set<AggregateFunction> functions = agg.getAggregateFunctions();
-                            List<Expression> groupByExprs = agg.getGroupByExpressions();
-                            return functions.stream().allMatch(this::aggTypeMatch) && groupByExprs.stream()
+                    Set<AggregateFunction> functions = agg.getAggregateFunctions();
+                    List<Expression> groupByExprs = agg.getGroupByExpressions();
+                    return functions.stream().allMatch(this::aggTypeMatch) && groupByExprs.stream()
                                     .allMatch(this::isKeyOrConstantExpr);
-                        })
+                })
                         .then(agg -> preAggForRandomDistribution(agg, agg.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_AGG_SCAN),
                 // filter(scan)
@@ -146,9 +147,15 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
     private boolean aggTypeMatch(AggregateFunction function) {
         List<Expression> children = function.children();
         String functionName = function.getName();
-        // do not rewrite for count distinct
         if (function.getName().equalsIgnoreCase("count")) {
-            return function.isDistinct();
+            Count count = (Count) function;
+            // do not rewrite for count distinct for key column
+            if (count.isDistinct()) {
+                return children.stream().allMatch(this::isKeyOrConstantExpr);
+            }
+            if (count.isStar()) {
+                return false;
+            }
         }
         return children.stream().allMatch(child -> aggTypeMatch(functionName, child));
     }

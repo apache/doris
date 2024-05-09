@@ -59,54 +59,66 @@ suite("select_random_distributed_tbl") {
                 whereStr = "where user_id > 0"
             }
             def sql1 = "select * from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
-            qt_sql "${sql1}"
+            qt_sql_1 "${sql1}"
             def res1 = sql """ explain ${sql1} """
             assertTrue(res1.toString().contains("VAGGREGATE"))
 
             def sql2 = "select user_id, date, city, age, sex, cost, max_dwell_time, min_dwell_time from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
-            qt_sql "${sql2}"
+            qt_sql_2 "${sql2}"
             def res2 = sql """ explain ${sql2} """
             assertTrue(res2.toString().contains("VAGGREGATE"))
 
             def sql3 = "select user_id+1, date, city, age, sex, cost from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
-            qt_sql "${sql3}"
+            qt_sql_3 "${sql3}"
             def res3 = sql """ explain ${sql3} """
             assertTrue(res3.toString().contains("VAGGREGATE"))
 
             def sql4 = "select user_id, date, city, age, sex, cost+1 from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
-            qt_sql "${sql4}"
+            qt_sql_4 "${sql4}"
             def res4 = sql """ explain ${sql4} """
             assertTrue(res4.toString().contains("VAGGREGATE"))
 
             def sql5 =  "select user_id, sum(cost), max(max_dwell_time), min(min_dwell_time) from ${tableName} ${whereStr} group by user_id order by user_id;"
-            qt_sql "${sql5}"
+            qt_sql_5 "${sql5}"
 
             def sql6 = "select count(1) from ${tableName} ${whereStr}"
-            qt_sql "${sql6}"
+            qt_sql_6 "${sql6}"
 
             def sql7 = "select count(*) from ${tableName} ${whereStr}"
-            qt_sql "${sql7}"
+            qt_sql_7 "${sql7}"
 
             def sql8 = "select max(user_id) from ${tableName} ${whereStr}"
-            qt_sql "${sql8}"
+            qt_sql_8 "${sql8}"
             def res8 = sql """ explain ${sql8} """
             // no pre agg
             assertFalse(res8.toString().contains("sum"))
 
             def sql9 = "select max(cost) from ${tableName} ${whereStr}"
-            qt_sql "${sql9}"
+            qt_sql_9 "${sql9}"
             def res9 = sql """ explain ${sql9} """
             assertTrue(res9.toString().contains("sum"))
 
             def sql10 = "select sum(max_dwell_time) from ${tableName} ${whereStr}"
-            qt_sql "${sql10}"
+            qt_sql_10 "${sql10}"
 
             def sql11 = "select sum(min_dwell_time) from ${tableName} ${whereStr}"
-            qt_sql "${sql11}"
+            qt_sql_11 "${sql11}"
 
             // test group by value
             def sql12 = "select min_dwell_time, sum(cost) from ${tableName} ${whereStr} group by min_dwell_time order by min_dwell_time"
-            qt_sql "${sql12}"
+            qt_sql_12 "${sql12}"
+
+            def sql13 = "select count(user_id) from ${tableName} ${whereStr}"
+            qt_sql_13 "${sql13}"
+
+            def sql14 = "select count(distinct user_id) from ${tableName} ${whereStr}"
+            qt_sql_14 "${sql14}"
+
+            def sql15 = "select count(cost) from ${tableName} ${whereStr}"
+            qt_sql_15 "${sql15}"
+
+            def sql16 = "select count(distinct cost) from ${tableName} ${whereStr}"
+            qt_sql_16 "${sql16}"
         }
     }
 
