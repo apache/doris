@@ -1708,15 +1708,18 @@ public class SelectStmt extends QueryStmt {
         for (FunctionCallExpr inputExpr : distinctExprs) {
             Expr replaceExpr = null;
             final String functionName = inputExpr.getFnName().getFunction();
-            if (functionName.equalsIgnoreCase(FunctionSet.COUNT)) {
+            if (functionName.equalsIgnoreCase(FunctionSet.COUNT)
+                || functionName.equalsIgnoreCase("MULTI_DISTINCT_COUNT")) {
                 final List<Expr> countInputExpr = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 replaceExpr = new FunctionCallExpr("MULTI_DISTINCT_COUNT",
                         new FunctionParams(inputExpr.isDistinct(), countInputExpr));
-            } else if (functionName.equalsIgnoreCase("SUM")) {
+            } else if (functionName.equalsIgnoreCase("SUM")
+                || functionName.equalsIgnoreCase("MULTI_DISTINCT_SUM")) {
                 final List<Expr> sumInputExprs = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 replaceExpr = new FunctionCallExpr("MULTI_DISTINCT_SUM",
                         new FunctionParams(inputExpr.isDistinct(), sumInputExprs));
-            } else if (functionName.equalsIgnoreCase("AVG")) {
+            } else if (functionName.equalsIgnoreCase("AVG")
+                || functionName.equalsIgnoreCase("MULTI_DISTINCT_AVG")) {
                 final List<Expr> sumInputExprs = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 final List<Expr> countInputExpr = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 final FunctionCallExpr sumExpr = new FunctionCallExpr("MULTI_DISTINCT_SUM",
@@ -1724,7 +1727,8 @@ public class SelectStmt extends QueryStmt {
                 final FunctionCallExpr countExpr = new FunctionCallExpr("MULTI_DISTINCT_COUNT",
                         new FunctionParams(inputExpr.isDistinct(), countInputExpr));
                 replaceExpr = new ArithmeticExpr(ArithmeticExpr.Operator.DIVIDE, sumExpr, countExpr);
-            } else if (functionName.equalsIgnoreCase("GROUP_CONCAT")) {
+            } else if (functionName.equalsIgnoreCase("GROUP_CONCAT")
+                || functionName.equalsIgnoreCase("MULTI_DISTINCT_GROUP_CONCAT")) {
                 final List<Expr> groupConcatInputExprs = inputExpr.getChildren();
                 replaceExpr = new FunctionCallExpr(new FunctionName("MULTI_DISTINCT_GROUP_CONCAT"),
                         new FunctionParams(inputExpr.isDistinct(), groupConcatInputExprs),
