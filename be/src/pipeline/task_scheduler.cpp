@@ -161,6 +161,13 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_previous_core_id(index);
 
         if (!status.ok()) {
+            // Print detail informations below when you debugging here.
+            //
+            // LOG(WARNING)<< "task:\n"<<task->debug_string();
+
+            // exec failed，cancel all fragment instance
+            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                 std::string(status.to_string_no_stack()));
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(task->query_context()->query_id()),
                                         status.to_string());
