@@ -813,6 +813,16 @@ public class StatisticsUtil {
         return true;
     }
 
+    public static boolean enablePartitionAnalyze() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
+        }
+        return false;
+    }
+
     public static int getInsertMergeCount() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
