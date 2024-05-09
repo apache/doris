@@ -18,7 +18,7 @@
 suite("test_hive_parquet_alter_column", "p2,external,hive,external_remote,external_remote_hive") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 
