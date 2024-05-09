@@ -31,18 +31,20 @@ import java.util.Optional;
 public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
-    private Optional<DeletionFile> optDeleteFile;
+    private Optional<DeletionFile> optDeletionFile;
 
     public PaimonSplit(Split split) {
         super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
+        this.optDeletionFile = Optional.empty();
     }
 
     public PaimonSplit(Path file, long start, long length, long fileLength, String[] hosts,
             List<String> partitionList) {
         super(file, start, length, fileLength, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
+        this.optDeletionFile = Optional.empty();
     }
 
     public Split getSplit() {
@@ -62,11 +64,11 @@ public class PaimonSplit extends FileSplit {
     }
 
     public Optional<DeletionFile> getDeletionFile() {
-        return optDeleteFile;
+        return optDeletionFile;
     }
 
     public void setDeletionFile(DeletionFile deletionFile) {
-        this.optDeleteFile = Optional.of(deletionFile);
+        this.optDeletionFile = Optional.of(deletionFile);
     }
 
     public static class PaimonSplitCreator implements SplitCreator {

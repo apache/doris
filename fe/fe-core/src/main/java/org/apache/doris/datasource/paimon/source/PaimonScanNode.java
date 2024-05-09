@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -137,10 +138,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
-            fileDesc.setDeleteFileIsSet(true);
-            fileDesc.delete_file.setPath(deletionFile.path());
-            fileDesc.delete_file.setOffset(deletionFile.offset());
-            fileDesc.delete_file.setLength(deletionFile.length());
+            TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
+            tDeletionFile.setPath(deletionFile.path());
+            tDeletionFile.setOffset(deletionFile.offset());
+            tDeletionFile.setLength(deletionFile.length());
+            fileDesc.setDeletionFile(tDeletionFile);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
@@ -185,7 +187,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     null,
                                     PaimonSplit.PaimonSplitCreator.DEFAULT).get(0);
                             if (optDeletionFiles.isPresent()) {
-                                ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i++));
+                                DeletionFile deletionFile = optDeletionFiles.get().get(i++);
+                                // the element in DeletionFiles might be null
+                                if (deletionFile != null) {
+                                    ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                                }
                             }
                             splits.add(dorisSplit);
                             ++rawFileSplitNum;

@@ -309,7 +309,7 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
-struct TPaimonDeleteFileDesc {
+struct TPaimonDeletionFileDesc {
     1: optional string path;
     2: optional i64 offset;
     3: optional i64 length;
@@ -327,7 +327,7 @@ struct TPaimonFileDesc {
     9: optional i64 tbl_id
     10: optional i64 last_update_time
     11: optional string file_format
-    12: optional TPaimonDeleteFileDesc delete_file;
+    12: optional TPaimonDeletionFileDesc deletion_file;
 }
 
 struct TTrinoConnectorFileDesc {

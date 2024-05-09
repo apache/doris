@@ -27,11 +27,11 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
 
 Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     const auto& table_desc = range.table_format_params.paimon_params;
-    if (!table_desc.__isset.delete_file) {
+    if (!table_desc.__isset.deletion_file) {
         return Status::OK();
     }
 
-    const auto& deletion_file = table_desc.delete_file;
+    const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
             .properties = _params.properties,
