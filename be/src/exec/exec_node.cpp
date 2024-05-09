@@ -553,6 +553,8 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                     this->get_name(), _projections.size(), mutable_columns.size());
         }
 
+        LOG(ERROR) << "yangsiyu: " << origin_block->dump_structure();
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
