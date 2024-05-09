@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_join", "query,p0") {
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql"use test_query_db"
 
 
