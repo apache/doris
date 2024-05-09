@@ -468,6 +468,13 @@ public class BindExpression implements AnalysisRuleFactory {
                     return bindSort(sort, cteAnchor, ctx.cascadesContext);
                 })
             ),
+            RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalOneRowRelation()).thenApply(ctx -> {
+                    LogicalSort<LogicalOneRowRelation> sort = ctx.root;
+                    LogicalOneRowRelation oneRowRelation = sort.child();
+                    return bindSort(sort, oneRowRelation, ctx.cascadesContext);
+                })
+            ),
             RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
                 logicalSort(logicalSetOperation()).thenApply(ctx -> {
                     LogicalSort<LogicalSetOperation> sort = ctx.root;

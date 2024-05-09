@@ -71,8 +71,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalOneRowRelation()
-                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
+                        logicalProject()
+                                .when(project -> project.getProjects().get(0).child(0).equals(expected))
                 );
 
         connectContext.setDatabase("default_cluster:test_1");
@@ -80,8 +80,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalOneRowRelation()
-                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected1))
+                        logicalProject()
+                                .when(project -> project.getProjects().get(0).child(0).equals(expected1))
                 );
 
         sql = "select test.f(3)";
@@ -89,8 +89,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalOneRowRelation()
-                                .when(relation -> relation.getProjects().get(0).child(0).equals(expected2))
+                        logicalProject()
+                                .when(project -> project.getProjects().get(0).child(0).equals(expected2))
                 );
     }
 
@@ -129,9 +129,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalOneRowRelation()
-                                .when(relation -> relation.getProjects().size() == 1
-                                        && relation.getProjects().get(0).child(0).equals(expected))
+                        logicalProject()
+                                .when(project -> project.getProjects().size() == 1
+                                        && project.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
@@ -172,9 +172,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalOneRowRelation()
-                                .when(relation -> relation.getProjects().size() == 1
-                                        && relation.getProjects().get(0).child(0).equals(expected))
+                        logicalProject()
+                                .when(project -> project.getProjects().size() == 1
+                                        && project.getProjects().get(0).child(0).equals(expected))
                 );
     }
 

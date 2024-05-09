@@ -55,8 +55,8 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         PlanChecker.from(connectContext)
                 .analyze("select year('2021-01-01')")
                 .matches(
-                        logicalOneRowRelation().when(r -> {
-                            Year year = (Year) r.getProjects().get(0).child(0);
+                        logicalProject().when(project -> {
+                            Year year = (Year) project.getProjects().get(0).child(0);
                             Assertions.assertEquals("2021-01-01",
                                     ((Literal) year.getArguments().get(0).child(0)).getValue());
                             return true;
@@ -72,14 +72,14 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         PlanChecker.from(connectContext)
                 .analyze("select substring('abc', 1, 2), substr(substring('abcdefg', 4, 3), 1, 2)")
                 .matches(
-                        logicalOneRowRelation().when(r -> {
-                            Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
+                        logicalProject().when(project -> {
+                            Substring firstSubstring = (Substring) project.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
                             Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
                             Assertions.assertEquals(2, ((Literal) firstSubstring.getLength().get()).getValue());
 
-                            Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
-                            Assertions.assertTrue(secondSubstring.getSource() instanceof Substring);
+                            Substring secondSubstring = (Substring) project.getProjects().get(1).child(0);
+                            Assertions.assertInstanceOf(Substring.class, secondSubstring.getSource());
                             Assertions.assertEquals(1, ((Literal) secondSubstring.getPosition()).getValue());
                             Assertions.assertEquals(2, ((Literal) secondSubstring.getLength().get()).getValue());
                             return true;
@@ -95,13 +95,13 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         PlanChecker.from(connectContext)
                 .analyze("select substr('abc', 1), substring('def', 2, 3)")
                 .matches(
-                        logicalOneRowRelation().when(r -> {
-                            Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
+                        logicalProject().when(project -> {
+                            Substring firstSubstring = (Substring) project.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
                             Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
                             Assertions.assertTrue(firstSubstring.getLength().isPresent());
 
-                            Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
+                            Substring secondSubstring = (Substring) project.getProjects().get(1).child(0);
                             Assertions.assertEquals("def", ((Literal) secondSubstring.getSource()).getValue());
                             Assertions.assertEquals(2, ((Literal) secondSubstring.getPosition()).getValue());
                             Assertions.assertEquals(3, ((Literal) secondSubstring.getLength().get()).getValue());
