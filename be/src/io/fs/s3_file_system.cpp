@@ -97,6 +97,29 @@ namespace io {
     RETURN_IF_ERROR(get_key(path, &key));
 #endif
 
+// Guarded by external lock.
+Status S3FileSystem::set_conf(S3Conf s3_conf) {
+    if (s3_conf.ak == _s3_conf.ak && s3_conf.sk == _s3_conf.sk && s3_conf.token == _s3_conf.token) {
+        return Status::OK(); // Same conf
+    }
+
+    auto reset_conf = _s3_conf;
+    reset_conf.ak = s3_conf.ak;
+    reset_conf.sk = s3_conf.sk;
+    reset_conf.token = s3_conf.token;
+    auto client = S3ClientFactory::instance().create(s3_conf);
+    if (!client) {
+        return Status::InternalError("failed to init s3 client with {}", _s3_conf.to_string());
+    }
+
+    {
+        std::lock_guard lock(_client_mu);
+        _client = std::move(client);
+    }
+    _s3_conf = std::move(reset_conf);
+    return Status::OK();
+}
+
 std::string S3FileSystem::full_path(std::string_view key) const {
     return fmt::format("{}/{}/{}", _s3_conf.endpoint, _s3_conf.bucket, key);
 }
