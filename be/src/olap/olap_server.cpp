@@ -441,7 +441,7 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
             data_dir->perform_path_gc();
             last_exec_time = time(nullptr);
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(5)));
     LOG(INFO) << "stop path gc thread!";
 }
 
