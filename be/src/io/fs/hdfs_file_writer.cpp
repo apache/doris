@@ -87,8 +87,9 @@ static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 class HdfsWriteMemUsageRecorder {
 public:
     HdfsWriteMemUsageRecorder()
-            : max_jvm_heap_size(JniUtil::get_max_jni_heap_memory_size()),
-              cur_memory_comsuption(0) {}
+            : max_jvm_heap_size(JniUtil::get_max_jni_heap_memory_size()), cur_memory_comsuption(0) {
+        LOG_INFO("the max jvm heap size is {}", max_jvm_heap_size);
+    }
     ~HdfsWriteMemUsageRecorder() = default;
     size_t max_usage() const {
         return static_cast<size_t>(max_jvm_heap_size *
