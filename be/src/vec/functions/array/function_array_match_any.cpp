@@ -188,8 +188,7 @@ public:
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
             if (arguments.size() == 3) {
                 DCHECK(is_map(block.get_by_position(arguments[2]).type));
-                auto config_col = block.get_by_position(arguments[2])
-                                          .column->convert_to_full_column_if_const();
+                auto [config_col, _] = unpack_if_const(block.get_by_position(arguments[2]).column);
                 auto map_col = reinterpret_cast<const ColumnMap*>(config_col.get());
                 // make config map
                 const auto& keys = check_and_get_column<ColumnString>(
@@ -197,19 +196,24 @@ public:
                 const auto& vals = check_and_get_column<ColumnString>(
                         remove_nullable(map_col->get_values_ptr()));
                 std::map<std::string, std::string> _index_meta;
-                for (int i = 0; i < map_col->offset_at(0); ++i) {
+                for (int i = 0; i < map_col->offset_at(1); ++i) {
                     _index_meta[keys->get_data_at(i).to_string()] =
                             vals->get_data_at(i).to_string();
                 }
                 inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
                         get_parser_string_from_properties(_index_meta));
-                inverted_index_ctx->parser_mode =
-                        get_parser_mode_string_from_properties(_index_meta);
-                inverted_index_ctx->char_filter_map =
-                        get_parser_char_filter_map_from_properties(_index_meta);
-                auto analyzer = InvertedIndexReader::create_analyzer(inverted_index_ctx.get());
-                analyzer->set_lowercase(true);
-                inverted_index_ctx->analyzer = analyzer.release();
+                if (inverted_index_ctx->parser_type != InvertedIndexParserType::PARSER_NONE) {
+                    inverted_index_ctx->parser_mode =
+                            get_parser_mode_string_from_properties(_index_meta);
+                    inverted_index_ctx->char_filter_map =
+                            get_parser_char_filter_map_from_properties(_index_meta);
+                    auto analyzer = InvertedIndexReader::create_analyzer(inverted_index_ctx.get());
+                    analyzer->set_lowercase(true);
+                    inverted_index_ctx->analyzer = analyzer.release();
+                }
+                // if inverted_index_ctx->parser_type is PARSER_NONE,
+                // we should not tokenized the query string and origin column data
+                // and no need to create analyzer which will be used to tokenize the data string and query string
             } else {
                 inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
                 inverted_index_ctx->parser_mode = INVERTED_INDEX_PARSER_FINE_GRANULARITY;
@@ -217,12 +221,20 @@ public:
                 analyzer->set_lowercase(true);
                 inverted_index_ctx->analyzer = analyzer.release();
             }
-            executeWithExtractTokens(block.get_by_position(arguments[0]).name,
-                                     reinterpret_cast<StringRef*>(&param_value->value),
-                                     input_rows_count,
-                                     check_and_get_column<ColumnString>(
-                                             remove_nullable(array_column->get_data_ptr())),
-                                     &offsets, inverted_index_ctx, dst_data, dst_null_data);
+            if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+                executeWithEqualsQueryString(check_and_get_column<ColumnString>(
+                                                     remove_nullable(array_column->get_data_ptr())),
+                                             array_null_map, offsets,
+                                             reinterpret_cast<StringRef*>(&param_value->value),
+                                             dst_data, dst_null_data);
+            } else {
+                executeWithExtractTokens(block.get_by_position(arguments[0]).name,
+                                         reinterpret_cast<StringRef*>(&param_value->value),
+                                         input_rows_count,
+                                         check_and_get_column<ColumnString>(
+                                                 remove_nullable(array_column->get_data_ptr())),
+                                         &offsets, inverted_index_ctx, dst_data, dst_null_data);
+            }
             auto return_column = ColumnNullable::create(std::move(dst), std::move(dst_null_column));
             block.replace_by_position(result, std::move(return_column));
         }
@@ -235,9 +247,7 @@ public:
                                                        const ColumnArray::Offsets64* array_offsets,
                                                        const size_t cur_row_id) const {
         std::vector<std::string> data_tokens;
-        auto query_type = inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE
-                                  ? InvertedIndexQueryType::EQUAL_QUERY
-                                  : InvertedIndexQueryType::MATCH_ANY_QUERY;
+        auto query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
         for (auto current_src_array_offset = (*array_offsets)[cur_row_id - 1];
              current_src_array_offset < (*array_offsets)[cur_row_id]; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
@@ -251,6 +261,31 @@ public:
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
         }
         return data_tokens;
+    }
+
+    void executeWithEqualsQueryString(const ColumnString* array_nested_column,
+                                      const UInt8* array_null_map,
+                                      const ColumnArray::Offsets64& offsets, StringRef* search_val,
+                                      ColumnUInt8::Container& dst_data,
+                                      ColumnUInt8::Container& dst_null_data) const {
+        for (size_t row = 0; row < offsets.size(); ++row) {
+            if (array_null_map && array_null_map[row]) {
+                dst_null_data[row] = true;
+            } else {
+                dst_null_data[row] = true;
+                for (auto current_src_array_offset = offsets[row - 1];
+                     current_src_array_offset < offsets[row]; ++current_src_array_offset) {
+                    const auto& str_ref =
+                            array_nested_column->get_data_at(current_src_array_offset);
+                    if (str_ref == *search_val) {
+                        // matched
+                        dst_null_data[row] = false;
+                        dst_data[row] = true;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     void executeWithExtractTokens(const std::string& column_name, StringRef* search_str,
