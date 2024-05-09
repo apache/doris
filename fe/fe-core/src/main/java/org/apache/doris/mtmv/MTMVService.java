@@ -185,7 +185,7 @@ public class MTMVService implements EventListener {
                 jobManager.processEvent(MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId()));
             } catch (Exception e) {
                 // TODO: 2024/5/8 catch it
-                throw new RuntimeException(e);
+                throw new EventException(e);
             }
         }
     }
