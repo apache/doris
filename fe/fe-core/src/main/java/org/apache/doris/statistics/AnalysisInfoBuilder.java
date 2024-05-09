@@ -53,7 +53,6 @@ public class AnalysisInfoBuilder {
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message = "";
-    private boolean externalTableLevelTask;
     private boolean partitionOnly;
     private boolean samplingPartition;
     private boolean isAllPartition;
@@ -94,7 +93,6 @@ public class AnalysisInfoBuilder {
         timeCostInMs = info.timeCostInMs;
         state = info.state;
         scheduleType = info.scheduleType;
-        externalTableLevelTask = info.externalTableLevelTask;
         partitionOnly = info.partitionOnly;
         samplingPartition = info.samplingPartition;
         isAllPartition = info.isAllPartition;
@@ -224,11 +222,6 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setExternalTableLevelTask(boolean isTableLevel) {
-        this.externalTableLevelTask = isTableLevel;
-        return this;
-    }
-
     public AnalysisInfoBuilder setPartitionOnly(boolean isPartitionOnly) {
         this.partitionOnly = isPartitionOnly;
         return this;
@@ -293,7 +286,7 @@ public class AnalysisInfoBuilder {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, jobColumns, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
+                partitionOnly, samplingPartition, isAllPartition, partitionCount,
                 cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows,
                 priority);
     }

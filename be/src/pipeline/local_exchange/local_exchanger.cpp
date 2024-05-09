@@ -104,7 +104,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
 
     vectorized::Block data_block;
     std::shared_ptr<ShuffleBlockWrapper> new_block_wrapper;
-    if (_free_blocks.try_enqueue(data_block)) {
+    if (_free_blocks.try_dequeue(data_block)) {
         new_block_wrapper = ShuffleBlockWrapper::create_shared(std::move(data_block));
     } else {
         new_block_wrapper = ShuffleBlockWrapper::create_shared(block->clone_empty());
@@ -189,16 +189,22 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
     if (_running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
             block->swap(next_block);
-            _free_blocks.enqueue(std::move(next_block));
             local_state._shared_state->sub_mem_usage(local_state._channel_id,
                                                      block->allocated_bytes());
+            if (_free_block_limit == 0 ||
+                _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+                _free_blocks.enqueue(std::move(next_block));
+            }
         } else {
             COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
             *eos = true;
         }
     } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
-        _free_blocks.enqueue(std::move(next_block));
+        if (_free_block_limit == 0 ||
+            _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+            _free_blocks.enqueue(std::move(next_block));
+        }
         local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
@@ -364,7 +370,10 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, vectorized::
     if (_running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
             block->swap(next_block);
-            _free_blocks.enqueue(std::move(next_block));
+            if (_free_block_limit == 0 ||
+                _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+                _free_blocks.enqueue(std::move(next_block));
+            }
             local_state._shared_state->sub_mem_usage(local_state._channel_id,
                                                      block->allocated_bytes());
         } else {
@@ -373,7 +382,10 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, vectorized::
         }
     } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
-        _free_blocks.enqueue(std::move(next_block));
+        if (_free_block_limit == 0 ||
+            _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+            _free_blocks.enqueue(std::move(next_block));
+        }
         local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);

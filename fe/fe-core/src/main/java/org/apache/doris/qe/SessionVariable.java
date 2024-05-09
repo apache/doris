@@ -76,6 +76,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
     public static final String SCANNER_SCALE_UP_RATIO = "scanner_scale_up_ratio";
@@ -129,6 +130,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+
+    public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -610,6 +613,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "default 0, use doris_scanner_thread_pool_thread_num in be.conf"
     })
     public int numScannerThreads = 0;
+
+    @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
+    public int localExchangeFreeBlocksLimit = 4;
 
     @VariableMgr.VarAttr(name = SCANNER_SCALE_UP_RATIO, needForward = true, description = {
             "ScanNode自适应的增加扫描并发，最大允许增长的并发倍率，默认为0，关闭该功能",
@@ -1341,6 +1347,10 @@ public class SessionVariable implements Serializable, Writable {
     public long topnOptLimitThreshold = 1024;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
+            "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
+    public boolean enableServeSidePreparedStatement = false;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -3137,6 +3147,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);

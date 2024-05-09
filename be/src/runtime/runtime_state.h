@@ -185,6 +185,10 @@ public:
                _query_options.enable_common_expr_pushdown_for_inverted_index;
     };
 
+    bool mysql_row_binary_format() const {
+        return _query_options.__isset.mysql_row_binary_format &&
+               _query_options.mysql_row_binary_format;
+    }
     Status query_status();
 
     // Appends error to the _error_log if there is space
