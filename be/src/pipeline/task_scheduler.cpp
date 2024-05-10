@@ -165,17 +165,11 @@ void TaskScheduler::_do_work(size_t index) {
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-<<<<<<< HEAD
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                 std::string(status.to_string_no_stack()));
+            fragment_ctx->cancel(status);
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(task->query_context()->query_id()),
                                         status.to_string());
             _close_task(task, status);
-=======
-            fragment_ctx->cancel(status);
-            _close_task(task, PipelineTaskState::CANCELED, status);
->>>>>>> 3c0e170471 (fix cancel reason)
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
