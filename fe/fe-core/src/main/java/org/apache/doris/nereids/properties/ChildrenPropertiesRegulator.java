@@ -353,7 +353,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
-            if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
+            if (leftHashSpec.satisfy(requiredProperties.get(0).getDistributionSpec())
+                && rightHashSpec.satisfy(requiredProperties.get(1).getDistributionSpec())) {
+                return true;
+            } else if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec())) {
                 return true;
