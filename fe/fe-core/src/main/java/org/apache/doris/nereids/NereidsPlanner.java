@@ -581,8 +581,7 @@ public class NereidsPlanner extends Planner {
             return Optional.of(resultSet);
         } else if (child instanceof PhysicalEmptyRelation) {
             List<Column> columns = Lists.newArrayList();
-            PhysicalEmptyRelation physicalEmptyRelation = (PhysicalEmptyRelation) physicalPlan.child(0);
-            for (int i = 0; i < physicalEmptyRelation.getProjects().size(); i++) {
+            for (int i = 0; i < physicalPlan.getOutput().size(); i++) {
                 NamedExpression output = physicalPlan.getOutput().get(i);
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
             }
