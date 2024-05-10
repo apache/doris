@@ -227,7 +227,6 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     if (!_opened) {
         {
-            SCOPED_RAW_TIMER(&time_spent);
             RETURN_IF_ERROR(_open());
         }
         if (!source_can_read() || !sink_can_write()) {
@@ -251,7 +250,6 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -388,8 +386,8 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
     auto* cur_blocked_dep = _blocked_dep;
+    auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, dry run = {}, elapse time "
                    "= {}s], block dependency = {}, is running = {}\noperators: ",
