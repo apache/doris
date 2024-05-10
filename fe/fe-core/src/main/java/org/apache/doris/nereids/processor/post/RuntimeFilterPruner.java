@@ -155,7 +155,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
-            if (exprIds != null && !exprIds.isEmpty()) {
+            if (!exprIds.isEmpty()) {
                 boolean isEffective = false;
                 for (Expression expr : join.getEqualToConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
