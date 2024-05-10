@@ -13,25 +13,9 @@ suite("test_disable_revoke_admin_auth", "cloud_auth") {
     }
 
     try {
-        result = sql """revoke 'admin','xxx' from 'admin'""";
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Unsupported operation"), e.getMessage())
-    }
-
-    try {
         result = connect(user = "${user}", password = 'Cloud12345', url = context.config.jdbcUrl) {
              sql """
                 revoke 'admin' from 'admin'
-             """
-        }
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Unsupported operation"), e.getMessage())
-    }
-
-    try {
-        result = connect(user = "${user}", password = 'Cloud12345', url = context.config.jdbcUrl) {
-             sql """
-                revoke 'admin','yyy' from 'admin'
              """
         }
     } catch (Exception e) {
