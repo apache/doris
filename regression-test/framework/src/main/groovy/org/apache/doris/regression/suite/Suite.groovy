@@ -800,19 +800,23 @@ class Suite implements GroovyInterceptable {
         cmds.add("/usr/bin/curl --max-time 240 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
         cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
-        for (def cmd in cmds) {
+        def executeCommand = { String cmd ->
             logger.info("execute ${cmd}")
-            def process = cmd.execute()
-            logger.info("execute result ${process.getText()}.")
-            if (process.exitValue() != 0) {
-                Assert.assertTrue(false)
-            }
+            def proc = cmd.execute()
+            // if timeout, exception will be thrown
+            proc.waitForOrKill(60 * 1000)
+            logger.info("execute result ${proc.getText()}.")
+            Assert.assertEquals(0, proc.exitValue())
+        }
+
+        for (def cmd in cmds) {
+            executeCommand(cmd)
         }
         
         host_ips = host_ips.unique()
         for (def ip in host_ips) {
             logger.info("scp to ${ip}")
-            def cmd = "ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\""
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"")
             scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
 
