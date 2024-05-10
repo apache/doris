@@ -58,6 +58,9 @@ public:
                 return Status::OK();
             } else {
                 *block = std::move(_blocks_queues[id].front());
+                if ((*block)->try_get_by_name("status")) {
+                    LOG(ERROR) << "yangsiyu from queue: " << id << ", block: " << (*block)->dump_structure();
+                }
                 _blocks_queues[id].pop_front();
             }
         }
@@ -124,6 +127,9 @@ public:
                 {
                     std::lock_guard<std::mutex> l(*_queue_mutexs[queue]);
                     for (int j = i; j < block_size; j += queue_size) {
+                        if (blocks[j]->try_get_by_name("status")) {
+                            LOG(ERROR) << "yangsiyu append queue: " << queue << ", block: " << blocks[j]->dump_structure();
+                        }
                         _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                     }
                 }
