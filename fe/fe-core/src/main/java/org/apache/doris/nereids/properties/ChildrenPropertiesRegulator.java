@@ -244,10 +244,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         }
     }
 
-    private boolean couldNotRightBucketShuffleJoin(JoinType joinType) {
-        return joinType == JoinType.RIGHT_ANTI_JOIN
+    private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec) {
+        boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN;
+                || joinType == JoinType.FULL_OUTER_JOIN);
+        boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
+        return isJoinTypeInScope && isSpecInScope;
     }
 
     @Override
@@ -285,7 +289,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
             return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -574,11 +578,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {
         GroupExpression child = children.get(index);
-        PhysicalProperties output = child.getOutputProperties(childrenProperties.get(index));
-        if (output.satisfy(targetProperties)) {
-            return;
-        }
         Pair<Cost, List<PhysicalProperties>> lowest = child.getLowestCostTable().get(childrenProperties.get(index));
+        PhysicalProperties output = child.getOutputProperties(childrenProperties.get(index));
         DistributionSpec target = targetProperties.getDistributionSpec();
         updateChildEnforceAndCost(child, output, target, lowest.first);
         childrenProperties.set(index, targetProperties);
