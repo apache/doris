@@ -34,8 +34,7 @@ namespace doris {
 
 LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
                              FifoThreadPool* heavy_work_pool, FifoThreadPool* light_work_pool)
-        : _heavy_work_pool(heavy_work_pool),
-          _light_work_pool(light_work_pool) {
+        : _heavy_work_pool(heavy_work_pool), _light_work_pool(light_work_pool) {
     uint32_t num_cpu = std::thread::hardware_concurrency();
     _num_threads = num_cpu == 0 ? segment_file_writer_thread_num
                                 : std::min(segment_file_writer_thread_num,
