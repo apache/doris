@@ -1337,6 +1337,11 @@ DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
 // The max retry times when hdfs write failed
 DECLARE_mInt64(hdfs_jni_write_max_retry_time);
 
+// The min thread num for NonBlockCloseThreadPool
+DECLARE_Int64(min_non_block_close_thread_num);
+// The max thread num for NonBlockCloseThreadPool
+DECLARE_Int64(max_non_block_close_thread_num);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

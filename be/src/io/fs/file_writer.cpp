@@ -20,6 +20,24 @@
 #include <future>
 
 #include "runtime/exec_env.h"
+#include "util/threadpool.h"
+
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
 
 namespace doris::io {
 
@@ -28,9 +46,15 @@ Status FileWriter::close(bool non_block) {
         if (_fut.valid()) {
             return Status::OK();
         }
+
         _fut = _pro.get_future();
+#ifdef BE_TEST
+        return get_non_block_close_thread_pool()->submit_func(
+                [&]() { _pro.set_value(close_impl()); });
+#else
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
                 [&]() { _pro.set_value(close_impl()); });
+#endif
     }
     if (_fut.valid()) {
         return _fut.get();
