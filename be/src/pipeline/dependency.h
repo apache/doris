@@ -79,30 +79,26 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, std::string name,
-                                         QueryContext* ctx);
+    Dependency* create_source_dependency(int operator_id, int node_id, std::string name);
 
-    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name,
-                                       QueryContext* ctx);
+    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
-    Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+    Dependency(int id, int node_id, std::string name)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(false),
-              _ready(false),
-              _query_ctx(query_ctx) {}
-    Dependency(int id, int node_id, std::string name, bool ready, QueryContext* query_ctx)
+              _ready(false) {}
+    Dependency(int id, int node_id, std::string name, bool ready)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(true),
-              _ready(ready),
-              _query_ctx(query_ctx) {}
+              _ready(ready) {}
     virtual ~Dependency() = default;
 
     bool is_write_dependency() const { return _is_write_dependency; }
@@ -165,14 +161,12 @@ public:
 
 protected:
     void _add_block_task(PipelineTask* task);
-    bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
     const int _node_id;
     const std::string _name;
     const bool _is_write_dependency;
     std::atomic<bool> _ready;
-    const QueryContext* _query_ctx = nullptr;
 
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
@@ -192,8 +186,8 @@ struct FakeSharedState final : public BasicSharedState {
 struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
-    CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
+    CountedFinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -283,9 +277,8 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx,
-                            IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name, query_ctx), _runtime_filter(runtime_filter) {}
+    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
+            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
     Dependency* is_blocked_by(PipelineTask* task) override;
@@ -585,8 +578,8 @@ class AsyncWriterDependency final : public Dependency {
 public:
     using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
+    AsyncWriterDependency(int id, int node_id)
+            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
     ~AsyncWriterDependency() override = default;
 };
 
@@ -729,10 +722,10 @@ public:
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
-    void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
+    void create_source_dependencies(int operator_id, int node_id) {
         for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(
-                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY", ctx);
+            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
+                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_deps[i]->set_shared_state(this);
         }
     };

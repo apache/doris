@@ -141,9 +141,22 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
-        if (!_finished && _blocked_dep) {
-            _blocked_dep->set_ready();
-            _blocked_dep = nullptr;
+        // We use a lock to assure `_blocked_dep` is not deconstructed here.
+        std::unique_lock<std::mutex> lc(_release_lock);
+        if (!_finished) {
+            _execution_dep->set_always_ready();
+            for (auto* dep : _filter_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _read_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _write_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _finish_dependencies) {
+                dep->set_always_ready();
+            }
         }
     }
 
