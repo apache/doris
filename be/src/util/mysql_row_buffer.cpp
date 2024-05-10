@@ -392,7 +392,7 @@ int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data, int scal
 
     char buf[64];
     if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
-                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+                  std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
         char* pos = data.to_string(buf, scale);
     } else {
         char* pos = data.to_string(buf);
