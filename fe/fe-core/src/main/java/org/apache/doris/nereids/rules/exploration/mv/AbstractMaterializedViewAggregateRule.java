@@ -230,7 +230,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair, queryStructInfo);
-        Set<? extends Expression> queryChildrenGroupBySet = queryGroupAndFunctionPair.key();
+        Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
         Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
@@ -285,25 +285,30 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         // add project to guarantee group by column ref is slot reference,
         // this is necessary because physical createHash will need slotReference later
-        for (Expression expression : queryChildrenGroupBySet) {
-            Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
-                    expression, queryTopPlan, queryStructInfo.getTableBitSet());
-            AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
-                    mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
-            // group by expression maybe group by a + b, so we need expression rewriter
-            Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
-                    context);
-            if (!context.isValid()) {
-                // group expr can not rewrite by view
-                materializationContext.recordFailReason(queryStructInfo,
-                        "View dimensions doesn't not cover the query dimensions in bottom agg ",
-                        () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
-                                mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
-                return null;
+        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+            for (Expression expression : queryGroupByExpressions) {
+                if (queryTopPlanGroupBySet.contains(expression)) {
+                    continue;
+                }
+                Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
+                        expression, queryTopPlan, queryStructInfo.getTableBitSet());
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
+                        mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
+                // group by expression maybe group by a + b, so we need expression rewriter
+                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
+                    // group expr can not rewrite by view
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "View dimensions doesn't not cover the query dimensions in bottom agg ",
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                    mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
+                    return null;
+                }
+                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                finalGroupExpressions.add(groupByExpression);
             }
-            NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
-                    ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-            finalGroupExpressions.add(groupByExpression);
         }
         List<Expression> copiedFinalGroupExpressions = new ArrayList<>(finalGroupExpressions);
         List<NamedExpression> projectsUnderAggregate = copiedFinalGroupExpressions.stream()
@@ -447,8 +452,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 topGroupByExpressions.add(expression);
             }
         });
-        groupByExpressionSet.removeAll(topGroupByExpressions);
-        return Pair.of(groupByExpressionSet, topFunctionExpressions);
+        return Pair.of(topGroupByExpressions, topFunctionExpressions);
     }
 
     private Pair<Plan, LogicalAggregate<Plan>> splitToTopPlanAndAggregate(StructInfo structInfo) {
