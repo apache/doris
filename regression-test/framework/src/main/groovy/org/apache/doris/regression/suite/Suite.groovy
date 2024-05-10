@@ -89,6 +89,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    final isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -764,6 +765,57 @@ class Suite implements GroovyInterceptable {
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    /*
+     * download trino connectors, and sends to every fe and be.
+     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
+     * fe and be's config must satisfy regression-conf.groovy's config.
+     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
+     *
+     * this function must be not reentrant.
+     * 
+     * If failed, will call assert(false).
+     */
+    synchronized void dispatchTrinoConnectors(host_ips) {
+        if (isTrinoConnectorDownloaded) {
+            logger.info("trino connector downloaded")
+            return
+        }
+
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
+        Assert.assert(download_dir.isNotEmpty())
+        def path_tar = "${dir_download}/trino-connectors.tar.gz"
+        // extract to a tmp direcotry, and then scp to every host_ips, including self.
+        def path_connector_tmp = "${dir_download}/connectors_tmp"
+        def path_connector = "${dir_download}/connectors"
+        def s3_url = getS3Url()
+
+        def cmds = [] as List
+        cmds.add("mkdir -p ${trino_connector_download_dir}")
+        cmds.add("rm -rf ${path_tar}")
+        cmds.add("rm -rf ${path_connector_tmp}")
+        cmds.add("/usr/bin/curl ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
+        cmds.add("tar -zxvf ${path_tar} -C ${path_connector_tmp}")
+
+        for (def cmd in cmds) {
+            logger.info("execute ${cmd}")
+            def process = cmd.execute()
+            logger.info("execute result ${process.getText()}.")
+            if (process.exitValue() != 0) {
+                Assert.assert(false)
+            }
+        }
+        
+        host_ips = host_ips.unique()
+        for (def ip in host_ips) {
+            logger.info("scp to ${ip}")
+            def cmd = "ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\""
+            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assert(false) is executed.
+        }
+
+        isTrinoConnectorDownloaded = true
+        logger.info("dispatch trino connector succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
