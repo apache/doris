@@ -450,13 +450,13 @@ int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
 }
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
         return push_datetime(data);
     }
 
     char buf[64];
-    char* pos = data.to_string(buf);
+    char* pos = data.to_string(buf, scale);
     return push_string(buf, pos - buf - 1);
 }
 
@@ -601,19 +601,19 @@ template class MysqlRowBuffer<false>;
 
 template int
 MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateV2ValueType>& value, int scale);
 template int
 MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value, int scale);
 template int MysqlRowBuffer<true>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
+        vectorized::VecDateTimeValue& value, int scale);
 template int
 MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateV2ValueType>& value, int scale);
 template int
 MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value, int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
+        vectorized::VecDateTimeValue& value, int scale);
 
 } // namespace doris
