@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -70,12 +71,12 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
     }
 
     /**
-     * Check scan is whether valid or not. Support join's input only support project, filter, join,
+     * Check query scan is whether valid or not. Support join's input only support project, filter, join,
      * logical relation, simple aggregate node. Con not have aggregate above on join.
      * Join condition should be slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate();

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -467,12 +468,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /**
-     * Check Aggregate is simple or not and check join is whether valid or not.
+     * Check query Aggregate is simple or not and check join is whether valid or not.
      * Support project, filter, join, logical relation node and join condition should only contain
      * slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         // if query or mv contains more then one top aggregate, should fail
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
