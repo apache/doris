@@ -795,7 +795,7 @@ class Suite implements GroovyInterceptable {
         cmds.add("mkdir -p ${trino_connector_download_dir}")
         cmds.add("rm -rf ${path_tar}")
         cmds.add("rm -rf ${path_connector_tmp}")
-        cmds.add("/usr/bin/curl ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
+        cmds.add("/usr/bin/curl --max-time 60 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
         cmds.add("tar -zxvf ${path_tar} -C ${path_connector_tmp}")
 
         for (def cmd in cmds) {
