@@ -78,7 +78,7 @@ Status CloudRowsetBuilder::init() {
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
-    CalcDeleteBitmapExecutor* executor= nullptr;
+    CalcDeleteBitmapExecutor* executor = nullptr;
     RETURN_IF_ERROR(_engine.calc_delete_bitmap_executor(executor));
     _calc_delete_bitmap_token = executor->create_token();
 
