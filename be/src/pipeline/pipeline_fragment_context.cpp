@@ -134,10 +134,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(std::move(report_status_cb)),
-          _create_time(MonotonicNanos()) {
+          _report_status_cb(report_status_cb) {
     _fragment_watcher.start();
-    _start_time = VecDateTimeValue::local_time();
     _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
@@ -147,11 +145,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     _tasks.clear();
-    if (!_task_runtime_states.empty()) {
-        for (auto& runtime_state : _task_runtime_states) {
-            _call_back(runtime_state.get(), &st);
-            runtime_state.reset();
-        }
+    for (auto& runtime_state : _task_runtime_states) {
+        _call_back(runtime_state.get(), &st);
+        runtime_state.reset();
     }
     _pipelines.clear();
     _sink.reset();
@@ -162,14 +158,11 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     _op_id_to_le_state.clear();
 }
 
-bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
+bool PipelineFragmentContext::is_timeout(timespec now) const {
     if (_timeout <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout) {
-        return true;
-    }
-    return false;
+    return _fragment_watcher.elapsed_time_seconds(now) > _timeout;
 }
 
 // Must not add lock in this method. Because it will call query ctx cancel. And
@@ -535,7 +528,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
 void PipelineFragmentContext::_init_next_report_time() {
     auto interval_s = config::pipeline_status_report_interval;
-    if (_is_report_success && interval_s > 0 && _query_ctx->timeout_second > interval_s) {
+    if (_is_report_success && interval_s > 0 && _timeout > interval_s) {
         std::vector<string> ins_ids;
         instance_ids(ins_ids);
         VLOG_FILE << "enable period report: instance_id="
