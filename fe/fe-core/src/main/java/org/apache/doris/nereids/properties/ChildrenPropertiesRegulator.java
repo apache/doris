@@ -353,10 +353,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
-            if (leftHashSpec.satisfy(requiredProperties.get(0).getDistributionSpec())
-                && rightHashSpec.satisfy(requiredProperties.get(1).getDistributionSpec())) {
-                return true;
-            } else if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
+            if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec())) {
                 return true;
@@ -520,8 +517,32 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        return shuffleSideOutput.getOrderedShuffledColumns().equals(
-                calAnotherSideRequiredShuffleIds(notShuffleSideOutput, notShuffleSideRequired, shuffleSideRequired));
+        List<ExprId> shuffleSideOutputList = shuffleSideOutput.getOrderedShuffledColumns();
+        List<ExprId> notShuffleSideOutputList = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
+                notShuffleSideRequired, shuffleSideRequired);
+        if (shuffleSideOutputList.size() != notShuffleSideOutputList.size()) {
+            return false;
+        } else if (shuffleSideOutputList.equals(notShuffleSideOutputList)) {
+            return true;
+        } else {
+            boolean isSatisfy = true;
+            for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
+                ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
+                boolean found = false;
+                for (int j = 0; j < notShuffleSideOutputList.size() && !found; j++) {
+                    ExprId notShuffleSideExprId = notShuffleSideOutputList.get(j);
+                    if (shuffleSideExprId.equals(notShuffleSideExprId)
+                            || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                            .contains(notShuffleSideExprId)) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    isSatisfy = false;
+                }
+            }
+            return isSatisfy;
+        }
     }
 
     /**
