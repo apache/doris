@@ -31,7 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveBucket;
@@ -114,7 +113,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         bucketInfo.setBucketCount(sd.getNumBuckets());
         tSink.setBucketInfo(bucketInfo);
 
-        TFileFormatType formatType = getFileFormatType(sd.getInputFormat());
+        TFileFormatType formatType = getTFileFormatType(sd.getInputFormat());
         tSink.setFileFormat(formatType);
         setCompressType(tSink, formatType);
 
@@ -170,23 +169,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 compressType = "uncompressed";
                 break;
         }
-
-        if ("snappy".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.SNAPPYBLOCK);
-        } else if ("lz4".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.LZ4BLOCK);
-        } else if ("lzo".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.LZO);
-        } else if ("zlib".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.ZLIB);
-        } else if ("zstd".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.ZSTD);
-        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
-            tSink.setCompressionType(TFileCompressType.PLAIN);
-        } else {
-            // try to use plain type to decompress parquet or orc file
-            tSink.setCompressionType(TFileCompressType.PLAIN);
-        }
+        tSink.setCompressionType(getTFileCompressType(compressType));
     }
 
     private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
@@ -197,7 +180,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         for (org.apache.hadoop.hive.metastore.api.Partition partition : hivePartitions) {
             THivePartition hivePartition = new THivePartition();
             StorageDescriptor sd = partition.getSd();
-            hivePartition.setFileFormat(getFileFormatType(sd.getInputFormat()));
+            hivePartition.setFileFormat(getTFileFormatType(sd.getInputFormat()));
 
             hivePartition.setValues(partition.getValues());
             THiveLocationParams locationParams = new THiveLocationParams();

@@ -578,13 +578,23 @@ public class IcebergUtils {
     }
 
     public static String getFileFormat(Table table) {
-        Snapshot snapshot = table.currentSnapshot();
-        if (snapshot == null) {
-            return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
-        } else {
-            return snapshot.summary().getOrDefault(
-                    TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        return table.properties().getOrDefault(
+                TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+    }
+
+    public static String getFileCompress(Table table) {
+        String fileFormat = getFileFormat(table);
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            table.properties().getOrDefault(
+                    TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            table.properties().getOrDefault(
+                    TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
+        } else if (fileFormat.equalsIgnoreCase("avro")) {
+            table.properties().getOrDefault(
+                    TableProperties.AVRO_COMPRESSION, TableProperties.AVRO_COMPRESSION_DEFAULT);
         }
+        throw new NotSupportedException("Unsupported file format: " + fileFormat);
     }
 
     public static String dataLocation(Table table) {

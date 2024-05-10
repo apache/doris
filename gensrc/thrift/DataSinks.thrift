@@ -392,6 +392,7 @@ struct TIcebergTableSink {
     10: optional bool overwrite
     11: optional Types.TFileType file_type
     12: optional string original_output_path
+    13: optional PlanNodes.TFileCompressType compression_type
 }
 
 struct TDataSink {

@@ -120,7 +120,11 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             tSink.setSortFields(sortFields.build());
         }
 
-        tSink.setFileFormat(getFileFormatType(IcebergUtils.getFileFormat(icebergTable)));
+        // file info
+        tSink.setFileFormat(getTFileFormatType(IcebergUtils.getFileFormat(icebergTable)));
+        tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
+
+        // hadoop config
         HashMap<String, String> props = new HashMap<>(icebergTable.properties());
         Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
         props.putAll(catalogProps);

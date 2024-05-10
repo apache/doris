@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 
 import java.util.Optional;
@@ -52,7 +53,7 @@ public abstract class BaseExternalTableDataSink extends DataSink {
      */
     protected abstract Set<TFileFormatType> supportedFileFormatTypes();
 
-    protected TFileFormatType getFileFormatType(String format) throws AnalysisException {
+    protected TFileFormatType getTFileFormatType(String format) throws AnalysisException {
         TFileFormatType fileFormatType = TFileFormatType.FORMAT_UNKNOWN;
         String lowerCase = format.toLowerCase();
         if (lowerCase.contains("orc")) {
@@ -66,6 +67,25 @@ public abstract class BaseExternalTableDataSink extends DataSink {
             throw new AnalysisException("Unsupported input format type: " + format);
         }
         return fileFormatType;
+    }
+
+    protected TFileCompressType getTFileCompressType(String compressType) {
+        if ("snappy".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.SNAPPYBLOCK;
+        } else if ("lz4".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.LZ4BLOCK;
+        } else if ("lzo".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.LZO;
+        } else if ("zlib".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.ZLIB;
+        } else if ("zstd".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.ZSTD;
+        } else if ("uncompressed".equalsIgnoreCase(compressType)) {
+            return TFileCompressType.PLAIN;
+        } else {
+            // try to use plain type to decompress parquet or orc file
+            return TFileCompressType.PLAIN;
+        }
     }
 
     /**
