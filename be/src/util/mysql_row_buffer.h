@@ -84,7 +84,7 @@ public:
     int push_null();
 
     template <typename DateType>
-    int push_vec_datetime(DateType& data);
+    int push_vec_datetime(DateType& data, int scale = -1);
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.

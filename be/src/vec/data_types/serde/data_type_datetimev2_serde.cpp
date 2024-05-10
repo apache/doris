@@ -187,7 +187,7 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
-    if (UNLIKELY(0 != result.push_vec_datetime(date_val))) {
+    if (UNLIKELY(0 != result.push_vec_datetime(date_val, scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
     if (_nesting_level >= 2) {
