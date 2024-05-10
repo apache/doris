@@ -1745,21 +1745,6 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # AvxToNeon
 build_avx2neon() {
     check_if_source_exist "${AVX2NEON_SOURCE}"
@@ -1919,7 +1904,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
         streamvbyte
