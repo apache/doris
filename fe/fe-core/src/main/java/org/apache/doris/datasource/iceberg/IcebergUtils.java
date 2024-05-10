@@ -46,6 +46,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
@@ -62,6 +63,7 @@ import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.LocationUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -583,5 +585,23 @@ public class IcebergUtils {
             return snapshot.summary().getOrDefault(
                     TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
         }
+    }
+
+    public static String dataLocation(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)) {
+            throw new NotSupportedException(
+                "Table " + table.name() + " specifies " + properties.get(TableProperties.WRITE_LOCATION_PROVIDER_IMPL)
+                    + " as a location provider. "
+                    + "Writing to Iceberg tables with custom location provider is not supported.");
+        }
+        String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
+        if (dataLocation == null) {
+            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            if (dataLocation == null) {
+                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+            }
+        }
+        return dataLocation;
     }
 }

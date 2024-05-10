@@ -88,13 +88,16 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());
 
+        // schema
         tSink.setSchemaJson(SchemaParser.toJson(icebergTable.schema()));
 
+        // partition spec
         if (icebergTable.spec().isPartitioned()) {
             tSink.setPartitionSpecsJson(Maps.transformValues(icebergTable.specs(), PartitionSpecParser::toJson));
             tSink.setPartitionSpecId(icebergTable.spec().specId());
         }
 
+        // sort order
         if (icebergTable.sortOrder().isSorted()) {
             SortOrder sortOrder = icebergTable.sortOrder();
             Set<Integer> baseColumnFieldIds = icebergTable.schema().columns().stream()
@@ -123,7 +126,8 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         props.putAll(catalogProps);
         tSink.setHadoopConfig(props);
 
-        LocationPath locationPath = new LocationPath(icebergTable.location(), catalogProps);
+        // location
+        LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(icebergTable.location());
         tSink.setFileType(locationPath.getTFileTypeForBE());
