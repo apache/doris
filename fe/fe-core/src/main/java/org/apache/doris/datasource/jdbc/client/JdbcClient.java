@@ -38,7 +38,9 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
@@ -211,6 +213,58 @@ public abstract class JdbcClient {
         } finally {
             close(stmt, conn);
         }
+    }
+
+    /**
+     * Execute query via jdbc
+     *
+     * @param query, the query string
+     * @return List<Column>
+     */
+    public List<Column> getColumnsFromQuery(String query) {
+        Connection conn = getConnection();
+        List<Column> columns = Lists.newArrayList();
+        try {
+            PreparedStatement pstmt = conn.prepareStatement(query);
+            ResultSetMetaData metaData = pstmt.getMetaData();
+            if (metaData == null) {
+                throw new JdbcClientException("Query not supported: Failed to get ResultSetMetaData from query: %s",
+                        query);
+            } else {
+                List<JdbcFieldSchema> schemas = getSchemaFromResultSetMetaData(metaData);
+                for (JdbcFieldSchema schema : schemas) {
+                    columns.add(new Column(schema.getColumnName(), jdbcTypeToDoris(schema), true, null, true, null,
+                            true, -1));
+                }
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to get columns from query: %s", e, query);
+        } finally {
+            close(conn);
+        }
+        return columns;
+    }
+
+
+    /**
+     * Get schema from ResultSetMetaData
+     *
+     * @param metaData, the ResultSetMetaData
+     * @return List<JdbcFieldSchema>
+     */
+    public List<JdbcFieldSchema> getSchemaFromResultSetMetaData(ResultSetMetaData metaData) throws SQLException {
+        List<JdbcFieldSchema> schemas = Lists.newArrayList();
+        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+            JdbcFieldSchema field = new JdbcFieldSchema();
+            field.setColumnName(metaData.getColumnName(i));
+            field.setDataType(metaData.getColumnType(i));
+            field.setDataTypeName(metaData.getColumnTypeName(i));
+            field.setColumnSize(metaData.getColumnDisplaySize(i));
+            field.setDecimalDigits(metaData.getScale(i));
+            field.setNumPrecRadix(metaData.getPrecision(i));
+            schemas.add(field);
+        }
+        return schemas;
     }
 
     // This part used to process meta-information of database, table and column.
