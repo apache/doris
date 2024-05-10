@@ -158,9 +158,11 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
-    std::vector<int> get_topn_filter_source_node_ids() {
+    const std::vector<int>& get_topn_filter_source_node_ids() {
         return _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids;
     }
+
+    virtual bool storage_no_merge() { return false; }
 
 protected:
     template <typename LocalStateType>
@@ -175,8 +177,6 @@ protected:
     }
     virtual bool _should_push_down_common_expr() { return false; }
 
-    virtual bool _storage_no_merge() { return false; }
-    virtual bool _push_down_topn() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;

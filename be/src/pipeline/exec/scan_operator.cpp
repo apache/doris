@@ -190,7 +190,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
-    if (!_push_down_topn()) {
+    if (!storage_no_merge()) {
         RETURN_IF_ERROR(_get_topn_filters(state));
     }
 
@@ -358,7 +358,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             }
 
             if (pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE &&
-                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
+                (_is_key_column(slot->col_name()) || storage_no_merge())) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {

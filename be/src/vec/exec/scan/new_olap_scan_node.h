@@ -86,10 +86,10 @@ protected:
     PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
     bool _should_push_down_common_expr() override {
-        return _state->enable_common_expr_pushdown() && _storage_no_merge();
+        return _state->enable_common_expr_pushdown() && storage_no_merge();
     }
 
-    bool _storage_no_merge() override {
+    bool storage_no_merge() override {
         return (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
                 (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
                  _olap_scan_node.__isset.enable_unique_key_merge_on_write &&

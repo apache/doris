@@ -217,10 +217,10 @@ Status OlapScanLocalState::_should_push_down_function_filter(
 }
 
 bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+    return state()->enable_common_expr_pushdown() && storage_no_merge();
 }
 
-bool OlapScanLocalState::_storage_no_merge() {
+bool OlapScanLocalState::storage_no_merge() {
     auto& p = _parent->cast<OlapScanOperatorX>();
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&

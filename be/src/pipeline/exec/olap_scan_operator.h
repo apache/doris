@@ -78,9 +78,7 @@ private:
 
     bool _should_push_down_common_expr() override;
 
-    bool _storage_no_merge() override;
-
-    bool _push_down_topn() override { return true; }
+    bool storage_no_merge() override;
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
