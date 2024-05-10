@@ -438,7 +438,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 found = true;
             }
             if (hasColPos) {
-                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
                     lastColIndex = i;
                 }
             } else {
@@ -553,7 +553,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             if (hasColPos) {
-                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
                     lastColIndex = i;
                 }
             } else {
@@ -800,7 +800,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (hasPos) {
                 // after the field
-                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
             }
@@ -1086,7 +1086,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (hasPos) {
                 // after the field
-                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
             } else {
