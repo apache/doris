@@ -391,6 +391,8 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_times = 3;
     // optional for getting latest offsets of partitons
     repeated int32 partition_id_for_latest_offsets = 4;
+    // optional for getting real offset for end/beginning flag
+    repeated PIntegerPair offset_flags = 5;
 };
 
 message PProxyRequest {
