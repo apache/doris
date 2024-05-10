@@ -763,6 +763,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     }
 
     auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
+    DorisMetrics::instance()->single_compaction_request_total->increment(1);
     auto st = compaction->prepare_compact();
 
     auto clean_single_replica_compaction = [tablet, this]() {
