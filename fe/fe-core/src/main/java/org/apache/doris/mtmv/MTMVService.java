@@ -177,8 +177,7 @@ public class MTMVService implements EventListener {
         }
         TableEvent tableEvent = (TableEvent) event;
         LOG.info("processEvent, Event: {}", event);
-        // TODO: 2024/5/8 should not return parent mvs
-        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTable(
+        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
                 new BaseTableInfo(tableEvent.getTableId(), tableEvent.getDbId(), tableEvent.getCtlId()));
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {
