@@ -266,7 +266,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
 
             if (enable_profile) {
-                for (auto& pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
+                for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                     TDetailedReportParams detailed_param;
                     detailed_param.__isset.fragment_instance_id = false;
                     detailed_param.__isset.profile = true;

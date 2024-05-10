@@ -128,7 +128,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             offset_--;
         }
 
-        if (!current->isLast()) {
+        if (!current->is_last()) {
             current->next();
             priority_queue_.push(current);
         }

@@ -42,79 +42,6 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-/**
- * PipelineTaskState indicates all possible states of a pipeline task.
- * A FSM is described as below:
- *
- *                 |-----------------------------------------------------|
- *                 |---|                  transfer 2    transfer 3       |   transfer 4
- *                     |-------> BLOCKED ------------|                   |---------------------------------------> CANCELED
- *              |------|                             |                   | transfer 5           transfer 6|
- * NOT_READY ---| transfer 0                         |-----> RUNNABLE ---|---------> PENDING_FINISH ------|
- *              |                                    |          ^        |                      transfer 7|
- *              |------------------------------------|          |--------|---------------------------------------> FINISHED
- *                transfer 1                                   transfer 9          transfer 8
- * BLOCKED include BLOCKED_FOR_DEPENDENCY, BLOCKED_FOR_SOURCE and BLOCKED_FOR_SINK.
- *
- * transfer 0 (NOT_READY -> BLOCKED): this pipeline task has some incomplete dependencies
- * transfer 1 (NOT_READY -> RUNNABLE): this pipeline task has no incomplete dependencies
- * transfer 2 (BLOCKED -> RUNNABLE): runnable condition for this pipeline task is met (e.g. get a new block from rpc)
- * transfer 3 (RUNNABLE -> BLOCKED): runnable condition for this pipeline task is not met (e.g. sink operator send a block by RPC and wait for a response)
- * transfer 4 (RUNNABLE -> CANCELED): current fragment is cancelled
- * transfer 5 (RUNNABLE -> PENDING_FINISH): this pipeline task completed but wait for releasing resources hold by itself
- * transfer 6 (PENDING_FINISH -> CANCELED): current fragment is cancelled
- * transfer 7 (PENDING_FINISH -> FINISHED): this pipeline task completed and resources hold by itself have been released already
- * transfer 8 (RUNNABLE -> FINISHED): this pipeline task completed and no resource need to be released
- * transfer 9 (RUNNABLE -> RUNNABLE): this pipeline task yields CPU and re-enters the runnable queue if it is runnable and has occupied CPU for a max time slice
- */
-enum class PipelineTaskState : uint8_t {
-    NOT_READY = 0, // do not prepare
-    BLOCKED_FOR_DEPENDENCY = 1,
-    BLOCKED_FOR_SOURCE = 2,
-    BLOCKED_FOR_SINK = 3,
-    RUNNABLE = 4, // can execute
-    PENDING_FINISH =
-            5, // compute task is over, but still hold resource. like some scan and sink task
-    FINISHED = 6,
-    CANCELED = 7,
-    BLOCKED_FOR_RF = 8,
-};
-
-inline const char* get_state_name(PipelineTaskState idx) {
-    switch (idx) {
-    case PipelineTaskState::NOT_READY:
-        return "NOT_READY";
-    case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
-        return "BLOCKED_FOR_DEPENDENCY";
-    case PipelineTaskState::BLOCKED_FOR_SOURCE:
-        return "BLOCKED_FOR_SOURCE";
-    case PipelineTaskState::BLOCKED_FOR_SINK:
-        return "BLOCKED_FOR_SINK";
-    case PipelineTaskState::RUNNABLE:
-        return "RUNNABLE";
-    case PipelineTaskState::PENDING_FINISH:
-        return "PENDING_FINISH";
-    case PipelineTaskState::FINISHED:
-        return "FINISHED";
-    case PipelineTaskState::CANCELED:
-        return "CANCELED";
-    case PipelineTaskState::BLOCKED_FOR_RF:
-        return "BLOCKED_FOR_RF";
-    }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
-}
-
-inline bool is_final_state(PipelineTaskState idx) {
-    switch (idx) {
-    case PipelineTaskState::FINISHED:
-    case PipelineTaskState::CANCELED:
-        return true;
-    default:
-        return false;
-    }
-}
-
 class TaskQueue;
 class PriorityTaskQueue;
 class Dependency;
@@ -157,13 +84,12 @@ public:
     }
 
     void set_previous_core_id(int id) {
-        if (id == _previous_schedule_id) {
-            return;
+        if (id != _previous_schedule_id) {
+            if (_previous_schedule_id != -1) {
+                COUNTER_UPDATE(_core_change_times, 1);
+            }
+            _previous_schedule_id = id;
         }
-        if (_previous_schedule_id != -1) {
-            COUNTER_UPDATE(_core_change_times, 1);
-        }
-        _previous_schedule_id = id;
     }
 
     void finalize();
@@ -212,12 +138,10 @@ public:
 
     OperatorXPtr source() const { return _source; }
 
-    OperatorXs operatorXs() { return _operators; }
-
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
-        if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
+        if (!_finished && _blocked_dep) {
             _blocked_dep->set_ready();
             _blocked_dep = nullptr;
         }
@@ -259,9 +183,6 @@ public:
     }
 
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    PipelineTaskState get_state() const { return _cur_state; }
-    void set_state(PipelineTaskState state);
-    TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
@@ -287,8 +208,8 @@ public:
             LOG(INFO) << "query id|instanceid " << print_id(_state->query_id()) << "|"
                       << print_id(_state->fragment_instance_id())
                       << " current pipeline exceed run time "
-                      << config::enable_debug_log_timeout_secs << " seconds. Task state "
-                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
+                      << config::enable_debug_log_timeout_secs << " seconds. "
+                      << "/n task detail:" << debug_string();
         }
     }
 
@@ -349,14 +270,12 @@ private:
 
     uint32_t _index;
     PipelinePtr _pipeline;
-    bool _dependency_finish = false;
     bool _has_exceed_timeout = false;
     bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
-    PipelineTaskState _cur_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
     TaskQueue* _task_queue = nullptr;
@@ -384,18 +303,9 @@ private:
     RuntimeProfile::Counter* _sink_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _block_counts = nullptr;
-    RuntimeProfile::Counter* _block_by_source_counts = nullptr;
-    RuntimeProfile::Counter* _block_by_sink_counts = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;
-    MonotonicStopWatch _wait_source_watcher;
-    MonotonicStopWatch _wait_bf_watcher;
-    RuntimeProfile::Counter* _wait_bf_timer = nullptr;
-    RuntimeProfile::Counter* _wait_bf_counts = nullptr;
-    MonotonicStopWatch _wait_sink_watcher;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer = nullptr;
-    RuntimeProfile::Counter* _wait_dependency_counts = nullptr;
-    RuntimeProfile::Counter* _pending_finish_counts = nullptr;
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts = nullptr;
     RuntimeProfile::Counter* _core_change_times = nullptr;
@@ -415,6 +325,7 @@ private:
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
     std::shared_ptr<BasicSharedState> _sink_shared_state;
+    std::vector<TScanRangeParams> _scan_ranges;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _le_state_map;
     int _task_idx;
@@ -428,6 +339,7 @@ private:
     std::mutex _release_lock;
 
     std::atomic<bool> _running {false};
+    std::atomic<bool> _eos {false};
 };
 
 } // namespace doris::pipeline

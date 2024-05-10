@@ -1236,7 +1236,6 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
         }
-        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
     if (transient_rs_writer) {
@@ -1368,13 +1367,19 @@ Status BaseTablet::check_rowid_conversion(
 }
 
 // The caller should hold _rowset_update_lock and _meta_lock lock.
-Status BaseTablet::update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
-                                                     const RowsetSharedPtr& rowset) {
-    DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
-        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
-            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
+Status BaseTablet::update_delete_bitmap_without_lock(
+        const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
+        const std::vector<RowsetSharedPtr>* specified_base_rowsets) {
+    DBUG_EXECUTE_IF("BaseTablet.update_delete_bitmap_without_lock.random_failed", {
+        auto rnd = rand() % 100;
+        auto percent = dp->param("percent", 0.1);
+        if (rnd < (100 * percent)) {
+            LOG(WARNING) << "BaseTablet.update_delete_bitmap_without_lock.random_failed";
             return Status::InternalError(
                     "debug tablet update delete bitmap without lock random failed");
+        } else {
+            LOG(INFO) << "BaseTablet.update_delete_bitmap_without_lock.random_failed not triggered"
+                      << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
     int64_t cur_version = rowset->end_version();
@@ -1387,12 +1392,21 @@ Status BaseTablet::update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
                   << self->tablet_id() << " cur max_version: " << cur_version;
         return Status::OK();
     }
-    RowsetIdUnorderedSet cur_rowset_ids;
-    RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
+
+    // calculate delete bitmap between segments if necessary.
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(self->tablet_id());
     RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
 
-    std::vector<RowsetSharedPtr> specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
+    // get all base rowsets to calculate on
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    RowsetIdUnorderedSet cur_rowset_ids;
+    if (specified_base_rowsets == nullptr) {
+        RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
+        specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
+    } else {
+        specified_rowsets = *specified_base_rowsets;
+    }
+
     OlapStopWatch watch;
     auto token = self->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
@@ -1447,6 +1461,44 @@ std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_
                        std::back_inserter(rowsets), [](auto& kv) { return kv.second; });
     }
     return rowsets;
+}
+
+void BaseTablet::calc_consecutive_empty_rowsets(
+        std::vector<RowsetSharedPtr>* empty_rowsets,
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, int limit) {
+    int len = candidate_rowsets.size();
+    for (int i = 0; i < len - 1; ++i) {
+        auto rowset = candidate_rowsets[i];
+        auto next_rowset = candidate_rowsets[i + 1];
+
+        // identify two consecutive rowsets that are empty
+        if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
+            !rowset->rowset_meta()->has_delete_predicate() &&
+            !next_rowset->rowset_meta()->has_delete_predicate() &&
+            rowset->end_version() == next_rowset->start_version() - 1) {
+            empty_rowsets->emplace_back(rowset);
+            empty_rowsets->emplace_back(next_rowset);
+            rowset = next_rowset;
+            int next_index = i + 2;
+
+            // keep searching for consecutive empty rowsets
+            while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
+                   !candidate_rowsets[next_index]->rowset_meta()->has_delete_predicate() &&
+                   rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
+                empty_rowsets->emplace_back(candidate_rowsets[next_index]);
+                rowset = candidate_rowsets[next_index++];
+            }
+            // if the number of consecutive empty rowset reach the limit,
+            // and there are still rowsets following them
+            if (empty_rowsets->size() >= limit && next_index < len) {
+                return;
+            } else {
+                // current rowset is not empty, start searching from that rowset in the next
+                i = next_index - 1;
+                empty_rowsets->clear();
+            }
+        }
+    }
 }
 
 } // namespace doris

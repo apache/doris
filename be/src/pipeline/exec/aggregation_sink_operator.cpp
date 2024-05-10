@@ -17,6 +17,7 @@
 
 #include "aggregation_sink_operator.h"
 
+#include <memory>
 #include <string>
 
 #include "pipeline/exec/operator.h"
@@ -45,16 +46,7 @@ namespace doris::pipeline {
 /// is in a random order. This means that we assume that the reduction factor will
 /// increase over time.
 AggSinkLocalState::AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-        : Base(parent, state),
-          _hash_table_compute_timer(nullptr),
-          _hash_table_input_counter(nullptr),
-          _build_timer(nullptr),
-          _expr_timer(nullptr),
-          _serialize_key_timer(nullptr),
-          _merge_timer(nullptr),
-          _serialize_data_timer(nullptr),
-          _deserialize_data_timer(nullptr),
-          _max_row_size_counter(nullptr) {}
+        : Base(parent, state) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -110,24 +102,25 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     } else {
         _init_hash_method(Base::_shared_state->probe_expr_ctxs);
 
-        std::visit(vectorized::Overload {[&](std::monostate& arg) {
-                                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                                    "uninited hash table");
-                                         },
-                                         [&](auto& agg_method) {
-                                             using HashTableType =
-                                                     std::decay_t<decltype(agg_method)>;
-                                             using KeyType = typename HashTableType::Key;
+        std::visit(vectorized::Overload {
+                           [&](std::monostate& arg) {
+                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                      "uninited hash table");
+                           },
+                           [&](auto& agg_method) {
+                               using HashTableType = std::decay_t<decltype(agg_method)>;
+                               using KeyType = typename HashTableType::Key;
 
-                                             /// some aggregate functions (like AVG for decimal) have align issues.
-                                             Base::_shared_state->aggregate_data_container.reset(
-                                                     new vectorized::AggregateDataContainer(
-                                                             sizeof(KeyType),
-                                                             ((p._total_size_of_aggregate_states +
-                                                               p._align_aggregate_states - 1) /
-                                                              p._align_aggregate_states) *
-                                                                     p._align_aggregate_states));
-                                         }},
+                               /// some aggregate functions (like AVG for decimal) have align issues.
+                               Base::_shared_state->aggregate_data_container =
+                                       std::make_unique<vectorized::AggregateDataContainer>(
+
+                                               sizeof(KeyType),
+                                               ((p._total_size_of_aggregate_states +
+                                                 p._align_aggregate_states - 1) /
+                                                p._align_aggregate_states) *
+                                                       p._align_aggregate_states);
+                           }},
                    _agg_data->method_variant);
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
@@ -572,79 +565,15 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
 }
 
 void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    DCHECK(probe_exprs.size() >= 1);
-
-    using Type = vectorized::AggregatedDataVariants::Type;
-    Type t(Type::serialized);
-
-    if (probe_exprs.size() == 1) {
-        auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        PrimitiveType type = probe_exprs[0]->root()->result_type();
-        switch (type) {
-        case TYPE_TINYINT:
-        case TYPE_BOOLEAN:
-        case TYPE_SMALLINT:
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATETIMEV2:
-        case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
-            size_t size = get_primitive_type_size(type);
-            if (size == 1) {
-                t = Type::int8_key;
-            } else if (size == 2) {
-                t = Type::int16_key;
-            } else if (size == 4) {
-                t = Type::int32_key;
-            } else if (size == 8) {
-                t = Type::int64_key;
-            } else if (size == 16) {
-                t = Type::int128_key;
-            } else {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "meet invalid type size, size={}, type={}", size,
-                                type_to_string(type));
-            }
-            break;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            t = Type::string_key;
-            break;
-        }
-        default:
-            t = Type::serialized;
-        }
-
-        _agg_data->init(
-                get_hash_key_type_with_phase(
-                        t, !Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase),
-                is_nullable);
-    } else {
-        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
-                                                                          probe_exprs)) {
-            _agg_data->init(Type::serialized);
-        }
-    }
+    init_agg_hash_method(_agg_data, probe_exprs,
+                         Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase);
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                    const DescriptorTbl& descs, bool require_bucket_distribution)
         : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
@@ -752,9 +681,9 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
 Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
-        _aggregate_evaluators[i]->set_version(state->be_exec_version());
+    for (auto& _aggregate_evaluator : _aggregate_evaluators) {
+        RETURN_IF_ERROR(_aggregate_evaluator->open(state));
+        _aggregate_evaluator->set_version(state->be_exec_version());
     }
 
     return Status::OK();

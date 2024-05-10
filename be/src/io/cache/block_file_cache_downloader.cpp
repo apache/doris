@@ -113,7 +113,11 @@ void FileCacheBlockDownloader::polling_download_task() {
         if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() -
                                                              task.atime)
                     .count() < hot_interval) {
-            download_blocks(task);
+            auto st = _workers->submit_func(
+                    [this, task_ = std::move(task)]() mutable { download_blocks(task_); });
+            if (!st.ok()) {
+                LOG(WARNING) << "submit download blocks failed: " << st;
+            }
         }
     }
 }
@@ -209,7 +213,8 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
     for (size_t i = 0; i < task_num; i++) {
         size_t offset = meta.offset + i * one_single_task_size;
-        size_t size = std::min(one_single_task_size, meta.download_size - offset);
+        size_t size =
+                std::min(one_single_task_size, static_cast<size_t>(meta.download_size - offset));
         size_t bytes_read;
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache

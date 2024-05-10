@@ -176,4 +176,9 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             equalSlot.ifPresent(slotSlotPair -> fdBuilder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
         }
     }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

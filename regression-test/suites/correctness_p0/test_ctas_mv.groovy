@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_ctas_mv") {
-    sql """set enable_nereids_planner=false;"""
     sql """
         drop table if exists test_table_t1;
     """

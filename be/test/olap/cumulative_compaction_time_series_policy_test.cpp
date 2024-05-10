@@ -214,6 +214,58 @@ public:
         rs_metas->push_back(ptr5);
     }
 
+    void init_all_rs_meta_empty_nonoverlapping(std::vector<RowsetMetaSharedPtr>* rs_metas) {
+        RowsetMetaSharedPtr ptr1(new RowsetMeta());
+        init_rs_meta(ptr1, 0, 1);
+        ptr1->set_total_disk_size(1 * 1024);
+        rs_metas->push_back(ptr1);
+
+        RowsetMetaSharedPtr ptr2(new RowsetMeta());
+        init_rs_meta(ptr2, 2, 3);
+        ptr2->set_total_disk_size(2 * 1024);
+        rs_metas->push_back(ptr2);
+
+        RowsetMetaSharedPtr ptr3(new RowsetMeta());
+        init_rs_meta(ptr3, 4, 4);
+        ptr3->set_num_segments(0);
+        rs_metas->push_back(ptr3);
+
+        RowsetMetaSharedPtr ptr4(new RowsetMeta());
+        init_rs_meta(ptr4, 5, 5);
+        ptr4->set_num_segments(0);
+        rs_metas->push_back(ptr4);
+
+        RowsetMetaSharedPtr ptr5(new RowsetMeta());
+        init_rs_meta(ptr5, 6, 6);
+        ptr5->set_num_segments(0);
+        rs_metas->push_back(ptr5);
+
+        RowsetMetaSharedPtr ptr6(new RowsetMeta());
+        init_rs_meta(ptr6, 7, 7);
+        ptr6->set_num_segments(0);
+        rs_metas->push_back(ptr6);
+
+        RowsetMetaSharedPtr ptr7(new RowsetMeta());
+        init_rs_meta(ptr7, 8, 8);
+        ptr7->set_num_segments(0);
+        rs_metas->push_back(ptr7);
+
+        RowsetMetaSharedPtr ptr8(new RowsetMeta());
+        init_rs_meta(ptr8, 9, 9);
+        ptr8->set_num_segments(0);
+        rs_metas->push_back(ptr8);
+
+        RowsetMetaSharedPtr ptr9(new RowsetMeta());
+        init_rs_meta(ptr9, 10, 10);
+        ptr9->set_num_segments(0);
+        rs_metas->push_back(ptr9);
+
+        RowsetMetaSharedPtr ptr10(new RowsetMeta());
+        init_rs_meta(ptr10, 11, 11);
+        ptr10->set_total_disk_size(2 * 1024);
+        rs_metas->push_back(ptr10);
+    }
+
     void init_rs_meta_pick_empty(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 1);
@@ -560,6 +612,34 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     EXPECT_EQ(3, compaction_score);
     EXPECT_EQ(5, last_delete_version.first);
     EXPECT_EQ(5, last_delete_version.second);
+}
+
+TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_empty_rowsets) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_all_rs_meta_empty_nonoverlapping(&rs_metas);
+
+    for (auto& rowset : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
+    }
+
+    TabletSharedPtr _tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY));
+    static_cast<void>(_tablet->init());
+    _tablet->calculate_cumulative_point();
+
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    EXPECT_EQ(7, input_rowsets.size());
+    EXPECT_EQ(-1, last_delete_version.first);
+    EXPECT_EQ(-1, last_delete_version.second);
 }
 
 } // namespace doris

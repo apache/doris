@@ -39,6 +39,7 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
@@ -417,6 +418,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setWaitFullBlockScheduleTimes(context.getSessionVariable().getWaitFullBlockScheduleTimes());
+        this.queryOptions.setMysqlRowBinaryFormat(
+                    context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
     }
 
     public ConnectContext getConnectContext() {
@@ -1276,7 +1279,10 @@ public class Coordinator implements CoordInterface {
     private void updateCommitInfos(List<TTabletCommitInfo> commitInfos) {
         lock.lock();
         try {
-            this.commitInfos.addAll(commitInfos);
+            // in pipelinex, the commit info may be duplicate, so we remove the duplicate ones
+            Map<Pair<Long, Long>, TTabletCommitInfo> commitInfoMap = Maps.newHashMap();
+            commitInfos.forEach(info -> commitInfoMap.put(Pair.of(info.getBackendId(), info.getTabletId()), info));
+            this.commitInfos.addAll(commitInfoMap.values());
         } finally {
             lock.unlock();
         }

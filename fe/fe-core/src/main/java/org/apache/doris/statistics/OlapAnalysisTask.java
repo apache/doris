@@ -33,6 +33,8 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
@@ -120,7 +122,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             long rowsToSample = pair.second;
             Map<String, String> params = new HashMap<>();
             params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+            params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
             params.put("catalogId", String.valueOf(catalog.getId()));
             params.put("catalogName", catalog.getName());
             params.put("dbId", String.valueOf(db.getId()));
@@ -206,18 +208,59 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return resultRow;
     }
 
+    protected void doFull() throws Exception {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Will do full collection for column {}", col.getName());
+        }
+        if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
+            doPartitionTable();
+        } else {
+            doNonPartitionTable();
+        }
+    }
+
     /**
      * 1. Get stats of each partition
      * 2. insert partition in batch
      * 3. calculate column stats based on partition stats
      */
-    protected void doFull() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Will do full collection for column {}", col.getName());
+    protected void doPartitionTable() throws Exception {
+        Map<String, String> params = buildSqlParams();
+        Set<String> partitionNames = tbl.getPartitionNames();
+        List<String> sqls = Lists.newArrayList();
+        int count = 0;
+        for (String part : partitionNames) {
+            params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
+            params.put("partitionInfo", "partition " + part);
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
+            count++;
+            if (count == PARTITION_BATCH_SIZE) {
+                String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+                        + Joiner.on(" UNION ALL ").join(sqls);
+                runInsert(sql);
+                sqls.clear();
+                count = 0;
+            }
         }
+        if (count > 0) {
+            String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+                    + Joiner.on(" UNION ALL ").join(sqls);
+            runInsert(sql);
+        }
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+    }
+
+    protected void doNonPartitionTable() {
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+    }
+
+    protected Map<String, String> buildSqlParams() {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
@@ -229,8 +272,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+        return params;
     }
 
     protected String getIndex() {

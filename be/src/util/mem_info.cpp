@@ -61,11 +61,9 @@ bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
         [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
-int64_t MemInfo::_s_physical_mem = -1;
-int64_t MemInfo::_s_mem_limit = -1;
-std::string MemInfo::_s_mem_limit_str = "";
-int64_t MemInfo::_s_soft_mem_limit = -1;
-std::string MemInfo::_s_soft_mem_limit_str = "";
+std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
+std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
+std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
@@ -75,11 +73,10 @@ std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 std::atomic<int64_t> MemInfo::_s_sys_mem_available = -1;
-std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
-int64_t MemInfo::_s_process_minor_gc_size = -1;
-int64_t MemInfo::_s_process_full_gc_size = -1;
+std::atomic<int64_t> MemInfo::_s_process_minor_gc_size = -1;
+std::atomic<int64_t> MemInfo::_s_process_full_gc_size = -1;
 std::mutex MemInfo::je_purge_dirty_pages_lock;
 std::condition_variable MemInfo::je_purge_dirty_pages_cv;
 std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
@@ -92,7 +89,11 @@ void MemInfo::refresh_allocator_mem() {
     // the current epoch number, which might be useful to log as a sanity check.
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
+#ifdef USE_JEMALLOC_HOOK
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
+#else
+    mallctl("epoch", &epoch, &sz, &epoch, sz);
+#endif
 
     // https://jemalloc.net/jemalloc.3.html
     // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
@@ -378,11 +379,13 @@ void MemInfo::refresh_proc_meminfo() {
     while (meminfo.good() && !meminfo.eof()) {
         getline(meminfo, line);
         std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
-        if (fields.size() < 2) continue;
+        if (fields.size() < 2) {
+            continue;
+        }
         std::string key = fields[0].substr(0, fields[0].size() - 1);
 
         StringParser::ParseResult result;
-        int64_t mem_value =
+        auto mem_value =
                 StringParser::string_to_int<int64_t>(fields[1].data(), fields[1].size(), &result);
 
         if (result == StringParser::PARSE_SUCCESS) {
@@ -393,58 +396,76 @@ void MemInfo::refresh_proc_meminfo() {
             }
         }
     }
-    if (meminfo.is_open()) meminfo.close();
+    if (meminfo.is_open()) {
+        meminfo.close();
+    }
 
+    // 1. calculate physical_mem
+    int64_t physical_mem = -1;
+    int64_t cgroup_mem_limit = -1;
+    physical_mem = _mem_info_bytes["MemTotal"];
+    Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
+    if (status.ok() && cgroup_mem_limit > 0) {
+        // In theory, always cgroup_mem_limit < physical_mem
+        physical_mem = std::min(physical_mem, cgroup_mem_limit);
+    }
+
+    if (physical_mem <= 0) {
+        LOG(WARNING)
+                << "Could not determine amount of physical memory on this machine, physical_mem: "
+                << physical_mem;
+    }
+
+    // 2. if physical_mem changed, refresh mem limit and gc size.
+    if (physical_mem > 0 && _s_physical_mem.load(std::memory_order_relaxed) != physical_mem) {
+        _s_physical_mem.store(physical_mem);
+
+        bool is_percent = true;
+        _s_mem_limit.store(
+                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent));
+        if (_s_mem_limit <= 0) {
+            LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+        }
+        if (_s_mem_limit > _s_physical_mem) {
+            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                         << " exceeds physical memory of "
+                         << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                         << ". Using physical memory instead";
+            _s_mem_limit.store(_s_physical_mem);
+        }
+        _s_soft_mem_limit.store(int64_t(_s_mem_limit * config::soft_mem_limit_frac));
+
+        _s_process_minor_gc_size.store(ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1,
+                                                                 _s_mem_limit, &is_percent));
+        _s_process_full_gc_size.store(ParseUtil::parse_mem_spec(config::process_full_gc_size, -1,
+                                                                _s_mem_limit, &is_percent));
+    }
+
+    // 3. refresh process available memory
+    int64_t mem_available = -1;
+    int64_t cgroup_mem_usage = 0;
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
-        _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
-        _s_sys_mem_available_str = PrettyPrinter::print(
-                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
-#ifdef ADDRESS_SANITIZER
-        _s_sys_mem_available_str =
-                "[ASAN]" +
-                PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
-                                     TUnit::BYTES);
-#else
-        _s_sys_mem_available_str = PrettyPrinter::print(
-                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
-#endif
+        mem_available = _mem_info_bytes["MemAvailable"];
+    }
+    status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
+    if (status.ok() && cgroup_mem_usage > 0 && cgroup_mem_limit > 0) {
+        if (mem_available < 0) {
+            mem_available = cgroup_mem_limit - cgroup_mem_usage;
+        } else {
+            mem_available = std::min(mem_available, cgroup_mem_limit - cgroup_mem_usage);
+        }
+    }
+    if (mem_available < 0) {
+        LOG(WARNING) << "Failed to get available memory, set MAX_INT.";
+        mem_available = std::numeric_limits<int64_t>::max();
+    }
+    if (_s_sys_mem_available.load(std::memory_order_relaxed) != mem_available) {
+        _s_sys_mem_available.store(mem_available);
     }
 }
 
 void MemInfo::init() {
     refresh_proc_meminfo();
-    _s_physical_mem = _mem_info_bytes["MemTotal"];
-
-    int64_t cgroup_mem_limit = 0;
-    Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
-    if (status.ok() && cgroup_mem_limit > 0) {
-        _s_physical_mem = std::min(_s_physical_mem, cgroup_mem_limit);
-    }
-
-    if (_s_physical_mem == -1) {
-        LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
-    }
-
-    bool is_percent = true;
-    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-    if (_s_mem_limit <= 0) {
-        LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-    }
-    if (_s_mem_limit > _s_physical_mem) {
-        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
-                     << " exceeds physical memory of "
-                     << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-                     << ". Using physical memory instead";
-        _s_mem_limit = _s_physical_mem;
-    }
-    _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_soft_mem_limit = int64_t(_s_mem_limit * config::soft_mem_limit_frac);
-    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
-
-    _s_process_minor_gc_size =
-            ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1, _s_mem_limit, &is_percent);
-    _s_process_full_gc_size =
-            ParseUtil::parse_mem_spec(config::process_full_gc_size, -1, _s_mem_limit, &is_percent);
 
     std::string line;
     int64_t _s_vm_min_free_kbytes = 0;
@@ -506,8 +527,10 @@ void MemInfo::init() {
                   << std::endl;
     }
 
-    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-              << ", Mem Limit: " << _s_mem_limit_str
+    LOG(INFO) << "Physical Memory: " << _mem_info_bytes["MemTotal"]
+              << ", BE Available Physical Memory(consider cgroup): "
+              << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES) << ", Mem Limit: "
+              << PrettyPrinter::print(_s_mem_limit.load(std::memory_order_relaxed), TUnit::BYTES)
               << ", origin config value: " << config::mem_limit
               << ", System Mem Available Min Reserve: "
               << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
@@ -528,9 +551,7 @@ void MemInfo::init() {
 
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-    _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = static_cast<int64_t>(_s_mem_limit * config::soft_mem_limit_frac);
-    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

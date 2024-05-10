@@ -59,7 +59,7 @@ triggers
 user_privileges
 views
 workload_groups
-workload_schedule_policy
+workload_policy
 
 -- !auto_default_t --
 0

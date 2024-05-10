@@ -178,6 +178,13 @@ bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
 // There maybe dead lock.
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        if (_closed_tasks == _total_tasks) {
+            // All tasks in this PipelineXFragmentContext already closed.
+            return;
+        }
+    }
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
@@ -206,6 +213,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
+            if (task->is_finished()) {
+                continue;
+            }
             task->clear_blocking_state();
         }
     }
@@ -348,7 +358,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
-    auto& pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
+    auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
     for (size_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];
@@ -707,28 +717,46 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join ? _total_instances : _num_instances);
+                is_shuffled_hash_join ? _total_instances : _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
-                ignore_data_hash_distribution);
+                ignore_data_hash_distribution,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASSTHROUGH:
-        shared_state->exchanger =
-                PassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = PassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BROADCAST:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
-        shared_state->exchanger =
-                AdaptivePassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
@@ -1510,7 +1538,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
         // After add the operation, the print out like that:
         // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
         // We can easily know the exec node execute time without child time consumed.
-        for (const auto& runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+        for (auto runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
             runtime_profile_ptr->pretty_print(&ss);
         }
 
@@ -1620,7 +1648,7 @@ PipelineFragmentContext::collect_realtime_profile_x() const {
     }
 
     // pipeline_id_to_profile is initialized in prepare stage
-    for (auto& pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
+    for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
         pipeline_profile->to_thrift(profile_ptr.get());
         res.push_back(profile_ptr);

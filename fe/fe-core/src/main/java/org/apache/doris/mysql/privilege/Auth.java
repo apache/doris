@@ -390,12 +390,13 @@ public class Auth implements Writable {
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         readLock();
         try {
-            Set<Role> roles = getRolesByUserWithLdap(currentUser);
             // currently stream load not support ip based auth, so normal should not auth temporary
             // need remove later
             if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
                 return true;
             }
+
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
                     return true;

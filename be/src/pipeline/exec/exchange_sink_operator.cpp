@@ -85,9 +85,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
-            channel_shared_ptrs.emplace_back(new vectorized::PipChannel<ExchangeSinkLocalState>(
-                    this, p._row_desc, p._dests[i].brpc_server, fragment_instance_id,
-                    p._dest_node_id));
+            channel_shared_ptrs.emplace_back(
+                    new vectorized::PipChannel(this, p._row_desc, p._dests[i].brpc_server,
+                                               fragment_instance_id, p._dest_node_id));
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  channel_shared_ptrs.size() - 1);
             channels.push_back(channel_shared_ptrs.back().get());
@@ -131,8 +131,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer<ExchangeSinkLocalState>>(
-            id, p._dest_node_id, _sender_id, _state->be_number(), state);
+    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
+                                                        _state->be_number(), state);
 
     register_channels(_sink_buffer.get());
     _queue_dependency =
@@ -410,7 +410,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
-        vectorized::PipChannel<ExchangeSinkLocalState>* current_channel =
+        vectorized::PipChannel* current_channel =
                 local_state.channels[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
@@ -494,7 +494,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel
-        vectorized::PipChannel<ExchangeSinkLocalState>* current_channel =
+        vectorized::PipChannel* current_channel =
                 local_state.channels[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
@@ -560,11 +560,9 @@ Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vec
     return Status::OK();
 }
 
-void ExchangeSinkLocalState::register_channels(
-        pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer) {
+void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : channels) {
-        ((vectorized::PipChannel<ExchangeSinkLocalState>*)channel)
-                ->register_exchange_buffer(buffer);
+        ((vectorized::PipChannel*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -638,6 +636,9 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
+        // sink won't see those filtered rows, we should compensate here
+        _state->set_num_rows_load_total(_state->num_rows_load_filtered() +
+                                        _state->num_rows_load_unselected());
     }
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
