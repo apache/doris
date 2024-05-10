@@ -93,6 +93,13 @@ public class IcebergUtils {
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     public static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
+    // nickname in flink and spark
+    public static final String WRITE_FORMAT = "write-format";
+    public static final String COMPRESSION_CODEC = "compression-codec";
+
+    // nickname in spark
+    public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
+
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
             return null;
@@ -578,20 +585,32 @@ public class IcebergUtils {
     }
 
     public static String getFileFormat(Table table) {
-        return table.properties().getOrDefault(
-                TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
     }
 
     public static String getFileCompress(Table table) {
+        Map<String, String> properties = table.properties();
+        if (properties.containsKey(COMPRESSION_CODEC)) {
+            return properties.get(COMPRESSION_CODEC);
+        } else if (properties.containsKey(SPARK_SQL_COMPRESSION_CODEC)) {
+            return properties.get(SPARK_SQL_COMPRESSION_CODEC);
+        }
         String fileFormat = getFileFormat(table);
         if (fileFormat.equalsIgnoreCase("parquet")) {
-            table.properties().getOrDefault(
+            properties.getOrDefault(
                     TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
         } else if (fileFormat.equalsIgnoreCase("orc")) {
-            table.properties().getOrDefault(
+            properties.getOrDefault(
                     TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
         } else if (fileFormat.equalsIgnoreCase("avro")) {
-            table.properties().getOrDefault(
+            properties.getOrDefault(
                     TableProperties.AVRO_COMPRESSION, TableProperties.AVRO_COMPRESSION_DEFAULT);
         }
         throw new NotSupportedException("Unsupported file format: " + fileFormat);
