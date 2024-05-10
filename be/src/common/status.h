@@ -30,34 +30,6 @@ class PStatus;
 namespace ErrorCode {
 
 // E thrift_error_name, print_stacktrace
-<<<<<<< HEAD
-#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)       \
-    TStatusError(PUBLISH_TIMEOUT, false);                \
-    TStatusError(MEM_ALLOC_FAILED, true);                \
-    TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
-    TStatusError(INVALID_ARGUMENT, false);               \
-    TStatusError(INVALID_JSON_PATH, false);              \
-    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
-    TStatusError(CORRUPTION, true);                      \
-    TStatusError(IO_ERROR, true);                        \
-    TStatusError(NOT_FOUND, true);                       \
-    TStatusError(ALREADY_EXIST, true);                   \
-    TStatusError(NOT_IMPLEMENTED_ERROR, true);           \
-    TStatusError(END_OF_FILE, false);                    \
-    TStatusError(INTERNAL_ERROR, true);                  \
-    TStatusError(RUNTIME_ERROR, true);                   \
-    TStatusError(CANCELLED, false);                      \
-    TStatusError(MEM_LIMIT_EXCEEDED, false);             \
-    TStatusError(THRIFT_RPC_ERROR, true);                \
-    TStatusError(TIMEOUT, true);                         \
-    TStatusError(TOO_MANY_TASKS, true);                  \
-    TStatusError(UNINITIALIZED, false);                  \
-    TStatusError(ABORTED, true);                         \
-    TStatusError(DATA_QUALITY_ERROR, false);             \
-    TStatusError(LABEL_ALREADY_EXISTS, true);            \
-    TStatusError(NOT_AUTHORIZED, true);                  \
-    TStatusError(HTTP_ERROR, true);
-=======
 #define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)        \
     TStatusError(PUBLISH_TIMEOUT, false);                 \
     TStatusError(MEM_ALLOC_FAILED, true);                 \
@@ -98,7 +70,6 @@ namespace ErrorCode {
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
->>>>>>> 91701ddadd ([chore](status) unify error code between thrift,pb, status.h (#34397))
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
