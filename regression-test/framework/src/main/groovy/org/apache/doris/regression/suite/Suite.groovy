@@ -1155,10 +1155,9 @@ class Suite implements GroovyInterceptable {
                     return;
                 }
                 def json = parseJson(body)
-                if (json.result.containsKey("enableStorageVault") && json.result.enableStorageVault == "true") {
+                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
                     enableStorageVault = true;
                 }
-                
         }
         return enableStorageVault;
     }
