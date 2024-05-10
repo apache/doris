@@ -383,16 +383,17 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_TRUE(create_st.ok()) << create_st;
 
         TabletSharedPtr tablet = _tablet_mgr->get_tablet(tablet_id);
-        EXPECT_TRUE(tablet != nullptr);
+        ASSERT_TRUE(tablet);
         // check dir exist
         bool dir_exist = false;
-        EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
-        EXPECT_TRUE(dir_exist);
+        Status exist_st = io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist);
+        ASSERT_TRUE(exist_st.ok()) << exist_st;
+        ASSERT_TRUE(dir_exist);
         // check meta has this tablet
         TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
         Status check_meta_st =
                 TabletMetaManager::get_meta(_data_dir, tablet_id, 3333, new_tablet_meta);
-        EXPECT_TRUE(check_meta_st == Status::OK());
+        ASSERT_TRUE(check_meta_st.ok()) << check_meta_st;
         // insert into rowset
         auto create_rowset = [=](int64_t start, int64 end) {
             auto rowset_meta = std::make_shared<RowsetMeta>();
@@ -433,9 +434,9 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     auto compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
-    EXPECT_TRUE(compact_tablets.size() == 1);
-    EXPECT_TRUE(compact_tablets[0]->tablet_id() == 10);
-    EXPECT_TRUE(score == 13);
+    ASSERT_EQ(compact_tablets.size(), 1);
+    ASSERT_EQ(compact_tablets[0]->tablet_id(), 10);
+    ASSERT_EQ(score, 13);
 
     // create 10 tablets enable single compact
     // 5 tablets do cumu compaction, 5 tablets do single compaction
@@ -447,19 +448,19 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
-    EXPECT_TRUE(compact_tablets.size() == 2);
-    EXPECT_TRUE(compact_tablets[0]->tablet_id() == 19);
-    EXPECT_TRUE(compact_tablets[1]->tablet_id() == 20);
-    EXPECT_TRUE(score == 23);
+    ASSERT_EQ(compact_tablets.size(), 2);
+    ASSERT_EQ(compact_tablets[0]->tablet_id(), 19);
+    ASSERT_EQ(compact_tablets[1]->tablet_id(), 20);
+    ASSERT_EQ(score, 23);
 
     // drop all tablets
     for (int64_t id = 1; id <= 20; ++id) {
         Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
-        EXPECT_TRUE(drop_st == Status::OK());
+        ASSERT_TRUE(drop_st.ok()) << drop_st;
     }
 
     Status trash_st = _tablet_mgr->start_trash_sweep();
-    EXPECT_TRUE(trash_st == Status::OK());
+    ASSERT_TRUE(trash_st.ok()) << trash_st;
 }
 
 } // namespace doris
