@@ -106,6 +106,7 @@ public final class MetricRepo {
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE_INVALIDITY;
     public static LongCounterMetric COUNTER_IMAGE_PUSH_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_PUSH_FAILED;
     public static LongCounterMetric COUNTER_IMAGE_CLEAN_SUCCESS;
@@ -513,6 +514,10 @@ public final class MetricRepo {
                 "counter of image failed to write");
         COUNTER_IMAGE_WRITE_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_IMAGE_WRITE_FAILED);
+
+        COUNTER_IMAGE_WRITE_INVALIDITY = new LongCounterMetric("image_write_invalidity", MetricUnit.OPERATIONS, "counter of image invalid to write");
+        COUNTER_IMAGE_WRITE_INVALIDITY.addLabel(new MetricLabel("type", "failed"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_IMAGE_WRITE_INVALIDITY);
 
         COUNTER_IMAGE_PUSH_SUCCESS = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
                 "counter of image succeeded in pushing to other frontends");

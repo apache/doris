@@ -148,7 +148,15 @@ public class Checkpoint extends MasterDaemon {
             // If failed, just return
             env = Env.getCurrentEnv();
             createStaticFieldForCkpt();
-            env.loadImage(imageDir);
+            try {
+                env.loadImage(imageDir);
+            } catch (Throwable e) {
+                LOG.error("Exception when check image validity", e);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_IMAGE_WRITE_INVALIDITY.increase(1L);
+                }
+                throw e;
+            }
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
