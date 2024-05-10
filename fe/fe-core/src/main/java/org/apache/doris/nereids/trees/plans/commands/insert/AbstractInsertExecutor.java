@@ -163,16 +163,14 @@ public abstract class AbstractInsertExecutor {
         }
     }
 
-    private boolean checkStrictMode() {
+    private void checkStrictMode() throws Exception {
         // if in strict mode, insert will fail if there are filtered rows
         if (ctx.getSessionVariable().getEnableInsertStrict()) {
             if (filteredRows > 0) {
-                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                        "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
-                return false;
+                ErrorReport.reportDdlException("Insert has filtered data in strict mode",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
         }
-        return true;
     }
 
     /**
@@ -182,9 +180,7 @@ public abstract class AbstractInsertExecutor {
         beforeExec();
         try {
             execImpl(executor, jobId);
-            if (!checkStrictMode()) {
-                return;
-            }
+            checkStrictMode();
             int retryTimes = 0;
             while (retryTimes < Config.mow_insert_into_commit_retry_times) {
                 try {
