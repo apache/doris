@@ -8411,6 +8411,36 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STAGE:id
     {: RESULT = id; :}
+    | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VARIANT:id
+    {: RESULT = id; :}
+    | KW_IPV4:id
+    {: RESULT = id; :}
+    | KW_IPV6:id
+    {: RESULT = id; :}
+    | KW_MATCH_ANY:id
+    {: RESULT = id; :}
+    | KW_MATCH_ALL:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_PREFIX:id
+    {: RESULT = id; :}
+    | KW_MATCH_REGEXP:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_EDGE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_EQ:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GE:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
