@@ -480,7 +480,9 @@ void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
         // We only reserve one byte, to allow for streaming writes of literal values.
         // The logic makes sure we flush literal runs often enough to not overrun
         // the 1 byte.
-        uint32_t num_groups = literal_count_ / 8;
+        uint32_t num_groups = BitUtil::Ceil(literal_count_, 8); // Ceil
+        // LOG(WARNING) << fmt::format("num_groudps({}), literal_count_({})",
+        //                 num_groups, literal_count_);
         uint32_t indicator_value = (num_groups << 1) | 1;
         DCHECK_EQ(indicator_value & 0xFFFFFF00, 0);
         bit_writer_.buffer()->data()[literal_indicator_byte_idx_] = indicator_value;
