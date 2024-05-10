@@ -514,11 +514,13 @@ template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateV2ValueType
         DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
         DateV2Value<DateTimeV2ValueType>& value, int scale);
-template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value, int scale);
+template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                       int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
         DateV2Value<DateV2ValueType>& value, int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
         DateV2Value<DateTimeV2ValueType>& value, int scale);
-template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value, int scale);
+template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value,
+                                                                        int scale);
 
 } // namespace doris
