@@ -80,15 +80,6 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     return ready ? nullptr : this;
 }
 
-Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load();
-    if (!ready && task) {
-        _add_block_task(task);
-    }
-    return ready ? nullptr : this;
-}
-
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
