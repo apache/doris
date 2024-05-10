@@ -434,7 +434,7 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
-    
+
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 

@@ -99,13 +99,11 @@ public:
 
     ~FileWriterMock() override = default;
 
-    Status close() override { return _local_file_writer->close(); }
+    Status close_impl() override { return _local_file_writer->close(); }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
         return _local_file_writer->appendv(data, data_cnt);
     }
-
-    Status finalize() override { return _local_file_writer->finalize(); }
 
     bool closed() const override { return _local_file_writer->closed(); }
 
