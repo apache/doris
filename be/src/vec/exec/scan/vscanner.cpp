@@ -87,8 +87,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
+                LOG(ERROR) << "yangsiyu filter begin: " << block->dump_structure();
                 SCOPED_TIMER(_parent->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
+                LOG(ERROR) << "yangsiyu filter end: " << block->dump_structure();
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();

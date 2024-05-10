@@ -418,22 +418,13 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                     break;
                 }
                 blocks.back()->set_columns(std::move(mutable_block.mutable_columns()));
-                LOG(ERROR) << "yangsiyu 5: " << blocks.back()->dump_structure() << ", " << blocks.back()->rows();
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));
-                LOG(ERROR) << "yangsiyu 6: " << blocks.back()->dump_structure() << ", " << blocks.back()->rows();
             }
         }
         raw_rows_read = scanner->get_rows_read();
     } // end for while
-
-    size_t count = 0;
-    for (auto& block : blocks) {
-        LOG(ERROR) << "yangsiyu: " << block->dump_structure();
-        count += block->rows();
-    }
-    LOG(ERROR) << "yangsiyu blocks: " << count;
 
     // if we failed, check status.
     if (UNLIKELY(!status.ok())) {
