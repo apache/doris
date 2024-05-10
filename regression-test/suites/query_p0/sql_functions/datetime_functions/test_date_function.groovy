@@ -299,7 +299,7 @@ suite("test_date_function") {
     qt_sql """ select hour('2018-12-31') """
 
     // MAKEDATE
-    qt_sql """ select makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    qt_sql """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
 
     // MINUTE
     qt_sql """ select minute('2018-12-31 23:59:59') """
@@ -332,6 +332,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
     qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    qt_sql """ select str_to_date('11.09.2011 11:09:30', '%m.%d.%Y %h:%i:%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
