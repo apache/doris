@@ -21,7 +21,9 @@ package doris
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -66,6 +68,10 @@ type clientSettings struct {
 	Codec    codec.Codec
 	Observer outputs.Observer
 	Logger   *logp.Logger
+}
+
+type responseStatus struct {
+	Status string `json:"Status"`
 }
 
 func (s clientSettings) String() string {
@@ -117,11 +123,11 @@ func (client *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 	if len(rest) == 0 {
 		batch.ACK()
-		client.logger.Debugf("Success send events: %d", length)
+		client.logger.Debugf("Success send %d events", length)
 	} else {
 		client.observer.Failed(length)
 		batch.RetryEvents(rest)
-		client.logger.Warnf("Retry send events: %d", length)
+		client.logger.Warnf("Retry send %d events", length)
 	}
 	return err
 }
@@ -172,34 +178,33 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 	}
 
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		client.logger.Errorf("Failed to stream-load request with status code %d",
-			response.StatusCode)
 
-		reqBytes, reqErr := httputil.DumpRequestOut(request, false)
-		if reqErr != nil {
-			client.logger.Errorf("Failed to dump stream-load request: %v", reqErr)
-		} else {
-			client.logger.Errorf("Stream-Load request dump:\n%s\n first event: %s",
-				string(reqBytes), string(logFirstEvent))
-		}
-
-		respBytes, respErr := httputil.DumpResponse(response, true)
-		if respErr != nil {
-			client.logger.Errorf("Failed to dump stream-load response: %v", respErr)
-		} else {
-			client.logger.Errorf("Stream-Load response dump:\n%s", string(respBytes))
-		}
-		return events, nil
+	responseBytes, responseErr := httputil.DumpResponse(response, true)
+	if responseErr != nil {
+		client.logger.Errorf("Failed to dump doris stream load response: %v, error: %v", response, responseErr)
+		return events, responseErr
 	}
 
 	if client.logRequest {
-		respBytes, respErr := httputil.DumpResponse(response, true)
-		if respErr != nil {
-			client.logger.Errorf("Failed to dump doris stream load response: %v, error: %v", response, respErr)
-		} else {
-			client.logger.Infof("doris stream load response response:\n%s", string(respBytes))
-		}
+		client.logger.Infof("doris stream load response response:\n%s", string(responseBytes))
+	}
+
+	body, bodyErr := ioutil.ReadAll(response.Body)
+	if bodyErr != nil {
+		client.logger.Errorf("Failed to read doris stream load response body, error: %v, response:\n%v", bodyErr, string(responseBytes))
+		return events, bodyErr
+	}
+
+	var status responseStatus
+	parseErr := json.Unmarshal(body, &status)
+	if parseErr != nil {
+		client.logger.Errorf("Failed to parse doris stream load response to JSON, error: %v, response:\n%v", parseErr, string(responseBytes))
+		return events, parseErr
+	}
+
+	if status.Status != "OK" {
+		client.logger.Errorf("doris stream load status: %v is not 'OK', full response: %v", status.Status, string(responseBytes))
+		return events, nil
 	}
 
 	client.logger.Debugf("Stream-Load publish events: %d events have been published to doris in %v.",

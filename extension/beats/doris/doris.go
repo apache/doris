@@ -102,6 +102,7 @@ func makeDoris(
 	} else {
 		retry = config.MaxRetries
 	}
+	logger.Infof("config.MaxRetries: %v, retry: %v", config.MaxRetries, retry)
 	return outputs.SuccessNet(true, config.BulkMaxSize, retry, clients)
 }
 
