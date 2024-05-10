@@ -398,20 +398,50 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
+int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
+    double disk_used = data_dir->get_usage(0);
+    double remain_used = 1 - disk_used;
+    DCHECK(remain_used >= 0 && remain_used <= 1);
+    DCHECK(config::path_gc_check_interval_second >= 0);
+    int32_t ret = 0;
+    if (remain_used > 0.9) {
+        // if config::path_gc_check_interval_second == 24h
+        ret = config::path_gc_check_interval_second;
+    } else if (remain_used > 0.7) {
+        // 12h
+        ret = config::path_gc_check_interval_second / 2;
+    } else if (remain_used > 0.5) {
+        // 6h
+        ret = config::path_gc_check_interval_second / 4;
+    } else if (remain_used > 0.3) {
+        // 4h
+        ret = config::path_gc_check_interval_second / 6;
+    } else {
+        // 3h
+        ret = config::path_gc_check_interval_second / 8;
+    }
+    return ret;
+}
+
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     LOG(INFO) << "try to start path gc thread!";
-    int32_t interval = config::path_gc_check_interval_second;
+    int32_t last_exec_time = 0;
     do {
-        LOG(INFO) << "try to perform path gc!";
-        data_dir->perform_path_gc();
+        int32_t current_time = time(nullptr);
 
-        interval = config::path_gc_check_interval_second;
+        int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+        if (current_time - last_exec_time >= interval) {
+            LOG(INFO) << "try to perform path gc! disk remain [" << 1 - data_dir->get_usage(0)
+                      << "] internal [" << interval << "]";
+            data_dir->perform_path_gc();
+            last_exec_time = time(nullptr);
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(5)));
     LOG(INFO) << "stop path gc thread!";
 }
 
