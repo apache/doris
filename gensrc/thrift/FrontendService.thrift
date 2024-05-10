@@ -1489,7 +1489,6 @@ struct TFetchSplitBatchRequest {
 
 struct TFetchSplitBatchResult {
     1: optional list<Planner.TScanRangeLocations> splits
-    2: optional bool last_batch
 }
 
 service FrontendService {
