@@ -386,7 +386,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
 fi
 
 # patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC " ]]; then
+if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
     if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
         cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then

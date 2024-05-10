@@ -59,6 +59,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -153,9 +154,11 @@ public class StatisticsUtil {
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        StmtExecutor stmtExecutor = null;
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        try {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
@@ -163,6 +166,12 @@ public class StatisticsUtil {
                 throw new Exception(state.getErrorMessage());
             }
             return state;
+        } finally {
+            r.close();
+            if (stmtExecutor != null) {
+                AuditLogHelper.logAuditLog(r.connectContext, stmtExecutor.getOriginStmt().originStmt,
+                        stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
+            }
         }
     }
 
@@ -451,7 +460,7 @@ public class StatisticsUtil {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME));
+                                    StatisticConstants.TABLE_STATISTIC_TBL_NAME));
             // uncomment it when hist is available for user.
             // statsTbls.add(
             //         (OlapTable) StatisticsUtil
@@ -802,6 +811,16 @@ public class StatisticsUtil {
             LOG.warn("Fail to get value of enable auto analyze internal catalog, return false by default", e);
         }
         return true;
+    }
+
+    public static boolean enablePartitionAnalyze() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
+        }
+        return false;
     }
 
     public static int getInsertMergeCount() {

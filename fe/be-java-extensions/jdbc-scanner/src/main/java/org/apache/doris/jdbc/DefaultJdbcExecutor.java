@@ -353,13 +353,13 @@ public class DefaultJdbcExecutor {
             } else {
                 ClassLoader parent = getClass().getClassLoader();
                 ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+                Thread.currentThread().setContextClassLoader(classLoader);
                 hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
                 if (hikariDataSource == null) {
                     synchronized (hikariDataSourceLock) {
                         hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
                         if (hikariDataSource == null) {
                             long start = System.currentTimeMillis();
-                            Thread.currentThread().setContextClassLoader(classLoader);
                             HikariDataSource ds = new HikariDataSource();
                             ds.setDriverClassName(config.getJdbcDriverClass());
                             ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));

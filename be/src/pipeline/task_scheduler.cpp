@@ -37,8 +37,6 @@
 #include "pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
-#include "util/debug_util.h"
-#include "util/sse_util.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -61,9 +59,8 @@ Status TaskScheduler::start() {
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
-    _markers.reserve(cores);
+    _markers.resize(cores, true);
     for (size_t i = 0; i < cores; ++i) {
-        _markers.push_back(std::make_unique<std::atomic<bool>>(true));
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -75,7 +72,7 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 // after _close_task, task maybe destructed.
-void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status) {
+void _close_task(PipelineTask* task, Status exec_status) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
@@ -89,20 +86,17 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
     // We have already refactor all source and sink api, the close API does not need waiting
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
-    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+    if (!status.ok()) {
         task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                          std::string(status.msg()));
-        state = PipelineTaskState::CANCELED;
     }
-    task->set_state(state);
     task->finalize();
     task->set_running(false);
     task->fragment_context()->close_a_pipeline();
 }
 
 void TaskScheduler::_do_work(size_t index) {
-    const auto& marker = _markers[index];
-    while (*marker) {
+    while (_markers[index]) {
         auto* task = _task_queue->take(index);
         if (!task) {
             continue;
@@ -117,19 +111,8 @@ void TaskScheduler::_do_work(size_t index) {
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
 
-        auto state = task->get_state();
         // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
         // has to return false. The task is finished and need to close now.
-        if (state == PipelineTaskState::PENDING_FINISH) {
-            Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-            _close_task(task, canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
-                        exec_status);
-            continue;
-        }
-
-        DCHECK(state != PipelineTaskState::FINISHED && state != PipelineTaskState::CANCELED)
-                << "task already finish: " << task->debug_string();
-
         if (canceled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
@@ -137,12 +120,9 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            Status cancel_status = fragment_ctx->get_query_ctx()->exec_status();
-            _close_task(task, PipelineTaskState::CANCELED, cancel_status);
+            _close_task(task, fragment_ctx->get_query_ctx()->exec_status());
             continue;
         }
-
-        task->set_state(PipelineTaskState::RUNNABLE);
 
         // task exec
         bool eos = false;
@@ -150,7 +130,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         try {
             // This will enable exception handling logic in allocator.h when memory allocate
-            // failed or sysem memory is not sufficient.
+            // failed or system memory is not sufficient.
             doris::enable_thread_catch_bad_alloc++;
             Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
             //TODO: use a better enclose to abstracting these
@@ -169,11 +149,8 @@ void TaskScheduler::_do_work(size_t index) {
                 status = task->execute(&eos);
 
                 uint64_t end_time = MonotonicMicros();
-                auto state = task->get_state();
-                std::string state_name = get_state_name(state);
                 ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                        {query_id, task_name, core_id, thread_id, start_time, end_time,
-                         state_name});
+                        {query_id, task_name, core_id, thread_id, start_time, end_time});
             } else {
                 status = task->execute(&eos);
             }
@@ -183,14 +160,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         task->set_previous_core_id(index);
 
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            // Sink operator finished, just close task now.
-            _close_task(task, PipelineTaskState::FINISHED, Status::OK());
-            continue;
-        } else if (!status.ok()) {
-            LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                        print_id(task->query_context()->query_id()),
-                                        status.to_string());
+        if (!status.ok()) {
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
@@ -198,7 +168,10 @@ void TaskScheduler::_do_work(size_t index) {
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                  std::string(status.to_string_no_stack()));
-            _close_task(task, PipelineTaskState::CANCELED, status);
+            LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
+                                        print_id(task->query_context()->query_id()),
+                                        status.to_string());
+            _close_task(task, status);
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
@@ -213,46 +186,26 @@ void TaskScheduler::_do_work(size_t index) {
             // added to running queue when dependency is ready.
             if (task->is_pending_finish()) {
                 // Only meet eos, should set task to PENDING_FINISH state
-                task->set_state(PipelineTaskState::PENDING_FINISH);
                 task->set_running(false);
             } else {
-                // Close the task directly?
                 Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                _close_task(task,
-                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
-                            exec_status);
+                _close_task(task, exec_status);
             }
             continue;
         }
 
-        auto pipeline_state = task->get_state();
-        switch (pipeline_state) {
-        case PipelineTaskState::BLOCKED_FOR_SOURCE:
-        case PipelineTaskState::BLOCKED_FOR_SINK:
-        case PipelineTaskState::BLOCKED_FOR_RF:
-        case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
-            task->set_running(false);
-            break;
-        case PipelineTaskState::RUNNABLE:
-            task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
-            break;
-        default:
-            DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)
-                          << " task: " << task->debug_string();
-            break;
-        }
+        task->set_running(false);
     }
 }
 
 void TaskScheduler::stop() {
-    if (!this->_shutdown.load()) {
+    if (!_shutdown) {
         if (_task_queue) {
             _task_queue->close();
         }
         if (_fix_thread_pool) {
-            for (const auto& marker : _markers) {
-                marker->store(false);
+            for (size_t i = 0; i < _markers.size(); ++i) {
+                _markers[i] = false;
             }
             _fix_thread_pool->shutdown();
             _fix_thread_pool->wait();
@@ -261,7 +214,7 @@ void TaskScheduler::stop() {
         // pool is stopped. For example, if there are 2 threads call stop
         // then if one thread set shutdown = false, then another thread will
         // not check it and will free task scheduler.
-        this->_shutdown.store(true);
+        _shutdown = true;
     }
 }
 

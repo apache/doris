@@ -69,6 +69,8 @@ public class JdbcScanNode extends ExternalScanNode {
     private String tableName;
     private TOdbcTableType jdbcType;
     private String graphQueryString = "";
+    private boolean isTableValuedFunction = false;
+    private String query = "";
 
     private JdbcTable tbl;
 
@@ -82,6 +84,15 @@ public class JdbcScanNode extends ExternalScanNode {
         }
         jdbcType = tbl.getJdbcTableType();
         tableName = tbl.getProperRemoteFullTableName(jdbcType);
+    }
+
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
+        this.isTableValuedFunction = isTableValuedFunction;
+        this.query = query;
+        tbl = (JdbcTable) desc.getTable();
+        jdbcType = tbl.getJdbcTableType();
+        tableName = tbl.getExternalTableName();
     }
 
     @Override
@@ -232,14 +243,19 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("TABLE: ").append(tableName).append("\n");
-        if (detailLevel == TExplainLevel.BRIEF) {
-            return output.toString();
-        }
-        output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
-        if (!conjuncts.isEmpty()) {
-            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        if (isTableValuedFunction) {
+            output.append(prefix).append("TABLE VALUE FUNCTION\n");
+            output.append(prefix).append("QUERY: ").append(query).append("\n");
+        } else {
+            output.append(prefix).append("TABLE: ").append(tableName).append("\n");
+            if (detailLevel == TExplainLevel.BRIEF) {
+                return output.toString();
+            }
+            output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
+            if (!conjuncts.isEmpty()) {
+                Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+                output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            }
         }
         return output.toString();
     }
@@ -286,7 +302,11 @@ public class JdbcScanNode extends ExternalScanNode {
         msg.jdbc_scan_node = new TJdbcScanNode();
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
-        msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        if (isTableValuedFunction) {
+            msg.jdbc_scan_node.setQueryString(query);
+        } else {
+            msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        }
         msg.jdbc_scan_node.setTableType(jdbcType);
     }
 

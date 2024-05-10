@@ -18,8 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_point_query_load", "p0") {
-    //test legacy planner
-    sql """set enable_nereids_planner=false"""
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 

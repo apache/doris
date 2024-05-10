@@ -31,27 +31,44 @@ import java.util.List;
 public class InternalSchema {
 
     // Do not use the original schema directly, because it may be modified by create table operation.
-    public static final List<ColumnDef> COL_STATS_SCHEMA;
+    public static final List<ColumnDef> TABLE_STATS_SCHEMA;
+    public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
 
     static {
-        // column statistics table
-        COL_STATS_SCHEMA = new ArrayList<>();
-        COL_STATS_SCHEMA.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        COL_STATS_SCHEMA.add(new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
-        COL_STATS_SCHEMA.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        // table statistics table
+        TABLE_STATS_SCHEMA = new ArrayList<>();
+        TABLE_STATS_SCHEMA.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
+        TABLE_STATS_SCHEMA.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+
+        // partition statistics table
+        PARTITION_STATS_SCHEMA = new ArrayList<>();
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.HLL), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
 
         // histogram_statistics table
         HISTO_STATS_SCHEMA = new ArrayList<>();
@@ -95,14 +112,21 @@ public class InternalSchema {
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static List<ColumnDef> getCopiedSchema(String tblName) throws UserException {
         List<ColumnDef> schema;
-        if (tblName.equals(StatisticConstants.STATISTIC_TBL_NAME)) {
-            schema = COL_STATS_SCHEMA;
-        } else if (tblName.equals(StatisticConstants.HISTOGRAM_TBL_NAME)) {
-            schema = HISTO_STATS_SCHEMA;
-        } else if (tblName.equals(AuditLoaderPlugin.AUDIT_LOG_TABLE)) {
-            schema = AUDIT_SCHEMA;
-        } else {
-            throw new UserException("Unknown internal table name: " + tblName);
+        switch (tblName) {
+            case StatisticConstants.TABLE_STATISTIC_TBL_NAME:
+                schema = TABLE_STATS_SCHEMA;
+                break;
+            case StatisticConstants.PARTITION_STATISTIC_TBL_NAME:
+                schema = PARTITION_STATS_SCHEMA;
+                break;
+            case StatisticConstants.HISTOGRAM_TBL_NAME:
+                schema = HISTO_STATS_SCHEMA;
+                break;
+            case AuditLoaderPlugin.AUDIT_LOG_TABLE:
+                schema = AUDIT_SCHEMA;
+                break;
+            default:
+                throw new UserException("Unknown internal table name: " + tblName);
         }
         List<ColumnDef> copiedSchema = Lists.newArrayList();
         for (ColumnDef columnDef : schema) {

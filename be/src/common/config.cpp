@@ -1053,6 +1053,10 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
+DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
+// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
+DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");

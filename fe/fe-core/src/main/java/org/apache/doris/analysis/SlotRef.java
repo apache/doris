@@ -40,8 +40,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -53,7 +51,6 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class SlotRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(SlotRef.class);
     private TableName tblName;
     private TableIf table = null;
     private TupleId tupleId = null;
@@ -201,23 +198,10 @@ public class SlotRef extends Expr {
         if ((thisColumnName == null) != (srcColumnName == null)) {
             return false;
         }
-        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
+        if (thisColumnName != null && !thisColumnName.equalsIgnoreCase(srcColumnName)) {
             return false;
         }
         return true;
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        computeOutputColumn(analyzer);
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        outputColumn = desc.getSlotOffset();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
-        }
     }
 
     @Override
@@ -364,7 +348,6 @@ public class SlotRef extends Expr {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
-        msg.setOutputColumn(outputColumn);
         msg.setLabel(label);
     }
 

@@ -103,7 +103,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
-                _output_vexpr_ctxs, _sender.get(), nullptr, state->return_object_data_as_binary(),
+                _output_vexpr_ctxs, _sender, nullptr, state->return_object_data_as_binary(),
                 p._output_row_descriptor));
     } else {
         // init channel

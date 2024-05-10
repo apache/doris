@@ -57,9 +57,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
@@ -156,21 +158,34 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         properties.put(WorkloadGroup.CPU_SHARE, "1024");
         properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-        WorkloadGroup defaultWorkloadGroup = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
+        WorkloadGroup defaultValWg = new WorkloadGroup(DEFAULT_GROUP_ID.longValue(), DEFAULT_GROUP_NAME,
                 properties);
-        boolean nameIsNull = true;
-        if (!nameToWorkloadGroup.containsKey(DEFAULT_GROUP_NAME)) {
-            nameToWorkloadGroup.put(DEFAULT_GROUP_NAME, defaultWorkloadGroup);
-            nameIsNull = false;
+
+        // when doris version is 2.0, user create a normal group with id 12345
+        // when doris upgrade from 2.0 to 2.1.2, Doris may create a workload id with 1
+        // then doris could contain two normal workload group with id 12345 and 1
+        // so we should check duplicate workload group when Fe starts
+        // and remove invalid workload group.
+        // case 1: no images exist or has an image but has no normal wg,
+        //         insert a normal group with id 1 and default value directly.
+        // case 2: image exits and has a normal group, then do nothing.
+        Set<Long> invalidNormalWg = new HashSet<>();
+        for (WorkloadGroup curWg : idToWorkloadGroup.values()) {
+            if (DEFAULT_GROUP_NAME.equals(curWg.getName()) && DEFAULT_GROUP_ID.longValue() != curWg.getId()) {
+                invalidNormalWg.add(curWg.getId());
+            }
         }
-        boolean idIsNull = true;
-        if (!idToWorkloadGroup.containsKey(DEFAULT_GROUP_ID)) {
-            idToWorkloadGroup.put(defaultWorkloadGroup.getId(), defaultWorkloadGroup);
-            idIsNull = false;
+        for (Long wgId : invalidNormalWg) {
+            idToWorkloadGroup.remove(wgId);
         }
-        if ((nameIsNull && !idIsNull) || (!nameIsNull && idIsNull)) {
-            LOG.info("idMap({}) diff nameMap({})", nameIsNull, idIsNull);
+
+        WorkloadGroup curNormalWg = idToWorkloadGroup.get(DEFAULT_GROUP_ID);
+        if (curNormalWg == null) {
+            curNormalWg = defaultValWg;
+            idToWorkloadGroup.put(curNormalWg.getId(), curNormalWg);
         }
+        nameToWorkloadGroup.put(curNormalWg.getName(), curNormalWg);
+
     }
 
     private void readLock() {
@@ -454,8 +469,15 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     private void insertWorkloadGroup(WorkloadGroup workloadGroup) {
         writeLock();
         try {
-            nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup);
+            // when wg named normal but id is not DEFAULT_GROUP_ID,
+            // then we should abort it to avoid duplicate normal group
+            if (DEFAULT_GROUP_NAME.equals(workloadGroup.getName())
+                    && DEFAULT_GROUP_ID.longValue() != workloadGroup.getId()) {
+                return;
+            }
+
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
+            nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup);
         } finally {
             writeUnlock();
         }

@@ -185,10 +185,10 @@ public:
                _query_options.enable_common_expr_pushdown_for_inverted_index;
     };
 
-    bool enable_faster_float_convert() const {
-        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
+    bool mysql_row_binary_format() const {
+        return _query_options.__isset.mysql_row_binary_format &&
+               _query_options.mysql_row_binary_format;
     }
-
     Status query_status();
 
     // Appends error to the _error_log if there is space
@@ -581,7 +581,7 @@ public:
 
     std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
 
-    std::vector<std::shared_ptr<RuntimeProfile>>& build_pipeline_profile(std::size_t pipeline_size);
+    std::vector<std::shared_ptr<RuntimeProfile>> build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
