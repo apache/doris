@@ -477,8 +477,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
-    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
-
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
@@ -1559,10 +1557,6 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
-
-    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
-            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
-    public boolean fasterFloatConvert = false;
 
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
             description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
@@ -3180,8 +3174,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
-
-        tResult.setFasterFloatConvert(fasterFloatConvert);
 
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
