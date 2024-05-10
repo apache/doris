@@ -189,24 +189,6 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-struct FakeDependency final : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    FakeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "FakeDependency", query_ctx) {}
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override { return nullptr; }
-};
-
-struct FinishDependency : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override;
-};
-
 struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;

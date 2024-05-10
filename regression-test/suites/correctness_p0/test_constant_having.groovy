@@ -28,28 +28,7 @@ suite("test_constant_having") {
         INSERT INTO test_constant_having_t0 (c0) VALUES (1),(2);
     """
 
-    sql """ set enable_nereids_planner=false;"""
     qt_sql1 """
-        SELECT
-            CAST(DATE '1970-12-16' AS FLOAT),
-            9998895.0,
-            0.946221655
-        FROM
-            test_constant_having_t0
-        GROUP BY
-            test_constant_having_t0.c0
-        HAVING
-            (
-                NOT (
-                    CAST(false AS DATETIME) NOT IN (CAST(-994966193 AS DATETIME))
-                )
-            )
-        ORDER BY
-            1;
-    """
-
-    sql """ set enable_nereids_planner=true;"""
-    qt_sql2 """
         SELECT
             CAST(DATE '1970-12-16' AS FLOAT),
             9998895.0,

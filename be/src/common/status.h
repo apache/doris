@@ -334,7 +334,9 @@ public:
     void check_init() {
         //the signal value is 0, it means the global error states not inited, it's logical error
         // DO NOT use dcheck here, because dcheck depend on glog, and glog maybe not inited at this time.
-        assert(signal_value != 0);
+        if (signal_value == 0) {
+            exit(-1);
+        }
     }
 
 private:
@@ -560,10 +562,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    std::stringstream ss;
-    ss << '[' << code_as_string() << ']';
-    ss << msg();
-    return ss.str();
+    return fmt::format("[{}] {}", code_as_string(), msg());
 }
 
 // some generally useful macros

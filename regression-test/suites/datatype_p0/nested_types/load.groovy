@@ -18,7 +18,6 @@
 suite("load") {
     // ddl begin
 
-    sql """set enable_nereids_planner=false"""
     def dataFile = """test_scalar_types_100.csv"""
 
     // define dup key table1 with scala types

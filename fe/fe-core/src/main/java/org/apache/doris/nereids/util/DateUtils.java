@@ -163,7 +163,7 @@ public class DateUtils {
                 getOrDefault(accessor, ChronoField.YEAR),
                 getOrDefault(accessor, ChronoField.MONTH_OF_YEAR),
                 getOrDefault(accessor, ChronoField.DAY_OF_MONTH),
-                getOrDefault(accessor, ChronoField.HOUR_OF_DAY),
+                getHourOrDefault(accessor),
                 getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR),
                 getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE),
                 getOrDefault(accessor, ChronoField.NANO_OF_SECOND));
@@ -171,6 +171,19 @@ public class DateUtils {
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
         return accessor.isSupported(field) ? accessor.get(field) : /* default value */ 0;
+    }
+
+    /**
+     * get hour from accessor, if not support hour field, return 0
+     */
+    public static int getHourOrDefault(final TemporalAccessor accessor) {
+        if (accessor.isSupported(ChronoField.HOUR_OF_DAY)) {
+            return accessor.get(ChronoField.HOUR_OF_DAY);
+        } else if (accessor.isSupported(ChronoField.HOUR_OF_AMPM)) {
+            return accessor.get(ChronoField.HOUR_OF_AMPM);
+        } else {
+            return 0;
+        }
     }
 
     public static ZoneId getTimeZone() {

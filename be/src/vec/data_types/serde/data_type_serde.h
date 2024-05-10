@@ -278,7 +278,7 @@ public:
     // rapidjson
     virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                           rapidjson::Document::AllocatorType& allocator,
-                                          int row_num) const;
+                                          Arena& mem_pool, int row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
 protected:

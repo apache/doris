@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -213,6 +214,7 @@ public class OlapScanNode extends ScanNode {
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
+    PrepareStmt preparedStatment = null;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -559,9 +561,9 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // lazy evaluation, since stmt is a prepared statment
-        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
-        if (!isFromPrepareStmt) {
+        // point query could do lazy evaluation, since stmt is a prepared statment
+        preparedStatment = analyzer.getPrepareStmt();
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 partitionsInfo = olapTable.getPartitionInfo();
                 analyzerPartitionExpr(analyzer, partitionsInfo);
@@ -627,7 +629,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         // prepare stmt evaluate lazily in Coordinator execute
-        if (!isFromPrepareStmt) {
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             try {
                 createScanRangeLocations();
             } catch (AnalysisException e) {
@@ -1157,7 +1159,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null;
+        return this.pointQueryEqualPredicats != null
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
     }
 
     private void computeTabletInfo() throws UserException {

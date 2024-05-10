@@ -68,6 +68,15 @@ class JdbcUtils {
         return res;
     }
 
+    static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, PreparedStatement stmt) {
+        boolean hasResultSet = stmt.execute()
+        if (!hasResultSet) {
+            return [ImmutableList.of(ImmutableList.of(stmt.getUpdateCount())), null]
+        } else {
+            return toList(stmt.resultSet)
+        } 
+    }
+
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToStringList(Connection conn, PreparedStatement stmt) {
         return toStringList(stmt.executeQuery())
     }
