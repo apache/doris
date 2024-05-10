@@ -570,6 +570,9 @@ class Suite implements GroovyInterceptable {
         assert p.exitValue() == 0
     }
 
+    List<String> getFrontendIpHttpPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
+    }
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
