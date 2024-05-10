@@ -24,11 +24,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.zaxxer.hikari.HikariDataSource;
-import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -255,14 +255,7 @@ public abstract class JdbcClient {
     public List<JdbcFieldSchema> getSchemaFromResultSetMetaData(ResultSetMetaData metaData) throws SQLException {
         List<JdbcFieldSchema> schemas = Lists.newArrayList();
         for (int i = 1; i <= metaData.getColumnCount(); i++) {
-            JdbcFieldSchema field = new JdbcFieldSchema();
-            field.setColumnName(metaData.getColumnName(i));
-            field.setDataType(metaData.getColumnType(i));
-            field.setDataTypeName(metaData.getColumnTypeName(i));
-            field.setColumnSize(metaData.getColumnDisplaySize(i));
-            field.setDecimalDigits(metaData.getScale(i));
-            field.setNumPrecRadix(metaData.getPrecision(i));
-            schemas.add(field);
+            schemas.add(new JdbcFieldSchema(metaData, i));
         }
         return schemas;
     }
@@ -347,27 +340,7 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
-                field.setDataType(rs.getInt("DATA_TYPE"));
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                /*
-                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
-                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
-                */
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                tableSchema.add(field);
+                tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
@@ -476,28 +449,6 @@ public abstract class JdbcClient {
 
     protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
         return jdbcLowerCaseMetaMatching.setColumnNameMapping(remoteDbName, remoteTableName, remoteColumns);
-    }
-
-    @Data
-    protected static class JdbcFieldSchema {
-        protected String columnName;
-        // The SQL type of the corresponding java.sql.types (Type ID)
-        protected int dataType;
-        // The SQL type of the corresponding java.sql.types (Type Name)
-        protected String dataTypeName;
-        // For CHAR/DATA, columnSize means the maximum number of chars.
-        // For NUMERIC/DECIMAL, columnSize means precision.
-        protected int columnSize;
-        protected int decimalDigits;
-        // Base number (usually 10 or 2)
-        protected int numPrecRadix;
-        // column description
-        protected String remarks;
-        // This length is the maximum number of bytes for CHAR type
-        // for utf8 encoding, if columnSize=10, then charOctetLength=30
-        // because for utf8 encoding, a Chinese character takes up 3 bytes
-        protected int charOctetLength;
-        protected boolean isAllowNull;
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
