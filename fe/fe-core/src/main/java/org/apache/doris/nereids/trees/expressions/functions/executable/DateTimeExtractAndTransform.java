@@ -30,6 +30,9 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -563,8 +566,9 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "makedate", argTypes = {"INT", "INT"}, returnType = "DATE")
     public static Expression makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
-        return DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
-                .plusDays(dayOfYear.getValue() - 1));
+        int day = dayOfYear.getValue();
+        return day > 0 ? DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
+                .plusDays(day - 1)) : new NullLiteral(DateType.INSTANCE);
     }
 
     /**
