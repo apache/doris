@@ -630,7 +630,8 @@ public class DynamicPartitionUtil {
 
         // check replication_allocation first, then replciation_num
         ReplicaAllocation replicaAlloc = null;
-        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+        if (!Config.force_olap_table_replication_allocation.isEmpty()
+                || properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
