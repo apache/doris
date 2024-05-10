@@ -159,6 +159,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
+// TODO(ByteYue): The following code might be useful when we implement flush for FileWriter
 // Status LocalFileWriter::finalize() {
 //     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
 //                                       Status::IOError("inject io error"));
