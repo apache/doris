@@ -217,7 +217,9 @@ Status RowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    CalcDeleteBitmapExecutor* executor = nullptr;
+    RETURN_IF_ERROR(_engine.calc_delete_bitmap_executor(executor));
+    _calc_delete_bitmap_token = executor->create_token();
 
     _is_init = true;
     return Status::OK();

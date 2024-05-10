@@ -2383,8 +2383,9 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
-CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
-    return _engine.calc_delete_bitmap_executor();
+Status Tablet::calc_delete_bitmap_executor(CalcDeleteBitmapExecutor* calc_delete_bitmap_executor) {
+    RETURN_IF_ERROR(_engine.calc_delete_bitmap_executor(calc_delete_bitmap_executor));
+    return Status::OK();
 }
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,

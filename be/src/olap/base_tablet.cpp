@@ -1203,7 +1203,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
                                            cur_version - 1, nullptr, transient_rs_writer.get()));
 
     } else {
-        auto token = self->calc_delete_bitmap_executor()->create_token();
+        CalcDeleteBitmapExecutor* executor = nullptr;
+        RETURN_IF_ERROR(self->calc_delete_bitmap_executor(executor));
+        auto token = executor->create_token();
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                            cur_version - 1, token.get(),
                                            transient_rs_writer.get()));
@@ -1409,7 +1411,9 @@ Status BaseTablet::update_delete_bitmap_without_lock(
     }
 
     OlapStopWatch watch;
-    auto token = self->calc_delete_bitmap_executor()->create_token();
+    CalcDeleteBitmapExecutor* executor = nullptr;
+    RETURN_IF_ERROR(self->calc_delete_bitmap_executor(executor));
+    auto token = executor->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get()));
     RETURN_IF_ERROR(token->wait());

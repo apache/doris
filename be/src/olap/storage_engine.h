@@ -121,9 +121,7 @@ public:
     RowsetId next_rowset_id();
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
-    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
-        return _calc_delete_bitmap_executor.get();
-    }
+    virtual Status calc_delete_bitmap_executor(CalcDeleteBitmapExecutor*& executor) = 0;
 
     void add_quering_rowset(RowsetSharedPtr rs);
 
@@ -272,6 +270,14 @@ public:
     bool remove_broken_path(std::string path);
 
     std::set<string> get_broken_paths() { return _broken_paths; }
+
+    Status calc_delete_bitmap_executor(CalcDeleteBitmapExecutor*& executor) override {
+        if (stopped()) {
+            return Status::InternalError("engine is stopped");
+        }
+        executor = _calc_delete_bitmap_executor.get();
+        return Status::OK();
+    }
 
 private:
     // Instance should be inited from `static open()`

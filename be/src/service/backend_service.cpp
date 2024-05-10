@@ -468,7 +468,13 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     }
 
     // Step 7.2 calculate delete bitmap before commit
-    auto calc_delete_bitmap_token = engine.calc_delete_bitmap_executor()->create_token();
+    CalcDeleteBitmapExecutor* executor = nullptr;
+    auto st = engine.calc_delete_bitmap_executor(executor);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get calc_delete_bitmap_executor, status=" << st.to_string();
+        return;
+    }
+    auto calc_delete_bitmap_token = executor->create_token();
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
     RowsetIdUnorderedSet pre_rowset_ids;
     if (local_tablet->enable_unique_key_merge_on_write()) {

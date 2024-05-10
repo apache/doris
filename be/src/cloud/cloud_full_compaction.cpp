@@ -340,7 +340,9 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
     std::vector<RowsetSharedPtr> specified_rowsets(1, _output_rowset);
 
     OlapStopWatch watch;
-    auto token = _engine.calc_delete_bitmap_executor()->create_token();
+    CalcDeleteBitmapExecutor* executor = nullptr;
+    RETURN_IF_ERROR(_engine.calc_delete_bitmap_executor(executor));
+    auto token = executor->create_token();
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(_tablet, published_rowset, segments,
                                                    specified_rowsets, delete_bitmap, cur_version,
                                                    token.get(), _output_rs_writer.get()));

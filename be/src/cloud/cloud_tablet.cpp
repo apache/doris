@@ -591,8 +591,11 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compact
     return candidate_rowsets;
 }
 
-CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {
-    return _engine.calc_delete_bitmap_executor();
+
+Status CloudTablet::calc_delete_bitmap_executor(
+        CalcDeleteBitmapExecutor* calc_delete_bitmap_executor) {
+    RETURN_IF_ERROR(_engine.calc_delete_bitmap_executor(calc_delete_bitmap_executor));
+    return Status::OK();
 }
 
 Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,

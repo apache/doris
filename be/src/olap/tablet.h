@@ -399,7 +399,8 @@ public:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
-    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
+    Status calc_delete_bitmap_executor(
+            CalcDeleteBitmapExecutor* calc_delete_bitmap_executor) override;
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                               const RowsetIdUnorderedSet& cur_rowset_ids) override;

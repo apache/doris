@@ -130,6 +130,16 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    Status calc_delete_bitmap_executor(CalcDeleteBitmapExecutor*& executor) override {
+        if (stopped()) {
+            LOG(WARNING) << "fail to get _calc_delete_bitmap_executor, engine is stopped";
+            return Status::InternalError(
+                    "fail to get _calc_delete_bitmap_executor, engine is stopped");
+        }
+        executor = _calc_delete_bitmap_executor.get();
+        return Status::OK();
+    }
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();

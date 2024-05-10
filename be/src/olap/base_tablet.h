@@ -216,7 +216,8 @@ public:
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids) = 0;
-    virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
+    virtual Status calc_delete_bitmap_executor(
+            CalcDeleteBitmapExecutor* calc_delete_bitmap_executor) = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,

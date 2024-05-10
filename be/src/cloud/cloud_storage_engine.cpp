@@ -211,6 +211,9 @@ void CloudStorageEngine::stop() {
             t->join();
         }
     }
+    _memtable_flush_executor.reset(nullptr);
+    _calc_delete_bitmap_executor.reset(nullptr);
+    LOG(INFO) << "Storage engine is stopped.";
 }
 
 bool CloudStorageEngine::stopped() {
