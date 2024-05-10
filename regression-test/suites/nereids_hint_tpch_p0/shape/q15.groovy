@@ -37,7 +37,7 @@ suite("q15") {
     qt_select """
     explain shape plan
     select 
-    /*+ leading(revenue0 supplier) */
+    /*+ leading(supplier revenue0) */
         s_suppkey,
         s_name,
         s_address,
