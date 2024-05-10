@@ -384,7 +384,9 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         }
 
         BlockUPtr block = ctx->get_free_block(&has_free_block);
+        LOG(ERROR) << "yangsiyu 1: " << block->dump_structure() << ", " << block->rows();
         status = scanner->get_block(state, block.get(), &eos);
+        LOG(ERROR) << "yangsiyu 2: " << block->dump_structure() << ", " << block->rows();
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
@@ -411,20 +413,29 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
                 vectorized::MutableBlock mutable_block(blocks.back().get());
+                LOG(ERROR) << "yangsiyu 3: " << mutable_block.to_block().dump_structure() << ", " << mutable_block.to_block().rows();
                 status = mutable_block.merge(*block);
+                LOG(ERROR) << "yangsiyu 4: " << mutable_block.to_block().dump_structure() << ", " << mutable_block.to_block().rows();
                 if (!status.ok()) {
                     break;
                 }
                 blocks.back()->set_columns(std::move(mutable_block.mutable_columns()));
+                LOG(ERROR) << "yangsiyu 5: " << blocks.back()->dump_structure() << ", " << blocks.back()->rows();
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));
+                LOG(ERROR) << "yangsiyu 6: " << blocks.back()->dump_structure() << ", " << blocks.back()->rows();
             }
         }
         raw_rows_read = scanner->get_rows_read();
     } // end for while
 
-    LOG(ERROR) << "yangsiyu raw_rows_read: " << raw_rows_read;
+    size_t count = 0;
+    for (auto& block : blocks) {
+        LOG(ERROR) << "yangsiyu: " << block->dump_structure();
+        count += block->rows();
+    }
+    LOG(ERROR) << "yangsiyu blocks: " << count;
 
     // if we failed, check status.
     if (UNLIKELY(!status.ok())) {
