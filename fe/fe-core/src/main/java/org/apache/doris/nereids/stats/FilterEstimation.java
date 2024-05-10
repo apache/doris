@@ -64,9 +64,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
-    public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
-    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.001;
+    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
     private Set<Slot> aggSlots;
 
     private boolean isOnBaseTable = false;
@@ -421,7 +420,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
         ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
         if (childColStats.isUnKnown()) {
-            return new StatisticsBuilder(context.statistics).build();
+            double row = context.statistics.getRowCount() * DEFAULT_ISNULL_SELECTIVITY;
+            return new StatisticsBuilder(context.statistics).setRowCount(row).build();
         }
         double outputRowCount = childColStats.numNulls;
         if (!isOnBaseTable) {
