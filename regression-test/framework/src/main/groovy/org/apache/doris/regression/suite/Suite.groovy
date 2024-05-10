@@ -89,7 +89,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
-    final isTrinoConnectorDownloaded = false
+    Boolean isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -775,7 +775,7 @@ class Suite implements GroovyInterceptable {
      *
      * this function must be not reentrant.
      * 
-     * If failed, will call assert(false).
+     * If failed, will call assertTrue(false).
      */
     synchronized void dispatchTrinoConnectors(host_ips) {
         if (isTrinoConnectorDownloaded) {
@@ -784,26 +784,28 @@ class Suite implements GroovyInterceptable {
         }
 
         def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
-        Assert.assert(download_dir.isNotEmpty())
+        Assert.assertTrue(!dir_download.isEmpty())
         def path_tar = "${dir_download}/trino-connectors.tar.gz"
         // extract to a tmp direcotry, and then scp to every host_ips, including self.
-        def path_connector_tmp = "${dir_download}/connectors_tmp"
+        def dir_connector_tmp = "${dir_download}/connectors_tmp"
+        def path_connector_tmp = "${dir_connector_tmp}/connectors"
         def path_connector = "${dir_download}/connectors"
         def s3_url = getS3Url()
 
         def cmds = [] as List
-        cmds.add("mkdir -p ${trino_connector_download_dir}")
+        cmds.add("mkdir -p ${dir_download}")
         cmds.add("rm -rf ${path_tar}")
-        cmds.add("rm -rf ${path_connector_tmp}")
+        cmds.add("rm -rf ${dir_connector_tmp}")
+        cmds.add("mkdir -p ${dir_connector_tmp}")
         cmds.add("/usr/bin/curl --max-time 60 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
-        cmds.add("tar -zxvf ${path_tar} -C ${path_connector_tmp}")
+        cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
         for (def cmd in cmds) {
             logger.info("execute ${cmd}")
             def process = cmd.execute()
             logger.info("execute result ${process.getText()}.")
             if (process.exitValue() != 0) {
-                Assert.assert(false)
+                Assert.assertTrue(false)
             }
         }
         
@@ -811,7 +813,7 @@ class Suite implements GroovyInterceptable {
         for (def ip in host_ips) {
             logger.info("scp to ${ip}")
             def cmd = "ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\""
-            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assert(false) is executed.
+            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
 
         isTrinoConnectorDownloaded = true
