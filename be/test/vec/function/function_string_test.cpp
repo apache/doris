@@ -2880,7 +2880,6 @@ TEST(function_string_test, function_overlay_test) {
 // }
 //
 
-
 TEST(function_string_test, function_initcap) {
     std::string func_name {"initcap"};
 
