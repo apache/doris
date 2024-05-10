@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Elasticsearch external table.
+ * Jdbc external table.
  */
 public class JdbcExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalTable.class);
@@ -83,27 +83,13 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
-        jdbcTable.setCatalogId(jdbcCatalog.getId());
-        jdbcTable.setExternalTableName(fullDbName);
-        jdbcTable.setRemoteDatabaseName(
-                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteDatabaseName(this.dbName));
-        jdbcTable.setRemoteTableName(
-                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteTableName(this.dbName, this.name));
-        jdbcTable.setRemoteColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteColumnNames(this.dbName,
-                this.name));
-        jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
-        jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());
-        jdbcTable.setJdbcUser(jdbcCatalog.getJdbcUser());
-        jdbcTable.setJdbcPasswd(jdbcCatalog.getJdbcPasswd());
-        jdbcTable.setDriverClass(jdbcCatalog.getDriverClass());
-        jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
-        jdbcTable.setResourceName(jdbcCatalog.getResource());
-        jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
-        jdbcTable.setConnectionPoolMinSize(jdbcCatalog.getConnectionPoolMinSize());
-        jdbcTable.setConnectionPoolMaxSize(jdbcCatalog.getConnectionPoolMaxSize());
-        jdbcTable.setConnectionPoolMaxLifeTime(jdbcCatalog.getConnectionPoolMaxLifeTime());
-        jdbcTable.setConnectionPoolMaxWaitTime(jdbcCatalog.getConnectionPoolMaxWaitTime());
-        jdbcTable.setConnectionPoolKeepAlive(jdbcCatalog.isConnectionPoolKeepAlive());
+        jdbcCatalog.configureJdbcTable(jdbcTable, fullDbName);
+
+        // Set remote properties
+        jdbcTable.setRemoteDatabaseName(jdbcCatalog.getJdbcClient().getRemoteDatabaseName(this.dbName));
+        jdbcTable.setRemoteTableName(jdbcCatalog.getJdbcClient().getRemoteTableName(this.dbName, this.name));
+        jdbcTable.setRemoteColumnNames(jdbcCatalog.getJdbcClient().getRemoteColumnNames(this.dbName, this.name));
+
         return jdbcTable;
     }
 
