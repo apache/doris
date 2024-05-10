@@ -226,7 +226,9 @@ Status TabletStream::close() {
     auto wait_func = [this, &mu, &cv] {
         signal::set_signal_task_id(_load_id);
         for (auto& token : _flush_tokens) {
-            token->wait();
+            if (token != nullptr) {
+                token->wait();
+            }
         }
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
@@ -305,9 +307,12 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
     for (const auto& tablet : tablets_to_commit) {
+        if (tablet.index_id() != _id) {
+            continue;
+        }
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
-        if (it == _tablet_streams_map.end() && _id == tablet.index_id()) {
+        if (it == _tablet_streams_map.end()) {
             RETURN_IF_ERROR(
                     _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id()));
         }
