@@ -579,7 +579,7 @@ columnDef
         (aggType=aggTypeDef)?
         ((NOT)? NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL| CURRENT_DATE
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL | UUID | CURRENT_DATE
             | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
@@ -1296,6 +1296,7 @@ nonReserved
     | UNCOMMITTED
     | UNLOCK
     | USER
+    | UUID
     | VALUE
     | VARCHAR
     | VARIABLES

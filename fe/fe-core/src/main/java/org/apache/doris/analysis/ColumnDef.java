@@ -94,6 +94,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String UUID = "UUID";
         public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
@@ -521,6 +522,9 @@ public class ColumnDef {
             case JSONB:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
+                } else if (defaultValueExprDef != null
+                        && defaultValueExprDef.getExprName().equals(DefaultValue.UUID) && 32 > scalarType.getLength()) {
+                    throw new AnalysisException("UUID length is 32, but type length is: " + scalarType.getLength());
                 }
                 break;
             case BITMAP:
@@ -552,6 +556,17 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DATE and DATEV2 "
                             + "cannot use current_date as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equals(DefaultValue.UUID.toLowerCase())) {
+            switch (primitiveType) {
+                case CHAR:
+                case VARCHAR:
+                case STRING:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than CHAR, VARCHAR and STRING"
+                            + "cannot use UUID as the default value");
             }
         }
     }
