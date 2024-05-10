@@ -54,17 +54,11 @@ public:
     FileWriter(const FileWriter&) = delete;
     const FileWriter& operator=(const FileWriter&) = delete;
 
-    // Normal close. Wait for all data to persist before returning.
-    // If there is no data appended, an empty file will be persisted.
-    virtual Status close() = 0;
+    Status close(bool non_block = false);
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
-
-    // Call this method when there is no more data to write.
-    // FIXME(cyx): Does not seem to be an appropriate interface for file system?
-    virtual Status finalize() = 0;
 
     virtual const Path& path() const = 0;
 
@@ -73,6 +67,13 @@ public:
     virtual bool closed() const = 0;
 
     virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
+
+private:
+    // Normal close. Wait for all data to persist before returning.
+    // If there is no data appended, an empty file will be persisted.
+    virtual Status close_impl() = 0;
+    std::future<Status> _fut;
+    std::promise<Status> _pro;
 };
 
 } // namespace doris::io

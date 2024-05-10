@@ -1076,7 +1076,7 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
 Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_footer());
     // finish
-    RETURN_IF_ERROR(_file_writer->finalize());
+    RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");

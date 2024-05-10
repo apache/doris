@@ -111,7 +111,8 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status StreamSinkFileWriter::finalize() {
+Status StreamSinkFileWriter::close_impl() {
+    _closed = true;
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
@@ -141,11 +142,6 @@ Status StreamSinkFileWriter::finalize() {
                 "failed to send segment eos to any replicas, tablet_id={}, segment_id={}",
                 _tablet_id, _segment_id);
     }
-    return Status::OK();
-}
-
-Status StreamSinkFileWriter::close() {
-    _closed = true;
     return Status::OK();
 }
 

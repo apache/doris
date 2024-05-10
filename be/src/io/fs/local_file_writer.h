@@ -31,9 +31,7 @@ public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
     bool closed() const override { return _closed; }
@@ -41,6 +39,7 @@ public:
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
+    Status close_impl() override;
     void _abort();
     Status _close(bool sync);
 

@@ -195,7 +195,7 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 #endif
 }
 
-Status HdfsFileWriter::close() {
+Status HdfsFileWriter::close_impl() {
     if (_closed) {
         return Status::OK();
     }
@@ -375,34 +375,6 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     for (size_t i = 0; i < data_cnt; i++) {
         RETURN_IF_ERROR(_append({data[i].get_data(), data[i].get_size()}));
     }
-    return Status::OK();
-}
-
-// Call this method when there is no more data to write.
-Status HdfsFileWriter::finalize() {
-    if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}, file_size={}", _path.native(),
-                                     bytes_appended());
-    }
-    if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_flush_buffer());
-    }
-
-    // Flush buffered data to HDFS without waiting for HDFS response
-    int ret;
-    {
-        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_flush_latency);
-        ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
-                                           "HdfsFileWriter::finalize::hdfsFlush");
-    }
-    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsFlush",
-                                           Status::InternalError("failed to flush hdfs file"));
-    if (ret != 0) {
-        return Status::InternalError(
-                "failed to flush hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
-                _path.native(), hdfs_error(), bytes_appended());
-    }
-
     return Status::OK();
 }
 

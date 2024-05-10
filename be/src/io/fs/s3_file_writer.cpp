@@ -185,7 +185,7 @@ Status S3FileWriter::_abort() {
                         _path.native(), _upload_id, _dump_completed_part()));
 }
 
-Status S3FileWriter::close() {
+Status S3FileWriter::close_impl() {
     if (closed()) {
         _wait_until_finish("close");
         return _st;
@@ -455,27 +455,6 @@ Status S3FileWriter::_complete() {
     }
     s3_file_created_total << 1;
     return Status::OK();
-}
-
-Status S3FileWriter::finalize() {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}", _path.native());
-    }
-
-    DBUG_EXECUTE_IF("s3_file_writer::finalize",
-                    { return Status::IOError("failed to finalize due to injected error"); });
-    // submit pending buf if it's not nullptr
-    // it's the last buf, we can submit it right now
-    if (_pending_buf != nullptr) {
-        if (_upload_id.empty()) {
-            RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
-        }
-        _countdown_event.add_count();
-        RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
-        _pending_buf = nullptr;
-    }
-    _wait_until_finish("finalize");
-    return _st;
 }
 
 Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {

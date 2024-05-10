@@ -49,10 +49,7 @@ public:
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
-    Status close() override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
 
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
@@ -71,6 +68,7 @@ public:
     const std::string& upload_id() const { return _upload_id; }
 
 private:
+    Status close_impl() override;
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);

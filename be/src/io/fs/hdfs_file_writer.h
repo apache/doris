@@ -44,9 +44,7 @@ public:
                    std::string fs_name, const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
@@ -56,6 +54,7 @@ public:
     }
 
 private:
+    Status close_impl() override;
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();

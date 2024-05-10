@@ -86,7 +86,7 @@ LocalFileWriter::~LocalFileWriter() {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 }
 
-Status LocalFileWriter::close() {
+Status LocalFileWriter::close_impl() {
     return _close(_sync_data);
 }
 
@@ -159,23 +159,23 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status LocalFileWriter::finalize() {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
-                                      Status::IOError("inject io error"));
-    if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}", _path.native());
-    }
+// Status LocalFileWriter::finalize() {
+//     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
+//                                       Status::IOError("inject io error"));
+//     if (_closed) [[unlikely]] {
+//         return Status::InternalError("finalize closed file: {}", _path.native());
+//     }
 
-    if (_dirty) {
-#if defined(__linux__)
-        int flags = SYNC_FILE_RANGE_WRITE;
-        if (sync_file_range(_fd, 0, 0, flags) < 0) {
-            return localfs_error(errno, fmt::format("failed to finalize {}", _path.native()));
-        }
-#endif
-    }
-    return Status::OK();
-}
+//     if (_dirty) {
+// #if defined(__linux__)
+//         int flags = SYNC_FILE_RANGE_WRITE;
+//         if (sync_file_range(_fd, 0, 0, flags) < 0) {
+//             return localfs_error(errno, fmt::format("failed to finalize {}", _path.native()));
+//         }
+// #endif
+//     }
+//     return Status::OK();
+// }
 
 Status LocalFileWriter::_close(bool sync) {
     if (_closed) {

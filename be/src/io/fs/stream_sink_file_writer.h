@@ -44,10 +44,6 @@ public:
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
-    Status finalize() override;
-
-    Status close() override;
-
     size_t bytes_appended() const override { return _bytes_appended; }
 
     bool closed() const override { return _closed; }
@@ -61,6 +57,7 @@ public:
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
+    Status close_impl() override;
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;

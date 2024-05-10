@@ -44,15 +44,14 @@ public:
     BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address, Path path, TBrokerFD fd);
     ~BrokerFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
     bool closed() const override { return _closed; }
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
+    Status close_impl() override;
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
 
 private:
