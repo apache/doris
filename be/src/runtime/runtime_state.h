@@ -605,15 +605,22 @@ public:
     bool is_nereids() const;
 
     bool enable_join_spill() const {
-        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
     }
 
     bool enable_sort_spill() const {
-        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
     }
 
     bool enable_agg_spill() const {
-        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+    }
+
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
     int64_t min_revocable_mem() const {
