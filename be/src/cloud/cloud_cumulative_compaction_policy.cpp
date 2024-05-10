@@ -226,17 +226,6 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     input_rowsets->clear();
-    // If their are many empty rowsets, maybe should be compacted
-    tablet->calc_consecutive_empty_rowsets(
-            input_rowsets, candidate_rowsets,
-            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
-    if (!input_rowsets->empty()) {
-        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
-                    << ", there are too many consecutive empty rowsets, size is "
-                    << input_rowsets->size();
-        return 0;
-    }
-
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
 
@@ -338,6 +327,16 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     input_rowsets->clear();
+    // Condition 5: If their are many empty rowsets, maybe should be compacted
+    tablet->calc_consecutive_empty_rowsets(
+            input_rowsets, candidate_rowsets,
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!input_rowsets->empty()) {
+        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
+                    << ", there are too many consecutive empty rowsets, size is "
+                    << input_rowsets->size();
+        return 0;
+    }
     *compaction_score = 0;
 
     return 0;
