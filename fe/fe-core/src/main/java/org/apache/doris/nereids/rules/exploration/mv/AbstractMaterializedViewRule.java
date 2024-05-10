@@ -108,7 +108,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // check mv plan is valid or not
-            if (!checkPattern(context.getStructInfo())) {
+            boolean valid = checkPattern(context.getStructInfo()) && context.getStructInfo().isValid();
+            if (!valid) {
                 context.recordFailReason(context.getStructInfo(),
                         "View struct info is invalid", () -> String.format(", view plan is %s",
                                 context.getStructInfo().getOriginalPlan().treeString()));
@@ -145,7 +146,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
                 materializedViewTableSet);
         uncheckedStructInfos.forEach(queryStructInfo -> {
-            boolean valid = checkPattern(queryStructInfo);
+            boolean valid = checkPattern(queryStructInfo) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
                         ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
