@@ -413,9 +413,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
                 vectorized::MutableBlock mutable_block(blocks.back().get());
-                LOG(ERROR) << "yangsiyu 3: " << mutable_block.to_block().dump_structure() << ", " << mutable_block.to_block().rows();
                 status = mutable_block.merge(*block);
-                LOG(ERROR) << "yangsiyu 4: " << mutable_block.to_block().dump_structure() << ", " << mutable_block.to_block().rows();
                 if (!status.ok()) {
                     break;
                 }
