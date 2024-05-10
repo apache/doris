@@ -81,6 +81,9 @@ public:
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
     IntCounter* cumulative_compaction_request_failed = nullptr;
+    IntCounter* single_compaction_request_total = nullptr;
+    IntCounter* single_compaction_request_failed = nullptr;
+    IntCounter* single_compaction_request_cancelled = nullptr;
 
     IntCounter* base_compaction_deltas_total = nullptr;
     IntCounter* base_compaction_bytes_total = nullptr;
