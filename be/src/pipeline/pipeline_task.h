@@ -141,7 +141,7 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
-        // We use a lock to assure `_blocked_dep` is not deconstructed here.
+        // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_release_lock);
         if (!_finished) {
             _execution_dep->set_always_ready();
