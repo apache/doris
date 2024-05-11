@@ -195,6 +195,4 @@ suite("nested_materialized_view") {
 
     order_qt_query1_1_after "${query1_0}"
 
-
-
 }
