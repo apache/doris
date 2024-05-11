@@ -51,7 +51,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
-import org.apache.doris.event.EventType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
@@ -1186,7 +1185,7 @@ public class DatabaseTransactionMgr {
                 continue;
             }
             Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DataChangeEvent(EventType.DATA_CHANGE, db.getCatalog().getId(), db.getId(), tableId));
+                    new DataChangeEvent(db.getCatalog().getId(), db.getId(), tableId));
         }
     }
 

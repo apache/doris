@@ -17,9 +17,9 @@
 
 package org.apache.doris.event;
 
-public class DataChangeEvent extends TableEvent {
-    public DataChangeEvent(long ctlId, long dbId, long tableId) {
-        super(EventType.DATA_CHANGE, ctlId, dbId, tableId);
+public class ReplacePartitionEvent extends TableEvent {
+    public ReplacePartitionEvent(long ctlId, long dbId, long tableId) {
+        super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
     }
 
     @Override

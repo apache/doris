@@ -19,6 +19,6 @@ package org.apache.doris.event;
 
 public enum EventType {
     DATA_CHANGE,
-    ADD_PARTITION,
+    REPLACE_PARTITION,
     DROP_PARTITION
 }
