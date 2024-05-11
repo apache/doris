@@ -60,7 +60,7 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 }
 #endif
 
-Status BrokerFileWriter::_close_impl() {
+Status BrokerFileWriter::close(bool /*non_block*/) {
     if (_closed) {
         return Status::OK();
     }

@@ -47,6 +47,11 @@ struct FileWriterOptions {
     uint64_t file_cache_expiration = 0; // Absolute time
 };
 
+struct AsyncCloseStatusPack {
+    std::promise<Status> promise;
+    std::future<Status> future; 
+};
+
 class FileWriter {
 public:
     FileWriter() = default;
@@ -55,7 +60,9 @@ public:
     FileWriter(const FileWriter&) = delete;
     const FileWriter& operator=(const FileWriter&) = delete;
 
-    Status close(bool non_block = false);
+    // Normal close. Wait for all data to persist before returning.
+    // If there is no data appended, an empty file will be persisted.
+    virtual Status close(bool non_block = false) = 0;
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
@@ -68,14 +75,6 @@ public:
     virtual bool closed() const = 0;
 
     virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
-
-private:
-    virtual Status _async_flush() { return Status::OK(); }
-    // Normal close. Wait for all data to persist before returning.
-    // If there is no data appended, an empty file will be persisted.
-    virtual Status _close_impl() = 0;
-    std::future<Status> _fut;
-    std::promise<Status> _pro;
 };
 
 } // namespace doris::io

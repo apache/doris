@@ -38,6 +38,7 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_util.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/bvar_helper.h"
 #include "util/jni-util.h"
@@ -193,6 +194,22 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
     _approximate_jni_buffer_size += actual_size;
     return Status::OK();
 #endif
+}
+
+Status HdfsFileWriter::close(bool non_block) {
+    if (non_block) {
+        if (nullptr != _async_close_pack) {
+            return Status::OK();
+        }
+        _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
+        _async_close_pack->future = _async_close_pack->promise.get_future();
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
+                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+    }
+    if (_async_close_pack != nullptr) {
+        return _async_close_pack->future.get();
+    }
+    return _close_impl();
 }
 
 Status HdfsFileWriter::_close_impl() {

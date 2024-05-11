@@ -42,6 +42,7 @@ struct S3Conf;
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
+struct AsyncCloseStatusPack;
 
 class S3FileWriter final : public FileWriter {
 public:
@@ -67,8 +68,10 @@ public:
     const std::string& bucket() const { return _bucket; }
     const std::string& upload_id() const { return _upload_id; }
 
+    Status close(bool non_block = false) override;
+
 private:
-    Status _close_impl() override;
+    Status _close_impl();
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
@@ -111,6 +114,7 @@ private:
     // Because hive committers have best-effort semantics,
     // this shortens the inconsistent time window.
     bool _used_by_s3_committer;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
 };
 
 } // namespace io

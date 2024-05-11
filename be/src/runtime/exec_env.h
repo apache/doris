@@ -197,7 +197,7 @@ public:
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
-    ThreadPool* non_block_close_thread_pool() { return _non_block_close_thread_pool.get(); }
+    ThreadPool* non_block_close_thread_pool();
 
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();

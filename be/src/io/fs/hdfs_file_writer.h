@@ -29,6 +29,7 @@ namespace io {
 class HdfsHandler;
 class BlockFileCache;
 struct FileCacheAllocatorBuilder;
+struct AsyncCloseStatusPack;
 
 class HdfsFileWriter final : public FileWriter {
 public:
@@ -49,12 +50,14 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     bool closed() const override { return _closed; }
 
+    Status close(bool non_block = false) override;
+
     FileCacheAllocatorBuilder* cache_builder() const override {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }
 
 private:
-    Status _close_impl() override;
+    Status _close_impl();
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();
@@ -89,6 +92,7 @@ private:
     };
     BatchBuffer _batch_buffer;
     size_t _approximate_jni_buffer_size = 0;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
 };
 
 } // namespace io

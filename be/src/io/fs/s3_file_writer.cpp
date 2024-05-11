@@ -54,6 +54,7 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/exec_env.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -183,6 +184,22 @@ Status S3FileWriter::_abort() {
             outcome.GetError(),
             fmt::format("failed to abort multipart upload {} upload_id={}, whole parts={}",
                         _path.native(), _upload_id, _dump_completed_part()));
+}
+
+Status S3FileWriter::close(bool non_block) {
+    if (non_block) {
+        if (nullptr != _async_close_pack) {
+            return Status::OK();
+        }
+        _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
+        _async_close_pack->future = _async_close_pack->promise.get_future();
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
+                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+    }
+    if (_async_close_pack != nullptr) {
+        return _async_close_pack->future.get();
+    }
+    return _close_impl();
 }
 
 Status S3FileWriter::_close_impl() {

@@ -111,6 +111,23 @@
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
 
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
+
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -151,6 +168,14 @@ static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
     return {min_num, max_num};
+}
+
+ThreadPool* ExecEnv::non_block_close_thread_pool() {
+#ifdef BE_TEST
+    return get_non_block_close_thread_pool();
+#else
+    return _non_block_close_thread_pool.get();
+#endif
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,

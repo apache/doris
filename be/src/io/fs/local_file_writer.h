@@ -38,13 +38,13 @@ public:
 
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
+    Status close(bool non_block = false) override;
+
 private:
-    Status _close_impl() override;
-    Status _async_flush() override;
+    Status _finalize();
     void _abort();
     Status _close(bool sync);
 
-private:
     Path _path;
     int _fd; // owned
     bool _dirty = false;

@@ -56,9 +56,10 @@ public:
 
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
+    Status close(bool non_block = false) override;
+
 private:
-    Status _async_flush() override;
-    Status _close_impl() override;
+    Status _finalize();
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;
