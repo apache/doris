@@ -41,7 +41,6 @@
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/sink/autoinc_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -132,7 +131,8 @@ public:
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
     Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                 const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos);
+                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                const vectorized::Block* block);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -228,9 +228,6 @@ private:
     // group every rowset-segment row id to speed up reader
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
-
-    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
-    vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
 } // namespace segment_v2
