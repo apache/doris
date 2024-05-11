@@ -292,6 +292,8 @@ struct TQueryOptions {
   // expr pushdown for index filter rows
   107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
   108: optional i64 local_exchange_free_blocks_limit;
+
+  109: optional bool enable_force_spill = false;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
