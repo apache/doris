@@ -71,8 +71,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    _execution_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
+    _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
