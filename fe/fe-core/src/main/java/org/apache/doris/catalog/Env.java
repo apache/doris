@@ -5433,6 +5433,17 @@ public class Env {
     }
 
     public void setConfig(AdminSetConfigStmt stmt) throws Exception {
+        Map<String, String> configs = stmt.getConfigs();
+        Preconditions.checkState(configs.size() == 1);
+
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
+            try {
+                ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+            } catch (ConfigException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+
         if (stmt.isApplyToAll()) {
             for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
                 if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
@@ -5446,17 +5457,6 @@ public class Env {
                     throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
                             fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
-            }
-        }
-
-        Map<String, String> configs = stmt.getConfigs();
-        Preconditions.checkState(configs.size() == 1);
-
-        for (Map.Entry<String, String> entry : configs.entrySet()) {
-            try {
-                ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
-            } catch (ConfigException e) {
-                throw new DdlException(e.getMessage());
             }
         }
     }

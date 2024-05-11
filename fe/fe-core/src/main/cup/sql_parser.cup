@@ -7766,7 +7766,7 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, false);
     :}
-    | KW_ADMIN KW_SET KW_ALL KW_FRONTEND KW_CONFIG opt_key_value_map:configs
+    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
     {:
         RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
     :}
