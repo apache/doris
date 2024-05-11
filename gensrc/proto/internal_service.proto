@@ -248,6 +248,7 @@ message PCancelPlanFragmentRequest {
     optional PPlanFragmentCancelReason cancel_reason = 2;
     optional PUniqueId query_id = 3;
     optional int32 fragment_id = 4;
+    optional PStatus cancel_status = 5;
 };
 
 message PCancelPlanFragmentResult {
