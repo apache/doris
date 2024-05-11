@@ -3179,15 +3179,15 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-            long specificVersion) {
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, false);
     }
 
     public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-            long specificVersion) {
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, true);
     }
@@ -3198,10 +3198,10 @@ public class Env {
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
-            List<String> addPartitionStmt, List<String> createRollupStmt,
-            boolean separatePartition,
-            boolean hidePassword, boolean getDdlForLike, long specificVersion,
-            boolean getBriefDdl, boolean getDdlForSync) {
+                                  List<String> addPartitionStmt, List<String> createRollupStmt,
+                                  boolean separatePartition,
+                                  boolean hidePassword, boolean getDdlForLike, long specificVersion,
+                                  boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3518,48 +3518,48 @@ public class Env {
 
             // time series compaction goal size
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
             }
 
             // time series compaction file count threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
             }
 
             // time series compaction time threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
             // time series compaction empty rowsets threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
             }
 
             // time series compaction level threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
             }
 
             // Storage Vault
             if (!olapTable.getStorageVaultName().isEmpty()) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                        .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
+                                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
                 sb.append(olapTable.getStorageVaultName()).append("\"");
             }
 
@@ -3789,12 +3789,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-            Long recycleTime) {
+                                      Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-            Long recycleTime) throws MetaNotFoundException {
+                                Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -4251,7 +4251,7 @@ public class Env {
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
-            boolean isKeysRequired) throws DdlException {
+                                                boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         Map<Integer, Column> clusterColumns = new TreeMap<>();
         boolean hasValueColumn = false;
@@ -4383,7 +4383,7 @@ public class Env {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN
-                || stmt.getAlterType() == AlterType.INDEX) {
+                       || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
@@ -4487,14 +4487,14 @@ public class Env {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
-            GroupId assignedGroupId)
+                                    GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(assignedGroup)) {
             String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
-            // When the new name is the same as the old name, we return it to prevent npe
+            //When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
                 String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
                 if (oldFullGroupName.equals(fullAssignedGroupName)) {
@@ -4716,8 +4716,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-            String newColName, Map<Long, Integer> indexIdToSchemaVersion,
-            boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -5073,7 +5073,7 @@ public class Env {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
-            ModifyDistributionClause modifyDistributionClause)
+                                                   ModifyDistributionClause modifyDistributionClause)
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
@@ -5722,10 +5722,10 @@ public class Env {
                     editLog.logSetTableStatus(log);
                 }
                 LOG.info("set table {} state from {} to {}. is replay: {}.",
-                        tableName, oldState, state, isReplay);
+                            tableName, oldState, state, isReplay);
             } else {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
-                        olapTable.getState(), tableName, isReplay);
+                            olapTable.getState(), tableName, isReplay);
             }
         } finally {
             olapTable.writeUnlock();
@@ -5832,7 +5832,7 @@ public class Env {
                     getEditLog().logSetReplicaVersion(log);
                 }
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
-                                + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
+                        + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
             } finally {
                 table.writeUnlock();
@@ -5913,13 +5913,13 @@ public class Env {
                 log.getPartitionId(), log.getVisibleVersion(), true);
         if (setSuccess == -1) {
             LOG.warn("Failed to set partition visible version to {}. "
-                            + "Database {}, Table {}, Partition {} not exists.", log.getDatabase(), log.getTable(),
+                    + "Database {}, Table {}, Partition {} not exists.", log.getDatabase(), log.getTable(),
                     log.getVisibleVersion(), log.getPartitionId());
         }
     }
 
     public int setPartitionVersionInternal(String database, String table, long partitionId,
-            long visibleVersion, boolean isReplay) throws DdlException {
+                                           long visibleVersion, boolean isReplay) throws DdlException {
         int result = -1;
         Database db = getInternalCatalog().getDbOrDdlException(database);
         OlapTable olapTable = db.getOlapTableOrDdlException(table);
