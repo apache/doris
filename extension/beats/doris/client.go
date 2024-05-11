@@ -70,13 +70,15 @@ type clientSettings struct {
 	Logger   *logp.Logger
 }
 
-type responseStatus struct {
-	Status string `json:"Status"`
-}
-
 func (s clientSettings) String() string {
 	return fmt.Sprintf("clientSettings{%s, %s, %s, %s}", s.URL, s.Timeout, s.LabelPrefix, s.Headers)
 }
+
+type ResponseStatus struct {
+	Status string `json:"Status"`
+}
+
+func (e *ResponseStatus) Error() string { return e.Status }
 
 func NewDorisClient(s clientSettings) (*client, error) {
 	s.Logger.Infof("Received settings: %s", s)
@@ -195,16 +197,16 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 		return events, bodyErr
 	}
 
-	var status responseStatus
+	var status ResponseStatus
 	parseErr := json.Unmarshal(body, &status)
 	if parseErr != nil {
 		client.logger.Errorf("Failed to parse doris stream load response to JSON, error: %v, response:\n%v", parseErr, string(responseBytes))
 		return events, parseErr
 	}
 
-	if status.Status != "OK" {
-		client.logger.Errorf("doris stream load status: %v is not 'OK', full response: %v", status.Status, string(responseBytes))
-		return events, nil
+	if status.Status != "Success" {
+		client.logger.Errorf("doris stream load status: '%v' is not 'Success', full response: %v", status.Status, string(responseBytes))
+		return events, &status
 	}
 
 	client.logger.Debugf("Stream-Load publish events: %d events have been published to doris in %v.",

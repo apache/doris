@@ -66,7 +66,7 @@ func makeDoris(
 		}
 
 		streamLoadPath := fmt.Sprintf("/api/%s/%s/_stream_load", config.Database, config.Table)
-		hostURL, err := common.MakeURL(url.Scheme, streamLoadPath, host, 80)
+		hostURL, err := common.MakeURL(url.Scheme, streamLoadPath, host, 8030)
 		if err != nil {
 			logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
 			return outputs.Fail(err)
