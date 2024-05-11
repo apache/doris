@@ -696,6 +696,13 @@ struct TExportStatusResult {
     3: optional list<string> files
 }
 
+struct TTopnFilterContext {
+  1: required i32 source_node_id
+  2: required bool is_asc
+  3: required bool null_first
+  4: required Exprs.TExpr src_expr
+}
+
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
   2: optional bool build_hash_table_for_broadcast_join = false;
@@ -704,7 +711,8 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
-  8: optional list<i32> topn_filter_source_node_ids
+  8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_contexts
+  9: optional list<TTopnFilterContext> topn_filter_contexts
 }
 
 // ExecPlanFragment
