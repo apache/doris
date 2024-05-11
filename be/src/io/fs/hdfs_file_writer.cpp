@@ -98,7 +98,7 @@ public:
         size_t origin_size = cur_memory_comsuption;
         cur_memory_comsuption -= memory_size;
         if (cur_memory_comsuption <= max_usage() && origin_size > max_usage()) {
-            cv.notify_one();
+            cv.notify_all();
         }
 #endif
     }
