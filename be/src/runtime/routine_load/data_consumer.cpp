@@ -415,6 +415,51 @@ Status KafkaDataConsumer::get_latest_offsets_for_partitions(
     return Status::OK();
 }
 
+Status KafkaDataConsumer::get_real_offsets_for_partitions(
+        const std::vector<PIntegerPair>& offset_flags, std::vector<PIntegerPair>* offsets,
+        int timeout) {
+    MonotonicStopWatch watch;
+    watch.start();
+    for (const auto& entry : offset_flags) {
+        PIntegerPair pair;
+        if (UNLIKELY(entry.val() >= 0)) {
+            pair.set_key(entry.key());
+            pair.set_val(entry.val());
+            offsets->push_back(std::move(pair));
+            continue;
+        }
+
+        int64_t low = 0;
+        int64_t high = 0;
+        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
+        if (UNLIKELY(timeout_ms <= 0)) {
+            return Status::InternalError("get kafka real offsets for partitions timeout");
+        }
+
+        RdKafka::ErrorCode err =
+                _k_consumer->query_watermark_offsets(_topic, entry.key(), &low, &high, timeout_ms);
+        if (UNLIKELY(err != RdKafka::ERR_NO_ERROR)) {
+            std::stringstream ss;
+            ss << "failed to get latest offset for partition: " << entry.key()
+               << ", err: " << RdKafka::err2str(err);
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+
+        pair.set_key(entry.key());
+        if (entry.val() == -1) {
+            // OFFSET_END_VAL = -1
+            pair.set_val(high);
+        } else if (entry.val() == -2) {
+            // OFFSET_BEGINNING_VAL = -2
+            pair.set_val(low);
+        }
+        offsets->push_back(std::move(pair));
+    }
+
+    return Status::OK();
+}
+
 Status KafkaDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_init) {

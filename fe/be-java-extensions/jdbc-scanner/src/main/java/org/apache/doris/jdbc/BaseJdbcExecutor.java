@@ -309,13 +309,13 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+            Thread.currentThread().setContextClassLoader(classLoader);
             hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
             if (hikariDataSource == null) {
                 synchronized (hikariDataSourceLock) {
                     hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
                     if (hikariDataSource == null) {
                         long start = System.currentTimeMillis();
-                        Thread.currentThread().setContextClassLoader(classLoader);
                         HikariDataSource ds = new HikariDataSource();
                         ds.setDriverClassName(config.getJdbcDriverClass());
                         ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
@@ -433,7 +433,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
-        ColumnType.Type dorisType = column.getColumnTyp();
+        ColumnType.Type dorisType = column.getColumnPrimitiveType();
         if (column.isNullAt(rowIdx)) {
             insertNullColumn(parameterIndex, dorisType);
             return;

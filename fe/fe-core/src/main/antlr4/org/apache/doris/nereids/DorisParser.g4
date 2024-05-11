@@ -1056,6 +1056,7 @@ nonReserved
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
+    | CONSTRAINTS
     | CONVERT
     | COPY
     | COUNT
@@ -1076,10 +1077,10 @@ nonReserved
     | DATEADD
     | DATEDIFF
     | DATETIME
-    | DATETIMEV2
-    | DATEV2
     | DATETIMEV1
+    | DATETIMEV2
     | DATEV1
+    | DATEV2
     | DAY
     | DAYS_ADD
     | DAYS_SUB
@@ -1138,6 +1139,8 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IPV4
+    | IPV6
     | IS_NOT_NULL_PRED
     | IS_NULL_PRED
     | ISNULL
@@ -1163,6 +1166,17 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCH_ALL
+    | MATCH_ANY
+    | MATCH_ELEMENT_EQ
+    | MATCH_ELEMENT_GE
+    | MATCH_ELEMENT_GT
+    | MATCH_ELEMENT_LE
+    | MATCH_ELEMENT_LT
+    | MATCH_PHRASE
+    | MATCH_PHRASE_EDGE
+    | MATCH_PHRASE_PREFIX
+    | MATCH_REGEXP
     | MATERIALIZED
     | MAX
     | MEMO
@@ -1203,11 +1217,11 @@ nonReserved
     | PERMISSIVE
     | PHYSICAL
     | PLAN
-    | PROCESS
     | PLUGIN
     | PLUGINS
     | POLICY
     | PROC
+    | PROCESS
     | PROCESSLIST
     | PROFILE
     | PROPERTIES
@@ -1285,6 +1299,8 @@ nonReserved
     | VALUE
     | VARCHAR
     | VARIABLES
+    | VARIANT
+    | VAULT
     | VERBOSE
     | VERSION
     | VIEW

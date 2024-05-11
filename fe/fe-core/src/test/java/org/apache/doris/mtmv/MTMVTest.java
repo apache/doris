@@ -43,7 +43,7 @@ public class MTMVTest {
                 + "needRefreshPartitions=null, completedPartitions=null, refreshMode=null} "
                 + "AbstractTask(jobId=null, taskId=1, status=null, createTimeMs=null, startTimeMs=null, "
                 + "finishTimeMs=null, taskType=null, errMsg=null)]}, mvProperties={}, "
-                + "relation=MTMVRelation{baseTables=[], baseViews=[]}, "
+                + "relation=MTMVRelation{baseTables=[], baseTablesOneLevel=[], baseViews=[]}, "
                 + "mvPartitionInfo=MTMVPartitionInfo{partitionType=null, relatedTable=null, "
                 + "relatedCol='null', partitionCol='null'}, "
                 + "refreshSnapshot=MTMVRefreshSnapshot{partitionSnapshots={}}, id=1, name='null', "
@@ -58,7 +58,7 @@ public class MTMVTest {
         mtmv.setEnvInfo(new EnvInfo(1L, 2L));
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
-        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet()));
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet()));
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
         Assert.assertEquals(expect, mtmv.toInfoString());

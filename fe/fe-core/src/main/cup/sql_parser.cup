@@ -6552,7 +6552,7 @@ with_analysis_properties ::=
     | KW_SQL
     {:
         RESULT = new HashMap<String, String>() {{
-             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+             put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         }};
     :}
 
@@ -8410,6 +8410,36 @@ keyword ::=
     | KW_BELONG:id
     {: RESULT = id; :}
     | KW_STAGE:id
+    {: RESULT = id; :}
+    | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VARIANT:id
+    {: RESULT = id; :}
+    | KW_IPV4:id
+    {: RESULT = id; :}
+    | KW_IPV6:id
+    {: RESULT = id; :}
+    | KW_MATCH_ANY:id
+    {: RESULT = id; :}
+    | KW_MATCH_ALL:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_PREFIX:id
+    {: RESULT = id; :}
+    | KW_MATCH_REGEXP:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_EDGE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_EQ:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GE:id
     {: RESULT = id; :}
     ;
 

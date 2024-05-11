@@ -40,6 +40,7 @@ public:
 
 private:
     friend class LocalExchangeSourceOperatorX;
+    friend class Exchanger;
     friend class ShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;

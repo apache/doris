@@ -62,7 +62,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
-    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::function<void(const Status&)> cancel_fn;
 };
 
 // Save the common components of fragments in a query.
@@ -87,17 +87,12 @@ public:
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const VecDateTimeValue& now) const {
-        if (timeout_second <= 0) {
+    bool is_timeout(timespec now) const {
+        if (_timeout_second <= 0) {
             return false;
         }
-        if (now.second_diff(_start_time) > timeout_second) {
-            return true;
-        }
-        return false;
+        return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
-
-    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
 
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
@@ -112,13 +107,11 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
 
-    void cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
-                                     const std::string& msg);
-    Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
-                                   const std::string& msg);
+    void cancel_all_pipeline_context(const Status& reason);
+    Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
-    void cancel(std::string msg, Status new_status, int fragment_id = -1);
+    void cancel(Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -288,7 +281,6 @@ public:
     /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
     /// will clean up QueryContext.
     std::atomic<int> fragment_num;
-    int timeout_second;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
@@ -300,9 +292,10 @@ public:
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
 private:
+    int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
-    VecDateTimeValue _start_time;
+    MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
     bool _is_pipeline = false;
     bool _is_nereids = false;

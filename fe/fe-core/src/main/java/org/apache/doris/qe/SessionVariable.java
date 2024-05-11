@@ -488,9 +488,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG = "enable_auto_analyze_internal_catalog";
 
-    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
+    public static final String ENABLE_PARTITION_ANALYZE = "enable_partition_analyze";
 
-    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
@@ -508,6 +508,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
     public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
@@ -1579,6 +1580,11 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyzeInternalCatalog = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_PARTITION_ANALYZE,
+            description = {"临时参数，收否收集分区级别统计信息", "Temp variable， enable to collect partition level statistics."},
+            flag = VariableMgr.GLOBAL)
+    public boolean enablePartitionAnalyze = false;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
                 "Maximum table width to enable auto analyze, "
@@ -1597,10 +1603,6 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
-
-    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
-            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
-    public boolean fasterFloatConvert = false;
 
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
             description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
@@ -1799,6 +1801,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAggSpill = false;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_FORCE_SPILL,
+            description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
+                    "Controls whether enable force spill."
+            },
+            needForward = true, fuzzy = true
+    )
+    public boolean enableForceSpill = false;
+
+    @VariableMgr.VarAttr(
             name = DATA_QUEUE_MAX_BLOCKS,
             description = {"DataQueue 中每个子队列允许最大的 block 个数",
                     "Max blocks in DataQueue."},
@@ -1951,7 +1962,7 @@ public class SessionVariable implements Serializable, Writable {
                     this.batchSize = 4064;
                     this.enableFoldConstantByBe = true;
                 } else {
-                    this.batchSize = 50;
+                    this.batchSize = 1024;
                     this.enableFoldConstantByBe = false;
                 }
             }
@@ -1981,7 +1992,7 @@ public class SessionVariable implements Serializable, Writable {
                         this.minRevocableMem = 1024 * 1024;
                         break;
                     default:
-                        this.minRevocableMem = 100 * 1024 * 1024 * 1024;
+                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
                         break;
                 }
             } else {
@@ -3255,8 +3266,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setFasterFloatConvert(fasterFloatConvert);
-
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
         tResult.setSkipMissingVersion(skipMissingVersion);
@@ -3271,6 +3280,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableJoinSpill(enableJoinSpill);
         tResult.setEnableSortSpill(enableSortSpill);
         tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 

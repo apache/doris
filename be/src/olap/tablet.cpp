@@ -1707,9 +1707,11 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_failure_time(this, compaction, UnixMillis());
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
+            DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {
+            DorisMetrics::instance()->single_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do single replica compaction. res=" << res
                          << ", tablet=" << tablet_id();
         }
@@ -2397,8 +2399,11 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     // will update delete bitmap, handle compaction with _rowset_update_lock
     // and publish_txn runs sequential so no need to lock here
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
-                                            bitmap);
+        // skip sentinel mark, which is used for delete bitmap correctness check
+        if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
+                                                bitmap);
+        }
     }
 
     return Status::OK();

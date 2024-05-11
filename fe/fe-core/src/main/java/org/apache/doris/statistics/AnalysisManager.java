@@ -344,7 +344,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
-        infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
+        infoBuilder.setUsingSqlForExternalTable(stmt.usingSqlForExternalTable());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
