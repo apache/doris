@@ -237,14 +237,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext);
-            if (rewrittenPlan == null) {
-                continue;
-            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
                         return childContext.getRewritePlan();
                     }, rewrittenPlan, queryPlan);
+            if (rewrittenPlan == null) {
+                continue;
+            }
             // check the partitions used by rewritten plan is valid or not
             Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionsQueryUsed =
                     calcUsedInvalidMvPartitions(rewrittenPlan, materializationContext, cascadesContext);
@@ -287,9 +287,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 // For rewrittenPlan which contains materialized view should remove invalid partition ids
                 List<Plan> children = Lists.newArrayList(
-                        rewrittenPlan.accept(new InvalidPartitionRemover(), Pair.of(materializationContext.getMTMV(),
-                                invalidPartitionsQueryUsed.values().stream()
-                                        .map(Partition::getId).collect(Collectors.toSet()))),
+                        rewrittenPlan.accept(new InvalidPartitionRemover(), Pair.of(
+                                materializationContext.getMaterializationQualifier(),
+                                invalidPartitionsQueryUsed.values().stream().map(Partition::getId)
+                                        .collect(Collectors.toSet()))),
                         StructInfo.addFilterOnTableScan(queryPlan, filterOnOriginPlan, cascadesContext));
                 // Union query materialized view and source table
                 rewrittenPlan = new LogicalUnion(Qualifier.ALL,
@@ -387,40 +388,43 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Plan rewrittenPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        // check partition is valid or not
-        MTMV mtmv = materializationContext.getMTMV();
-        PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
-        if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
-            // if not partition, if rewrite success, it means mv is available
-            return ImmutableMultimap.of();
+        if (materializationContext instanceof AsyncMaterializationContext) {
+            // check partition is valid or not
+            MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
+            PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
+            if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
+                // if not partition, if rewrite success, it means mv is available
+                return ImmutableMultimap.of();
+            }
+            // check mv related table partition is valid or not
+            MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
+            BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
+            if (relatedPartitionTable == null) {
+                return ImmutableMultimap.of();
+            }
+            // get mv valid partitions
+            Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
+                            cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
+                    .map(Partition::getId)
+                    .collect(Collectors.toSet());
+            // get partitions query used
+            Set<Long> mvPartitionSetQueryUsed = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
+                            && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
+                    .stream()
+                    .map(node -> ((LogicalOlapScan) node).getSelectedPartitionIds())
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toSet());
+            // get invalid partition ids
+            Set<Long> invalidMvPartitionIdSet = new HashSet<>(mvPartitionSetQueryUsed);
+            invalidMvPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
+            ImmutableMultimap.Builder<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionMapBuilder =
+                    ImmutableMultimap.builder();
+            Pair<MTMVPartitionInfo, PartitionInfo> partitionInfo = Pair.of(mvCustomPartitionInfo, mvPartitionInfo);
+            invalidMvPartitionIdSet.forEach(invalidPartitionId ->
+                    invalidPartitionMapBuilder.put(partitionInfo, mtmv.getPartition(invalidPartitionId)));
+            return invalidPartitionMapBuilder.build();
         }
-        // check mv related table partition is valid or not
-        MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
-        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
-        if (relatedPartitionTable == null) {
-            return ImmutableMultimap.of();
-        }
-        // get mv valid partitions
-        Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
-                        cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
-                .map(Partition::getId)
-                .collect(Collectors.toSet());
-        // get partitions query used
-        Set<Long> mvPartitionSetQueryUsed = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan
-                        && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()))
-                .stream()
-                .map(node -> ((LogicalOlapScan) node).getSelectedPartitionIds())
-                .flatMap(Collection::stream)
-                .collect(Collectors.toSet());
-        // get invalid partition ids
-        Set<Long> invalidMvPartitionIdSet = new HashSet<>(mvPartitionSetQueryUsed);
-        invalidMvPartitionIdSet.removeAll(mvDataValidPartitionIdSet);
-        ImmutableMultimap.Builder<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> invalidPartitionMapBuilder =
-                ImmutableMultimap.builder();
-        Pair<MTMVPartitionInfo, PartitionInfo> partitionInfo = Pair.of(mvCustomPartitionInfo, mvPartitionInfo);
-        invalidMvPartitionIdSet.forEach(invalidPartitionId ->
-                        invalidPartitionMapBuilder.put(partitionInfo, mtmv.getPartition(invalidPartitionId)));
-        return invalidPartitionMapBuilder.build();
+        return ImmutableMultimap.of();
     }
 
     /**

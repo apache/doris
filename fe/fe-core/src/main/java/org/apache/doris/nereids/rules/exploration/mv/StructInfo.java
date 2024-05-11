@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
@@ -630,11 +629,11 @@ public class StructInfo {
     /**
      * Add predicates on base table when materialized view scan contains invalid partitions
      */
-    public static class InvalidPartitionRemover extends DefaultPlanRewriter<Pair<MTMV, Set<Long>>> {
+    public static class InvalidPartitionRemover extends DefaultPlanRewriter<Pair<List<String>, Set<Long>>> {
         // materialized view scan is always LogicalOlapScan, so just handle LogicalOlapScan
         @Override
-        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Pair<MTMV, Set<Long>> context) {
-            if (olapScan.getTable().getName().equals(context.key().getName())) {
+        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Pair<List<String>, Set<Long>> context) {
+            if (olapScan.getTable().getFullQualifiers().equals(context.key())) {
                 List<Long> selectedPartitionIds = olapScan.getSelectedPartitionIds();
                 return olapScan.withSelectedPartitionIds(selectedPartitionIds.stream()
                         .filter(partitionId -> !context.value().contains(partitionId))
