@@ -902,10 +902,7 @@ public class OlapScanNode extends ScanNode {
                     String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive";
                     if (Config.isCloudMode()) {
-                        err += ", or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
-                            err += " clusterName=" + ConnectContext.get().getCloudCluster();
-                        }
+                        errs.add(ConnectContext.cloudNoBackendsReason());
                     }
                     errs.add(err);
                     continue;

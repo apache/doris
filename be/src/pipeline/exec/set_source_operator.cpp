@@ -152,14 +152,7 @@ void SetSourceOperatorX<is_intersect>::_add_result_columns(
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
         auto& column = *build_block.get_by_position(idx->first).column;
-        if (local_state._mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
-            DCHECK(local_state._mutable_cols[idx->second]->is_nullable());
-            ((vectorized::ColumnNullable*)(local_state._mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
     block_size++;
 }

@@ -877,9 +877,9 @@ public:
     using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                                          parent->get_name() + "_FINISH_DEPENDENCY",
-                                                          true, state->get_query_ctx());
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

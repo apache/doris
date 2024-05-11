@@ -115,19 +115,13 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
-
-        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            const auto& col_nested = nullable->get_nested_column();
-            if (local_state._shared_state->build_not_ignore_null[i]) {
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
-            }
-
-        } else {
-            raw_ptrs[i] = column;
+        if (local_state._shared_state->build_not_ignore_null[i]) {
+            block.get_by_position(result_col_id).column =
+                    make_nullable(block.get_by_position(result_col_id).column);
         }
+
+        const auto* column = block.get_by_position(result_col_id).column.get();
+        raw_ptrs[i] = column;
         DCHECK_GE(result_col_id, 0);
         local_state._shared_state->build_col_idx.insert({result_col_id, i});
     }
@@ -166,11 +160,14 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
-
+    _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
     _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
-    for (const auto& ctx : child_exprs_lists[parent._cur_child_id]) {
-        _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
+    for (const auto& ctl : child_exprs_lists) {
+        for (int i = 0; i < ctl.size(); ++i) {
+            _shared_state->build_not_ignore_null[i] =
+                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
+        }
     }
     _shared_state->hash_table_init();
     return Status::OK();
