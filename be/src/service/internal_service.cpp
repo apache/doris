@@ -1165,7 +1165,23 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
-            if (!kafka_request.partition_id_for_latest_offsets().empty()) {
+            if (!kafka_request.offset_flags().empty()) {
+                std::vector<PIntegerPair> partition_offsets;
+                Status st = _exec_env->routine_load_task_executor()
+                                    ->get_kafka_real_offsets_for_partitions(
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
+                if (st.ok()) {
+                    PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
+                    for (const auto& entry : partition_offsets) {
+                        PIntegerPair* res = part_offsets->add_offset_times();
+                        res->set_key(entry.key());
+                        res->set_val(entry.val());
+                    }
+                }
+                st.to_protobuf(response->mutable_status());
+                return;
+            } else if (!kafka_request.partition_id_for_latest_offsets().empty()) {
                 // get latest offsets for specified partition ids
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
