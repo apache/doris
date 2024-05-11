@@ -101,9 +101,14 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             this.exprOrder = exprOrder;
             this.isNot = isNot;
             Expression expr = getSingleNumericSlotOrExpressionCoveredByCast(probeExpr);
+            /* finalTarget can be null if it is not a column from base table.
+            for example:
+            select * from T1 join (select 9 as x) T2 on T1.x=T2.x,
+            where the final target of T2.x is a constant
+            */
             if (expr instanceof Slot) {
                 probeSlot = (Slot) expr;
-                finalTarget = rfContext.getAliasTransferPair((Slot) probeSlot);
+                finalTarget = rfContext.getAliasTransferPair(probeSlot);
             } else {
                 finalTarget = null;
                 probeSlot = null;
@@ -290,6 +295,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
         for (Expression prob : probExprList) {
             PushDownContext ctxForChild = prob.equals(ctx.probeExpr) ? ctx : ctx.withNewProbeExpression(prob);
+            if (!ctxForChild.isValid()) {
+                continue;
+            }
             if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)) {
                 pushed |= leftNode.accept(this, ctxForChild);
             }
@@ -356,8 +364,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 }
             }
         }
-
-        return project.child().accept(this, ctxProjectProbeExpr);
+        if (!ctxProjectProbeExpr.isValid()) {
+            return false;
+        } else {
+            return project.child().accept(this, ctxProjectProbeExpr);
+        }
     }
 
     @Override
@@ -394,7 +405,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                  *   +--->select 0, 0
                  * push down context for "select 0, 0" is invalid
                  */
-                pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
+                pushedDown |= setOperation.child(i).accept(this, childPushDownContext);
             }
         }
         return pushedDown;
