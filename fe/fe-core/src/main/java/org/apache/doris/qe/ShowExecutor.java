@@ -298,6 +298,7 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
+        checkStmtSupported();
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
         } else if (stmt instanceof ShowAuthorStmt) {
@@ -411,6 +412,11 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
         } else if (stmt instanceof ShowConfigStmt) {
+            if (Config.isCloudMode() && !ctx.getCurrentUserIdentity()
+                    .getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
@@ -3238,4 +3244,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    private void checkStmtSupported() throws AnalysisException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (stmt instanceof ShowReplicaStatusStmt
+                || stmt instanceof ShowReplicaDistributionStmt
+                || stmt instanceof ShowConfigStmt) {
+            if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
+        }
+
+        if (stmt instanceof ShowTabletStorageFormatStmt
+                || stmt instanceof DiagnoseTabletStmt
+                || stmt instanceof AdminCopyTabletStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+            throw new AnalysisException("Unsupported operation");
+        }
+    }
 }

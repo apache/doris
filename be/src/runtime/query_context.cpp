@@ -59,7 +59,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_pipeline, bool is_nereids)
         : fragment_num(total_fragment_num),
-          timeout_second(-1),
+          _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
           _is_pipeline(is_pipeline),
@@ -68,7 +68,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     this->coord_addr = coord_addr;
-    _start_time = VecDateTimeValue::local_time();
+    _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     _execution_dependency =
@@ -76,7 +76,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
-    timeout_second = query_options.execution_timeout;
+    _timeout_second = query_options.execution_timeout;
 
     register_memory_statistics();
     register_cpu_statistics();
