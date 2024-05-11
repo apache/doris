@@ -22,6 +22,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "runtime/descriptors.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
