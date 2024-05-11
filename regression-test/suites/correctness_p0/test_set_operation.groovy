@@ -67,4 +67,6 @@ suite("test_set_operation") {
                     WHERE a = 3 ) ) ) ) c
                 ORDER BY  one_uid;
     """
+    
+    qt_select1  """ (select 0) intersect (select null); """
 }
