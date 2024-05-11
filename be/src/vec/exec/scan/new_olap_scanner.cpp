@@ -401,24 +401,21 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.filter_block_conjuncts = _conjuncts;
         }
 
-        // runtime predicate push down optimization for topn
-        if (!_parent && !((pipeline::OlapScanLocalState*)_local_state)
-                                 ->get_topn_filter_source_node_ids()
-                                 .empty()) {
-            // the new topn whitch support external table
+        if (!_parent) {
             _tablet_reader_params.topn_filter_source_node_ids =
                     ((pipeline::OlapScanLocalState*)_local_state)
-                            ->get_topn_filter_source_node_ids();
-        } else {
+                            ->get_topn_filter_source_node_ids(_state, true);
+        }
+
+        if (_tablet_reader_params.topn_filter_source_node_ids.empty()) {
+            // old topn logic
             _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
             if (_tablet_reader_params.use_topn_opt) {
                 if (olap_scan_node.__isset.topn_filter_source_node_ids) {
-                    // the 2.1 new multiple topn
                     _tablet_reader_params.topn_filter_source_node_ids =
                             olap_scan_node.topn_filter_source_node_ids;
 
                 } else {
-                    // the 2.0 old topn
                     _tablet_reader_params.topn_filter_source_node_ids = {0};
                 }
             }
