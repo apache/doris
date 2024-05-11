@@ -450,7 +450,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         // check the rowsets used for delete bitmap calculation is equal to the rowsets
         // that we can capture by version
         if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
-            Version full_version = Version(0, max_version_unlocked());
+            Version full_version = Version(0, max_version_unlocked().second);
             std::vector<RowsetSharedPtr> expected_rowsets;
             auto st = capture_consistent_rowsets(full_version, &expected_rowsets);
             DCHECK(st.ok()) << st;
@@ -3295,8 +3295,8 @@ Status Tablet::update_delete_bitmap_without_lock(
     std::vector<RowsetSharedPtr> specified_rowsets;
     RowsetIdUnorderedSet cur_rowset_ids;
     if (specified_base_rowsets == nullptr) {
-        RETURN_IF_ERROR(self->get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
-        specified_rowsets = self->get_rowset_by_ids(&cur_rowset_ids);
+        RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
+        specified_rowsets = get_rowset_by_ids(&cur_rowset_ids);
     } else {
         specified_rowsets = *specified_base_rowsets;
     }
