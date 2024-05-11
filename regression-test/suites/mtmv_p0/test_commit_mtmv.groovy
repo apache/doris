@@ -80,6 +80,7 @@ suite("test_commit_mtmv") {
     sql """drop materialized view if exists ${mvName1};"""
     sql """drop materialized view if exists ${mvName2};"""
     sql """drop table if exists `${tableName}`"""
+
     // test drop partition
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
@@ -110,9 +111,20 @@ suite("test_commit_mtmv") {
       """
      jobName1 = getJobName(dbName, mvName1);
      waitingMTMVTaskFinished(jobName1)
-     order_qt_mv1_3 "SELECT * FROM ${mvName1}"
+     order_qt_mv1_init "SELECT * FROM ${mvName1}"
+
      sql """alter table ${tableName} drop PARTITION p201701"""
      waitingMTMVTaskFinished(jobName1)
-     order_qt_mv1_4 "SELECT * FROM ${mvName1}"
+     order_qt_mv1_drop "SELECT * FROM ${mvName1}"
+
+    // test replace partition
+    sql """ALTER TABLE ${tableName} ADD TEMPORARY PARTITION p201702_t VALUES [('2017-02-01'), ('2017-03-01'));"""
+    sql """ALTER TABLE ${tableName} REPLACE PARTITION (p201702_t) WITH TEMPORARY PARTITION (p201702_t);"""
+    waitingMTMVTaskFinished(jobName1)
+    order_qt_mv1_replace "SELECT * FROM ${mvName1}"
+
+    sql """drop materialized view if exists ${mvName1};"""
+    sql """drop materialized view if exists ${mvName2};"""
+    sql """drop table if exists `${tableName}`"""
 
 }
