@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.ExpressionPosition;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.Mapping.MappedRelation;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
@@ -28,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -47,13 +45,9 @@ import java.util.function.Supplier;
 public class LogicalCompatibilityContext {
     private final BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping;
     private final BiMap<Integer, Integer> queryToViewNodeIDMapping;
-    private final ObjectId planNodeId;
     private final Supplier<BiMap<Expression, Expression>> queryToViewJoinEdgeExpressionMappingSupplier;
     private final Supplier<BiMap<Expression, Expression>> queryToViewNodeExpressionMappingSupplier;
     private final Supplier<BiMap<Expression, Expression>> queryToViewFilterEdgeExpressionMappingSupplier;
-    @Deprecated
-    private BiMap<Expression, Expression> queryToViewAllExpressionMapping;
-
     /**
      * LogicalCompatibilityContext
      */
@@ -79,9 +73,6 @@ public class LogicalCompatibilityContext {
         this.queryToViewNodeMapping = queryToViewNodeMapping;
         this.queryToViewNodeIDMapping = HashBiMap.create();
         queryToViewNodeMapping.forEach((k, v) -> queryToViewNodeIDMapping.put(k.getIndex(), v.getIndex()));
-
-        this.planNodeId = queryStructInfo.getTopPlan().getGroupExpression()
-                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
     }
 
     public BiMap<StructInfoNode, StructInfoNode> getQueryToViewNodeMapping() {
