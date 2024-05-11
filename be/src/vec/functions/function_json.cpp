@@ -42,6 +42,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/json_functions.h"
+#include "util/simd/bits.h"
 #include "vec/io/io_helper.h"
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
