@@ -42,7 +42,7 @@ suite("test_commit_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName1}
         BUILD DEFERRED REFRESH AUTO ON COMMIT
-        partition by(`user_id`)
+        partition by(`date`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
@@ -51,7 +51,7 @@ suite("test_commit_mtmv") {
      sql """
          CREATE MATERIALIZED VIEW ${mvName2}
          BUILD DEFERRED REFRESH AUTO ON COMMIT
-         partition by(`user_id`)
+         partition by(`date`)
          DISTRIBUTED BY RANDOM BUCKETS 2
          PROPERTIES ('replication_num' = '1')
          AS
