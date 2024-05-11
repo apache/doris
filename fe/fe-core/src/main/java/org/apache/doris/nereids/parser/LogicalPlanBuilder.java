@@ -1373,11 +1373,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableSnapshot tableSnapshot = null;
         if (ctx.tableSnapshot() != null) {
-            if (ctx.tableSnapshot().tableSnapshotType.getText().equalsIgnoreCase("time")) {
-                tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().valueExpression().getText()));
+            if (ctx.tableSnapshot().TIME() != null) {
+                tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().time.getText()));
                 tableSnapshot.setType(TableSnapshot.VersionType.TIME);
             } else {
-                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().valueExpression().getText()));
+                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().number().getText()));
                 tableSnapshot.setType(TableSnapshot.VersionType.VERSION);
             }
         }
@@ -1387,10 +1387,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         UnboundRelation relation = forCreateView ? new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams,
-                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())), tableSnapshot) :
+                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())),
+                Optional.ofNullable(tableSnapshot)) :
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName, scanParams, tableSnapshot);
+                        Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {

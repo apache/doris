@@ -60,27 +60,28 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     // the start and end position of the sql substring(e.g. "t1", "db1.t1", "ctl1.db1.t1")
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
-    private final TableSnapshot tableSnapshot;
+    private final Optional<TableSnapshot> tableSnapshot;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), null);
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
         this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), null);
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), null);
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(),
+                Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
-            TableScanParams scanParams, TableSnapshot tableSnapshot) {
+            TableScanParams scanParams, Optional<TableSnapshot> tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
                 tableSnapshot);
@@ -90,13 +91,13 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), null);
+                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
             TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
-            TableSnapshot tableSnapshot) {
+            Optional<TableSnapshot> tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString,
                 tableSnapshot);
@@ -109,7 +110,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
             TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
-            TableSnapshot tableSnapshot) {
+            Optional<TableSnapshot> tableSnapshot) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
@@ -216,7 +217,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         return indexInSqlString;
     }
 
-    public TableSnapshot getTableSnapshot() {
+    public Optional<TableSnapshot> getTableSnapshot() {
         return tableSnapshot;
     }
 }

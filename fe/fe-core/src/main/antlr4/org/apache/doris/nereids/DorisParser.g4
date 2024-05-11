@@ -972,7 +972,8 @@ sampleMethod
     ;
 
 tableSnapshot
-    : FOR tableSnapshotType=(TIME | VERSION) AS OF valueExpression
+    : FOR VERSION AS OF version=number
+    | FOR TIME AS OF time=STRING_LITERAL
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

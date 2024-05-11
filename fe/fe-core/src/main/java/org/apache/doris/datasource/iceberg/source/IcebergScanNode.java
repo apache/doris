@@ -106,7 +106,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
             source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange,
-                ((HMSExternalTable) table).getTableSnapshotVersion());
+                    ((HMSExternalTable) table).getTableSnapshotVersion());
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
