@@ -49,7 +49,7 @@ struct FileWriterOptions {
 
 struct AsyncCloseStatusPack {
     std::promise<Status> promise;
-    std::future<Status> future; 
+    std::future<Status> future;
 };
 
 class FileWriter {
