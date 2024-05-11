@@ -25,18 +25,24 @@ suite("test_commit_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
-            k1 int,
-            k2 int
-        )
-        DISTRIBUTED BY HASH(k1) BUCKETS 2
-        PROPERTIES (
-            "replication_num" = "1"
-        );
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703 VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
         """
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName1}
-        BUILD DEFERRED REFRESH COMPLETE ON COMMIT
+        BUILD DEFERRED REFRESH AUTO ON COMMIT
+        partition by(`user_id`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
@@ -44,21 +50,24 @@ suite("test_commit_mtmv") {
     """
      sql """
          CREATE MATERIALIZED VIEW ${mvName2}
-         BUILD DEFERRED REFRESH COMPLETE ON COMMIT
+         BUILD DEFERRED REFRESH AUTO ON COMMIT
+         partition by(`user_id`)
          DISTRIBUTED BY RANDOM BUCKETS 2
          PROPERTIES ('replication_num' = '1')
          AS
          SELECT * FROM ${mvName1};
      """
       sql """
-         insert into ${tableName} values(1,1);
+         insert into ${tableName} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3);;
      """
     def jobName1 = getJobName(dbName, mvName1);
     waitingMTMVTaskFinished(jobName1)
     order_qt_mv1 "SELECT * FROM ${mvName1}"
+    order_qt_task1 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName=${mvName1} order by CreateTime desc limit 1"
 
     def jobName2 = getJobName(dbName, mvName2);
     waitingMTMVTaskFinished(jobName2)
     order_qt_mv2 "SELECT * FROM ${mvName2}"
+    order_qt_task2 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName=${mvName2} order by CreateTime desc limit 1"
 
 }
