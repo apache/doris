@@ -356,7 +356,9 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-if [[ -z "${USE_JEMALLOC}" ]]; then
+if [[ "${BUILD_TYPE,,}" == "asan" ]]; then
+    USE_JEMALLOC='OFF'
+elif [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
 if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
