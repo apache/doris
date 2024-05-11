@@ -1295,6 +1295,13 @@ DECLARE_mBool(enable_injection_point);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+// The maximum jvm heap usage ratio for hdfs write workload
+DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
+// The max retry times when hdfs write failed
+DECLARE_mInt64(hdfs_jni_write_max_retry_time);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

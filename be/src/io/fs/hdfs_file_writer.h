@@ -62,6 +62,8 @@ private:
     Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
     Status _append(std::string_view content);
+    void _flush_and_reset_approximate_jni_buffer_size();
+    Status _acquire_jni_memory(size_t size);
 
     Path _path;
     std::shared_ptr<HdfsHandler> _hdfs_handler = nullptr;
@@ -87,6 +89,7 @@ private:
         std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
+    size_t _approximate_jni_buffer_size = 0;
 };
 
 } // namespace io

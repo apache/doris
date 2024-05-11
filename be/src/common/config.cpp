@@ -1028,7 +1028,7 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
-DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "4"); // 4MB
+DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");
@@ -1216,6 +1216,13 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
+
+// The maximum jvm heap usage ratio for hdfs write workload
+DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
+// The max retry times when hdfs write failed
+DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
 
 // clang-format off
 #ifdef BE_TEST

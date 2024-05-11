@@ -46,6 +46,7 @@ extern bvar::LatencyRecorder hdfs_create_dir_latency;
 extern bvar::LatencyRecorder hdfs_open_latency;
 extern bvar::LatencyRecorder hdfs_close_latency;
 extern bvar::LatencyRecorder hdfs_flush_latency;
+extern bvar::LatencyRecorder hdfs_hflush_latency;
 extern bvar::LatencyRecorder hdfs_hsync_latency;
 }; // namespace hdfs_bvar
 
