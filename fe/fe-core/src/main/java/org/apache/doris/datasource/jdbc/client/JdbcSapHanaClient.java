@@ -83,14 +83,14 @@ public class JdbcSapHanaClient extends JdbcClient {
             case "NVARCHAR":
             case "ALPHANUM":
             case "SHORTTEXT":
-                return ScalarType.createStringType();
-            case "BINARY":
-            case "VARBINARY":
-            case "BLOB":
             case "CLOB":
             case "NCLOB":
             case "TEXT":
             case "BINTEXT":
+            case "BINARY":
+            case "VARBINARY":
+                return ScalarType.createStringType();
+            case "BLOB":
             case "ST_GEOMETRY":
             case "ST_POINT":
             default:

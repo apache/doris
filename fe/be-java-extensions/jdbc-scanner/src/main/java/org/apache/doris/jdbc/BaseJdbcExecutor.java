@@ -556,4 +556,16 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         }
     }
+
+    protected String defaultByteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex.toUpperCase());
+        }
+        return hexString.toString();
+    }
 }
