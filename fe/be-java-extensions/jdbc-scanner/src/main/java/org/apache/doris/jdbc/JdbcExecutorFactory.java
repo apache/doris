@@ -32,6 +32,8 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/SQLServerJdbcExecutor";
             case DB2:
                 return "org/apache/doris/jdbc/DB2JdbcExecutor";
+            case SAP_HANA:
+                return "org/apache/doris/jdbc/SapHanaJdbcExecutor";
             default:
                 return "org/apache/doris/jdbc/DefaultJdbcExecutor";
         }
