@@ -332,6 +332,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 locationType = getLocationType(fileSplit.getPath().toString());
             }
             totalFileSize = fileSplit.getLength() * inputSplitsNum;
+            // Not accurate, only used to estimate concurrency.
+            int numSplitsPerBE = splitAssignment.numApproximateSplits() / backendPolicy.numBackends();
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(
                         this::splitToScanRange, backend, locationProperties, splitAssignment, pathPartitionKeys);
@@ -340,7 +342,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 TScanRangeLocations curLocations = newLocations();
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
-                tSource.setNumSplits(inputSplitsNum / backendPolicy.numBackends());
+                tSource.setNumSplits(numSplitsPerBE);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
                 TScanRangeLocation location = new TScanRangeLocation();
                 location.setBackendId(backend.getId());

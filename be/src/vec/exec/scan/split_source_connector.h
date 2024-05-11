@@ -88,6 +88,7 @@ private:
     std::mutex _range_lock;
     RuntimeState* _state;
     int64 _split_source_id;
+    int _num_splits;
 
     std::vector<TScanRangeLocations> _scan_ranges;
     bool _last_batch = false;
@@ -95,20 +96,16 @@ private:
     int _range_index = 0;
 
 public:
-    RemoteSplitSourceConnector(RuntimeState* state, int64 split_source_id)
-            : _state(state), _split_source_id(split_source_id) {}
+    RemoteSplitSourceConnector(RuntimeState* state, int64 split_source_id, int num_splits)
+            : _state(state), _split_source_id(split_source_id), _num_splits(num_splits) {}
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,
-     * so the number of scan ranges may not be known.
-     * Therefore, assign the maximum value to ensure that the scanning runs at maximum concurrency
+     * so the number of scan ranges may not be accurate.
      */
-    int num_scan_ranges() override {
-        return std::max(config::doris_scanner_thread_pool_thread_num,
-                        (int)config::max_external_file_meta_cache_num);
-    }
+    int num_scan_ranges() override { return _num_splits; }
 
     TFileScanRangeParams* get_params() override {
         LOG(FATAL) << "Unreachable, params is got by file_scan_range_params_map";

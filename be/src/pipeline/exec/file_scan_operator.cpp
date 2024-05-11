@@ -72,7 +72,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (scan_range.__isset.split_source) {
             auto split_source = scan_range.split_source;
             _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
-                    state, split_source.split_source_id);
+                    state, split_source.split_source_id, split_source.num_splits);
         }
     }
     if (_split_source == nullptr) {
