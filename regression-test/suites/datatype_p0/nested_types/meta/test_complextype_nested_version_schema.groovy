@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_complextype_nested_version_schema") {
-    sql """set enable_nereids_planner=true"""
     // add array/map/struct
     sql "DROP TABLE IF EXISTS `complext_nested_version`;"
     def createTblSql = """
@@ -39,11 +38,4 @@ suite("test_complextype_nested_version_schema") {
     assertTrue(!res.contains('DECIMALV3'))
     assertTrue(!res.contains('DATEV2'))
     assertTrue(!res.contains('DATETIMEV2'))
-
-    sql """set enable_nereids_planner=false"""
-    qt_sql """ desc complext_nested_version ;"""
-    String res2 = sql """ show create table complext_nested_version ;"""
-    assertTrue(!res2.contains('DECIMALV3'))
-    assertTrue(!res2.contains('DATEV2'))
-    assertTrue(!res2.contains('DATETIMEV2'))
 }

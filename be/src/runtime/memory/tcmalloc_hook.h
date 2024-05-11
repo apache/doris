@@ -17,6 +17,8 @@
 
 #pragma once
 
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_hook.h>
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>
@@ -53,3 +55,4 @@ void init_hook() {
 //     MallocHook::RemoveNewHook(&new_hook);
 //     MallocHook::RemoveDeleteHook(&delete_hook);
 // }
+#endif

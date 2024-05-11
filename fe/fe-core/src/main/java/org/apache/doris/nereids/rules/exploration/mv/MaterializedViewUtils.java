@@ -203,6 +203,9 @@ public class MaterializedViewUtils {
             CascadesContext cascadesContext,
             Function<CascadesContext, Plan> planRewriter,
             Plan rewrittenPlan, Plan originPlan) {
+        if (originPlan == null || rewrittenPlan == null) {
+            return null;
+        }
         if (originPlan.getOutputSet().size() != rewrittenPlan.getOutputSet().size()) {
             return rewrittenPlan;
         }

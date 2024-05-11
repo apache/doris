@@ -248,7 +248,7 @@ struct TQueryOptions {
   85: optional bool enable_page_cache = false;
   86: optional i32 analyze_timeout = 43200;
 
-  87: optional bool faster_float_convert = false;
+  87: optional bool faster_float_convert = false; // deprecated
 
   88: optional bool enable_decimal256 = false;
 
@@ -290,7 +290,8 @@ struct TQueryOptions {
   106: optional i64 data_queue_max_blocks = 0;
   
   // expr pushdown for index filter rows
-  107: optional bool enable_common_expr_pushdown_for_inverted_index = false; 
+  107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
+  108: optional i64 local_exchange_free_blocks_limit;
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

@@ -62,7 +62,6 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
-    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -73,7 +72,9 @@ public:
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
 
-    bool is_timeout(const VecDateTimeValue& now) const;
+    bool is_timeout(timespec now) const;
+
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
     PipelinePtr add_pipeline();
 
@@ -119,8 +120,6 @@ public:
     void refresh_next_report_time();
 
     std::string debug_string();
-
-    uint64_t create_time() const { return _create_time; }
 
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
@@ -248,7 +247,6 @@ private:
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
 
-    VecDateTimeValue _start_time;
     int _timeout = -1;
 
     OperatorXPtr _root_op = nullptr;
@@ -321,7 +319,6 @@ private:
 
     // Total instance num running on all BEs
     int _total_instances = -1;
-    uint64_t _create_time;
     bool _require_bucket_distribution = false;
 };
 } // namespace pipeline

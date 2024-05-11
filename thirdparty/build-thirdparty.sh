@@ -831,7 +831,7 @@ build_brpc() {
 }
 
 # rocksdb
-build_rocksdb() {
+build_rocksdb_base() {
     check_if_source_exist "${ROCKSDB_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
@@ -852,9 +852,29 @@ build_rocksdb() {
     ${warning_defaulted_function_deleted} ${warning_unused_but_set_variable} -Wno-pessimizing-move -Wno-range-loop-construct" \
         LDFLAGS="${ldflags}" \
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
-    cp librocksdb.a ../../installed/lib/librocksdb.a
-    cp -r include/rocksdb ../../installed/include/
-    strip_lib librocksdb.a
+}
+
+build_rocksdb() {
+    build_rocksdb_base
+    rm -rf "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix"
+    cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a"
+    cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix"
+    strip_lib librocksdb_jemalloc_no_prefix.a
+    # for compatibility with previous doris version
+    rm -rf "${TP_LIB_DIR}/librocksdb.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
+    cp "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+    cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix" "${TP_INCLUDE_DIR}/rocksdb"
+}
+
+build_rocksdb_jemalloc_with_prefix() {
+    build_rocksdb_base
+    rm -rf "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
+    cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
+    cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
+    strip_lib librocksdb_jemalloc_with_prefix.a
 }
 
 # cyrus_sasl
@@ -1493,7 +1513,7 @@ build_hdfs3() {
     strip_lib libhdfs3.a
 }
 
-# jemalloc
+# jemalloc no prefix
 build_jemalloc_doris() {
     check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
@@ -1514,12 +1534,55 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris_no_prefix" "${WITH_LG_PAGE}" \
+        --enable-prof --disable-libdl --disable-shared
+
+    make -j "${PARALLEL}"
+    make install
+
+    # for compatibility with previous
+    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_no_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+}
+
+# jemalloc with prefix
+build_jemalloc_doris_with_prefix() {
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
+    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
+    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
+    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
+    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
+    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
+    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        WITH_LG_PAGE='--with-lg-page=16'
+    else
+        WITH_LG_PAGE=''
+    fi
+
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris_with_prefix" "${WITH_LG_PAGE}" \
         --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+
+    # for compatibility with previous doris version
+    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
+    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+    cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
 }
 
 # libunwind
@@ -1682,21 +1745,6 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # AvxToNeon
 build_avx2neon() {
     check_if_source_exist "${AVX2NEON_SOURCE}"
@@ -1818,6 +1866,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
+        jemalloc_doris_with_prefix
+        rocksdb_jemalloc_with_prefix
         jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
@@ -1854,7 +1904,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
         streamvbyte
