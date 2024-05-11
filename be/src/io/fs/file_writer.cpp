@@ -42,6 +42,9 @@ void init_threadpool_for_test() {
 namespace doris::io {
 
 Status FileWriter::close(bool non_block) {
+    // For some implementation of FileWriter, we must ensure that some logic is invoker
+    // before the true close_impl
+    RETURN_IF_ERROR(flush());
     if (non_block) {
         if (_fut.valid()) {
             return Status::OK();

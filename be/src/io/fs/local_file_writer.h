@@ -38,6 +38,8 @@ public:
 
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
+    Status flush() override;
+
 private:
     Status close_impl() override;
     void _abort();

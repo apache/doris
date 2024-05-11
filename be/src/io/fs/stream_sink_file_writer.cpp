@@ -113,6 +113,10 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
 Status StreamSinkFileWriter::close_impl() {
     _closed = true;
+    return Status::OK();
+}
+
+Status StreamSinkFileWriter::flush() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat

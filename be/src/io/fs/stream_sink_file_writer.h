@@ -56,6 +56,8 @@ public:
 
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
+    Status flush() override;
+
 private:
     Status close_impl() override;
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;

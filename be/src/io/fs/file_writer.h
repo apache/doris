@@ -67,6 +67,8 @@ public:
 
     virtual bool closed() const = 0;
 
+    virtual Status flush() { return Status::OK(); }
+
     virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 
 private:
