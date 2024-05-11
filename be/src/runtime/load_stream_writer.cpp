@@ -107,7 +107,6 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
         }
 
         // TODO: IOBuf to Slice
-        // TODO：问一下这里到底什么地方close的呀
         file_writer = _segment_file_writers[segid].get();
     }
     DBUG_EXECUTE_IF("LoadStreamWriter.append_data.null_file_writer", { file_writer = nullptr; });

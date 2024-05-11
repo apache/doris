@@ -236,8 +236,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
     static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
-                              .set_min_threads(config::min_non_block_close_thread_num)
-                              .set_max_threads(config::max_non_block_close_thread_num)
+                              .set_min_threads(config::min_nonblock_close_thread_num)
+                              .set_max_threads(config::max_nonblock_close_thread_num)
                               .build(&_non_block_close_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
