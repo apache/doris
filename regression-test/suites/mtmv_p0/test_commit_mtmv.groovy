@@ -80,4 +80,39 @@ suite("test_commit_mtmv") {
     sql """drop materialized view if exists ${mvName1};"""
     sql """drop materialized view if exists ${mvName2};"""
     sql """drop table if exists `${tableName}`"""
+    // test drop partition
+    sql """
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703 VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+    """
+    sql """
+            CREATE MATERIALIZED VIEW ${mvName1}
+            BUILD DEFERRED REFRESH AUTO ON COMMIT
+            PARTITION BY (`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableName};
+        """
+     sql """
+          insert into ${tableName} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3);;
+      """
+     jobName1 = getJobName(dbName, mvName1);
+     waitingMTMVTaskFinished(jobName1)
+     order_qt_mv1_3 "SELECT * FROM ${mvName1}"
+     sql """alter table ${tableName} drop PARTITION p201701"""
+     waitingMTMVTaskFinished(jobName1)
+     order_qt_mv1_4 "SELECT * FROM ${mvName1}"
+
 }
