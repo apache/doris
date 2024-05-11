@@ -1236,7 +1236,6 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, const Tablet
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
         }
-        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
     if (transient_rs_writer) {

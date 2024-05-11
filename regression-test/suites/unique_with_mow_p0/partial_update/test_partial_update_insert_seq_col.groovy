@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partial_update_native_insert_seq_col_old_planner", "p0") {
+suite("test_partial_update_native_insert_seq_col", "p0") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
@@ -26,10 +26,6 @@ suite("test_partial_update_native_insert_seq_col_old_planner", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-
-            sql "set enable_nereids_dml=false;"
-            sql "set experimental_enable_nereids_planner=false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
 
             def tableName = "test_partial_update_native_insert_seq_col_old_planner"

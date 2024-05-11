@@ -50,6 +50,7 @@ namespace ErrorCode {
     TStatusError(MEM_LIMIT_EXCEEDED, false);              \
     TStatusError(THRIFT_RPC_ERROR, true);                 \
     TStatusError(TIMEOUT, true);                          \
+    TStatusError(LIMIT_REACH, false);                     \
     TStatusError(TOO_MANY_TASKS, true);                   \
     TStatusError(UNINITIALIZED, false);                   \
     TStatusError(INCOMPLETE, false);                      \
