@@ -122,7 +122,8 @@ public class StructInfo {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
-        this.valid = valid;
+        this.valid = valid
+                && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
         this.relations = relations;
