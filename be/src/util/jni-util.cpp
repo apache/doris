@@ -244,9 +244,7 @@ void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
 }
 
 size_t JniUtil::get_max_jni_heap_memory_size() {
-#ifdef USE_LIBHDFS3
-    return std::numeric_limits<size_t>::max();
-#elif defined BE_TEST
+#if defined(USE_LIBHDFS3) || defined(BE_TEST)
     return std::numeric_limits<size_t>::max();
 #else
     return max_jvm_heap_memory_size_;
