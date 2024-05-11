@@ -80,7 +80,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
-    private static final Logger staticLogger = LoggerFactory.getLogger(Suite.class);
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
@@ -768,6 +768,12 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    void dispatchTrinoConnectors(ArrayList host_ips)
+    {
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
+        dispatchTrinoConnectors_impl(host_ips, dir_download)
+    }
+
     /*
      * download trino connectors, and sends to every fe and be.
      * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
@@ -778,13 +784,12 @@ class Suite implements GroovyInterceptable {
      *
      * If failed, will call assertTrue(false).
      */
-    static synchronized void dispatchTrinoConnectors(ArrayList host_ips) {
+    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download) {
         if (isTrinoConnectorDownloaded == true) {
             staticLogger.info("trino connector downloaded")
             return
         }
 
-        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
         Assert.assertTrue(!dir_download.isEmpty())
         def path_tar = "${dir_download}/trino-connectors.tar.gz"
         // extract to a tmp direcotry, and then scp to every host_ips, including self.
