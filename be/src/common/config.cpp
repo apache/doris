@@ -1736,7 +1736,7 @@ std::vector<std::vector<std::string>> get_config_info() {
         // For compatibility, this PR #32933 change the log dir's config logic,
         // and deprecate the `sys_log_dir` config.
         if (it.first == "sys_log_dir" && config_val == "") {
-            config_val = std::getenv("DORIS_HOME") + "/log";
+            config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
         }
 
         _config.emplace_back(field_it->second.type);
