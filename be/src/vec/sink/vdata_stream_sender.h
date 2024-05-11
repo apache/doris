@@ -347,7 +347,8 @@ protected:
         if (_local_recvr && !_local_recvr->is_closed()) {
             return true;
         }
-        _receiver_status = Status::OK(); // local data stream receiver closed
+        _receiver_status = Status::EndOfFile(
+                "local data stream receiver closed"); // local data stream receiver closed
         return false;
     }
 

@@ -70,7 +70,8 @@ public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile);
+                     int num_senders, bool is_merging, RuntimeProfile* profile, int64_t limit,
+                     bool is_empty_conjuncts);
 
     virtual ~VDataStreamRecvr();
 
@@ -84,7 +85,7 @@ public:
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
 
-    void add_block(Block* block, int sender_id, bool use_move);
+    int64_t add_block(Block* block, int sender_id, bool use_move);
 
     bool sender_queue_empty(int sender_id);
 
@@ -115,6 +116,12 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
+    bool is_reached_limit(int total_rows) const { return _limit != -1 && _limit <= total_rows; }
+
+    bool is_empty_conjuncts() const { return _is_empty_conjuncts; }
+
+    int _total_row_all_queues = 0;
+
 private:
     class PipSenderQueue;
 
@@ -134,7 +141,9 @@ private:
 
     // Row schema, copied from the caller of CreateRecvr().
     RowDescriptor _row_desc;
-
+    // used for sink could eos early. when sink total rows have reached limit, and no conjuncts to filters data.
+    int _limit = -1;
+    bool _is_empty_conjuncts;
     // True if this reciver merges incoming rows from different senders. Per-sender
     // row batch queues are maintained in this case.
     bool _is_merging;

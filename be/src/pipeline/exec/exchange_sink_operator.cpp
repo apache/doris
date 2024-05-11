@@ -353,6 +353,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
     }
     if (all_receiver_eof) {
+        local_state._sink_buffer->set_should_stop();
         return Status::EndOfFile("all data stream channels EOF");
     }
 

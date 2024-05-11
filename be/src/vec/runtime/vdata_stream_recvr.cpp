@@ -329,7 +329,8 @@ void VDataStreamRecvr::SenderQueue::close() {
 VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
                                    const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                                   int num_senders, bool is_merging, RuntimeProfile* profile)
+                                   int num_senders, bool is_merging, RuntimeProfile* profile,
+                                   int64_t limit, bool is_empty_conjuncts)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
@@ -339,6 +340,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
+          _limit(limit),
+          _is_empty_conjuncts(is_empty_conjuncts),
           _is_merging(is_merging),
           _is_closed(false),
           _profile(profile),
@@ -421,9 +424,11 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
 
-void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+int64_t VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
+    _total_row_all_queues = _total_row_all_queues + block->rows();
     _sender_queues[use_sender_id]->add_block(block, use_move);
+    return _total_row_all_queues;
 }
 
 bool VDataStreamRecvr::sender_queue_empty(int sender_id) {

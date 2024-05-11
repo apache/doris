@@ -67,7 +67,7 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     CHECK(state->exec_env()->vstream_mgr() != nullptr);
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
-            _runtime_profile.get(), _is_merging);
+            _runtime_profile.get(), _is_merging, _limit, _conjuncts.empty());
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));

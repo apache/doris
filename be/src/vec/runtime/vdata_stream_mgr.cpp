@@ -22,6 +22,7 @@
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -62,13 +63,14 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
         RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging) {
+        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging,
+        int64_t limit, bool is_empty_conjuncts) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, state, row_desc,
-                                                                 fragment_instance_id, dest_node_id,
-                                                                 num_senders, is_merging, profile));
+    std::shared_ptr<VDataStreamRecvr> recvr(
+            new VDataStreamRecvr(this, state, row_desc, fragment_instance_id, dest_node_id,
+                                 num_senders, is_merging, profile, limit, is_empty_conjuncts));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     std::lock_guard<std::mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -121,7 +123,8 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         //
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK(); // local data stream receiver closed
+        return Status::EndOfFile(
+                "data stream receiver closed"); // local data stream receiver closed
     }
 
     // Lock the fragment context to ensure the runtime state and other objects are not
@@ -131,7 +134,8 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         // Do not return internal error, because when query finished, the downstream node
         // may finish before upstream node. And the object maybe deconstructed. If return error
         // then the upstream node may report error status to FE, the query is failed.
-        return Status::OK(); // data stream receiver is deconstructed
+        return Status::EndOfFile(
+                "data stream receiver closed"); // data stream receiver is deconstructed
     }
 
     bool eos = request->eos();

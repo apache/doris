@@ -277,7 +277,10 @@ Status Channel<Parent>::send_local_block(Block* block) {
             COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
             COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
-        _local_recvr->add_block(block, _parent->sender_id(), false);
+        auto total_rows = _local_recvr->add_block(block, _parent->sender_id(), false);
+        if (_local_recvr->is_empty_conjuncts() && _local_recvr->is_reached_limit(total_rows)) {
+            return Status::EndOfFile("local data stream receiver closed");
+        }
         return Status::OK();
     } else {
         return _receiver_status;
