@@ -76,6 +76,30 @@ export function queryProfile<T>(data: any): Promise<Result<T>> {
     return request(LocalUrl, data);
 }
 
+//query_profileText
+export function queryProfileText(data: any): Promise<string> {
+    let LocalUrl = '/rest/v1/query_profile/';
+    if (data.path) {
+        LocalUrl = `/rest/v1/query_profile/text/${data.path}`;
+    }
+    const headers = new Headers();
+    headers.append('Accept', 'text/plain');
+
+    return fetch(LocalUrl, {
+        method: 'GET',
+        headers: headers
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.text();
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+            return '';
+        });
+}
 //session
 export function getSession<T>(data: any): Promise<Result<T>> {
     return request('/rest/v1/session', data);

@@ -59,6 +59,15 @@ public class QueryProfileController extends BaseController {
         return ResponseEntityBuilder.ok(profile);
     }
 
+    @RequestMapping(path = "/query_profile/text/{" + ID + "}", method = RequestMethod.GET)
+    public Object profileText(@PathVariable(value = ID) String id) {
+        String queryProfileStr = ProfileManager.getInstance().getProfile(id);
+        if (queryProfileStr == null) {
+            return "query id " + id + " not found";
+        }
+        return queryProfileStr;
+    }
+
     @RequestMapping(path = "/query_profile", method = RequestMethod.GET)
     public Object query() {
         Map<String, Object> result = Maps.newHashMap();

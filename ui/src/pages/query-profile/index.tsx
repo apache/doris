@@ -19,7 +19,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Col, Row, Typography, Space } from 'antd';
-import { queryProfile } from 'Src/api/api';
+import { queryProfile,queryProfileText } from 'Src/api/api';
 import Table from 'Src/components/table';
 import { useHistory } from 'react-router-dom';
 import { Result } from '@src/interfaces/http.interface';
@@ -70,24 +70,13 @@ export default function QueryProfile(params: any) {
                                 <Button
                                     size="small"
                                     onClick={() => {
-                                        queryProfile<any>({
+                                        queryProfileText<any>({
                                             path: row['Profile ID'],
                                         }).then((profileDetailRes) => {
-                                            if (
-                                                profileDetailRes &&
-                                                profileDetailRes.msg ===
-                                                    'success'
-                                            ) {
-                                                if (
-                                                    !profileDetailRes.data
-                                                        .column_names
-                                                ) {
-                                                    download(
-                                                        profileDetailRes.data,
-                                                        row['Profile ID']
-                                                    );
-                                                }
-                                            }
+                                            download(
+                                                profileDetailRes,
+                                                row['Profile ID']
+                                            );
                                         });
                                     }}
                                 >
