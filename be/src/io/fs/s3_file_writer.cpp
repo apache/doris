@@ -185,7 +185,7 @@ Status S3FileWriter::_abort() {
                         _path.native(), _upload_id, _dump_completed_part()));
 }
 
-Status S3FileWriter::close_impl() {
+Status S3FileWriter::_close_impl() {
     if (closed()) {
         _wait_until_finish("close");
         return _st;

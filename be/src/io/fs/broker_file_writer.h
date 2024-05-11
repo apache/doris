@@ -51,7 +51,7 @@ public:
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
-    Status close_impl() override;
+    Status _close_impl() override;
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
 
 private:

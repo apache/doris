@@ -67,14 +67,13 @@ public:
 
     virtual bool closed() const = 0;
 
-    virtual Status flush() { return Status::OK(); }
-
     virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 
 private:
+    virtual Status _async_flush() { return Status::OK(); }
     // Normal close. Wait for all data to persist before returning.
     // If there is no data appended, an empty file will be persisted.
-    virtual Status close_impl() = 0;
+    virtual Status _close_impl() = 0;
     std::future<Status> _fut;
     std::promise<Status> _pro;
 };

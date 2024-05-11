@@ -86,7 +86,7 @@ LocalFileWriter::~LocalFileWriter() {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 }
 
-Status LocalFileWriter::close_impl() {
+Status LocalFileWriter::_close_impl() {
     return _close(_sync_data);
 }
 
@@ -159,7 +159,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status LocalFileWriter::flush() {
+Status LocalFileWriter::_async_flush() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
                                       Status::IOError("inject io error"));
     if (_closed) [[unlikely]] {

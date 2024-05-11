@@ -54,7 +54,7 @@ public:
     }
 
 private:
-    Status close_impl() override;
+    Status _close_impl() override;
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();

@@ -195,7 +195,7 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 #endif
 }
 
-Status HdfsFileWriter::close_impl() {
+Status HdfsFileWriter::_close_impl() {
     if (_closed) {
         return Status::OK();
     }

@@ -42,27 +42,27 @@ void init_threadpool_for_test() {
 namespace doris::io {
 
 Status FileWriter::close(bool non_block) {
-    // For some implementation of FileWriter, we must ensure that some logic is invoker
-    // before the true close_impl
-    RETURN_IF_ERROR(flush());
     if (non_block) {
         if (_fut.valid()) {
             return Status::OK();
         }
 
+        // For some implementation of FileWriter, we must ensure that some logic is invokd
+        // before the async close_impl
+        RETURN_IF_ERROR(_async_flush());
         _fut = _pro.get_future();
 #ifdef BE_TEST
         return get_non_block_close_thread_pool()->submit_func(
-                [&]() { _pro.set_value(close_impl()); });
+                [&]() { _pro.set_value(_close_impl()); });
 #else
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
-                [&]() { _pro.set_value(close_impl()); });
+                [&]() { _pro.set_value(_close_impl()); });
 #endif
     }
     if (_fut.valid()) {
         return _fut.get();
     }
-    return close_impl();
+    return _close_impl();
 }
 
 } // namespace doris::io
