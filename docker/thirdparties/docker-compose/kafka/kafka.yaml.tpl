@@ -22,8 +22,7 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 168.45.0.0/24
-
+        - subnet: 192.168.0.0/24
 services:
     doris--zookeeper:
         image: bitnami/zookeeper
@@ -48,7 +47,7 @@ services:
             - KAFKA_BROKER_ID=1
             - KAFKA_LISTENERS=PLAINTEXT://:19193
             - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:19193
-            - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+            - KAFKA_ZOOKEEPER_CONNECT=doris--zookeeper:2181
             - ALLOW_PLAINTEXT_LISTENER=yes
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
