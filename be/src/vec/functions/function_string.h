@@ -2966,20 +2966,27 @@ public:
 namespace MoneyFormat {
 
 constexpr size_t MAX_FORMAT_LEN_DEC32() {
-    return 1 + 9 + (9 / 3) + 3;
+    // Decimal(9, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 9 + (9 / 3) + 3);
 }
 
 constexpr size_t MAX_FORMAT_LEN_DEC64() {
-    return 1 + 18 + (18 / 3) + 3;
+    // Decimal(18, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 18 + (18 / 3) + 3);
 }
 
 constexpr size_t MAX_FORMAT_LEN_DEC128V2() {
-    // MAX_INT_VALUE = 999999999999999999
-    return 1 + 18 + (18 / 3) + 3;
+    // DecimalV2 has at most 27 digits
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 27 + (27 / 3) + 3);
 }
 
 constexpr size_t MAX_FORMAT_LEN_DEC128V3() {
-    return 1 + 39 + (39 / 3) + 3;
+    // Decimal(38, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 39 + (39 / 3) + 3);
 }
 
 template <typename T, size_t N>
@@ -3114,14 +3121,15 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
+                const Decimal128V2& dec128 = decimalv2_column->get_element(i);
+                DecimalV2Value value = DecimalV2Value(dec128.value);
                 DecimalV2Value rounded(0);
                 value.round(&rounded, 2, TRUNCATE);
                 StringRef str =
                         MoneyFormat::do_money_format<Int128,
                                                      MoneyFormat::MAX_FORMAT_LEN_DEC128V2()>(
-                                context, rounded.scale(), rounded.int_value(),
-                                rounded.frac_value() / 10000000, false /*not do truncate*/);
+                                context, 2, rounded.int_value(), rounded.frac_value() / 10000000,
+                                false /*not do truncate*/);
 
                 result_column->insert_data(str.data, str.size);
             }
