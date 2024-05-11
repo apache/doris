@@ -810,7 +810,7 @@ class Suite implements GroovyInterceptable {
                 if (mustSuc == true) {
                     Assert.assertEquals(0, proc.exitValue())
                 }
-            } catch (IOException & e) {
+            } catch (IOException e) {
                 Assert.assertTrue(false, "execute timeout")
             }
         }
