@@ -152,6 +152,7 @@ public abstract class MaterializationContext {
     public SlotMapping getSlotMappingFromCache(RelationMapping relationMapping) {
         return queryToMvSlotMappingCache.get(relationMapping);
     }
+
     /**
      * Try to generate scan plan for materialization
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
