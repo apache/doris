@@ -106,7 +106,7 @@ public class StructInfo {
     private final EquivalenceClass equivalenceClass;
     // Key is the expression shuttled and the value is the origin expression
     // this is for building LogicalCompatibilityContext later.
-    private final Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap;
+    private final Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap;
     // Record the exprId and the corresponding expr map, this is used by expression shuttled
     private final Map<ExprId, Expression> namedExprIdAndExprMapping;
 
@@ -117,7 +117,7 @@ public class StructInfo {
             Plan bottomPlan, List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
             @Nullable Predicates predicates,
-            Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap,
+            Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
@@ -139,7 +139,7 @@ public class StructInfo {
                 predicatesDerive(this.predicates, topPlan, tableBitSet);
         this.splitPredicate = derivedPredicates.key();
         this.equivalenceClass = derivedPredicates.value();
-        this.shuttledHashConjunctsToConjunctsMap = shuttledHashConjunctsToConjunctsMap;
+        this.shuttledExpressionsToExpressionsMap = shuttledExpressionsToExpressionsMap;
         this.namedExprIdAndExprMapping = namedExprIdAndExprMapping;
     }
 
@@ -149,12 +149,12 @@ public class StructInfo {
     public StructInfo withPredicates(Predicates predicates) {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates,
-                this.shuttledHashConjunctsToConjunctsMap, this.namedExprIdAndExprMapping);
+                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
             Plan topPlan,
-            Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap,
+            Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping,
             List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap) {
@@ -188,7 +188,8 @@ public class StructInfo {
                 topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                 // Replace expressions by expression map
                 List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-                shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), conjunctExpr);
+                putShuttledExpressionsToExpressionsMap(shuttledExpressionsToExpressionsMap,
+                        ExpressionPosition.JOIN_EDGE, replacedExpressions.get(0), conjunctExpr);
                 // Record this, will be used in top level expression shuttle later, see the method
                 // ExpressionLineageReplacer#visitGroupPlan
                 namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
@@ -212,7 +213,8 @@ public class StructInfo {
                     structInfoNode.getPlan().accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                     // Replace expressions by expression map
                     List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-                    shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), expression);
+                    putShuttledExpressionsToExpressionsMap(shuttledExpressionsToExpressionsMap,
+                            ExpressionPosition.NODE, replacedExpressions.get(0), expression);
                     // Record this, will be used in top level expression shuttle later, see the method
                     // ExpressionLineageReplacer#visitGroupPlan
                     namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
@@ -225,8 +227,10 @@ public class StructInfo {
             filterExpressions.forEach(predicate -> {
                 // this is used for LogicalCompatibilityContext
                 ExpressionUtils.extractConjunction(predicate).forEach(expr ->
-                        shuttledHashConjunctsToConjunctsMap.put(ExpressionUtils.shuttleExpressionWithLineage(
-                                predicate, topPlan, hyperTableBitSet), predicate));
+                        putShuttledExpressionsToExpressionsMap(shuttledExpressionsToExpressionsMap,
+                                ExpressionPosition.FILTER_EDGE,
+                                ExpressionUtils.shuttleExpressionWithLineage(predicate, topPlan, hyperTableBitSet),
+                                predicate));
             });
         });
         return true;
@@ -298,7 +302,8 @@ public class StructInfo {
         // collect struct info fromGraph
         List<CatalogRelation> relationList = new ArrayList<>();
         Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new LinkedHashMap<>();
-        Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new LinkedHashMap<>();
+        Map<ExpressionPosition, Map<Expression, Expression>> shuttledHashConjunctsToConjunctsMap =
+                new LinkedHashMap<>();
         Map<ExprId, Expression> namedExprIdAndExprMapping = new LinkedHashMap<>();
         boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
                 namedExprIdAndExprMapping,
@@ -358,8 +363,21 @@ public class StructInfo {
         return relationIdStructInfoNodeMap;
     }
 
-    public Map<Expression, Expression> getShuttledHashConjunctsToConjunctsMap() {
-        return shuttledHashConjunctsToConjunctsMap;
+    public Map<ExpressionPosition, Map<Expression, Expression>> getShuttledExpressionsToExpressionsMap() {
+        return shuttledExpressionsToExpressionsMap;
+    }
+
+    private static void putShuttledExpressionsToExpressionsMap(
+            Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
+            ExpressionPosition expressionPosition,
+            Expression key, Expression value) {
+        Map<Expression, Expression> expressionExpressionMap = shuttledExpressionsToExpressionsMap.get(
+                expressionPosition);
+        if (expressionExpressionMap == null) {
+            expressionExpressionMap = new LinkedHashMap<>();
+            shuttledExpressionsToExpressionsMap.put(expressionPosition, expressionExpressionMap);
+        }
+        expressionExpressionMap.put(key, value);
     }
 
     public List<? extends Expression> getExpressions() {
@@ -443,7 +461,9 @@ public class StructInfo {
         }
     }
 
-    /** Judge if source contains all target */
+    /**
+     * Judge if source contains all target
+     */
     public static boolean containsAll(BitSet source, BitSet target) {
         if (source.size() < target.size()) {
             return false;
@@ -656,7 +676,9 @@ public class StructInfo {
         }
     }
 
-    /**Collect partitions which scan used according to given table */
+    /**
+     * Collect partitions which scan used according to given table
+     */
     public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan, Map<Long, Set<PartitionItem>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
@@ -680,7 +702,9 @@ public class StructInfo {
         }
     }
 
-    /**Add filter on table scan according to table filter map */
+    /**
+     * Add filter on table scan according to table filter map
+     */
     public static Plan addFilterOnTableScan(Plan queryPlan, Map<TableIf, Set<Expression>> filterOnOriginPlan,
             CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
@@ -694,5 +718,15 @@ public class StructInfo {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
         }, queryPlanWithUnionFilter, queryPlan);
+    }
+
+    /**
+     * Expressions may appear in three place in hype graph, this identifies the position where
+     * expression appear in hyper graph
+     */
+    public static enum ExpressionPosition {
+        JOIN_EDGE,
+        NODE,
+        FILTER_EDGE
     }
 }
