@@ -201,7 +201,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
                 PrettyPrinter::print(process_mem_used, TUnit::BYTES),
                 PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
                 PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
-        LOG_EVERY_T(INFO, 1) << debug_msg;
+        LOG_EVERY_T(INFO, 10) << debug_msg;
     }
 
     for (auto& wg : _workload_groups) {

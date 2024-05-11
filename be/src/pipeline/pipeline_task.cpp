@@ -315,8 +315,8 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
-                                 << " revoke memory, hight water mark";
+            VLOG_DEBUG << "query " << print_id(state->query_id())
+                       << " revoke memory, hight water mark";
             return true;
         }
         return false;
