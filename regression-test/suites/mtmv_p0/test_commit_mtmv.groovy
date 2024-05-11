@@ -119,7 +119,7 @@ suite("test_commit_mtmv") {
 
     // test replace partition
     sql """ALTER TABLE ${tableName} ADD TEMPORARY PARTITION p201702_t VALUES [('2017-02-01'), ('2017-03-01'));"""
-    sql """ALTER TABLE ${tableName} REPLACE PARTITION (p201702_t) WITH TEMPORARY PARTITION (p201702_t);"""
+    sql """ALTER TABLE ${tableName} REPLACE PARTITION (p201702) WITH TEMPORARY PARTITION (p201702_t);"""
     waitingMTMVTaskFinished(jobName1)
     order_qt_mv1_replace "SELECT * FROM ${mvName1}"
 
