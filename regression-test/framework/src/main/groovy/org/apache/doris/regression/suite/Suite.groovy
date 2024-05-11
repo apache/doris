@@ -797,7 +797,7 @@ class Suite implements GroovyInterceptable {
         cmds.add("rm -rf ${path_tar}")
         cmds.add("rm -rf ${dir_connector_tmp}")
         cmds.add("mkdir -p ${dir_connector_tmp}")
-        cmds.add("/usr/bin/curl --max-time 240 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
+        cmds.add("/usr/bin/curl --max-time 600 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
         cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
         def executeCommand = { String cmd, Boolean mustSuc ->
@@ -805,7 +805,7 @@ class Suite implements GroovyInterceptable {
                 logger.info("execute ${cmd}")
                 def proc = cmd.execute()
                 // if timeout, exception will be thrown
-                proc.waitForOrKill(300 * 1000)
+                proc.waitForOrKill(900 * 1000)
                 logger.info("execute result ${proc.getText()}.")
                 if (mustSuc == true) {
                     Assert.assertEquals(0, proc.exitValue())
