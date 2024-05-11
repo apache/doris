@@ -1262,8 +1262,6 @@ DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
 // The max retry times when hdfs write failed
 DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
-// The max inflight hdfs writer
-DEFINE_mInt64(max_inflight_hdfs_write_connection, "100");
 
 // clang-format off
 #ifdef BE_TEST

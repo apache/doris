@@ -1338,8 +1338,6 @@ DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
 // The max retry times when hdfs write failed
 DECLARE_mInt64(hdfs_jni_write_max_retry_time);
-// The max inflight hdfs writer
-DECLARE_mInt64(max_inflight_hdfs_write_connection);
 
 #ifdef BE_TEST
 // test s3
