@@ -43,10 +43,9 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineFragmentContext;
 
 public:
-    Pipeline() = delete;
     explicit Pipeline(PipelineId pipeline_id, int num_tasks,
                       std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(std::move(context)), _num_tasks(num_tasks) {
+            : _pipeline_id(pipeline_id), _num_tasks(num_tasks) {
         _init_profile();
     }
 
@@ -146,7 +145,6 @@ private:
     std::vector<std::shared_ptr<Pipeline>> _children;
 
     PipelineId _pipeline_id;
-    std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
 
     // pipline id + operator names. init when:
@@ -188,8 +186,6 @@ private:
      * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
      * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
      */
-    bool _always_can_read = false;
-    bool _always_can_write = false;
     bool _is_root_pipeline = false;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution

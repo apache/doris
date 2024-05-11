@@ -805,14 +805,13 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
 std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
-    auto t = MonotonicNanos();
     size_t i = 0;
     {
         std::lock_guard<std::mutex> lock(_lock);
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            auto elapsed = (t - it.second->create_time()) / 1000000000.0;
+            auto elapsed = it.second->elapsed_time() / 1000000000.0;
             if (elapsed < duration) {
                 // Only display tasks which has been running for more than {duration} seconds.
                 continue;
@@ -1017,7 +1016,9 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_to_cancel;
-        VecDateTimeValue now = VecDateTimeValue::local_time();
+
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& fragment_instance_itr : _fragment_instance_map) {
@@ -1113,13 +1114,13 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_instance_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    VecDateTimeValue now = VecDateTimeValue::local_time();
+
+    timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
     for (auto& it : _fragment_instance_map) {
-        ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
-           << now.second_diff(it.second->start_time()) << "\n";
+        ss << it.first << "\t" << it.second->elapsed_time_debug_string(now);
     }
 }
-
 /*
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TExecPlanFragmentParams
