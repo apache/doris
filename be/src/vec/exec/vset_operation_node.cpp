@@ -287,7 +287,7 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
         const auto& ctx = _child_expr_lists[0][i];
-        _build_not_ignore_null.push_back(ctx->root()->is_nullable());
+        _build_not_ignore_null.push_back(nullable_flags[i]);
         _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
                                                            : ctx->root()->data_type());
     }
@@ -340,8 +340,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
     _build_key_sz.resize(_child_expr_lists[0].size());
     _probe_key_sz.resize(_child_expr_lists[0].size());
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
-        const auto vexpr = _child_expr_lists[0][i]->root();
-        const auto& data_type = vexpr->data_type();
+        const auto& data_type = _left_table_data_types[i];
 
         if (!data_type->have_maximum_size_of_value()) {
             use_fixed_key = false;
@@ -504,14 +503,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
-            DCHECK(_mutable_cols[idx->second]->is_nullable());
-            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        _mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
     block_size++;
 }
@@ -592,18 +584,11 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
-
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
-            if (_build_not_ignore_null[i])
-                raw_ptrs[i] = nullable;
-            else
-                raw_ptrs[i] = &col_nested;
-
-        } else {
-            raw_ptrs[i] = column;
+        if (_build_not_ignore_null[i]) {
+            block.get_by_position(result_col_id).column =
+                    make_nullable(block.get_by_position(result_col_id).column);
         }
+        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
         _build_col_idx.insert({result_col_id, i});
     }
