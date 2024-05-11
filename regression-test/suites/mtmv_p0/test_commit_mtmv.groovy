@@ -63,11 +63,11 @@ suite("test_commit_mtmv") {
     def jobName1 = getJobName(dbName, mvName1);
     waitingMTMVTaskFinished(jobName1)
     order_qt_mv1 "SELECT * FROM ${mvName1}"
-    order_qt_task1 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName=${mvName1} order by CreateTime desc limit 1"
+    order_qt_task1 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName='${mvName1}' order by CreateTime desc limit 1"
 
     def jobName2 = getJobName(dbName, mvName2);
     waitingMTMVTaskFinished(jobName2)
     order_qt_mv2 "SELECT * FROM ${mvName2}"
-    order_qt_task2 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName=${mvName2} order by CreateTime desc limit 1"
+    order_qt_task2 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName='${mvName2}' order by CreateTime desc limit 1"
 
 }
