@@ -800,32 +800,34 @@ class Suite implements GroovyInterceptable {
         cmds.add("/usr/bin/curl --max-time 240 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
         cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
-        def executeCommand = { String cmd ->
+        def executeCommand = { String cmd, Boolean mustSuc ->
             try {
                 logger.info("execute ${cmd}")
                 def proc = cmd.execute()
                 // if timeout, exception will be thrown
                 proc.waitForOrKill(300 * 1000)
                 logger.info("execute result ${proc.getText()}.")
-                Assert.assertEquals(0, proc.exitValue())
+                if (mustSuc == true) {
+                    Assert.assertEquals(0, proc.exitValue())
+                }
             } catch (IOException & e) {
                 Assert.assertTrue(false, "execute timeout")
             }
         }
 
         for (def cmd in cmds) {
-            executeCommand(cmd)
+            executeCommand(cmd, true)
         }
         
         host_ips = host_ips.unique()
         for (def ip in host_ips) {
             logger.info("scp to ${ip}")
-            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"")
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
             scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
 
         isTrinoConnectorDownloaded = true
-        logger.info("dispatch trino connector succeed")
+        logger.info("dispatch trino connector to ${dir_download} succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
