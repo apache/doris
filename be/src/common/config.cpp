@@ -1732,11 +1732,18 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
+        std::string config_val = it.second;
+        // For compatibility, this PR #32933 change the log dir's config logic,
+        // and deprecate the `sys_log_dir` config.
+        if (it.first == "sys_log_dir" && config_val == "") {
+            config_val = std::getenv("DORIS_HOME") + "/log";
+        }
+
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.emplace_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(config_val == "1" ? "true" : "false");
         } else {
-            _config.push_back(it.second);
+            _config.push_back(config_val);
         }
         _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 
