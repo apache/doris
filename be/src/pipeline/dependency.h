@@ -29,7 +29,6 @@
 #include "common/logging.h"
 #include "concurrentqueue.h"
 #include "gutil/integral_types.h"
-#include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
@@ -472,14 +471,71 @@ struct SpillSortSharedState : public BasicSharedState,
     int spill_block_batch_row_count;
 };
 
+using BlockUptr = std::unique_ptr<vectorized::Block>;
 struct UnionSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(UnionSharedState)
 
 public:
-    UnionSharedState(int child_count = 1) : data_queue(child_count), _child_count(child_count) {};
+    UnionSharedState(int child_count = 1)
+            : _child_count(child_count),
+              _is_finished(child_count),
+              _finished_counter(0),
+              _blocks_nums_in_each_child(child_count) {
+        for (int i = 0; i < child_count; ++i) {
+            _is_finished[i] = false;
+            _blocks_nums_in_each_child[i] = 0;
+        }
+        _sink_dependencies.resize(child_count, nullptr);
+    }
     int child_count() const { return _child_count; }
-    DataQueue data_queue;
     const int _child_count;
+
+    BlockUptr get_block_from_queue();
+
+    void push_block(BlockUptr block, int child_idx = 0);
+
+    BlockUptr get_free_block();
+
+    void push_free_block(BlockUptr output_block);
+
+    void set_finish(int child_idx = 0);
+    bool is_all_finish();
+    bool remaining_has_data();
+
+    void set_sink_dependency(DependencySPtr sink_dependency, int child_idx) {
+        DCHECK_EQ(_sink_dependencies.size(), _child_count);
+        _sink_dependencies[child_idx] = sink_dependency;
+    }
+
+    void set_max_blocks_in_sub_queue(int64_t max_blocks) { _max_blocks_in_sub_queue = max_blocks; }
+
+private:
+    SpinLock _source_lock;
+    void set_source_ready();
+    void set_source_block();
+
+    DependencySPtr source() {
+        DCHECK_EQ(source_deps.size(), 1);
+        return source_deps.front();
+    }
+
+    struct UnionBlockWrapper {
+        BlockUptr block;
+        int child_idx;
+    };
+    moodycamel::ConcurrentQueue<UnionBlockWrapper> _queue_blocks;
+    moodycamel::ConcurrentQueue<BlockUptr> _free_blocks;
+    //  finished
+    std::vector<std::atomic_bool> _is_finished;
+    std::atomic_uint32_t _finished_counter;
+
+    // block size in queue
+    std::vector<std::atomic_uint32_t> _blocks_nums_in_each_child;
+    std::atomic_uint32_t _cur_queue_size = 0;
+
+    int64_t _max_blocks_in_sub_queue = 1;
+
+    std::vector<DependencySPtr> _sink_dependencies;
 };
 
 struct MultiCastSharedState : public BasicSharedState {

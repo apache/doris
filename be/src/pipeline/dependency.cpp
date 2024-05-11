@@ -257,4 +257,83 @@ void SpillSortSharedState::close() {
     }
     sorted_streams.clear();
 }
+
+BlockUptr UnionSharedState::get_free_block() {
+    BlockUptr block_ptr;
+    if (_free_blocks.try_dequeue(block_ptr)) {
+        return block_ptr;
+    } else {
+        return vectorized::Block::create_unique();
+    }
+}
+
+void UnionSharedState::push_free_block(BlockUptr block) {
+    DCHECK(block->rows() == 0);
+    _free_blocks.enqueue(std::move(block));
+}
+
+bool UnionSharedState::remaining_has_data() {
+    return _cur_queue_size > 0;
+}
+
+BlockUptr UnionSharedState::get_block_from_queue() {
+    UnionBlockWrapper block_wrapper;
+    if (_queue_blocks.try_dequeue(block_wrapper)) {
+        BlockUptr block_ptr = std::move(block_wrapper.block);
+        int child_idx = block_wrapper.child_idx;
+        _blocks_nums_in_each_child[child_idx]--;
+        if (_blocks_nums_in_each_child[child_idx] <= (_max_blocks_in_sub_queue / 2)) {
+            _sink_dependencies[child_idx]->set_ready();
+        }
+        auto old_value = _cur_queue_size.fetch_sub(1);
+        if (old_value == 1) {
+            set_source_block();
+        }
+        return block_ptr;
+    }
+    return nullptr;
+}
+
+void UnionSharedState::push_block(BlockUptr block, int child_idx) {
+    if (!block) {
+        return;
+    }
+    UnionBlockWrapper block_wrapper {std::move(block), child_idx};
+    _queue_blocks.enqueue(std::move(block_wrapper));
+    _blocks_nums_in_each_child[child_idx]++;
+    if (_blocks_nums_in_each_child[child_idx] > _max_blocks_in_sub_queue) {
+        _sink_dependencies[child_idx]->block();
+    }
+    _cur_queue_size++;
+    set_source_ready();
+}
+
+void UnionSharedState::set_finish(int child_idx) {
+    if (_is_finished[child_idx]) {
+        return;
+    }
+    _is_finished[child_idx] = true;
+    _finished_counter++;
+    set_source_ready();
+}
+
+bool UnionSharedState::is_all_finish() {
+    return _finished_counter == _child_count;
+}
+
+void UnionSharedState::set_source_ready() {
+    std::unique_lock lc(_source_lock);
+    source()->set_ready();
+}
+
+void UnionSharedState::set_source_block() {
+    if (_cur_queue_size == 0 && !is_all_finish()) {
+        std::unique_lock lc(_source_lock);
+        // Performing the judgment twice, attempting to avoid blocking the source as much as possible.
+        if (_cur_queue_size == 0 && !is_all_finish()) {
+            source()->block();
+        }
+    }
+}
+
 } // namespace doris::pipeline

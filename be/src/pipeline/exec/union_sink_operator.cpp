@@ -21,7 +21,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
@@ -33,7 +32,8 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
+    auto sink_dep_sptr = _shared_state->sink_deps.back();
+    _shared_state->set_sink_dependency(sink_dep_sptr, p._cur_child_id);
     return Status::OK();
 }
 
@@ -46,7 +46,7 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }
-    _shared_state->data_queue.set_max_blocks_in_sub_queue(state->data_queue_max_blocks());
+    _shared_state->set_max_blocks_in_sub_queue(state->data_queue_max_blocks());
     return Status::OK();
 }
 
@@ -93,14 +93,13 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {
-        local_state._output_block =
-                local_state._shared_state->data_queue.get_free_block(_cur_child_id);
+        local_state._output_block = local_state._shared_state->get_free_block();
     }
     if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
         if (in_block->rows() > 0) {
             local_state._output_block->swap(*in_block);
-            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
-                                                             _cur_child_id);
+            local_state._shared_state->push_block(std::move(local_state._output_block),
+                                                  _cur_child_id);
         }
     } else if (_get_first_materialized_child_idx() != children_count() &&
                _cur_child_id < children_count()) { //need materialized
@@ -117,17 +116,16 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
         //because maybe sink is eos and queue have none data, if not push block
         //the source can't can_read again and can't set source finished
         if (local_state._output_block) {
-            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
-                                                             _cur_child_id);
+            local_state._shared_state->push_block(std::move(local_state._output_block),
+                                                  _cur_child_id);
         }
 
-        local_state._shared_state->data_queue.set_finish(_cur_child_id);
+        local_state._shared_state->set_finish(_cur_child_id);
         return Status::OK();
     }
     // not eos and block rows is enough to output,so push block
     if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
-        local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
-                                                         _cur_child_id);
+        local_state._shared_state->push_block(std::move(local_state._output_block), _cur_child_id);
     }
     return Status::OK();
 }
