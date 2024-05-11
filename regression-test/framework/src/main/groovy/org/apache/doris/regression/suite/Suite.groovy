@@ -801,12 +801,16 @@ class Suite implements GroovyInterceptable {
         cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
         def executeCommand = { String cmd ->
-            logger.info("execute ${cmd}")
-            def proc = cmd.execute()
-            // if timeout, exception will be thrown
-            proc.waitForOrKill(60 * 1000)
-            logger.info("execute result ${proc.getText()}.")
-            Assert.assertEquals(0, proc.exitValue())
+            try {
+                logger.info("execute ${cmd}")
+                def proc = cmd.execute()
+                // if timeout, exception will be thrown
+                proc.waitForOrKill(300 * 1000)
+                logger.info("execute result ${proc.getText()}.")
+                Assert.assertEquals(0, proc.exitValue())
+            } catch (IOException & e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
         }
 
         for (def cmd in cmds) {
