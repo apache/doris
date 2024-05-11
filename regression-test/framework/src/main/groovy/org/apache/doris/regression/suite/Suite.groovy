@@ -778,7 +778,7 @@ class Suite implements GroovyInterceptable {
      * If failed, will call assertTrue(false).
      */
     synchronized void dispatchTrinoConnectors(host_ips) {
-        if (isTrinoConnectorDownloaded) {
+        if (isTrinoConnectorDownloaded == true) {
             logger.info("trino connector downloaded")
             return
         }
