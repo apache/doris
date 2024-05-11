@@ -728,8 +728,9 @@ int32_t RleBatchDecoder<T>::OutputBufferedLiterals(int32_t max_to_output, T* val
     memcpy(values, &literal_buffer_[literal_buffer_pos_], sizeof(T) * num_to_output);
     literal_buffer_pos_ += num_to_output;
     if (literal_count_ < num_to_output) {
-        LOG(WARNING) << fmt::format("the literal_count_ will less zero, literal_count_ = {}, num_to_output = {}", 
-                        literal_count_, num_to_output);
+        LOG(WARNING) << fmt::format(
+                "the literal_count_ will less zero, literal_count_ = {}, num_to_output = {}",
+                literal_count_, num_to_output);
     }
     literal_count_ -= num_to_output;
     return num_to_output;
