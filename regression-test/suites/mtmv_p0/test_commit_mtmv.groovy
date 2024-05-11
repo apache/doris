@@ -19,12 +19,10 @@ suite("test_commit_mtmv") {
     def tableName = "test_commit_mtmv_table"
     def mvName1 = "test_commit_mtmv1"
     def mvName2 = "test_commit_mtmv2"
-    def viewName = "test_commit_view"
     def dbName = "regression_test_mtmv_p0"
     sql """drop materialized view if exists ${mvName1};"""
     sql """drop materialized view if exists ${mvName2};"""
     sql """drop table if exists `${tableName}`"""
-    sql """drop view if exists `${viewName}`"""
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -66,27 +64,20 @@ suite("test_commit_mtmv") {
     order_qt_mv2 "SELECT * FROM ${mvName2}"
     order_qt_task2 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvName2}' order by CreateTime desc limit 1"
 
-    sql """drop materialized view if exists ${mvName1};"""
-    sql """drop materialized view if exists ${mvName2};"""
-
+    // on manual can not trigger by commit
     sql """
-            CREATE  VIEW ${viewName}
-            AS
-            SELECT * FROM ${tableName};
+            alter MATERIALIZED VIEW ${mvName2} REFRESH ON MANUAL;
         """
-     sql """
-         CREATE MATERIALIZED VIEW ${mvName1}
-         BUILD DEFERRED REFRESH AUTO ON COMMIT
-         DISTRIBUTED BY RANDOM BUCKETS 2
-         PROPERTIES ('replication_num' = '1')
-         AS
-         SELECT * FROM ${viewName};
-     """
+
      sql """
           insert into ${tableName} values(1,"2017-01-15",1);;
       """
-    jobName1 = getJobName(dbName, mvName1);
     waitingMTMVTaskFinished(jobName1)
-    order_qt_mv1 "SELECT * FROM ${mvName1}"
-    order_qt_task1 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvName1}' order by CreateTime desc limit 1"
+    order_qt_mv1_2 "SELECT * FROM ${mvName1}"
+    waitingMTMVTaskFinished(jobName2)
+    order_qt_mv2_2 "SELECT * FROM ${mvName2}"
+
+    sql """drop materialized view if exists ${mvName1};"""
+    sql """drop materialized view if exists ${mvName2};"""
+    sql """drop table if exists `${tableName}`"""
 }
