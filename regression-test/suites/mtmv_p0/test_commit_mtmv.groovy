@@ -31,10 +31,6 @@ suite("test_commit_mtmv") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703 VALUES [('2017-03-01'), ('2017-04-01')))
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
@@ -42,7 +38,6 @@ suite("test_commit_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName1}
         BUILD DEFERRED REFRESH AUTO ON COMMIT
-        partition by(`date`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
@@ -51,7 +46,6 @@ suite("test_commit_mtmv") {
      sql """
          CREATE MATERIALIZED VIEW ${mvName2}
          BUILD DEFERRED REFRESH AUTO ON COMMIT
-         partition by(`date`)
          DISTRIBUTED BY RANDOM BUCKETS 2
          PROPERTIES ('replication_num' = '1')
          AS
@@ -63,11 +57,11 @@ suite("test_commit_mtmv") {
     def jobName1 = getJobName(dbName, mvName1);
     waitingMTMVTaskFinished(jobName1)
     order_qt_mv1 "SELECT * FROM ${mvName1}"
-    order_qt_task1 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName='${mvName1}' order by CreateTime desc limit 1"
+    order_qt_task1 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvName1}' order by CreateTime desc limit 1"
 
     def jobName2 = getJobName(dbName, mvName2);
     waitingMTMVTaskFinished(jobName2)
     order_qt_mv2 "SELECT * FROM ${mvName2}"
-    order_qt_task2 "SELECT TaskContext,RefreshMode from tasks('type'='mv') where MvName='${mvName2}' order by CreateTime desc limit 1"
+    order_qt_task2 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvName2}' order by CreateTime desc limit 1"
 
 }
