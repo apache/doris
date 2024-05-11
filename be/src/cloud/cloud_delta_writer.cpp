@@ -29,7 +29,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
 }
 
 CloudDeltaWriter::~CloudDeltaWriter() = default;
