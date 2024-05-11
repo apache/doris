@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -24,6 +25,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -40,7 +46,6 @@ import java.util.Optional;
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
-
     @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         Optional<PhysicalRelation> scanOpt = findScanForTopnFilter(topN);
@@ -100,7 +105,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         }
 
         if (root instanceof PhysicalRelation) {
-            if (root.getOutputSet().contains(slot)) {
+            if (root.getOutputSet().contains(slot) && supportPhysicalRelations((PhysicalRelation) root)) {
                 return Optional.of((PhysicalRelation) root);
             } else {
                 return Optional.empty();
@@ -144,5 +149,13 @@ public class TopNScanOpt extends PlanPostProcessor {
             return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
         }
         return -1;
+    }
+
+    private boolean supportPhysicalRelations(PhysicalRelation relation) {
+        return relation instanceof PhysicalOlapScan
+                || relation instanceof PhysicalOdbcScan
+                || relation instanceof PhysicalEsScan
+                || relation instanceof PhysicalFileScan
+                || relation instanceof PhysicalJdbcScan;
     }
 }
