@@ -538,6 +538,8 @@ public class CreateTableStmt extends DdlStmt {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
             if (partitionDesc != null || distributionDesc != null) {
+                LOG.info("debug xx should not contain. {}.{}.{}", ConnectContext.get().getCurrentCatalog().getName(),
+                        this.tableName.toSql());
                 throw new AnalysisException(
                         "Create " + engineName + " table should not contain partition or distribution desc");
             }

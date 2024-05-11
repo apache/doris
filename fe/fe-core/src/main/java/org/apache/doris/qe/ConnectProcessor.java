@@ -133,6 +133,7 @@ public abstract class ConnectProcessor {
         }
 
         // check catalog and db exists
+        LOG.info("debug xx begin to init db catalog: {}", catalogName);
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
@@ -148,6 +149,7 @@ public abstract class ConnectProcessor {
             if (catalogName != null) {
                 ctx.getEnv().changeCatalog(ctx, catalogName);
             }
+            LOG.info("debug xx begin to init db catalog: {}, db: {}", catalogName, dbName);
             ctx.getEnv().changeDb(ctx, dbName);
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -656,6 +658,8 @@ public abstract class ConnectProcessor {
                     // Set default db only when the default catalog is set and the dbname exists in default catalog.
                     if (request.isSetDefaultDatabase()) {
                         DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        LOG.info("debug xx begin to change db proxy: {}, is null: {}",
+                                request.getDefaultDatabase(), (db == null));
                         if (db != null) {
                             ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
                         }

@@ -5083,6 +5083,7 @@ public class Env {
     // Switch catalog of this sesseion.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
+        LOG.info("debug xx begin to switch catalog to: {}", catalogName);
         if (catalogIf == null) {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
@@ -5097,6 +5098,7 @@ public class Env {
         }
         ctx.changeDefaultCatalog(catalogName);
         String lastDb = catalogMgr.getLastDB(catalogName);
+        LOG.info("debug xx begin to switch catalog to: {}, and set db: {}", catalogName, lastDb);
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
@@ -5111,6 +5113,8 @@ public class Env {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
+        LOG.info("debug xx begin to change db: {}, cur catalog: {}",
+                qualifiedDb, ctx.getCurrentCatalog().getName());
         ctx.getCurrentCatalog().getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }

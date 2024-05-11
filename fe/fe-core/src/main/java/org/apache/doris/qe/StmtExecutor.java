@@ -2371,6 +2371,7 @@ public class StmtExecutor {
             if (useStmt.getCatalogName() != null) {
                 context.getEnv().changeCatalog(context, useStmt.getCatalogName());
             }
+            LOG.info("debug xx begin use catalog {}, db {}", useStmt.getCatalogName(), useStmt.getDatabase());
             context.getEnv().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
             LOG.warn("", e);
