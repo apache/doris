@@ -800,7 +800,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (hasPos) {
                 // after the field
-                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
             }
@@ -1086,7 +1086,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (hasPos) {
                 // after the field
-                if (col.getNonShadowName().equalsIgnoreCase(columnPos.getLastCol())) {
+                if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
             } else {
