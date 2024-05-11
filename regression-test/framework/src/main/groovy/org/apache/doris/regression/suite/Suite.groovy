@@ -80,6 +80,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    private static final Logger staticLogger = LoggerFactory.getLogger(Suite.class);
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
@@ -756,12 +757,12 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
-    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+    static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
-        logger.info("Execute: ${cmd}".toString())
+        staticLogger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
@@ -779,7 +780,7 @@ class Suite implements GroovyInterceptable {
      */
     static synchronized void dispatchTrinoConnectors(ArrayList host_ips) {
         if (isTrinoConnectorDownloaded == true) {
-            logger.info("trino connector downloaded")
+            staticLogger.info("trino connector downloaded")
             return
         }
 
@@ -802,11 +803,11 @@ class Suite implements GroovyInterceptable {
 
         def executeCommand = { String cmd, Boolean mustSuc ->
             try {
-                logger.info("execute ${cmd}")
+                staticLogger.info("execute ${cmd}")
                 def proc = cmd.execute()
                 // if timeout, exception will be thrown
                 proc.waitForOrKill(900 * 1000)
-                logger.info("execute result ${proc.getText()}.")
+                staticLogger.info("execute result ${proc.getText()}.")
                 if (mustSuc == true) {
                     Assert.assertEquals(0, proc.exitValue())
                 }
@@ -821,13 +822,13 @@ class Suite implements GroovyInterceptable {
 
         host_ips = host_ips.unique()
         for (def ip in host_ips) {
-            logger.info("scp to ${ip}")
+            staticLogger.info("scp to ${ip}")
             executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
             scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
 
         isTrinoConnectorDownloaded = true
-        logger.info("dispatch trino connector to ${dir_download} succeed")
+        staticLogger.info("dispatch trino connector to ${dir_download} succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
