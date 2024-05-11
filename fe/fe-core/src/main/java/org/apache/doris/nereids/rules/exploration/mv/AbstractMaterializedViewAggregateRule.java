@@ -468,7 +468,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /**
-     * Check query Aggregate is simple or not and check join is whether valid or not.
+     * Check Aggregate is simple or not and check join is whether valid or not.
      * Support project, filter, join, logical relation node and join condition should only contain
      * slot reference equals currently.
      */

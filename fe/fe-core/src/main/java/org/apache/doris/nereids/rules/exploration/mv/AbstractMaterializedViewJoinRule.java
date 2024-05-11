@@ -70,7 +70,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     }
 
     /**
-     * Check query join is whether valid or not. Support join's input only support project, filter, join,
+     * Check join is whether valid or not. Support join's input only support project, filter, join,
      * logical relation, simple aggregate node. Con not have aggregate above on join.
      * Join condition should be slot reference equals currently.
      */

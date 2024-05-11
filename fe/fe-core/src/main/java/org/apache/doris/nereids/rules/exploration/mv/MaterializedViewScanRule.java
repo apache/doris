@@ -71,7 +71,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
     }
 
     /**
-     * Check query scan is whether valid or not. Support join's input only support project, filter, join,
+     * Check scan is whether valid or not. Support join's input only support project, filter, join,
      * logical relation, simple aggregate node. Con not have aggregate above on join.
      * Join condition should be slot reference equals currently.
      */
