@@ -105,7 +105,8 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange,
+                ((HMSExternalTable) table).getTableSnapshotVersion());
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -283,6 +284,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public Long getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
+        if (tableSnapshot == null) {
+            tableSnapshot = source.getTableSnapshot();
+        }
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {

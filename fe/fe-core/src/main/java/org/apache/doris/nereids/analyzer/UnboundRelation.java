@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -59,41 +60,46 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     // the start and end position of the sql substring(e.g. "t1", "db1.t1", "ctl1.db1.t1")
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
+    private final TableSnapshot tableSnapshot;
+
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty());
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), null);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
         this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty());
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), null);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty());
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), null);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
-            TableScanParams scanParams) {
+            TableScanParams scanParams, TableSnapshot tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty());
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
+                tableSnapshot);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty());
+                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), null);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
-            TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString) {
+            TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
+            TableSnapshot tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString);
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString,
+                tableSnapshot);
     }
 
     /**
@@ -102,7 +108,8 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
-            TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString) {
+            TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
+            TableSnapshot tableSnapshot) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
@@ -113,6 +120,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         this.indexName = indexName;
         this.scanParams = scanParams;
         this.indexInSqlString = indexInSqlString;
+        this.tableSnapshot = tableSnapshot;
     }
 
     public List<String> getNameParts() {
@@ -133,14 +141,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString);
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString);
+                isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot);
     }
 
     @Override
@@ -206,5 +214,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
         return indexInSqlString;
+    }
+
+    public TableSnapshot getTableSnapshot() {
+        return tableSnapshot;
     }
 }

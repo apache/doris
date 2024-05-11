@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
@@ -1370,21 +1371,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
         }
 
+        TableSnapshot tableSnapshot = null;
+        if (ctx.tableSnapshot() != null) {
+            if (ctx.tableSnapshot().tableSnapshotType.getText().equalsIgnoreCase("time")) {
+                tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().valueExpression().getText()));
+                tableSnapshot.setType(TableSnapshot.VersionType.TIME);
+            } else {
+                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().valueExpression().getText()));
+                tableSnapshot.setType(TableSnapshot.VersionType.VERSION);
+            }
+        }
+
         MultipartIdentifierContext identifier = ctx.multipartIdentifier();
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         UnboundRelation relation = forCreateView ? new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams,
-                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex()))) :
+                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())), tableSnapshot) :
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName, scanParams);
+                        Optional.ofNullable(tableSample), indexName, scanParams, tableSnapshot);
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
         }
         return plan;
+    }
+
+    public static String stripQuotes(String str) {
+        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
+                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
+            str = str.substring(1, str.length() - 1);
+        }
+        return str;
     }
 
     @Override

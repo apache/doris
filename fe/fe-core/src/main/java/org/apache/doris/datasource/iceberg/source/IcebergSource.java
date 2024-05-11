@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -38,4 +39,8 @@ public interface IcebergSource {
     ExternalCatalog getCatalog();
 
     String getFileFormat() throws DdlException, MetaNotFoundException;
+
+    default TableSnapshot getTableSnapshot() {
+        return null;
+    }
 }

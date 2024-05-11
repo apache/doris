@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -39,9 +40,10 @@ public class IcebergHMSSource implements IcebergSource {
     private final TupleDescriptor desc;
     private final Map<String, ColumnRange> columnNameToRange;
     private final org.apache.iceberg.Table icebergTable;
+    private final TableSnapshot tableSnapshot;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
-                            Map<String, ColumnRange> columnNameToRange) {
+                            Map<String, ColumnRange> columnNameToRange, TableSnapshot tableSnapshot) {
         this.hmsTable = hmsTable;
         this.desc = desc;
         this.columnNameToRange = columnNameToRange;
@@ -49,6 +51,7 @@ public class IcebergHMSSource implements IcebergSource {
                 Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
                         .getIcebergTable(hmsTable.getCatalog(),
                                 hmsTable.getDbName(), hmsTable.getName());
+        this.tableSnapshot = tableSnapshot;
     }
 
     @Override
@@ -85,5 +88,10 @@ public class IcebergHMSSource implements IcebergSource {
     @Override
     public ExternalCatalog getCatalog() {
         return hmsTable.getCatalog();
+    }
+
+    @Override
+    public TableSnapshot getTableSnapshot() {
+        return tableSnapshot;
     }
 }

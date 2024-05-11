@@ -529,7 +529,7 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
+       tabletList? tableAlias sample? tableSnapshot? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
@@ -969,6 +969,10 @@ sample
 sampleMethod
     : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
     | INTEGER_VALUE ROWS                                            #sampleByRows
+    ;
+
+tableSnapshot
+    : FOR tableSnapshotType=(TIME | VERSION) AS OF valueExpression
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

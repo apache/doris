@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -165,6 +166,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     // for hudi incremental read
     private TableScanParams scanParams = null;
     private IncrementalRelation incrementalRelation = null;
+    private TableSnapshot tableSnapshot = null;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -347,6 +349,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             }
         }
         this.scanParams = scanParams;
+    }
+
+    public void setTableSnapshotVersion(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    public TableSnapshot getTableSnapshotVersion() {
+        return tableSnapshot;
     }
 
     public IncrementalRelation getIncrementalRelation() {

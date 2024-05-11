@@ -27,7 +27,7 @@ public class TableSnapshot {
         TIME, VERSION
     }
 
-    private final VersionType type;
+    private VersionType type;
     private String time;
     private long version;
 
@@ -49,6 +49,10 @@ public class TableSnapshot {
 
     public VersionType getType() {
         return type;
+    }
+
+    public void setType(VersionType type) {
+        this.type = type;
     }
 
     public String getTime() {
