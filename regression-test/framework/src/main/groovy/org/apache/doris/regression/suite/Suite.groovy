@@ -89,7 +89,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
-    Boolean isTrinoConnectorDownloaded = false
+    static Boolean isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -777,7 +777,7 @@ class Suite implements GroovyInterceptable {
      * 
      * If failed, will call assertTrue(false).
      */
-    synchronized void dispatchTrinoConnectors(host_ips) {
+    static synchronized void dispatchTrinoConnectors(host_ips) {
         if (isTrinoConnectorDownloaded == true) {
             logger.info("trino connector downloaded")
             return
