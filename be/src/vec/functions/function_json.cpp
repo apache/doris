@@ -42,6 +42,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/json_functions.h"
+#include "util/simd/bits.h"
 #include "vec/io/io_helper.h"
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -619,6 +620,7 @@ struct ExecuteReducer {
 struct FunctionJsonArrayImpl {
     static constexpr auto name = "json_array";
 
+    static constexpr auto must_not_null = false;
     template <int flag>
     using Reducer = ExecuteReducer<flag, FunctionJsonArrayImpl>;
 
@@ -654,7 +656,7 @@ struct FunctionJsonArrayImpl {
 
 struct FunctionJsonObjectImpl {
     static constexpr auto name = "json_object";
-
+    static constexpr auto must_not_null = true;
     template <int flag>
     using Reducer = ExecuteReducer<flag, FunctionJsonObjectImpl>;
 
@@ -743,6 +745,9 @@ public:
                 data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
             }
         }
+        if (SpecificImpl::must_not_null) {
+            RETURN_IF_ERROR(check_keys_all_not_null(nullmaps, input_rows_count, arguments.size()));
+        }
         execute(data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
                 nullmaps);
         block.get_by_position(result).column = std::move(result_column);
@@ -773,6 +778,24 @@ public:
             objects[i].Accept(writer);
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
+    }
+
+    static Status check_keys_all_not_null(const std::vector<const ColumnUInt8*>& nullmaps, int size,
+                                          size_t args) {
+        for (int i = 0; i < args; i += 2) {
+            const auto* null_map = nullmaps[i];
+            if (null_map) {
+                const bool not_null_num =
+                        simd::count_zero_num((int8_t*)null_map->get_data().data(), size);
+                if (not_null_num < size) {
+                    return Status::InternalError(
+                            "function {} can not input null value , JSON documents may not contain "
+                            "NULL member names.",
+                            name);
+                }
+            }
+        }
+        return Status::OK();
     }
 };
 
