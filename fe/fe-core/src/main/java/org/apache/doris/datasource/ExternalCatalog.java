@@ -225,9 +225,7 @@ public abstract class ExternalCatalog
         initLocalObjects();
         if (!initialized) {
             if (useMetaCache.get()) {
-                if (metaCache != null) {
-                    metaCache.invalidateAll();
-                } else {
+                if (metaCache == null) {
                     metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                             name,
                             OptionalLong.of(86400L),
@@ -344,7 +342,6 @@ public abstract class ExternalCatalog
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {
@@ -378,6 +375,15 @@ public abstract class ExternalCatalog
         this.initialized = false;
         synchronized (this.propLock) {
             this.convertedProperties = null;
+        }
+        if (useMetaCache.isPresent()) {
+            if (useMetaCache.get() && metaCache != null) {
+                metaCache.invalidateAll();
+            } else if (!useMetaCache.get()) {
+                for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
+                    db.setUnInitialized(invalidCache);
+                }
+            }
         }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
@@ -586,7 +592,6 @@ public abstract class ExternalCatalog
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
             Preconditions.checkNotNull(db.get());
-            db.get().setUnInitialized(invalidCacheInInit);
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
         }
