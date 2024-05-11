@@ -374,17 +374,6 @@ std::string RuntimeState::cancel_reason() const {
     return _cancel_reason;
 }
 
-Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
-    {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (_process_status.ok()) {
-            _process_status = Status::MemoryLimitExceeded(msg);
-        }
-    }
-    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
-    return _process_status;
-}
-
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {

@@ -412,7 +412,7 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
-    _context->cancel(err, Status::Cancelled(err));
+    _context->cancel(Status::Cancelled(err));
     _ended(id);
 }
 
