@@ -41,6 +41,13 @@ suite("test_privilege_vault") {
     assertTrue(storageVaults.contains(vault1))
 
     sql """
+        SET ${vault1} AS DEFAULT STORAGE VAULT
+    """
+    sql """
+        UNSET DEFAULT STORAGE VAULT
+    """
+
+    sql """
         DROP TABLE IF EXISTS ${table1};
     """
 
@@ -63,6 +70,37 @@ suite("test_privilege_vault") {
     sql """
         GRANT create_priv ON *.*.* TO '${user1}';
     """
+
+    def vault2 = "test_privilege_vault2"
+    // Only users with admin role can create storage vault
+    connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        expectExceptionLike({
+            sql """
+                CREATE STORAGE VAULT IF NOT EXISTS ${vault2}
+                PROPERTIES (
+                "type"="hdfs",
+                "fs.defaultFS"="${getHdfsFs()}",
+                "path_prefix" = "test_vault_privilege"
+                );
+            """
+        }, "denied")
+    }
+
+    // Only users with admin role can set/unset default storage vault
+    connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        expectExceptionLike({
+            sql """
+                SET ${vault1} AS DEFAULT STORAGE VAULT
+            """
+        }, "denied")
+    }
+    connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        expectExceptionLike({
+            sql """
+                UNSET DEFAULT STORAGE VAULT
+            """
+        }, "denied")
+    }
 
     def result = connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
             sql " SHOW STORAGE VAULT; "
