@@ -77,7 +77,6 @@ struct ArrayCountEqual {
 struct ParamValue {
     PrimitiveType type;
     Field value;
-    [[maybe_unused]] bool is_evaled_inverted_idx = false;
 };
 
 template <typename ConcreteAction, bool OldVersion = false>
