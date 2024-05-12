@@ -54,7 +54,7 @@ public:
 
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
 
     FileCacheAllocatorBuilder* cache_builder() const override {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
@@ -98,7 +98,6 @@ private:
 
     std::atomic_bool _failed = false;
 
-    bool _closed = false;
     Status _st;
     size_t _bytes_appended = 0;
 
@@ -115,6 +114,7 @@ private:
     // this shortens the inconsistent time window.
     bool _used_by_s3_committer;
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io

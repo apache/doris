@@ -48,7 +48,7 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
@@ -61,8 +61,7 @@ private:
     Path _path;
     size_t _cur_offset = 0;
     TBrokerFD _fd;
-    bool _closed = false;
-    bool _non_block_close = false;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // end namespace io

@@ -112,31 +112,25 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status StreamSinkFileWriter::close(bool non_block) {
-    // We only allowed two usage: 1. call close(true) then call close(false), following call would return error
-    // 2. Directly call close(false), then following call return error
-    if (closed() && !_non_block_close) {
+    if (_close_state == FileWriterState::CLOSED) {
         return Status::InternalError("StreamSinkFileWriter already closed, load id {}",
                                      print_id(_load_id));
     }
-    if (non_block) {
-        if (_non_block_close) {
+    if (_close_state == FileWriterState::ASYNC_CLOSING) {
+        if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
-        _non_block_close = true;
-    }
-    // Situation where the first time call this function is close(true), the next time call is close(false)
-    if (_non_block_close && closed()) {
-        // Ensure the following call to this function return error
-        _non_block_close = false;
         // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
         // error status then the code would never call the second close(true)
+        _close_state = FileWriterState::CLOSED;
         return Status::OK();
     }
-    if (!closed()) {
-        _closed = true;
-        return _finalize();
+    if (non_block) {
+        _close_state = FileWriterState::ASYNC_CLOSING;
+    } else {
+        _close_state = FileWriterState::CLOSED;
     }
-    return Status::OK();
+    return _finalize();
 }
 
 Status StreamSinkFileWriter::_finalize() {

@@ -36,6 +36,7 @@
 #include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
@@ -78,7 +79,7 @@ size_t LocalFileWriter::bytes_appended() const {
 }
 
 LocalFileWriter::~LocalFileWriter() {
-    if (!_closed) {
+    if (_close_state == FileWriterState::OPEN) {
         _abort();
     }
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
@@ -87,31 +88,25 @@ LocalFileWriter::~LocalFileWriter() {
 }
 
 Status LocalFileWriter::close(bool non_block) {
-    // We only allowed two usage: 1. call close(true) then call close(false), following call would return error
-    // 2. Directly call close(false), then following call return error
-    if (closed() && !_non_block_close) {
+    if (_close_state == FileWriterState::CLOSED) {
         return Status::InternalError("LocalFileWriter already closed, file path {}",
                                      _path.native());
     }
-    if (non_block) {
-        if (_non_block_close) {
+    if (_close_state == FileWriterState::ASYNC_CLOSING) {
+        if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
-        _non_block_close = true;
-    }
-    // Situation where the first time call this function is close(true), the next time call is close(false)
-    if (_non_block_close && closed()) {
-        // Ensure the following call to this function return error
-        _non_block_close = false;
         // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
         // error status then the code would never call the second close(true)
+        _close_state = FileWriterState::CLOSED;
         return Status::OK();
     }
-    if (!closed()) {
-        _closed = true;
-        return _close(_sync_data);
+    if (non_block) {
+        _close_state = FileWriterState::ASYNC_CLOSING;
+    } else {
+        _close_state = FileWriterState::CLOSED;
     }
-    return Status::OK();
+    return _close(_sync_data);
 }
 
 void LocalFileWriter::_abort() {
@@ -128,7 +123,7 @@ void LocalFileWriter::_abort() {
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
                                       Status::IOError("inject io error"));
-    if (_closed) [[unlikely]] {
+    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
     _dirty = true;
@@ -187,7 +182,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
 Status LocalFileWriter::_finalize() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
                                       Status::IOError("inject io error"));
-    if (_closed) [[unlikely]] {
+    if (_close_state == FileWriterState::OPEN) [[unlikely]] {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
 

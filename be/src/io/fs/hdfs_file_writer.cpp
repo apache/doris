@@ -36,6 +36,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
@@ -202,37 +203,34 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 }
 
 Status HdfsFileWriter::close(bool non_block) {
-    if (closed() && _async_close_pack == nullptr) {
+    if (closed() == FileWriterState::CLOSED) {
         return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
                                      _path.native(), _fs_name);
     }
-    if (non_block) {
-        if (nullptr != _async_close_pack || closed()) {
+    if (closed() == FileWriterState::ASYNC_CLOSING) {
+        if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
+        CHECK(_async_close_pack != nullptr);
+        _st = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+        // The next time we call close() with no matter non_block true or false, it would always return the
+        // '_st' value because this writer is already closed.
+        return _st;
+    }
+    if (non_block) {
+        _close_state = FileWriterState::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
-    if (_async_close_pack != nullptr) {
-        auto st = _async_close_pack->future.get();
-        // Make sure we would not call future.get multi times
-        _async_close_pack = nullptr;
-        // The next we call close() with no matter non_block true or false, it would always return the
-        // '_st' value because this writer is already closed.
-        return st;
-    }
-    return _close_impl();
+    _st = _close_impl();
+    _close_state = FileWriterState::CLOSED;
+    return _st;
 }
 
 Status HdfsFileWriter::_close_impl() {
-    // If someone tries to call close(true) and then close(false) then close, we should return error for him
-    if (closed()) {
-        return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
-                                     _path.native(), _fs_name);
-    }
-    _closed = true;
     if (_batch_buffer.size() != 0) {
         if (_st = _flush_buffer(); !_st.ok()) {
             return _st;
@@ -405,7 +403,7 @@ Status HdfsFileWriter::_append(std::string_view content) {
 }
 
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_closed) [[unlikely]] {
+    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 

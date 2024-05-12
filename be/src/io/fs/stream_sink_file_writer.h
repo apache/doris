@@ -46,7 +46,7 @@ public:
 
     size_t bytes_appended() const override { return _bytes_appended; }
 
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
 
     // FIXME(plat1ko): Maybe it's an inappropriate abstraction?
     const Path& path() const override {
@@ -67,9 +67,8 @@ private:
     int64_t _index_id;
     int64_t _tablet_id;
     int32_t _segment_id;
-    bool _closed = false;
     size_t _bytes_appended = 0;
-    bool _non_block_close = false;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io

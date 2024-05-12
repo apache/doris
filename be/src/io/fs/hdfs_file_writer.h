@@ -48,7 +48,7 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
 
     Status close(bool non_block = false) override;
 
@@ -72,7 +72,6 @@ private:
     hdfsFile _hdfs_file = nullptr;
     std::string _fs_name;
     size_t _bytes_appended = 0;
-    bool _closed = false;
     bool _sync_file_data;
     std::unique_ptr<FileCacheAllocatorBuilder>
             _cache_builder; // nullptr if disable write file cache
@@ -96,6 +95,7 @@ private:
     // We should make sure that close_impl's return value is consistent
     // So we need add one field to restore the value first time return by calling close_impl
     Status _st;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io

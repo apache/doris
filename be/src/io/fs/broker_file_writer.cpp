@@ -28,6 +28,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/fs/file_writer.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -61,31 +62,25 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 #endif
 
 Status BrokerFileWriter::close(bool non_block) {
-    // We only allowed two usage: 1. call close(true) then call close(false), following call would return error
-    // 2. Directly call close(false), then following call return error
-    if (closed() && !_non_block_close) {
+    if (_close_state == FileWriterState::CLOSED) {
         return Status::InternalError("BrokerFileWriter already closed, file path {}",
                                      _path.native());
     }
-    if (non_block) {
-        if (_non_block_close) {
+    if (_close_state == FileWriterState::ASYNC_CLOSING) {
+        if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
-        _non_block_close = true;
-    }
-    // Situation where the first time call this function is close(true), the next time call is close(false)
-    if (_non_block_close && closed()) {
-        // Ensure the following call to this function return error
-        _non_block_close = false;
         // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
         // error status then the code would never call the second close(true)
+        _close_state = FileWriterState::CLOSED;
         return Status::OK();
     }
-    if (!closed()) {
-        _closed = true;
-        return _close_impl();
+    if (non_block) {
+        _close_state = FileWriterState::ASYNC_CLOSING;
+    } else {
+        _close_state = FileWriterState::CLOSED;
     }
-    return Status::OK();
+    return _close_impl();
 }
 
 Status BrokerFileWriter::_close_impl() {
@@ -140,7 +135,7 @@ Status BrokerFileWriter::_close_impl() {
 }
 
 Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_closed) [[unlikely]] {
+    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 

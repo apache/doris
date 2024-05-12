@@ -52,6 +52,12 @@ struct AsyncCloseStatusPack {
     std::future<Status> future;
 };
 
+enum class FileWriterState : uint8_t {
+    OPEN = 0,
+    ASYNC_CLOSING,
+    CLOSED,
+};
+
 class FileWriter {
 public:
     FileWriter() = default;
@@ -72,7 +78,7 @@ public:
 
     virtual size_t bytes_appended() const = 0;
 
-    virtual bool closed() const = 0;
+    virtual FileWriterState closed() const = 0;
 
     virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 };
