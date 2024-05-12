@@ -20,9 +20,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
-#include "bvar/bvar.h"
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
+#include "common/logging.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -174,7 +174,11 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
-    if (request.has_eos() && request.eos()) {
+    // (if has) handle first stage close for auto partition table. close those NON-incremental opened channel.
+    if ((request.has_pre_close() && request.pre_close()) || (request.has_eos() && request.eos())) {
+        if (request.has_pre_close() && request.pre_close()) {
+            VLOG_NOTICE << "pre close of " << request.sender_id();
+        }
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
         if (!st.ok()) {
@@ -204,6 +208,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
+        VLOG_NOTICE << "load " << _load_id.to_string() << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();

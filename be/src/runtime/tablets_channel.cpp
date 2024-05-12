@@ -142,9 +142,16 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
-    _num_remaining_senders = request.num_senders();
-    _next_seqs.resize(_num_remaining_senders, 0);
-    _closed_senders.Reset(_num_remaining_senders);
+    int max_sender = request.num_senders();
+    // this tablets channel created by inc_open: open times = how many sender instance know this tablets channel.
+    if (_open_by_incremental) {
+        DCHECK(_num_remaining_senders == 0) << _num_remaining_senders;
+    } else {
+        _num_remaining_senders = max_sender;
+    }
+    // just use max_sender no matter incremental or not cuz we dont know how many senders will open.
+    _next_seqs.resize(max_sender, 0);
+    _closed_senders.Reset(max_sender);
 
     RETURN_IF_ERROR(_open_all_writers(request));
 
@@ -154,10 +161,19 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
     SCOPED_TIMER(_incremental_open_timer);
-    if (_state == kInitialized) { // haven't opened
+
+    // current node first opened by incremental open
+    if (_state == kInitialized) {
+        _open_by_incremental = true;
         RETURN_IF_ERROR(open(params));
     }
+
     std::lock_guard<std::mutex> l(_lock);
+
+    if (_open_by_incremental) {
+        _num_remaining_senders++;
+    }
+
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (const auto& index : _schema->indexes()) {
@@ -231,14 +247,16 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
-              << ", backend id: " << backend_id;
+
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
     _closed_senders.Set(sender_id, true);
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
+
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
+              << ", backend id: " << backend_id << " remaining sender: " << _num_remaining_senders;
 
     if (!*finished) {
         return Status::OK();

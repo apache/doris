@@ -30,10 +30,12 @@ import java.util.Optional;
 
 public class RangePartitionItem extends PartitionItem {
     private Range<PartitionKey> partitionKeyRange;
-    public static final Range<PartitionKey> DUMMY_ITEM;
+    public static final Range<PartitionKey> DUMMY_RANGE;
+    public static final RangePartitionItem DUMMY_ITEM;
 
     static {
-        DUMMY_ITEM = Range.closed(new PartitionKey(), new PartitionKey());
+        DUMMY_RANGE = Range.closed(new PartitionKey(), new PartitionKey());
+        DUMMY_ITEM = new RangePartitionItem(Range.closed(new PartitionKey(), PartitionKey.createMaxPartitionKey()));
     }
 
     public RangePartitionItem(Range<PartitionKey> range) {

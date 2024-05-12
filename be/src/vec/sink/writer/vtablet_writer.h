@@ -36,13 +36,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
 #include <queue>
-#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -55,23 +53,17 @@
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
-#include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
-#include "runtime/types.h"
-#include "util/countdown_latch.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
-#include "vec/common/allocator.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
@@ -127,8 +119,10 @@ public:
     WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
     ~WriteBlockCallback() override = default;
 
-    void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
-    void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
+    void addFailedHandler(const std::function<void(bool, bool)>& fn) { failed_handler = fn; }
+    void addSuccessHandler(const std::function<void(const T&, bool, bool)>& fn) {
+        success_handler = fn;
+    }
 
     void join() override {
         // We rely on in_flight to assure one rpc is running,
@@ -164,6 +158,11 @@ public:
 
     bool is_packet_in_flight() { return _packet_in_flight; }
 
+    void first_of_two_stage_close_mark() {
+        DCHECK(_first_stage_close == false);
+        _first_stage_close = true;
+    }
+
     void end_mark() {
         DCHECK(_is_last_rpc == false);
         _is_last_rpc = true;
@@ -171,13 +170,15 @@ public:
 
     void call() override {
         DCHECK(_packet_in_flight);
+        LOG(WARNING) << "callback! _first_stage_close " << _first_stage_close;
         if (::doris::DummyBrpcCallback<T>::cntl_->Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error="
                          << berror(::doris::DummyBrpcCallback<T>::cntl_->ErrorCode())
                          << ", error_text=" << ::doris::DummyBrpcCallback<T>::cntl_->ErrorText();
-            failed_handler(_is_last_rpc);
+            failed_handler(_is_last_rpc, _first_stage_close);
         } else {
-            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc);
+            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc,
+                            _first_stage_close);
         }
         clear_in_flight();
     }
@@ -186,8 +187,9 @@ private:
     brpc::CallId cid;
     std::atomic<bool> _packet_in_flight {false};
     std::atomic<bool> _is_last_rpc {false};
-    std::function<void(bool)> failed_handler;
-    std::function<void(const T&, bool)> success_handler;
+    std::atomic<bool> _first_stage_close {false};
+    std::function<void(bool, bool)> failed_handler;
+    std::function<void(const T&, bool, bool)> success_handler;
 };
 
 class IndexChannel;
@@ -255,6 +257,7 @@ public:
 
     void clear_all_blocks();
 
+    void close_first_stage();
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
@@ -274,6 +277,7 @@ public:
         return ss.str();
     }
 
+    void wait_first_stage();
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
@@ -320,8 +324,9 @@ protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
 
-    void _add_block_success_callback(const PTabletWriterAddBlockResult& result, bool is_last_rpc);
-    void _add_block_failed_callback(bool is_last_rpc);
+    void _add_block_success_callback(const PTabletWriterAddBlockResult& result, bool is_last_rpc,
+                                     bool first_stage_close);
+    void _add_block_failed_callback(bool is_last_rpc, bool first_stage_close);
 
     VTabletWriter* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
@@ -351,7 +356,8 @@ protected:
     std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
+    std::atomic<bool> _add_batches_finished {false};       // reuse for vectorized
+    std::atomic<bool> _close_first_stage_finished {false}; // for two-stage close.
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
@@ -425,7 +431,8 @@ public:
     ~IndexChannel() = default;
 
     // allow to init multi times, for incremental open more tablets for one index(table)
-    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
+    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
+                bool incremental = false);
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
@@ -433,6 +440,26 @@ public:
             func(it.second);
         }
     }
+
+    void for_init_node_channel(
+            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
+        for (auto& it : _node_channels) {
+            if (!it.second->is_incremental()) {
+                func(it.second);
+            }
+        }
+    }
+
+    void for_inc_node_channel(
+            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
+        for (auto& it : _node_channels) {
+            if (it.second->is_incremental()) {
+                func(it.second);
+            }
+        }
+    }
+
+    bool has_incremental_node_channel() const { return _has_inc_node; }
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
@@ -492,6 +519,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
+    bool _has_inc_node = false;
 
     // lock to protect _failed_channels and _failed_channels_msgs
     mutable doris::SpinLock _fail_lock;

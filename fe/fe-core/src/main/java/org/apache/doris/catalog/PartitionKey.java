@@ -90,6 +90,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
+    public static PartitionKey createMaxPartitionKey() {
+        PartitionKey partitionKey = new PartitionKey();
+        partitionKey.keys.add(MaxLiteral.MAX_VALUE);
+        // type not set
+        return partitionKey;
+    }
+
     public static PartitionKey createPartitionKey(List<PartitionValue> keys, List<Column> columns)
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
