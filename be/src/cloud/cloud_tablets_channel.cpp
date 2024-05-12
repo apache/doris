@@ -103,8 +103,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         return _close_status;
     }
 
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
-              << ", backend id: " << req.backend_id();
     for (auto pid : req.partition_ids()) {
         _partition_ids.emplace(pid);
     }
@@ -112,6 +110,10 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     _closed_senders.Set(sender_id, true);
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
+
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
+              << ", backend id: " << req.backend_id()
+              << " remaining sender: " << _num_remaining_senders;
 
     if (!*finished) {
         return Status::OK();

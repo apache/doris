@@ -159,6 +159,8 @@ message PTabletWriterAddBlockRequest {
     optional bool write_single_replica = 12 [default = false];
     map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
     optional bool is_single_tablet_block = 14 [default = false];
+    // The first stage request of two-stage close
+    optional bool pre_close = 15 [default = false];
 };
 
 message PSlaveTabletNodes {

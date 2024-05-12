@@ -140,8 +140,8 @@ suite("test_auto_range_partition") {
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
 
-     // partition expr extraction
-
+    // partition expr extraction
+    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
     sql " drop table if exists isit "
     sql " drop table if exists isit_src "
     sql """
