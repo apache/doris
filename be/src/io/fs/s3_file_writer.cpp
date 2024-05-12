@@ -41,6 +41,7 @@
 #include <glog/logging.h>
 
 #include <sstream>
+#include <tuple>
 #include <utility>
 
 #include "common/config.h"
@@ -103,11 +104,13 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (!closed() || _failed) {
-        // if we don't abort multi part upload, the uploaded part in object
-        // store will not automatically reclaim itself, it would cost more money
-        static_cast<void>(_abort());
-    } else {
+    if (_async_close_pack != nullptr) {
+        // For thread safety
+        std::ignore = _async_close_pack->promise.get_future();
+        _async_close_pack = nullptr;
+    }
+    // We won't do S3 abort operation in BE, we let s3 service do it own.
+    if (closed() && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
     s3_file_being_written << -1;
@@ -154,39 +157,11 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
     }
 }
 
-Status S3FileWriter::_abort() {
-    // make all pending work early quits
-    _failed = true;
-
-    // we need to reclaim the memory
-    if (_pending_buf) {
-        _pending_buf = nullptr;
-    }
-    LOG(INFO) << "S3FileWriter::abort, path: " << _path.native();
-    // upload id is empty means there was no create multi upload
-    if (_upload_id.empty()) {
-        return Status::OK();
-    }
-    _wait_until_finish("Abort");
-    AbortMultipartUploadRequest request;
-    request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto outcome = _client->AbortMultipartUpload(request);
-    if (outcome.IsSuccess() ||
-        outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
-        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        LOG(INFO) << "Abort multipart upload successfully"
-                  << "bucket=" << _bucket << ", key=" << _path.native()
-                  << ", upload_id=" << _upload_id << ", whole parts=" << _dump_completed_part();
-        return Status::OK();
-    }
-    return s3fs_error(
-            outcome.GetError(),
-            fmt::format("failed to abort multipart upload {} upload_id={}, whole parts={}",
-                        _path.native(), _upload_id, _dump_completed_part()));
-}
-
 Status S3FileWriter::close(bool non_block) {
+    if (closed() && _async_close_pack == nullptr) {
+        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
+                                     _path, _key);
+    }
     if (non_block) {
         if (nullptr != _async_close_pack) {
             return Status::OK();
@@ -200,7 +175,7 @@ Status S3FileWriter::close(bool non_block) {
         auto st = _async_close_pack->future.get();
         // Make sure we would not call future.get multi times
         _async_close_pack = nullptr;
-        // The next we call close() with no matter non_block true or false, it would always return the
+        // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
         return st;
     }

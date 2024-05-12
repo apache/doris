@@ -143,6 +143,11 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
 }
 
 HdfsFileWriter::~HdfsFileWriter() {
+    if (_async_close_pack != nullptr) {
+        // For thread safety
+        std::ignore = _async_close_pack->promise.get_future();
+        _async_close_pack = nullptr;
+    }
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
@@ -197,6 +202,10 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 }
 
 Status HdfsFileWriter::close(bool non_block) {
+    if (closed() && _async_close_pack == nullptr) {
+        return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
+                                     _path, _fs_name);
+    }
     if (non_block) {
         if (nullptr != _async_close_pack) {
             return Status::OK();
@@ -218,7 +227,7 @@ Status HdfsFileWriter::close(bool non_block) {
 }
 
 Status HdfsFileWriter::_close_impl() {
-    if (_closed) {
+    if (closed()) {
         return _st;
     }
     _closed = true;

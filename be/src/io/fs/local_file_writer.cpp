@@ -182,36 +182,43 @@ Status LocalFileWriter::_close(bool sync) {
     if (_closed) {
         return Status::OK();
     }
+    auto fd_reclaim_func = [&](Status st) {
+        if (0 != ::close(_fd)) {
+            return localfs_error(errno, fmt::format("failed to {}, along with failed to close {}",
+                                                    st, _path.native()));
+        }
+        return st;
+    };
     if (sync) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {
-                return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+                return fd_reclaim_func(
+                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
             }
 #else
             if (0 != ::fdatasync(_fd)) [[unlikely]] {
-                return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+                return fd_reclaim_func(
+                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
             }
 #endif
             _dirty = false;
         }
-        RETURN_IF_ERROR(sync_dir(_path.parent_path()));
+        RETURN_IF_ERROR(fd_reclaim_func(sync_dir(_path.parent_path())));
     }
 
-    if (0 != ::close(_fd)) {
-        return localfs_error(errno, fmt::format("failed to close {}", _path.native()));
-    }
     _closed = true;
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
         // spare '.testfile' to make bad disk checker happy
         if (_path.filename().compare(kTestFilePath)) {
-            return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+            return fd_reclaim_func(
+                    Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno)));
         }
     });
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
-    return Status::OK();
+    return fd_reclaim_func(Status::OK());
 }
 
 } // namespace doris::io
