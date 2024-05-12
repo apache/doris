@@ -201,7 +201,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
                 PrettyPrinter::print(process_mem_used, TUnit::BYTES),
                 PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
                 PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
-        VLOG_EVERY_N(1, 10) << debug_msg;
+        LOG_EVERY_T(INFO, 10) << debug_msg;
     }
 
     for (auto& wg : _workload_groups) {
@@ -264,7 +264,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
             }
         }
         if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-            VLOG_EVERY_N(1, 10) << debug_msg;
+            LOG_EVERY_T(INFO, 10) << debug_msg;
         }
     }
 }

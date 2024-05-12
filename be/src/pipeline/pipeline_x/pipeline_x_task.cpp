@@ -319,7 +319,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_N(INFO, 10) << "revoke memory, hight water mark";
+            VLOG_DEBUG << "revoke memory, hight water mark";
             return true;
         }
         return false;
@@ -339,12 +339,11 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
 
-        LOG_EVERY_N(INFO, 10) << "revoke memory, low water mark, revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                              << ", mem_limit_of_op: "
-                              << PrettyPrinter::print_bytes(mem_limit_of_op)
-                              << ", min_revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        VLOG_DEBUG << "revoke memory, low water mark, revocable_mem_bytes: "
+                   << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                   << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                   << ", min_revocable_mem_bytes: "
+                   << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
