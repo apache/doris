@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -76,6 +77,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.PlanNode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -633,8 +635,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         if ((new CheckContext(scan, selectIndexId)).isBaseIndex()) {
             PreAggStatus preagg = scan.getPreAggStatus();
             if (preagg.isOn()) {
-                preagg = checkPreAggStatus(scan, scan.getTable().getBaseIndexId(), predicates, aggregateFunctions,
-                        groupingExprs);
+                preagg = checkPreAggStatus(scan, predicates, aggregateFunctions, groupingExprs);
             }
             return new SelectResult(preagg, selectIndexId, new ExprRewriteMap());
         }
@@ -714,6 +715,346 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         return checkAggregateFunctions(aggregateFuncs, checkContext)
                 .offOrElse(() -> checkGroupingExprs(groupingExprs, checkContext))
                 .offOrElse(() -> checkPredicates(ImmutableList.copyOf(predicates), checkContext));
+    }
+
+    private PreAggStatus checkPreAggStatus(LogicalOlapScan olapScan, Set<Expression> predicates,
+            List<AggregateFunction> aggregateFuncs, List<Expression> groupingExprs) {
+        MaterializedIndexMeta meta =
+                olapScan.getTable().getIndexMetaByIndexId(olapScan.getSelectedIndexId());
+        if (meta.getKeysType() == KeysType.DUP_KEYS || (meta.getKeysType() == KeysType.UNIQUE_KEYS
+                && olapScan.getTable().getEnableUniqueKeyMergeOnWrite())) {
+            return PreAggStatus.on();
+        }
+        Set<Slot> outputSlots = olapScan.getOutputSet();
+        Pair<Set<SlotReference>, Set<SlotReference>> splittedSlots = splitSlots(outputSlots);
+        Set<SlotReference> keySlots = splittedSlots.first;
+        Set<SlotReference> valueSlots = splittedSlots.second;
+        Preconditions.checkState(outputSlots.size() == keySlots.size() + valueSlots.size(),
+                "output slots contains no key or value slots");
+
+        Set<Slot> groupInputSlots = ExpressionUtils.getInputSlotSet(groupingExprs);
+        if (groupInputSlots.retainAll(keySlots)) {
+            return PreAggStatus
+                    .off(String.format("Grouping expression %s contains non-key column %s",
+                            groupingExprs, groupInputSlots));
+        }
+
+        Set<Slot> predicateInputSlots = ExpressionUtils.getInputSlotSet(predicates);
+        if (predicateInputSlots.retainAll(keySlots)) {
+            return PreAggStatus.off(String.format("Predicate %s contains non-key column %s",
+                    predicates, predicateInputSlots));
+        }
+
+        return checkAggregateFunctions(aggregateFuncs, keySlots, valueSlots);
+    }
+
+    private Pair<Set<SlotReference>, Set<SlotReference>> splitSlots(Set<Slot> slots) {
+        Set<SlotReference> keySlots = Sets.newHashSetWithExpectedSize(slots.size());
+        Set<SlotReference> valueSlots = Sets.newHashSetWithExpectedSize(slots.size());
+        for (Slot slot : slots) {
+            if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()) {
+                if (((SlotReference) slot).getColumn().get().isKey()) {
+                    keySlots.add((SlotReference) slot);
+                } else {
+                    valueSlots.add((SlotReference) slot);
+                }
+            }
+        }
+        return Pair.of(keySlots, valueSlots);
+    }
+
+    private static class OneValueSlotAggChecker
+            extends ExpressionVisitor<PreAggStatus, AggregateType> {
+        public static final OneValueSlotAggChecker INSTANCE = new OneValueSlotAggChecker();
+
+        public PreAggStatus check(AggregateFunction aggFun, AggregateType aggregateType) {
+            return aggFun.accept(INSTANCE, aggregateType);
+        }
+
+        @Override
+        public PreAggStatus visit(Expression expr, AggregateType aggregateType) {
+            return PreAggStatus.off(String.format("%s is not aggregate function.", expr.toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction,
+                AggregateType aggregateType) {
+            return PreAggStatus
+                    .off(String.format("%s is not supported.", aggregateFunction.toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitMax(Max max, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.MAX && !max.isDistinct()) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus
+                        .off(String.format("%s is not match agg mode %s or has distinct param",
+                                max.toSql(), aggregateType));
+            }
+        }
+
+        @Override
+        public PreAggStatus visitMin(Min min, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.MIN && !min.isDistinct()) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus
+                        .off(String.format("%s is not match agg mode %s or has distinct param",
+                                min.toSql(), aggregateType));
+            }
+        }
+
+        @Override
+        public PreAggStatus visitSum(Sum sum, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.SUM && !sum.isDistinct()) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus
+                        .off(String.format("%s is not match agg mode %s or has distinct param",
+                                sum.toSql(), aggregateType));
+            }
+        }
+
+        @Override
+        public PreAggStatus visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount,
+                AggregateType aggregateType) {
+            if (aggregateType == AggregateType.BITMAP_UNION) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid bitmap_union_count: " + bitmapUnionCount.toSql());
+            }
+        }
+
+        @Override
+        public PreAggStatus visitBitmapUnion(BitmapUnion bitmapUnion, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.BITMAP_UNION) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid bitmapUnion: " + bitmapUnion.toSql());
+            }
+        }
+
+        @Override
+        public PreAggStatus visitHllUnionAgg(HllUnionAgg hllUnionAgg, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.HLL_UNION) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid hllUnionAgg: " + hllUnionAgg.toSql());
+            }
+        }
+
+        @Override
+        public PreAggStatus visitHllUnion(HllUnion hllUnion, AggregateType aggregateType) {
+            if (aggregateType == AggregateType.HLL_UNION) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid hllUnion: " + hllUnion.toSql());
+            }
+        }
+    }
+
+    private static class OneKeySlotAggChecker extends ExpressionVisitor<PreAggStatus, Void> {
+        public static final OneKeySlotAggChecker INSTANCE = new OneKeySlotAggChecker();
+
+        public PreAggStatus check(AggregateFunction aggFun) {
+            return aggFun.accept(INSTANCE, null);
+        }
+
+        @Override
+        public PreAggStatus visit(Expression expr, Void context) {
+            return PreAggStatus.off(String.format("%s is not aggregate function.", expr.toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction,
+                Void context) {
+            return PreAggStatus.off(String.format("Aggregate function %s contains key column %s",
+                    aggregateFunction.toSql(), aggregateFunction.child(0).toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitMax(Max max, Void context) {
+            return PreAggStatus.on();
+        }
+
+        @Override
+        public PreAggStatus visitMin(Min min, Void context) {
+            return PreAggStatus.on();
+        }
+
+        @Override
+        public PreAggStatus visitCount(Count count, Void context) {
+            if (count.isDistinct()) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off(String.format("%s is not distinct.", count.toSql()));
+            }
+        }
+    }
+
+    private static class KeyAndValueSlotsAggChecker
+            extends ExpressionVisitor<PreAggStatus, List<Expression>> {
+        public static final KeyAndValueSlotsAggChecker INSTANCE = new KeyAndValueSlotsAggChecker();
+
+        public PreAggStatus check(AggregateFunction aggFun, List<Expression> returnValues) {
+            return aggFun.accept(INSTANCE, returnValues);
+        }
+
+        @Override
+        public PreAggStatus visit(Expression expr, List<Expression> returnValues) {
+            return PreAggStatus.off(String.format("%s is not aggregate function.", expr.toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction,
+                List<Expression> returnValues) {
+            return PreAggStatus
+                    .off(String.format("%s is not supported.", aggregateFunction.toSql()));
+        }
+
+        @Override
+        public PreAggStatus visitSum(Sum sum, List<Expression> returnValues) {
+            for (Expression value : returnValues) {
+                if (!(isAggTypeMatched(value, AggregateType.SUM) || value.isZeroLiteral()
+                        || value.isNullLiteral())) {
+                    return PreAggStatus.off(String.format("%s is not supported.", sum.toSql()));
+                }
+            }
+            return PreAggStatus.on();
+        }
+
+        @Override
+        public PreAggStatus visitMax(Max max, List<Expression> returnValues) {
+            for (Expression value : returnValues) {
+                if (!(isAggTypeMatched(value, AggregateType.MAX) || isKeySlot(value)
+                        || value.isNullLiteral())) {
+                    return PreAggStatus.off(String.format("%s is not supported.", max.toSql()));
+                }
+            }
+            return PreAggStatus.on();
+        }
+
+        @Override
+        public PreAggStatus visitMin(Min min, List<Expression> returnValues) {
+            for (Expression value : returnValues) {
+                if (!(isAggTypeMatched(value, AggregateType.MIN) || isKeySlot(value)
+                        || value.isNullLiteral())) {
+                    return PreAggStatus.off(String.format("%s is not supported.", min.toSql()));
+                }
+            }
+            return PreAggStatus.on();
+        }
+
+        @Override
+        public PreAggStatus visitCount(Count count, List<Expression> returnValues) {
+            if (count.isDistinct()) {
+                for (Expression value : returnValues) {
+                    if (!(isKeySlot(value) || value.isZeroLiteral() || value.isNullLiteral())) {
+                        return PreAggStatus
+                                .off(String.format("%s is not supported.", count.toSql()));
+                    }
+                }
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off(String.format("%s is not supported.", count.toSql()));
+            }
+        }
+
+        private boolean isKeySlot(Expression expression) {
+            return expression instanceof SlotReference
+                    && ((SlotReference) expression).getColumn().isPresent()
+                    && ((SlotReference) expression).getColumn().get().isKey();
+        }
+
+        private boolean isAggTypeMatched(Expression expression, AggregateType aggregateType) {
+            return expression instanceof SlotReference
+                    && ((SlotReference) expression).getColumn().isPresent()
+                    && ((SlotReference) expression).getColumn().get()
+                            .getAggregationType() == aggregateType;
+        }
+    }
+
+    private static Expression removeCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc,
+            Set<SlotReference> keySlots, Set<SlotReference> valueSlots) {
+        Expression child = aggFunc.child(0);
+        List<Expression> conditionExps = new ArrayList<>();
+        List<Expression> returnExps = new ArrayList<>();
+
+        // ignore cast
+        while (child instanceof Cast) {
+            if (!((Cast) child).getDataType().isNumericType()) {
+                return PreAggStatus.off(String.format("%s is not numeric CAST.", child.toSql()));
+            }
+            child = child.child(0);
+        }
+        // step 1: extract all condition exprs and return exprs
+        if (child instanceof If) {
+            conditionExps.add(child.child(0));
+            returnExps.add(removeCast(child.child(1)));
+            returnExps.add(removeCast(child.child(2)));
+        } else if (child instanceof CaseWhen) {
+            CaseWhen caseWhen = (CaseWhen) child;
+            // WHEN THEN
+            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                conditionExps.add(whenClause.getOperand());
+                returnExps.add(removeCast(whenClause.getResult()));
+            }
+            // ELSE
+            returnExps.add(removeCast(caseWhen.getDefaultValue().orElse(new NullLiteral())));
+        } else {
+            // currently, only IF and CASE WHEN are supported
+            returnExps.add(removeCast(child));
+        }
+
+        // step 2: check condition expressions
+        Set<Slot> inputSlots = ExpressionUtils.getInputSlotSet(conditionExps);
+        inputSlots.retainAll(valueSlots);
+        if (!inputSlots.isEmpty()) {
+            return PreAggStatus
+                    .off(String.format("some columns in condition %s is not key.", conditionExps));
+        }
+
+        return KeyAndValueSlotsAggChecker.INSTANCE.check(aggFunc, returnExps);
+    }
+
+    private PreAggStatus checkAggregateFunctions(List<AggregateFunction> aggregateFuncs,
+            Set<SlotReference> keySlots, Set<SlotReference> valueSlots) {
+        PreAggStatus preAggStatus = PreAggStatus.on();
+        for (AggregateFunction aggFunc : aggregateFuncs) {
+            if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof Slot) {
+                Slot aggSlot = (Slot) aggFunc.child(0);
+                if (aggSlot instanceof SlotReference
+                        && ((SlotReference) aggSlot).getColumn().isPresent()) {
+                    if (((SlotReference) aggSlot).getColumn().get().isKey()) {
+                        preAggStatus = OneKeySlotAggChecker.INSTANCE.check(aggFunc);
+                    } else {
+                        preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
+                                ((SlotReference) aggSlot).getColumn().get().getAggregationType());
+                    }
+                } else {
+                    preAggStatus = PreAggStatus.off(
+                            String.format("aggregate function %s use unknown slot %s from scan",
+                                    aggFunc, aggSlot));
+                }
+            } else {
+                Set<Slot> aggSlots = aggFunc.getInputSlots();
+                Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitSlots(aggSlots);
+                preAggStatus =
+                        checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+            }
+            if (preAggStatus.isOff()) {
+                return preAggStatus;
+            }
+        }
+        return preAggStatus;
     }
 
     /**

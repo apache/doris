@@ -139,8 +139,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     public void testTranslateWhenPreAggIsOff() {
         singleTableTest("select k2, min(v1) from t group by k2", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM",
+            Assertions.assertEquals("min(v1) is not match agg mode SUM or has distinct param",
                     scan.getReasonOfPreAggregation());
         });
     }
@@ -227,8 +226,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM", preAgg.getOffReason());
+                    Assertions.assertEquals("min(v1) is not match agg mode SUM or has distinct param", preAgg.getOffReason());
                     return true;
                 }));
     }
@@ -242,7 +240,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("do not support compound expression [(v1 + 1)] in SUM.",
+                    Assertions.assertEquals("sum((v1 + 1)) is not supported.",
                             preAgg.getOffReason());
                     return true;
                 }));
@@ -257,7 +255,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate function sum(k2) contains key column k2.",
+                    Assertions.assertEquals("Aggregate function sum(k2) contains key column k2",
                             preAgg.getOffReason());
                     return true;
                 }));
@@ -402,7 +400,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     public void testCountDistinctValueColumn() {
         singleTableTest("select k1, count(distinct v1) from t group by k1", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Count distinct is only valid for key columns, but meet count(DISTINCT v1).",
+            Assertions.assertEquals("count(DISTINCT v1) is not supported.",
                     scan.getReasonOfPreAggregation());
             Assertions.assertEquals("t", scan.getSelectedIndexName());
         });
