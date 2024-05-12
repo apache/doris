@@ -51,6 +51,7 @@ private:
     bool _closed = false;
     const bool _sync_data = true;
     size_t _bytes_appended = 0;
+    bool _non_block_close = false;
 };
 
 } // namespace doris::io

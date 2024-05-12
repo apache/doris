@@ -163,8 +163,8 @@ Status S3FileWriter::close(bool non_block) {
                                      _path.native(), _key);
     }
     if (non_block) {
-        if (nullptr != _async_close_pack) {
-            return Status::OK();
+        if (nullptr != _async_close_pack || closed()) {
+            return Status::InternalError("Don't submit async close multi times");
         }
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
@@ -183,9 +183,10 @@ Status S3FileWriter::close(bool non_block) {
 }
 
 Status S3FileWriter::_close_impl() {
+    // If someone tries to call close(true) and then close(false) then close, we should return error for him
     if (closed()) {
-        _wait_until_finish("close");
-        return _st;
+        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
+                                     _path.native(), _key);
     }
 
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();

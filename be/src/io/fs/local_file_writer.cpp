@@ -86,8 +86,32 @@ LocalFileWriter::~LocalFileWriter() {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 }
 
-Status LocalFileWriter::close(bool /*non_block*/) {
-    return _close(_sync_data);
+Status LocalFileWriter::close(bool non_block) {
+    // We only allowed two usage: 1. call close(true) then call close(false), following call would return error
+    // 2. Directly call close(false), then following call return error
+    if (closed() && !_non_block_close) {
+        return Status::InternalError("LocalFileWriter already closed, file path {}",
+                                     _path.native());
+    }
+    if (non_block) {
+        if (_non_block_close) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        _non_block_close = true;
+    }
+    // Situation where the first time call this function is close(true), the next time call is close(false)
+    if (_non_block_close && closed()) {
+        // Ensure the following call to this function return error
+        _non_block_close = false;
+        // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
+        // error status then the code would never call the second close(true)
+        return Status::OK();
+    }
+    if (!closed()) {
+        _closed = true;
+        return _close(_sync_data);
+    }
+    return Status::OK();
 }
 
 void LocalFileWriter::_abort() {
@@ -179,14 +203,12 @@ Status LocalFileWriter::_finalize() {
 }
 
 Status LocalFileWriter::_close(bool sync) {
-    if (_closed) {
-        return Status::OK();
-    }
     auto fd_reclaim_func = [&](Status st) {
-        if (0 != ::close(_fd)) {
+        if (_fd > 9 && 0 != ::close(_fd)) {
             return localfs_error(errno, fmt::format("failed to {}, along with failed to close {}",
                                                     st, _path.native()));
         }
+        _fd = -1;
         return st;
     };
     if (sync) {
@@ -206,8 +228,6 @@ Status LocalFileWriter::_close(bool sync) {
         }
         RETURN_IF_ERROR(fd_reclaim_func(sync_dir(_path.parent_path())));
     }
-
-    _closed = true;
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
         // spare '.testfile' to make bad disk checker happy

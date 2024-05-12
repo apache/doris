@@ -69,6 +69,7 @@ private:
     int32_t _segment_id;
     bool _closed = false;
     size_t _bytes_appended = 0;
+    bool _non_block_close = false;
 };
 
 } // namespace io

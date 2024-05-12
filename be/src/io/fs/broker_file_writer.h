@@ -53,6 +53,7 @@ public:
 
 private:
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
+    Status _close_impl();
 
 private:
     ExecEnv* _env = nullptr;
@@ -61,6 +62,7 @@ private:
     size_t _cur_offset = 0;
     TBrokerFD _fd;
     bool _closed = false;
+    bool _non_block_close = false;
 };
 
 } // end namespace io

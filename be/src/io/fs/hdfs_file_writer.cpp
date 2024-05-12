@@ -207,8 +207,8 @@ Status HdfsFileWriter::close(bool non_block) {
                                      _path.native(), _fs_name);
     }
     if (non_block) {
-        if (nullptr != _async_close_pack) {
-            return Status::OK();
+        if (nullptr != _async_close_pack || closed()) {
+            return Status::InternalError("Don't submit async close multi times");
         }
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
@@ -227,8 +227,10 @@ Status HdfsFileWriter::close(bool non_block) {
 }
 
 Status HdfsFileWriter::_close_impl() {
+    // If someone tries to call close(true) and then close(false) then close, we should return error for him
     if (closed()) {
-        return _st;
+        return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
+                                     _path.native(), _fs_name);
     }
     _closed = true;
     if (_batch_buffer.size() != 0) {
