@@ -771,7 +771,9 @@ class Suite implements GroovyInterceptable {
     void dispatchTrinoConnectors(ArrayList host_ips)
     {
         def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
-        dispatchTrinoConnectors_impl(host_ips, dir_download)
+        def s3_url = getS3Url()
+        def url = "${s3_url}/regression/trino-connectors.tar.gz"
+        dispatchTrinoConnectors_impl(host_ips, dir_download, url)
     }
 
     /*
@@ -784,7 +786,7 @@ class Suite implements GroovyInterceptable {
      *
      * If failed, will call assertTrue(false).
      */
-    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download) {
+    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
         if (isTrinoConnectorDownloaded == true) {
             staticLogger.info("trino connector downloaded")
             return
@@ -796,14 +798,13 @@ class Suite implements GroovyInterceptable {
         def dir_connector_tmp = "${dir_download}/connectors_tmp"
         def path_connector_tmp = "${dir_connector_tmp}/connectors"
         def path_connector = "${dir_download}/connectors"
-        def s3_url = getS3Url()
 
         def cmds = [] as List
         cmds.add("mkdir -p ${dir_download}")
         cmds.add("rm -rf ${path_tar}")
         cmds.add("rm -rf ${dir_connector_tmp}")
         cmds.add("mkdir -p ${dir_connector_tmp}")
-        cmds.add("/usr/bin/curl --max-time 600 ${s3_url}/regression/trino-connectors.tar.gz --output ${path_tar}")
+        cmds.add("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}")
         cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
 
         def executeCommand = { String cmd, Boolean mustSuc ->
