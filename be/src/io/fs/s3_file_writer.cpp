@@ -197,7 +197,12 @@ Status S3FileWriter::close(bool non_block) {
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
     if (_async_close_pack != nullptr) {
-        return _async_close_pack->future.get();
+        auto st = _async_close_pack->future.get();
+        // Make sure we would not call future.get multi times
+        _async_close_pack = nullptr;
+        // The next we call close() with no matter non_block true or false, it would always return the
+        // '_st' value because this writer is already closed.
+        return st;
     }
     return _close_impl();
 }

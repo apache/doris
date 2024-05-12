@@ -207,18 +207,25 @@ Status HdfsFileWriter::close(bool non_block) {
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
     if (_async_close_pack != nullptr) {
-        return _async_close_pack->future.get();
+        auto st = _async_close_pack->future.get();
+        // Make sure we would not call future.get multi times
+        _async_close_pack = nullptr;
+        // The next we call close() with no matter non_block true or false, it would always return the
+        // '_st' value because this writer is already closed.
+        return st;
     }
     return _close_impl();
 }
 
 Status HdfsFileWriter::_close_impl() {
     if (_closed) {
-        return Status::OK();
+        return _st;
     }
     _closed = true;
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_flush_buffer());
+        if (_st = _flush_buffer(); !_st.ok()) {
+            return _st;
+        }
     }
     int ret;
     if (_sync_file_data) {
@@ -237,9 +244,10 @@ Status HdfsFileWriter::_close_impl() {
                                                Status::InternalError("failed to sync hdfs file"));
 
         if (ret != 0) {
-            return Status::InternalError(
+            _st = Status::InternalError(
                     "failed to sync hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
                     _path.native(), hdfs_error(), bytes_appended());
+            return _st;
         }
     }
 
@@ -255,10 +263,11 @@ Status HdfsFileWriter::_close_impl() {
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
-        return Status::InternalError(
+        _st = Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
                 bytes_appended());
+        return _st;
     }
     hdfs_file_created_total << 1;
     return Status::OK();

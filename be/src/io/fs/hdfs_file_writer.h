@@ -93,6 +93,9 @@ private:
     BatchBuffer _batch_buffer;
     size_t _approximate_jni_buffer_size = 0;
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    // We should make sure that close_impl's return value is consistent
+    // So we need add one field to restore the value first time return by calling close_impl
+    Status _st;
 };
 
 } // namespace io
