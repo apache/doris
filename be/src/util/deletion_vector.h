@@ -17,20 +17,22 @@
 
 #pragma once
 
-#include <roaring/roaring.hh>
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <stdexcept>
+
+#include "common/status.h"
+#include "roaring/roaring.hh"
 
 namespace doris {
-
-// TODO: complete DeletionVector function
 class DeletionVector {
 public:
-    // const static uint32_t MAGIC_NUMBER = 1581511376;
-    // const static uint32_t MAX_VALUE = std::numeric_limits<uint32_t>::max();
-    DeletionVector() = default;
+    const static uint32_t MAGIC_NUMBER = 1581511376;
     DeletionVector(roaring::Roaring roaring_bitmap) : _roaring_bitmap(std::move(roaring_bitmap)) {};
     ~DeletionVector() = default;
 
-    // bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
+    bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
 
     bool is_delete(uint32_t postition) const { return _roaring_bitmap.contains(postition); }
 
@@ -40,9 +42,37 @@ public:
 
     uint32_t minimum() const { return _roaring_bitmap.minimum(); }
 
-    // TODO: handle std::runtime_error
-    static DeletionVector deserialize(const char* buf, size_t maxbytes) {
-        return {roaring::Roaring::readSafe(buf, maxbytes)};
+    static Result<DeletionVector> deserialize(const char* buf, size_t length) {
+        uint32_t actual_length;
+        std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
+        // change byte order to big endian
+        std::reverse(reinterpret_cast<char*>(&actual_length),
+                     reinterpret_cast<char*>(&actual_length) + 4);
+        buf += 4;
+        if (actual_length != length - 4) {
+            return ResultError(
+                    Status::RuntimeError("DeletionVector deserialize error: length not match, "
+                                         "actual length: {}, expect length: {}",
+                                         actual_length, length - 4));
+        }
+        uint32_t magic_number;
+        std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
+        // change byte order to big endian
+        std::reverse(reinterpret_cast<char*>(&magic_number),
+                     reinterpret_cast<char*>(&magic_number) + 4);
+        buf += 4;
+        if (magic_number != MAGIC_NUMBER) {
+            return ResultError(Status::RuntimeError(
+                    "DeletionVector deserialize error: invalid magic number {}", magic_number));
+        }
+        roaring::Roaring roaring_bitmap;
+        try {
+            roaring_bitmap = roaring::Roaring::readSafe(buf, length);
+        } catch (std::runtime_error) {
+            return ResultError(Status::RuntimeError(
+                    "DeletionVector deserialize error: failed to deserialize roaring bitmap"));
+        }
+        return DeletionVector(roaring_bitmap);
     }
 
 private:

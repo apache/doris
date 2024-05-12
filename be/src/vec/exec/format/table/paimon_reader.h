@@ -30,12 +30,7 @@ public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                  const TFileScanRangeParams& params);
     ~PaimonReader() override = default;
-    // TODO: move these same functions into TableFormatReader
-    Status set_fill_columns(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final;
-    bool fill_all_columns() const final;
+
     Status init_row_filters(const TFileRangeDesc& range) final;
 
 protected:

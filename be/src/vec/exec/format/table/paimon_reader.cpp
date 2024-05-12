@@ -17,6 +17,8 @@
 
 #include "paimon_reader.h"
 
+#include <vector>
+
 #include "common/status.h"
 #include "util/deletion_vector.h"
 
@@ -25,17 +27,6 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            const TFileScanRangeParams& params)
         : TableFormatReader(std::move(file_format_reader)), _params(params) {}
 
-Status PaimonReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
-}
-
-bool PaimonReader::fill_all_columns() const {
-    return _file_format_reader->fill_all_columns();
-};
-
 Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     const auto& table_desc = range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
@@ -43,7 +34,6 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     }
 
     const auto& deletion_file = table_desc.deletion_file;
-    // TODO: hdfs_params is unused
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
             .properties = _params.properties,
@@ -68,19 +58,20 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     // TODO: cache the file in local
     auto delete_file_reader = DORIS_TRY(FileFactory::create_file_reader(
             properties, file_description, io::FileReaderOptions::DEFAULT));
-    size_t bytes_read = deletion_file.length;
-    // TODO: how to alloc memeory
-    auto* data = new char[bytes_read];
-    Slice result(data, bytes_read);
+    // the reason of adding 4: https://github.com/apache/paimon/issues/3313
+    size_t bytes_read = deletion_file.length + 4;
+    // TODO: better way to alloc memeory
+    std::vector<char> buf(bytes_read);
+    Slice result(buf.data(), bytes_read);
     RETURN_IF_ERROR(delete_file_reader->read_at(deletion_file.offset, result, &bytes_read));
-    if (bytes_read != deletion_file.length) {
+    if (bytes_read != deletion_file.length + 4) {
         return Status::IOError(
                 "failed to read deletion vector, deletion file path: {}, offset: {}, expect "
                 "length: {}, real "
                 "length: {}",
-                deletion_file.path, deletion_file.offset, deletion_file.length, bytes_read);
+                deletion_file.path, deletion_file.offset, deletion_file.length + 4, bytes_read);
     }
-    auto deletion_vector = DeletionVector::deserialize(result.data, result.size);
+    auto deletion_vector = DORIS_TRY(DeletionVector::deserialize(result.data, result.size));
     if (!deletion_vector.is_empty()) {
         for (auto i = deletion_vector.minimum(); i <= deletion_vector.maximum(); i++) {
             if (deletion_vector.is_delete(i)) {
