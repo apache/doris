@@ -169,7 +169,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs));
+        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
+        RETURN_IF_ERROR(status);
         break;
     }
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
@@ -325,7 +326,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs));
+        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
+        RETURN_IF_ERROR(status);
         break;
     }
 
