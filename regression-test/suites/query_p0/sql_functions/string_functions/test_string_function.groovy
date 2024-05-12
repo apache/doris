@@ -358,4 +358,7 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql_func_char9 """ select char(0) = ' '; """
     qt_sql_func_char10 """ select char(0) = '\0'; """
 
+    qt_strcmp1 """ select strcmp('a', 'abc'); """
+    qt_strcmp2 """ select strcmp('abc', 'abc'); """
+    qt_strcmp3 """ select strcmp('abcd', 'abc'); """
 }
