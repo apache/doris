@@ -1756,7 +1756,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
-
             Block::erase_useless_column(block, column_to_keep);
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
