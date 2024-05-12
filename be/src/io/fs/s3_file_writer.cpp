@@ -160,7 +160,7 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 Status S3FileWriter::close(bool non_block) {
     if (closed() && _async_close_pack == nullptr) {
         return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
-                                     _path, _key);
+                                     _path.native(), _key);
     }
     if (non_block) {
         if (nullptr != _async_close_pack) {

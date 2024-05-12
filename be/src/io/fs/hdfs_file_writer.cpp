@@ -204,7 +204,7 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 Status HdfsFileWriter::close(bool non_block) {
     if (closed() && _async_close_pack == nullptr) {
         return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
-                                     _path, _fs_name);
+                                     _path.native(), _fs_name);
     }
     if (non_block) {
         if (nullptr != _async_close_pack) {
