@@ -39,6 +39,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,9 +78,11 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            LOG.debug("schema change job add cloud cluster, context not null, cluster: {}",
-                    context.getCloudCluster());
-            setCloudClusterName(context.getCloudCluster());
+            String clusterName = context.getCloudCluster();
+            LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                setCloudClusterName(clusterName);
+            }
         }
         LOG.debug("schema change job add cloud cluster, context {}", context);
     }

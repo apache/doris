@@ -20,6 +20,8 @@ package org.apache.doris.common.jni.utils;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
@@ -40,6 +42,7 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Set;
 
 public class UdfUtils {
@@ -141,6 +144,9 @@ public class UdfUtils {
             if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
                 result.setValueScale(((ScalarType) valuType).getScalarScale());
             }
+        } else if (retType.isStructType()) {
+            StructType structType = (StructType) retType;
+            result.setFields(structType.getFields());
         }
         return Pair.of(res.length != 0, result);
     }
@@ -185,6 +191,10 @@ public class UdfUtils {
                 if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
                     inputArgTypes[i].setValueScale(((ScalarType) valuType).getScalarScale());
                 }
+            } else if (parameterTypes[finalI].isStructType()) {
+                StructType structType = (StructType) parameterTypes[finalI];
+                ArrayList<StructField> fields = structType.getFields();
+                inputArgTypes[i].setFields(fields);
             }
             if (res.length == 0) {
                 return Pair.of(false, inputArgTypes);

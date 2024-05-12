@@ -290,10 +290,6 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
-    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
-        return aliasTransferMap.remove(slot);
-    }
-
     public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
         return aliasTransferMap.get(slot);
     }

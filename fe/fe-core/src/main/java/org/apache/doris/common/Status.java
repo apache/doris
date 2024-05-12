@@ -17,9 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+
+import org.apache.logging.log4j.message.ParameterizedMessage;
 
 public class Status {
     public static final Status OK = new Status();
@@ -43,6 +46,11 @@ public class Status {
         this.errorMsg = errorMsg;
     }
 
+    public Status(TStatusCode code, final String errorMsg, final Object...params) {
+        this.errorCode = code;
+        this.errorMsg = ParameterizedMessage.format(errorMsg, params);
+    }
+
     public Status(final TStatus status) {
         this.errorCode = status.status_code;
         if (status.isSetErrorMsgs()) {
@@ -62,6 +70,12 @@ public class Status {
         if (!status.getErrorMsgsList().isEmpty()) {
             this.errorMsg = status.getErrorMsgs(0);
         }
+    }
+
+    // TODO add a unit test to ensure all TStatusCode is subset of PStatus error code.
+    public PStatus toPStatus() {
+        return PStatus.newBuilder().setStatusCode(errorCode.getValue())
+                .setErrorMsgs(0, errorMsg).build();
     }
 
     public void updateStatus(TStatusCode code, String errorMessage) {
@@ -89,6 +103,25 @@ public class Status {
         return errorMsg;
     }
 
+    // This logic is a temp logic.
+    // It is just for compatible upgrade from old version BE. When using old
+    // BE and new FE, old BE need cancel reason.
+    // Should remove this logic in the future.
+    public Types.PPlanFragmentCancelReason getPCancelReason() {
+        switch (errorCode) {
+            case LIMIT_REACH: {
+                // Only limit reach is useless.
+                // BE will not send message to fe when meet this error code.
+                return Types.PPlanFragmentCancelReason.LIMIT_REACH;
+            } case TIMEOUT: {
+                return Types.PPlanFragmentCancelReason.TIMEOUT;
+            } case MEM_ALLOC_FAILED: {
+                return Types.PPlanFragmentCancelReason.MEMORY_LIMIT_EXCEED;
+            } default: {
+                return Types.PPlanFragmentCancelReason.INTERNAL_ERROR;
+            }
+        }
+    }
 
     public void rewriteErrorMsg() {
         if (ok()) {

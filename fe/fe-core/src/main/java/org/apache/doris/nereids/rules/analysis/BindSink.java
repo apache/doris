@@ -43,8 +43,10 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -66,6 +69,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -83,12 +87,19 @@ public class BindSink implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.BINDING_INSERT_TARGET_TABLE.build(unboundTableSink().thenApply(this::bindOlapTableSink)),
-                RuleType.BINDING_INSERT_FILE.build(
-                        logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
-                                .then(fileSink -> fileSink.withOutputExprs(
-                                        fileSink.child().getOutput().stream()
-                                                .map(NamedExpression.class::cast)
-                                                .collect(ImmutableList.toImmutableList())))
+                RuleType.BINDING_INSERT_FILE.build(logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
+                        .then(fileSink -> {
+                            ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                                    ImmutableListMultimap.builder();
+                            List<Slot> childOutput = fileSink.child().getOutput();
+                            for (int index = 0; index < childOutput.size(); index++) {
+                                exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                            }
+                            InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
+                            List<NamedExpression> output = aliasInfer.infer(fileSink.child(),
+                                    exprIdToIndexMapBuilder.build());
+                            return fileSink.withOutputExprs(output);
+                        })
                 ),
                 // TODO: bind hive taget table
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink))

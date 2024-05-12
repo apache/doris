@@ -216,10 +216,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         }
     }
 
-    private boolean couldNotRightBucketShuffleJoin(JoinType joinType) {
-        return joinType == JoinType.RIGHT_ANTI_JOIN
+    private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec) {
+        boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN;
+                || joinType == JoinType.FULL_OUTER_JOIN);
+        boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
+        return isJoinTypeInScope && isSpecInScope;
     }
 
     @Override
@@ -254,7 +258,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
             return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -482,8 +486,32 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        return shuffleSideOutput.getOrderedShuffledColumns().equals(
-                calAnotherSideRequiredShuffleIds(notShuffleSideOutput, notShuffleSideRequired, shuffleSideRequired));
+        List<ExprId> shuffleSideOutputList = shuffleSideOutput.getOrderedShuffledColumns();
+        List<ExprId> notShuffleSideOutputList = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
+                notShuffleSideRequired, shuffleSideRequired);
+        if (shuffleSideOutputList.size() != notShuffleSideOutputList.size()) {
+            return false;
+        } else if (shuffleSideOutputList.equals(notShuffleSideOutputList)) {
+            return true;
+        } else {
+            boolean isSatisfy = true;
+            for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
+                ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
+                boolean found = false;
+                for (int j = 0; j < notShuffleSideOutputList.size() && !found; j++) {
+                    ExprId notShuffleSideExprId = notShuffleSideOutputList.get(j);
+                    if (shuffleSideExprId.equals(notShuffleSideExprId)
+                            || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                            .contains(notShuffleSideExprId)) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    isSatisfy = false;
+                }
+            }
+            return isSatisfy;
+        }
     }
 
     /**
