@@ -78,7 +78,7 @@ public abstract class MaterializationContext {
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
     // The mv plan struct info
-    protected final StructInfo structInfo;
+    protected StructInfo structInfo;
     // Group id set that are rewritten unsuccessfully by this mv for reducing rewrite times
     protected final Set<GroupId> matchedFailGroups = new HashSet<>();
     // Group id set that are rewritten successfully by this mv for reducing rewrite times
@@ -107,13 +107,20 @@ public abstract class MaterializationContext {
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
                 this.mvScanPlan.getOutput());
-        // copy the plan from cache, which the plan in cache may change
-        List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
-                mvPlan, cascadesContext, new BitSet());
-        if (viewStructInfos.size() > 1) {
-            // view struct info should only have one, log error and use the first struct info
-            LOG.warn(String.format("view strut info is more than one, materialization name is %s, mv plan is %s",
-                    getMaterializationQualifier(), getMvPlan().treeString()));
+        // Construct mv struct info, catch exception which may cause planner roll back
+        List<StructInfo> viewStructInfos;
+        try {
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(mvPlan, cascadesContext, new BitSet());
+            if (viewStructInfos.size() > 1) {
+                // view struct info should only have one, log error and use the first struct info
+                LOG.warn(String.format("view strut info is more than one, materialization name is %s, mv plan is %s",
+                        getMaterializationQualifier(), getMvPlan().treeString()));
+            }
+        } catch (Exception exception) {
+            LOG.warn(String.format("construct mv struct info fail, materialization name is %s, mv plan is %s",
+                    getMaterializationQualifier(), getMvPlan().treeString()), exception);
+            this.available = false;
+            return;
         }
         this.structInfo = viewStructInfos.get(0);
     }
@@ -276,9 +283,8 @@ public abstract class MaterializationContext {
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
-            builder.append("  Names: ");
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
+                    builder.append(generateQualifierName(materializationQualifier)).append(", \n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");

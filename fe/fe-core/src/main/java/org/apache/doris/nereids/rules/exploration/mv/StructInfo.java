@@ -96,7 +96,7 @@ public class StructInfo {
     // bottom plan which top plan only contain join or scan. this is needed by hyper graph
     private final Plan bottomPlan;
     private final List<CatalogRelation> relations;
-    private final BitSet tableBitSet = new BitSet();
+    private final BitSet tableBitSet;
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap;
     // this recorde the predicates which can pull up, not shuttled
@@ -113,12 +113,13 @@ public class StructInfo {
     /**
      * The construct method for StructInfo
      */
-    public StructInfo(Plan originalPlan, ObjectId originalPlanId, HyperGraph hyperGraph, boolean valid, Plan topPlan,
+    private StructInfo(Plan originalPlan, ObjectId originalPlanId, HyperGraph hyperGraph, boolean valid, Plan topPlan,
             Plan bottomPlan, List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
             @Nullable Predicates predicates,
             Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
-            Map<ExprId, Expression> namedExprIdAndExprMapping) {
+            Map<ExprId, Expression> namedExprIdAndExprMapping,
+            BitSet talbeIdSet) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
@@ -127,7 +128,7 @@ public class StructInfo {
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
         this.relations = relations;
-        relations.forEach(relation -> this.tableBitSet.set((int) (relation.getTable().getId())));
+        this.tableBitSet = talbeIdSet;
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         if (predicates == null) {
@@ -150,7 +151,7 @@ public class StructInfo {
     public StructInfo withPredicates(Predicates predicates) {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates,
-                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping);
+                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping, this.tableBitSet);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
@@ -265,15 +266,15 @@ public class StructInfo {
      * Build Struct info from plan.
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
-    public static StructInfo of(Plan originalPlan) {
-        return of(originalPlan, originalPlan);
+    public static StructInfo of(Plan originalPlan, CascadesContext cascadesContext) {
+        return of(originalPlan, originalPlan, cascadesContext);
     }
 
     /**
      * Build Struct info from plan.
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
-    public static StructInfo of(Plan derivedPlan, Plan originalPlan) {
+    public static StructInfo of(Plan derivedPlan, Plan originalPlan, CascadesContext cascadesContext) {
         // Split plan by the boundary which contains multi child
         LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
         set.add(LogicalJoin.class);
@@ -281,14 +282,15 @@ public class StructInfo {
         // if single table without join, the bottom is
         derivedPlan.accept(PLAN_SPLITTER, planSplitContext);
         return StructInfo.of(originalPlan, planSplitContext.getTopPlan(), planSplitContext.getBottomPlan(),
-                HyperGraph.builderForMv(planSplitContext.getBottomPlan()).build());
+                HyperGraph.builderForMv(planSplitContext.getBottomPlan()).build(), cascadesContext);
     }
 
     /**
      * The construct method for init StructInfo
      */
     public static StructInfo of(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan,
-            HyperGraph hyperGraph) {
+            HyperGraph hyperGraph,
+            CascadesContext cascadesContext) {
         ObjectId originalPlanId = originalPlan.getGroupExpression()
                 .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         // if any of topPlan or bottomPlan is null, split the top plan to two parts by join node
@@ -310,9 +312,14 @@ public class StructInfo {
                 namedExprIdAndExprMapping,
                 relationList,
                 relationIdStructInfoNodeMap);
+        // Get mapped table id in relation and set
+        BitSet tableBitSet = new BitSet();
+        for (CatalogRelation relation : relationList) {
+            tableBitSet.set(cascadesContext.getTableId(relation.getTable()));
+        }
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
-                namedExprIdAndExprMapping);
+                namedExprIdAndExprMapping, tableBitSet);
     }
 
     /**
@@ -395,6 +402,7 @@ public class StructInfo {
     }
 
     public BitSet getTableBitSet() {
+
         return tableBitSet;
     }
 
