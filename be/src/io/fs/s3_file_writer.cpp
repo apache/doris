@@ -166,6 +166,7 @@ Status S3FileWriter::close(bool non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
         CHECK(_async_close_pack != nullptr);
+        _close_state = FileWriterState::CLOSED;
         _st = _async_close_pack->future.get();
         _async_close_pack = nullptr;
         // The next time we call close() with no matter non_block true or false, it would always return the
