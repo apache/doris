@@ -776,10 +776,6 @@ bool PartitionedHashJoinProbeOperatorX::need_more_input_data(RuntimeState* state
     }
 }
 
-bool PartitionedHashJoinProbeOperatorX::need_data_from_children(RuntimeState* state) const {
-    return true;
-}
-
 size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     size_t mem_size = 0;
