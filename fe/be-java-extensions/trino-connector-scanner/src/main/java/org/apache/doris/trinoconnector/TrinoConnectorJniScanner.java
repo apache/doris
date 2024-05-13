@@ -138,12 +138,12 @@ public class TrinoConnectorJniScanner extends JniScanner {
         connectorPredicateString = params.get("trino_connector_predicate");
         connectorTrascationHandleString = params.get("trino_connector_trascation_handle");
         if (LOG.isDebugEnabled()) {
-            LOG.debug("TrinoConnectorJniScanner connectorSplitString = " + connectorSplitString);
-            LOG.debug("TrinoConnectorJniScanner connectorTableHandleString = " + connectorTableHandleString);
-            LOG.debug("TrinoConnectorJniScanner connectorColumnHandleString = " + connectorColumnHandleString);
-            LOG.debug("TrinoConnectorJniScanner connectorColumnMetadataString = " + connectorColumnMetadataString);
-            LOG.debug("TrinoConnectorJniScanner connectorPredicateString = " + connectorPredicateString);
-            LOG.debug("TrinoConnectorJniScanner connectorTrascationHandleString = " + connectorTrascationHandleString);
+            LOG.debug("TrinoConnectorJniScanner connectorSplitString = " + connectorSplitString
+                    + " ; connectorTableHandleString = " + connectorTableHandleString
+                    + " ; connectorColumnHandleString = " + connectorColumnHandleString
+                    + " ; connectorColumnMetadataString = " + connectorColumnMetadataString
+                    + " ; connectorPredicateString = " + connectorPredicateString
+                    + " ; connectorTrascationHandleString = " + connectorTrascationHandleString);
         }
 
 
