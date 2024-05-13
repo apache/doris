@@ -1021,9 +1021,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         final Integer decimalDigits = column.getOriginType().getDecimalDigits();
         if (decimalDigits != null) {
             desc.setColumnScale(decimalDigits);
-            if (column.getDataType().isDateV2Type()) {
-                desc.setDatetimeScale(decimalDigits);
-            }
         }
         desc.setIsAllowNull(column.isAllowNull());
         if (column.getChildren().size() > 0) {
