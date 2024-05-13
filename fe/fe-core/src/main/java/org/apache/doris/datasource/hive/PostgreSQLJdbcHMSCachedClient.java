@@ -24,6 +24,7 @@ import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Joiner;
