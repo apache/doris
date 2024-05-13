@@ -110,9 +110,6 @@ TEST(HdfsFileSystemTest, Write) {
     st = hdfs_file_writer->append(content_2M);
     ASSERT_TRUE(st.ok()) << st;
 
-    st = hdfs_file_writer->finalize();
-    ASSERT_TRUE(st.ok()) << st;
-
     st = hdfs_file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
 
