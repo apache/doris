@@ -538,8 +538,8 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         std::vector<int64_t> srcs(columns_num);
         for (int i = 0; i < columns_num; ++i) {
-            if (_desc_result.columns[i].columnDesc.__isset.datetimeScale) {
-                srcs[i] = _desc_result.columns[i].columnDesc.datetimeScale;
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+                srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs.data() + i;
             } else {
                 datas[i] = nullptr;
