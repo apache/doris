@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -761,7 +762,7 @@ public class CascadesContext implements ScheduleContext {
 
     /** Get table id with lazy */
     public int getTableId(TableIf tableIf) {
-        return getTableId(TableId.generateTableQualifier(tableIf));
+        return getTableId(Utils.generateTableQualifier(tableIf));
     }
 
     /** Get table id with lazy */

@@ -22,6 +22,7 @@ import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -200,7 +201,9 @@ class StructInfoMapTest extends SqlTestBase {
         StructInfo structInfo = structInfoMap.getStructInfo(c1, mvMap, root, null);
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
-        structInfo.getRelations().forEach(r -> bitSet.set((int) r.getTable().getId()));
+        for (CatalogRelation relation : structInfo.getRelations()) {
+            bitSet.set(c1.getTableId(relation.getTable()));
+        }
         Assertions.assertEquals(bitSet, mvMap);
         dropMvByNereids("drop materialized view mv1");
     }

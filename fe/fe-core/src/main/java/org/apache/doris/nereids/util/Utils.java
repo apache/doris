@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -430,5 +433,20 @@ public class Utils {
             merge = reduceOp.apply(merge, list.get(i));
         }
         return Optional.of(merge);
+    }
+
+    /**
+     * Generate table qualifier
+     */
+    public static long generateTableQualifier(TableIf table) {
+        DatabaseIf database = table.getDatabase();
+        if (database == null) {
+            return Objects.hash(table.getId());
+        }
+        CatalogIf catalog = database.getCatalog();
+        if (catalog == null) {
+            return Objects.hash(database.getId(), table.getId());
+        }
+        return Objects.hash(catalog.getId(), database.getId(), table.getId());
     }
 }

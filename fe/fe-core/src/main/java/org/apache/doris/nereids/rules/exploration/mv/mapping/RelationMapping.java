@@ -19,8 +19,8 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -143,7 +143,7 @@ public class RelationMapping extends Mapping {
     }
 
     private static Long getTableQualifier(TableIf tableIf) {
-        return TableId.generateTableQualifier(tableIf);
+        return Utils.generateTableQualifier(tableIf);
     }
 
     @Override

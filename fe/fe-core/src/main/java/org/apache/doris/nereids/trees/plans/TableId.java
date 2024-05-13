@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-
-import java.util.Objects;
 
 /**
  * Table id
@@ -58,9 +55,5 @@ public class TableId extends Id<TableId> {
     @Override
     public int hashCode() {
         return super.hashCode();
-    }
-
-    public static long generateTableQualifier(TableIf table) {
-        return Objects.hash(table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId());
     }
 }
