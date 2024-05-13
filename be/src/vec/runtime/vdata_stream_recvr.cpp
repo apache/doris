@@ -361,6 +361,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
         }
     }
     _sender_queues.reserve(num_queues);
+    _queue_total_rows.resize(num_queues, 0);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
@@ -426,9 +427,21 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
 
 int64_t VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
-    _total_row_all_queues = _total_row_all_queues + block->rows();
     _sender_queues[use_sender_id]->add_block(block, use_move);
-    return _total_row_all_queues;
+    _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + block->rows();
+    return could_eos_sink();
+}
+
+// the sink could eos early. when sink rows have reached limit for all queue, and no conjuncts to filters data.
+// in this way, we could eos sink as soon as possible, so could reduce sender total rows.
+bool VDataStreamRecvr::could_eos_sink() {
+    if (_is_empty_conjuncts && _limit != -1) {
+        bool all_greater_than_limit =
+                std::all_of(_queue_total_rows.begin(), _queue_total_rows.end(),
+                            [&](int x) { return x > _limit; });
+        return all_greater_than_limit;
+    }
+    return false;
 }
 
 bool VDataStreamRecvr::sender_queue_empty(int sender_id) {

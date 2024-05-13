@@ -85,7 +85,7 @@ public:
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
 
-    int64_t add_block(Block* block, int sender_id, bool use_move);
+    bool add_block(Block* block, int sender_id, bool use_move);
 
     bool sender_queue_empty(int sender_id);
 
@@ -116,13 +116,8 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
-    bool is_reached_limit(int total_rows) const { return _limit != -1 && _limit <= total_rows; }
-
-    bool is_empty_conjuncts() const { return _is_empty_conjuncts; }
-
-    int _total_row_all_queues = 0;
-
 private:
+    bool could_eos_sink();
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -152,6 +147,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    std::vector<int64_t> _queue_total_rows;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
