@@ -162,10 +162,10 @@ public:
     }
 };
 
-class FunctionMatchElementEQ : public FunctionMatchBase {
+class FunctionMatchPhraseEdge : public FunctionMatchBase {
 public:
-    static constexpr auto name = "match_element_eq";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchElementEQ>(); }
+    static constexpr auto name = "match_phrase_edge";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchPhraseEdge>(); }
 
     String get_name() const override { return name; }
 
@@ -173,77 +173,9 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchElementEQ not support execute_match");
-    }
-};
-
-class FunctionMatchElementLT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_lt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchElementLT>(); }
-
-    String get_name() const override { return name; }
-
-    Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                         size_t input_rows_count, const ColumnString* string_col,
-                         InvertedIndexCtx* inverted_index_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchElementLT not support execute_match");
-    }
-};
-
-class FunctionMatchElementGT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_gt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchElementGT>(); }
-
-    String get_name() const override { return name; }
-
-    Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                         size_t input_rows_count, const ColumnString* string_col,
-                         InvertedIndexCtx* inverted_index_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchElementGT not support execute_match");
-    }
-};
-
-class FunctionMatchElementLE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_le";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchElementLE>(); }
-
-    String get_name() const override { return name; }
-
-    Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                         size_t input_rows_count, const ColumnString* string_col,
-                         InvertedIndexCtx* inverted_index_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchElementLE not support execute_match");
-    }
-};
-
-class FunctionMatchElementGE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_ge";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchElementGE>(); }
-
-    String get_name() const override { return name; }
-
-    Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                         size_t input_rows_count, const ColumnString* string_col,
-                         InvertedIndexCtx* inverted_index_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchElementGE not support execute_match");
+                "FunctionMatchPhraseEdge not support execute_match");
     }
 };
 
