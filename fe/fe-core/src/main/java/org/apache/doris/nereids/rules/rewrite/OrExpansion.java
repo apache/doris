@@ -23,8 +23,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion.OrExpandsionContext;
-import org.apache.doris.nereids.trees.copier.DeepCopierContext;
-import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -133,12 +131,11 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         }
 
         //2. Construct CTE with the children
-        LogicalPlan leftClone = LogicalPlanDeepCopier.INSTANCE
-                .deepCopy((LogicalPlan) join.left(), new DeepCopierContext());
+        // TODO: clone plan after fixing rf
+        LogicalPlan leftClone = (LogicalPlan) join.left();
         LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), leftClone);
-        LogicalPlan rightClone = LogicalPlanDeepCopier.INSTANCE
-                .deepCopy((LogicalPlan) join.right(), new DeepCopierContext());
+        LogicalPlan rightClone = (LogicalPlan) join.right();
         LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), rightClone);
         Map<Slot, Slot> leftCloneToLeft = new HashMap<>();
