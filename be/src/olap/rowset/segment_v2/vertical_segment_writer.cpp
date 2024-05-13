@@ -705,20 +705,50 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        if (block->columns() <= _tablet_schema->num_key_columns() ||
-            block->columns() >= _tablet_schema->num_columns()) {
-            return Status::InternalError(fmt::format(
-                    "illegal partial update block columns: {}, num key columns: {}, total "
-                    "schema columns: {}",
-                    block->columns(), _tablet_schema->num_key_columns(),
-                    _tablet_schema->num_columns()));
+        if (_tablet_schema->keys_type() != UNIQUE_KEYS && _tablet_schema->keys_type() != AGG_KEYS) {
+            return Status::InternalError(fmt::format("illegal partial update key type: {}",
+                                                     _tablet_schema->keys_type()));
+        }
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+            (block->columns() <= _tablet_schema->num_key_columns() ||
+             block->columns() >= _tablet_schema->num_columns())) {
+            return Status::InternalError(
+                    fmt::format("illegal partial update key type {}, block columns: {}, num key "
+                                "columns: {}, total "
+                                "schema columns: {}",
+                                _tablet_schema->keys_type(), block->columns(),
+                                _tablet_schema->num_key_columns(), _tablet_schema->num_columns()));
+        }
+        // different with unique key, agg key can update all columns in partial update mode
+        if (_tablet_schema->keys_type() == AGG_KEYS &&
+            (block->columns() <= _tablet_schema->num_key_columns() ||
+             block->columns() > _tablet_schema->num_columns())) {
+            return Status::InternalError(
+                    fmt::format("illegal partial update key type {}, block columns: {}, num key "
+                                "columns: {}, total "
+                                "schema columns: {}",
+                                _tablet_schema->keys_type(), block->columns(),
+                                _tablet_schema->num_key_columns(), _tablet_schema->num_columns()));
         }
     } else if (block->columns() != _tablet_schema->num_columns()) {
         return Status::InternalError(
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
                 block->columns(), _tablet_schema->num_columns());
     }
-    _batched_blocks.emplace_back(block, row_pos, num_rows);
+    bool is_agg_partial_update = _opts.rowset_ctx->partial_update_info &&
+                                 _opts.rowset_ctx->partial_update_info->is_partial_update &&
+                                 _tablet_schema->keys_type() == AGG_KEYS &&
+                                 _opts.write_type == DataWriteType::TYPE_DIRECT;
+    if (is_agg_partial_update) {
+        std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
+        RETURN_IF_ERROR(_tablet_schema->make_full_block(
+                full_block_ptr, block, num_rows, _opts.rowset_ctx->partial_update_info->update_cids,
+                _opts.rowset_ctx->partial_update_info->missing_cids));
+        _full_blocks.emplace_back(full_block_ptr);
+        _batched_blocks.emplace_back(full_block_ptr.get(), row_pos, num_rows);
+    } else {
+        _batched_blocks.emplace_back(block, row_pos, num_rows);
+    }
     return Status::OK();
 }
 
@@ -726,7 +756,8 @@ Status VerticalSegmentWriter::write_batch() {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer) {
+        !_opts.rowset_ctx->is_transient_rowset_writer &&
+        _tablet_schema->keys_type() == UNIQUE_KEYS) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
             RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         }
@@ -739,6 +770,7 @@ Status VerticalSegmentWriter::write_batch() {
         }
         return Status::OK();
     }
+
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_tablet_schema->store_row_column() &&
@@ -781,7 +813,6 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
-
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
         // find all row pos for short key indexes
@@ -825,8 +856,11 @@ Status VerticalSegmentWriter::write_batch() {
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
     }
-
     _batched_blocks.clear();
+    for (auto& full_block : _full_blocks) {
+        full_block.reset();
+    }
+    _full_blocks.clear();
     return Status::OK();
 }
 

@@ -197,6 +197,7 @@ private:
     std::vector<RowsInBlock> _batched_blocks;
     std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
+    std::vector<std::shared_ptr<vectorized::Block>> _full_blocks;
 };
 
 } // namespace segment_v2
