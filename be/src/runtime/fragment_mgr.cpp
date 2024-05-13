@@ -408,6 +408,23 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
+        if (!req.runtime_state->iceberg_commit_datas().empty()) {
+            params.__isset.iceberg_commit_datas = true;
+            params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
+            for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
+                params.iceberg_commit_datas.push_back(iceberg_commit_data);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->iceberg_commit_datas().empty()) {
+                    params.__isset.iceberg_commit_datas = true;
+                    params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
+                                                       rs->iceberg_commit_datas().begin(),
+                                                       rs->iceberg_commit_datas().end());
+                }
+            }
+        }
+
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
