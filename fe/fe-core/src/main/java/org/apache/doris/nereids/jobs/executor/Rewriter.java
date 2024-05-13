@@ -304,7 +304,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
-                    topDown(new BuildAggForUnion())
+                    topDown(new BuildAggForUnion()),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
 
             // topic("Distinct",
