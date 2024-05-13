@@ -52,7 +52,9 @@ bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
 
 static constexpr size_t MB = 1024 * 1024;
+#ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
+#endif
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
