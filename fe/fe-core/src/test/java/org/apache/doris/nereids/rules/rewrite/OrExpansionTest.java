@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -48,20 +51,29 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
 
     @Test
     void testOrExpand() {
-        String sql = "select * from t1 join t2 on t1.id1 = t2.id1 or t1.id2 = t2.id2";
-        PlanChecker.from(connectContext)
+        String sql = "select t1.id1 + 1 as id from t1 join t2 on t1.id1 = t2.id1 or t1.id2 = t2.id2";
+        Plan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .printlnTree();
+                .printlnTree()
+                .getPlan();
+        Assertions.assertTrue(plan.child(0) instanceof LogicalCTEAnchor);
     }
 
     @Test
     void testOrExpandCTE() {
-        String sql = "with t1 as (select * from t1), "
-                + "t2 as (select * from t2) "
-                + "select * from t1 join t2 on t1.id1 = t2.id1 or t1.id2 = t2.id2";
-        PlanChecker.from(connectContext)
+        String sql = "with t3 as (select t1.id1 + 1 as id1, t1.id2 + 2 as id2 from t1), "
+                + "t4 as (select t2.id1 + 1 as id1, t2.id2 + 2 as id2  from t2) "
+                + "select t3.id1 from "
+                + "(select id1, id2 from t3 group by id1, id2) t3 "
+                + " join "
+                + "(select id1, id2 from t4 group by id1, id2) t4  "
+                + "on t3.id1 = t4.id1 or t3.id2 = t4.id2";
+        Plan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
-                .printlnTree();
+                .rewrite()
+                .printlnTree()
+                .getPlan();
+        Assertions.assertTrue(plan.child(0) instanceof LogicalCTEAnchor);
     }
 }
