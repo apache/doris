@@ -85,7 +85,7 @@ public:
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
 
-    bool add_block(Block* block, int sender_id, bool use_move);
+    void add_block(Block* block, int sender_id, bool use_move);
 
     bool sender_queue_empty(int sender_id);
 
@@ -203,7 +203,7 @@ public:
     virtual Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, int64_t* current_pblock_rows);
 
     virtual void add_block(Block* block, bool use_move);
 

@@ -111,7 +111,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     t_finst_id.lo = finst_id.lo();
     std::shared_ptr<VDataStreamRecvr> recvr = nullptr;
     static_cast<void>(find_recvr(t_finst_id, request->node_id(), &recvr));
-    if (recvr == nullptr) {
+    if (recvr == nullptr || recvr->could_eos_sink()) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
         // As a consequence, find_recvr() may return an innocuous NULL if a thread

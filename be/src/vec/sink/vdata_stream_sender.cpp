@@ -277,8 +277,8 @@ Status Channel<Parent>::send_local_block(Block* block) {
             COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
             COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
-        auto could_eos = _local_recvr->add_block(block, _parent->sender_id(), false);
-        if (could_eos) {
+        _local_recvr->add_block(block, _parent->sender_id(), false);
+        if (_local_recvr->could_eos_sink()) {
             _local_recvr->remove_sender(_parent->sender_id(), _be_number, Status::OK());
             return Status::EndOfFile("local data stream receiver closed");
         }

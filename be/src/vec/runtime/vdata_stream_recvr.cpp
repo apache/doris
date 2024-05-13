@@ -23,6 +23,7 @@
 #include <gen_cpp/data.pb.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -132,7 +133,8 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
 
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                                 int64_t packet_seq,
-                                                ::google::protobuf::Closure** done) {
+                                                ::google::protobuf::Closure** done,
+                                                int64_t* current_pblock_rows) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -170,6 +172,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     if (rows == 0) {
         return Status::OK();
     }
+    *current_pblock_rows = rows;
     auto block_byte_size = block->allocated_bytes();
     VLOG_ROW << "added #rows=" << rows << " batch_size=" << block_byte_size << "\n";
 
@@ -422,14 +425,17 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
                                    int64_t packet_seq, ::google::protobuf::Closure** done) {
     SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id);
     int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    int64_t current_pblock_rows = 0;
+    RETURN_IF_ERROR(_sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
+                                                             &current_pblock_rows));
+    _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + current_pblock_rows;
+    return Status::OK();
 }
 
 int64_t VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
     _queue_total_rows[use_sender_id] = _queue_total_rows[use_sender_id] + block->rows();
-    return could_eos_sink();
 }
 
 // the sink could eos early. when sink rows have reached limit for all queue, and no conjuncts to filters data.
