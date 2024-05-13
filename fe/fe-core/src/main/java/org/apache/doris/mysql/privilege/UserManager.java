@@ -28,6 +28,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -54,22 +55,21 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
 
-    private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
-    private static final Lock rlock = rwlock.readLock();
-    private static final Lock wlock = rwlock.writeLock();
+    private static final QueryableReentrantReadWriteLock rwLock = new QueryableReentrantReadWriteLock(false);
+    private static final Lock rlock = rwLock.readLock();
+    private static final Lock wlock = rwLock.writeLock();
 
     // One name may have multiple User,because host can be different
     @SerializedName(value = "nameToUsers")
     private Map<String, List<User>> nameToUsers = Maps.newConcurrentMap();
 
     public boolean userIdentityExist(UserIdentity userIdentity, boolean includeByDomain) {
+        LOG.info("dx test before rlock userIdentityExist {}", rwLock.getOwner());
         rlock.lock();
         try {
             List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
@@ -86,16 +86,19 @@ public class UserManager implements Writable, GsonPostProcessable {
             return false;
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock userIdentityExist");
         }
     }
 
     public List<User> getUserByName(String name) {
+        LOG.info("dx test before rlock getUserByName {}", rwLock.getOwner());
         rlock.lock();
         try {
             List<User> users = nameToUsers.get(name);
             return users == null ? Collections.EMPTY_LIST : users;
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock getUserByName {}", rwLock.getOwner());
         }
     }
 
@@ -113,6 +116,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         List<User> users = new ArrayList<>();
+        LOG.info("dx test before rlock checkPasswordInternal {}", rwLock.getOwner());
         rlock.lock();
         try {
             users = nameToUsers.get(remoteUser);
@@ -122,6 +126,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             }
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock checkPasswordInternal {}", rwLock.getOwner());
         }
 
         for (User user : users) {
@@ -157,6 +162,7 @@ public class UserManager implements Writable, GsonPostProcessable {
 
     public List<UserIdentity> getUserIdentityUncheckPasswd(String remoteUser, String remoteHost) {
         List<UserIdentity> userIdentities = Lists.newArrayList();
+        LOG.info("dx test before rlock getUserIdentityUncheckPasswd {}", rwLock.getOwner());
         rlock.lock();
         try {
             List<User> users = nameToUsers.getOrDefault(remoteUser, Lists.newArrayList());
@@ -169,6 +175,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             return userIdentities;
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock getUserIdentityUncheckPasswd {}", rwLock.getOwner());
         }
     }
 
@@ -195,6 +202,7 @@ public class UserManager implements Writable, GsonPostProcessable {
 
 
     public void clearEntriesSetByResolver() {
+        LOG.info("dx test before wlock clearEntriesSetByResolver {}", rwLock.getOwner());
         wlock.lock();
         try {
             Iterator<Entry<String, List<User>>> iterator = nameToUsers.entrySet().iterator();
@@ -215,11 +223,24 @@ public class UserManager implements Writable, GsonPostProcessable {
             }
         } finally {
             wlock.unlock();
+            LOG.info("dx test after wlock clearEntriesSetByResolver {}", rwLock.getOwner());
         }
     }
 
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver,
-            String comment)
+                           String comment) throws PatternMatcherException {
+        LOG.info("dx test before wlock createUser {}", rwLock.getOwner());
+        wlock.lock();
+        try {
+            return createUserWithoutLock(userIdent, pwd, domainUserIdent, setByResolver, comment);
+        } finally {
+            wlock.unlock();
+            LOG.info("dx test after wlock createUser {}", rwLock.getOwner());
+        }
+    }
+
+    public User createUserWithoutLock(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent,
+                                      boolean setByResolver, String comment)
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
@@ -238,23 +259,20 @@ public class UserManager implements Writable, GsonPostProcessable {
         PatternMatcher hostPattern = PatternMatcher
                 .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
         User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern, comment);
-        wlock.lock();
-        try {
-            List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
-            if (CollectionUtils.isEmpty(nameToLists)) {
-                nameToLists = Lists.newArrayList(user);
-                nameToUsers.put(userIdent.getQualifiedUser(), nameToLists);
-            } else {
-                nameToLists.add(user);
-                Collections.sort(nameToLists);
-            }
-            return user;
-        } finally {
-            wlock.unlock();
+        List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            nameToLists = Lists.newArrayList(user);
+            nameToUsers.put(userIdent.getQualifiedUser(), nameToLists);
+        } else {
+            nameToLists.add(user);
+            Collections.sort(nameToLists);
         }
+        return user;
+
     }
 
     public User getUserByUserIdentity(UserIdentity userIdent) {
+        LOG.info("dx test before wlock getUserByUserIdentity {}", rwLock.getOwner());
         rlock.lock();
         try {
             List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
@@ -271,10 +289,12 @@ public class UserManager implements Writable, GsonPostProcessable {
             return null;
         } finally {
             rlock.lock();
+            LOG.info("dx test after wlock getUserByUserIdentity {}", rwLock.getOwner());
         }
     }
 
     public void removeUser(UserIdentity userIdent) {
+        LOG.info("dx test before wlock removeUser {}", rwLock.getOwner());
         wlock.lock();
         try {
             List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
@@ -295,15 +315,18 @@ public class UserManager implements Writable, GsonPostProcessable {
             }
         } finally {
             wlock.unlock();
+            LOG.info("dx test after wlock removeUser {}", rwLock.getOwner());
         }
     }
 
     public Map<String, List<User>> getNameToUsers() {
+        LOG.info("dx test before rlock getNameToUsers {}", rwLock.getOwner());
         rlock.lock();
         try {
             return ImmutableMap.copyOf(nameToUsers);
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock getNameToUsers {}", rwLock.getOwner());
         }
     }
 
@@ -319,6 +342,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     }
 
     public void getAllDomains(Set<String> allDomains) {
+        LOG.info("dx test before rlock getAllDomains {}", rwLock.getOwner());
         rlock.lock();
         try {
             for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
@@ -329,6 +353,7 @@ public class UserManager implements Writable, GsonPostProcessable {
                 }
             }
         } finally {
+            LOG.info("dx test before rlock getAllDomains {}", rwLock.getOwner());
             rlock.unlock();
         }
     }
@@ -337,7 +362,8 @@ public class UserManager implements Writable, GsonPostProcessable {
     // it will only modify password entry of these resolved IPs. All other privileges are binded
     // to the domain, so no need to modify.
     public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
-        rlock.lock();
+        LOG.info("dx test before wlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
+        wlock.lock();
         try {
             for (Entry<String, List<User>> userEntry : nameToUsers.entrySet()) {
                 for (Map.Entry<String, Set<String>> entry : resolvedIPsMap.entrySet()) {
@@ -352,7 +378,7 @@ public class UserManager implements Writable, GsonPostProcessable {
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {
-                            createUser(userIdent, password, domainUser.getUserIdentity(), true, "");
+                            createUserWithoutLock(userIdent, password, domainUser.getUserIdentity(), true, "");
                         } catch (PatternMatcherException e) {
                             LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                         }
@@ -360,7 +386,8 @@ public class UserManager implements Writable, GsonPostProcessable {
                 }
             }
         } finally {
-            rlock.unlock();
+            wlock.unlock();
+            LOG.info("dx test before wlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
         }
     }
 
@@ -375,11 +402,13 @@ public class UserManager implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
+        LOG.info("dx test before rlock toString {}", rwLock.getOwner());
         rlock.lock();
         try {
             return nameToUsers.toString();
         } finally {
             rlock.unlock();
+            LOG.info("dx test before rlock toString {}", rwLock.getOwner());
         }
     }
 
@@ -397,6 +426,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     // should be removed after version 3.0
     private void removeClusterPrefix() {
         Map<String, List<User>> newNameToUsers = Maps.newHashMap();
+        LOG.info("dx test before wlock removeClusterPrefix {}", rwLock.getOwner());
         wlock.lock();
         try {
             for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
@@ -406,6 +436,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             this.nameToUsers = newNameToUsers;
         } finally {
             wlock.unlock();
+            LOG.info("dx test after wlock removeClusterPrefix {}", rwLock.getOwner());
         }
     }
 
@@ -416,15 +447,18 @@ public class UserManager implements Writable, GsonPostProcessable {
 
     // ====== CLOUD ======
     public Set<String> getAllUsers() {
+        LOG.info("dx test before rlock getAllUsers {}", rwLock.getOwner());
         rlock.lock();
         try {
             return new HashSet<>(nameToUsers.keySet());
         } finally {
             rlock.unlock();
+            LOG.info("dx test before rlock getAllUsers {}", rwLock.getOwner());
         }
     }
 
     public String getUserId(String userName) {
+        LOG.info("dx test before rlock getUserId {}", rwLock.getOwner());
         rlock.lock();
         try {
             if (!nameToUsers.containsKey(userName)) {
@@ -441,6 +475,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             return userId;
         } finally {
             rlock.unlock();
+            LOG.info("dx test after rlock getUserId {}", rwLock.getOwner());
         }
     }
 
