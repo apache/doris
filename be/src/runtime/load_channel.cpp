@@ -35,11 +35,11 @@ namespace doris {
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                         const std::string& sender_ip, int64_t backend_id, bool enable_profile)
+                         std::string sender_ip, int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip),
+          _sender_ip(std::move(sender_ip)),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
@@ -199,6 +199,21 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+    // for init node we close
+    if (!channel->is_incremental_channel()) {
+        LOG(WARNING) << "reciever close waiting!" << request.sender_id();
+        CHECK(request.has_pre_close());
+        int count = 0;
+        while (!channel->is_finished()) {
+            bthread_usleep(1000);
+            count++;
+        }
+        LOG(WARNING) << "reciever close wait finished!" << request.sender_id();
+        if (count >= 1000 * _timeout_s) {
+            return Status::InternalError("Tablets channel didn't wait all close");
+        }
+    }
+
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
