@@ -59,7 +59,10 @@ public class MTMVPartitionUtil {
 
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
-                    // It is necessary to maintain this order
+                    // It is necessary to maintain this order,
+                    // because some impl deal `PartitionItem`, and some impl deal `PartitionDesc`
+                    // for example: if `MTMVRelatedPartitionDescOnePartitionColGenerator` not generate `PartitionDesc`,
+                    // `MTMVRelatedPartitionDescRollUpGenerator` will not have parameter
                     new MTMVRelatedPartitionDescInitGenerator(),
                     new MTMVRelatedPartitionDescSyncLimitGenerator(),
                     new MTMVRelatedPartitionDescOnePartitionColGenerator(),

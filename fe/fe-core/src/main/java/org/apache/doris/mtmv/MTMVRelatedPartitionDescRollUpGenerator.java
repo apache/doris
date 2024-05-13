@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -72,10 +73,11 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
             MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         Map<String, Set<String>> identityToValues = Maps.newHashMap();
         Map<String, Set<Long>> identityToPartitionIds = Maps.newHashMap();
-        MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprSerice(mvPartitionInfo.getExpr());
+        MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
 
         for (Entry<PartitionKeyDesc, Set<Long>> entry : relatedPartitionDescs.entrySet()) {
             String rollUpIdentity = exprSerice.getRollUpIdentity(entry.getKey(), mvProperties);
+            Preconditions.checkNotNull(rollUpIdentity);
             if (identityToValues.containsKey(rollUpIdentity)) {
                 identityToValues.get(rollUpIdentity).addAll(getStringValues(entry.getKey()));
                 identityToPartitionIds.get(rollUpIdentity).addAll(entry.getValue());
@@ -126,7 +128,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
     public Map<PartitionKeyDesc, Set<Long>> rollUpRange(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
             MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
         Map<PartitionKeyDesc, Set<Long>> result = Maps.newHashMap();
-        MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprSerice(mvPartitionInfo.getExpr());
+        MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
         for (Entry<PartitionKeyDesc, Set<Long>> entry : relatedPartitionDescs.entrySet()) {
             PartitionKeyDesc rollUpDesc = exprSerice.generateRollUpPartitionKeyDesc(entry.getKey(), mvPartitionInfo);
             if (result.containsKey(rollUpDesc)) {

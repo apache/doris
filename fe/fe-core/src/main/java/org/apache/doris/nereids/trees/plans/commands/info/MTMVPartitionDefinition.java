@@ -48,10 +48,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -81,8 +79,15 @@ public class MTMVPartitionDefinition {
         }
         String partitionColName;
         if (this.partitionType == MTMVPartitionType.EXPR) {
-            Expr expr = convertToLegacyAutoPartitionExprs(Lists.newArrayList(functionCallExpression))
-                    .get(0);
+            Expr expr;
+            if (functionCallExpression instanceof UnboundFunction) {
+                UnboundFunction function = (UnboundFunction) functionCallExpression;
+                expr = new FunctionCallExpr(function.getName(),
+                        new FunctionParams(convertToLegacyArguments(function.children())));
+            } else {
+                throw new AnalysisException(
+                        "unsupported auto partition expr " + functionCallExpression.toString());
+            }
             partitionColName = getColNameFromExpr(expr);
             mtmvPartitionInfo.setExpr(expr);
         } else {
@@ -94,7 +99,7 @@ public class MTMVPartitionDefinition {
         mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
         if (this.partitionType == MTMVPartitionType.EXPR) {
             try {
-                MTMVPartitionExprFactory.getExprSerice(mtmvPartitionInfo.getExpr()).analyze(mtmvPartitionInfo);
+                MTMVPartitionExprFactory.getExprService(mtmvPartitionInfo.getExpr()).analyze(mtmvPartitionInfo);
             } catch (org.apache.doris.common.AnalysisException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }
@@ -170,21 +175,6 @@ public class MTMVPartitionDefinition {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             cascadesContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
-    }
-
-    private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
-        return new ArrayList<>(expressions.stream().map(expression -> {
-            if (expression instanceof UnboundSlot) {
-                return new SlotRef(null, ((UnboundSlot) expression).getName());
-            } else if (expression instanceof UnboundFunction) {
-                UnboundFunction function = (UnboundFunction) expression;
-                return new FunctionCallExpr(function.getName(),
-                        new FunctionParams(convertToLegacyArguments(function.children())));
-            } else {
-                throw new AnalysisException(
-                        "unsupported auto partition expr " + expression.toString());
-            }
-        }).collect(Collectors.toList()));
     }
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {

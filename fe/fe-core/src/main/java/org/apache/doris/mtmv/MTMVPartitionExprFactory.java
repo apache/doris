@@ -25,7 +25,7 @@ import org.apache.doris.common.AnalysisException;
  * MTMV Partition Expr Factory
  */
 public class MTMVPartitionExprFactory {
-    public static MTMVPartitionExprService getExprSerice(Expr expr) throws AnalysisException {
+    public static MTMVPartitionExprService getExprService(Expr expr) throws AnalysisException {
         if (!(expr instanceof FunctionCallExpr)) {
             throw new AnalysisException("now mtmv partition only support FunctionCallExpr");
         }

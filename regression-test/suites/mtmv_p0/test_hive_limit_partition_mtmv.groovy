@@ -118,7 +118,7 @@ suite("test_hive_limit_partition_mtmv", "p0,external,hive,external_docker,extern
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by date_trunc(`day`,'month')
+            partition by (date_trunc(`day`,'month'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
                         'replication_num' = '1',

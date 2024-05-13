@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
@@ -120,15 +121,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         Type partitionColumnType = MTMVPartitionUtil
                 .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
         // mtmv only support one partition column
+        Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
+                "only support one partition column");
         DateTimeV2Literal beginTime = dateTrunc(
                 partitionKeyDesc.getLowerValues().get(0).getStringValue(),
                 Optional.empty(), false);
 
-        PartitionValue lowerValue = new PartitionValue(timeToStr(beginTime, partitionColumnType));
+        PartitionValue lowerValue = new PartitionValue(dateTimeToStr(beginTime, partitionColumnType));
+        PartitionValue upperValue = getUpperValue(partitionKeyDesc.getUpperValues().get(0), beginTime,
+                partitionColumnType);
         return PartitionKeyDesc.createFixed(
                 Collections.singletonList(lowerValue),
-                Collections.singletonList(
-                        getUpperValue(partitionKeyDesc.getUpperValues().get(0), beginTime, partitionColumnType)));
+                Collections.singletonList(upperValue));
     }
 
     private PartitionValue getUpperValue(PartitionValue upperValue, DateTimeV2Literal beginTruncTime,
@@ -143,8 +147,8 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s", beginTruncTime,
                             endTruncTime));
         }
-        DateTimeV2Literal endTime = dateAdd(beginTruncTime);
-        return new PartitionValue(timeToStr(endTime, partitionColumnType));
+        DateTimeV2Literal endTime = dateIncrement(beginTruncTime);
+        return new PartitionValue(dateTimeToStr(endTime, partitionColumnType));
     }
 
     private DateTimeV2Literal dateTrunc(String value,
@@ -186,7 +190,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         }
     }
 
-    private DateTimeV2Literal dateAdd(DateTimeV2Literal value) throws AnalysisException {
+    private DateTimeV2Literal dateIncrement(DateTimeV2Literal value) throws AnalysisException {
         Expression result;
         switch (timeUnit) {
             case "year":
@@ -207,7 +211,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         return (DateTimeV2Literal) result;
     }
 
-    private String timeToStr(DateTimeV2Literal literal,
+    private String dateTimeToStr(DateTimeV2Literal literal,
             Type partitionColumnType) throws AnalysisException {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
@@ -218,7 +222,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     literal.getHour(), literal.getMinute(), literal.getSecond());
         } else {
             throw new AnalysisException(
-                    "MTMV swnot support partition with column type : " + partitionColumnType.toString());
+                    "MTMV not support partition with column type : " + partitionColumnType);
         }
     }
 }
