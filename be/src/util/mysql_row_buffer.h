@@ -76,7 +76,7 @@ public:
     int push_time(double data);
     int push_timev2(double data, int scale);
     template <typename DateType>
-    int push_datetime(const DateType& data);
+    int push_datetime(const DateType& data, int scale);
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_ipv4(const IPv4Value& ipv4_val);
     int push_ipv6(const IPv6Value& ipv6_val);

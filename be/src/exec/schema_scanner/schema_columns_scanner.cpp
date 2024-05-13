@@ -535,7 +535,18 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     // DATETIME_PRECISION
-    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
+    {
+        std::vector<int64_t> srcs(columns_num);
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.datetimeScale) {
+                srcs[i] = _desc_result.columns[i].columnDesc.datetimeScale;
+                datas[i] = srcs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
     // CHARACTER_SET_NAME
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // COLLATION_NAME
