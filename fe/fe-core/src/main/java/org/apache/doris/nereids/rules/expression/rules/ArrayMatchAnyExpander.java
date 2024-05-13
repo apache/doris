@@ -35,9 +35,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -61,28 +61,32 @@ public class ArrayMatchAnyExpander extends OneRewriteRuleFactory {
     }
 
     Plan replace(LogicalFilter<LogicalOlapScan> filter) {
-        Set<Expression> sets = filter.getConjuncts().stream().map(expr -> {
-            if (expr instanceof ArrayMatchAny) {
-                return rewrite((ArrayMatchAny) expr);
+        Set<Expression> newConjuncts = new HashSet<>();
+        boolean isRewritten = false;
+        for (Expression expr : filter.getConjuncts()) {
+            if (expr instanceof ArrayMatchAny && expr.children().size() <= 2) {
+                // if arrayMatchAny.children().size() > 2 means already be rewritten, and should not rewrite again
+                isRewritten = true;
+                newConjuncts.add(rewrite((ArrayMatchAny) expr));
             } else {
-                return expr;
+                newConjuncts.add(expr);
             }
-        }).collect(ImmutableSet.toImmutableSet());
-        return filter.withConjuncts(sets);
+        }
+        if (!isRewritten) {
+            return null;
+        }
+        return filter.withConjuncts(newConjuncts);
     }
 
     private static Expression rewrite(ArrayMatchAny arrayMatchAny) {
-        if (arrayMatchAny.children().size() > 2) {
-            return arrayMatchAny;
-        }
         // default inverted index ctx
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH;
         String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         List<Literal> keys = Lists.newArrayList(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY,
                         InvertedIndexUtil.INVERTED_INDEX_PARSER_MODE_KEY).stream()
                         .map(StringLiteral::new).collect(Collectors.toList());
-        List<Literal> values = Lists.newArrayList(invertedIndexParser, invertedIndexParserMode).stream()
-                .map(StringLiteral::new).collect(Collectors.toList());
+        List<Literal> values = Lists.newArrayList(new StringLiteral(invertedIndexParser),
+                new StringLiteral(invertedIndexParserMode));
         MapLiteral defaultInvertedIndexParserMap = new MapLiteral(keys, values);
 
         if (arrayMatchAny.child(0) instanceof SlotReference

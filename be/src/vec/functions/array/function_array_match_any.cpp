@@ -134,7 +134,6 @@ public:
             *bitmap -= *null_bitmap;
         }
         *bitmap = *roaring;
-        param_value->is_evaled_inverted_idx = true;
         return Status::OK();
     }
 
@@ -147,9 +146,6 @@ public:
         bool is_eval_inverted_index = false;
         auto* param_value = reinterpret_cast<ParamValue*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        if (param_value != nullptr) {
-            is_eval_inverted_index = param_value->is_evaled_inverted_idx;
-        }
 
         // the array column in block should prepared
         auto left_column =
@@ -171,73 +167,61 @@ public:
         auto dst_null_column = ColumnUInt8::create(offsets.size());
         auto& dst_null_data = dst_null_column->get_data();
 
-        if (is_eval_inverted_index) {
-            // here is no need to eval array column again,just put array column to res
-            for (size_t row = 0; row < offsets.size(); ++row) {
-                if (array_null_map && array_null_map[row]) {
-                    dst_null_data[row] = true;
-                } else {
-                    dst_null_data[row] = false;
-                    dst_data[row] = true;
-                }
+
+        // here we not eval inverted index, so we need to eval array column
+        InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
+        // if arguments.size() == 3 means we rewrite the expr with inverted_index_ctx
+        if (arguments.size() == 3) {
+            DCHECK(is_map(block.get_by_position(arguments[2]).type));
+            auto [config_col, _] = unpack_if_const(block.get_by_position(arguments[2]).column);
+            auto map_col = reinterpret_cast<const ColumnMap*>(config_col.get());
+            // make config map
+            const auto& keys = check_and_get_column<ColumnString>(
+                    remove_nullable(map_col->get_keys_ptr()));
+            const auto& vals = check_and_get_column<ColumnString>(
+                    remove_nullable(map_col->get_values_ptr()));
+            std::map<std::string, std::string> _index_meta;
+            for (int i = 0; i < map_col->offset_at(1); ++i) {
+                _index_meta[keys->get_data_at(i).to_string()] =
+                        vals->get_data_at(i).to_string();
             }
-            auto return_column = ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-            block.replace_by_position(result, std::move(return_column));
-        } else {
-            // here we not eval inverted index, so we need to eval array column
-            InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-            if (arguments.size() == 3) {
-                DCHECK(is_map(block.get_by_position(arguments[2]).type));
-                auto [config_col, _] = unpack_if_const(block.get_by_position(arguments[2]).column);
-                auto map_col = reinterpret_cast<const ColumnMap*>(config_col.get());
-                // make config map
-                const auto& keys = check_and_get_column<ColumnString>(
-                        remove_nullable(map_col->get_keys_ptr()));
-                const auto& vals = check_and_get_column<ColumnString>(
-                        remove_nullable(map_col->get_values_ptr()));
-                std::map<std::string, std::string> _index_meta;
-                for (int i = 0; i < map_col->offset_at(1); ++i) {
-                    _index_meta[keys->get_data_at(i).to_string()] =
-                            vals->get_data_at(i).to_string();
-                }
-                inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
-                        get_parser_string_from_properties(_index_meta));
-                if (inverted_index_ctx->parser_type != InvertedIndexParserType::PARSER_NONE) {
-                    inverted_index_ctx->parser_mode =
-                            get_parser_mode_string_from_properties(_index_meta);
-                    inverted_index_ctx->char_filter_map =
-                            get_parser_char_filter_map_from_properties(_index_meta);
-                    auto analyzer = InvertedIndexReader::create_analyzer(inverted_index_ctx.get());
-                    analyzer->set_lowercase(true);
-                    inverted_index_ctx->analyzer = analyzer.release();
-                }
-                // if inverted_index_ctx->parser_type is PARSER_NONE,
-                // we should not tokenized the query string and origin column data
-                // and no need to create analyzer which will be used to tokenize the data string and query string
-            } else {
-                inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-                inverted_index_ctx->parser_mode = INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+            inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(_index_meta));
+            if (inverted_index_ctx->parser_type != InvertedIndexParserType::PARSER_NONE) {
+                inverted_index_ctx->parser_mode =
+                        get_parser_mode_string_from_properties(_index_meta);
+                inverted_index_ctx->char_filter_map =
+                        get_parser_char_filter_map_from_properties(_index_meta);
                 auto analyzer = InvertedIndexReader::create_analyzer(inverted_index_ctx.get());
                 analyzer->set_lowercase(true);
                 inverted_index_ctx->analyzer = analyzer.release();
             }
-            if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
-                executeWithEqualsQueryString(check_and_get_column<ColumnString>(
+            // if inverted_index_ctx->parser_type is PARSER_NONE,
+            // we should not tokenized the query string and origin column data
+            // and no need to create analyzer which will be used to tokenize the data string and query string
+        } else {
+            inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+            inverted_index_ctx->parser_mode = INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+            auto analyzer = InvertedIndexReader::create_analyzer(inverted_index_ctx.get());
+            analyzer->set_lowercase(true);
+            inverted_index_ctx->analyzer = analyzer.release();
+        }
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+            execute_with_equals_query_string(check_and_get_column<ColumnString>(
                                                      remove_nullable(array_column->get_data_ptr())),
                                              array_null_map, offsets,
                                              reinterpret_cast<StringRef*>(&param_value->value),
                                              dst_data, dst_null_data);
-            } else {
-                executeWithExtractTokens(block.get_by_position(arguments[0]).name,
-                                         reinterpret_cast<StringRef*>(&param_value->value),
-                                         input_rows_count,
-                                         check_and_get_column<ColumnString>(
-                                                 remove_nullable(array_column->get_data_ptr())),
-                                         &offsets, inverted_index_ctx, dst_data, dst_null_data);
-            }
-            auto return_column = ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-            block.replace_by_position(result, std::move(return_column));
+        } else {
+            execute_with_extract_tokens(block.get_by_position(arguments[0]).name,
+                                        reinterpret_cast<StringRef*>(&param_value->value),
+                                        input_rows_count,
+                                        check_and_get_column<ColumnString>(
+                                                remove_nullable(array_column->get_data_ptr())),
+                                        &offsets, inverted_index_ctx, dst_data, dst_null_data);
         }
+        auto return_column = ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        block.replace_by_position(result, std::move(return_column));
         return Status::OK();
     }
 
@@ -263,7 +247,7 @@ public:
         return data_tokens;
     }
 
-    void executeWithEqualsQueryString(const ColumnString* array_nested_column,
+    void execute_with_equals_query_string(const ColumnString* array_nested_column,
                                       const UInt8* array_null_map,
                                       const ColumnArray::Offsets64& offsets, StringRef* search_val,
                                       ColumnUInt8::Container& dst_data,
@@ -288,7 +272,7 @@ public:
         }
     }
 
-    void executeWithExtractTokens(const std::string& column_name, StringRef* search_str,
+    void execute_with_extract_tokens(const std::string& column_name, StringRef* search_str,
                                   size_t input_rows_count, const ColumnString* string_col,
                                   const ColumnArray::Offsets64* array_offsets,
                                   InvertedIndexCtxSPtr inverted_index_ctx,
