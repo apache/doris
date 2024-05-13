@@ -21,8 +21,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
-#include <map>
 #include <mutex>
 #include <ostream>
 #include <shared_mutex>
@@ -118,6 +116,8 @@ public:
 
     // means this tablets in this BE is incremental opened partitions.
     bool is_incremental_channel() const { return _open_by_incremental; }
+
+    bool is_finished() const { return _state == kFinished; }
 
 protected:
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,

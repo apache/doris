@@ -45,6 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "olap/inverted_index_parser.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -358,22 +359,22 @@ Status VNodeChannel::init(RuntimeState* state) {
     // Has to using value to capture _task_exec_ctx because tablet writer may destroyed during callback.
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
     _send_block_callback->addFailedHandler(
-            [&, task_exec_ctx = _task_exec_ctx](bool is_last_rpc, bool first_stage_close) {
-                auto ctx_lock = task_exec_ctx.lock();
+            [&, task_exec_ctx = _task_exec_ctx](const WriteBlockCallbackContext& ctx) {
+                std::shared_ptr<TaskExecutionContext> ctx_lock = task_exec_ctx.lock();
                 if (ctx_lock == nullptr) {
                     return;
                 }
-                _add_block_failed_callback(is_last_rpc, first_stage_close);
+                _add_block_failed_callback(ctx);
             });
 
     _send_block_callback->addSuccessHandler(
             [&, task_exec_ctx = _task_exec_ctx](const PTabletWriterAddBlockResult& result,
-                                                bool is_last_rpc, bool first_stage_close) {
-                auto ctx_lock = task_exec_ctx.lock();
+                                                const WriteBlockCallbackContext& ctx) {
+                std::shared_ptr<TaskExecutionContext> ctx_lock = task_exec_ctx.lock();
                 if (ctx_lock == nullptr) {
                     return;
                 }
-                _add_block_success_callback(result, is_last_rpc, first_stage_close);
+                _add_block_success_callback(result, ctx);
             });
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
@@ -734,7 +735,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
 }
 
 void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult& result,
-                                               bool is_last_rpc, bool first_stage_close) {
+                                               const WriteBlockCallbackContext& ctx) {
     std::lock_guard<std::mutex> l(this->_closed_lock);
     if (this->_is_closed) {
         // if the node channel is closed, no need to call the following logic,
@@ -752,7 +753,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(st.to_string());
-        } else if (is_last_rpc) {
+        } else if (ctx._is_last_rpc) {
             for (const auto& tablet : result.tablet_vec()) {
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
@@ -787,7 +788,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
             }
             _add_batches_finished = true;
         }
-        if (first_stage_close) {
+        if (ctx._first_stage_close) {
             _close_first_stage_finished.store(true);
         }
     } else {
@@ -813,7 +814,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     }
 }
 
-void VNodeChannel::_add_block_failed_callback(bool is_last_rpc, bool first_stage_close) {
+void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& ctx) {
     std::lock_guard<std::mutex> l(this->_closed_lock);
     if (this->_is_closed) {
         // if the node channel is closed, no need to call `mark_as_failed`,
@@ -830,12 +831,12 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc, bool first_stage
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
-    } else if (is_last_rpc) {
+    } else if (ctx._is_last_rpc) {
         // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
         // will be blocked.
         _add_batches_finished = true;
     }
-    if (first_stage_close) {
+    if (ctx._first_stage_close) {
         _close_first_stage_finished.store(true);
     }
 }
@@ -943,10 +944,13 @@ void VNodeChannel::_close_check() {
 void VNodeChannel::close_first_stage() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
+        LOG(WARNING) << fmt::format("Node Channel {} in instance {} close first stage failed.",
+                                    _node_id, _parent->_sender_id);
         return;
     }
 
     _cur_add_block_request->set_pre_close(true);
+    _cur_add_block_request->set_eos(false);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
@@ -1466,6 +1470,9 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                                         status, ch->get_cancel_msg(), index_channel, ch);
                             }
                         });
+                if (!status.ok()) {
+                    break;
+                }
                 index_channel->for_inc_node_channel(
                         [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {

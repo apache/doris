@@ -106,6 +106,11 @@ struct AddBatchCounter {
     }
 };
 
+struct WriteBlockCallbackContext {
+    std::atomic<bool> _is_last_rpc {false};
+    std::atomic<bool> _first_stage_close {false};
+};
+
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after WriteBlockCallback deleted.
@@ -119,8 +124,11 @@ public:
     WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
     ~WriteBlockCallback() override = default;
 
-    void addFailedHandler(const std::function<void(bool, bool)>& fn) { failed_handler = fn; }
-    void addSuccessHandler(const std::function<void(const T&, bool, bool)>& fn) {
+    void addFailedHandler(const std::function<void(const WriteBlockCallbackContext&)>& fn) {
+        failed_handler = fn;
+    }
+    void addSuccessHandler(
+            const std::function<void(const T&, const WriteBlockCallbackContext&)>& fn) {
         success_handler = fn;
     }
 
@@ -159,26 +167,24 @@ public:
     bool is_packet_in_flight() { return _packet_in_flight; }
 
     void first_of_two_stage_close_mark() {
-        DCHECK(_first_stage_close == false);
-        _first_stage_close = true;
+        DCHECK(_ctx._first_stage_close == false);
+        _ctx._first_stage_close = true;
     }
 
     void end_mark() {
-        DCHECK(_is_last_rpc == false);
-        _is_last_rpc = true;
+        DCHECK(_ctx._is_last_rpc == false);
+        _ctx._is_last_rpc = true;
     }
 
     void call() override {
         DCHECK(_packet_in_flight);
-        LOG(WARNING) << "callback! _first_stage_close " << _first_stage_close;
         if (::doris::DummyBrpcCallback<T>::cntl_->Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error="
                          << berror(::doris::DummyBrpcCallback<T>::cntl_->ErrorCode())
                          << ", error_text=" << ::doris::DummyBrpcCallback<T>::cntl_->ErrorText();
-            failed_handler(_is_last_rpc, _first_stage_close);
+            failed_handler(_ctx);
         } else {
-            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc,
-                            _first_stage_close);
+            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _ctx);
         }
         clear_in_flight();
     }
@@ -186,10 +192,9 @@ public:
 private:
     brpc::CallId cid;
     std::atomic<bool> _packet_in_flight {false};
-    std::atomic<bool> _is_last_rpc {false};
-    std::atomic<bool> _first_stage_close {false};
-    std::function<void(bool, bool)> failed_handler;
-    std::function<void(const T&, bool, bool)> success_handler;
+    WriteBlockCallbackContext _ctx;
+    std::function<void(const WriteBlockCallbackContext&)> failed_handler;
+    std::function<void(const T&, const WriteBlockCallbackContext&)> success_handler;
 };
 
 class IndexChannel;
@@ -324,9 +329,9 @@ protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
 
-    void _add_block_success_callback(const PTabletWriterAddBlockResult& result, bool is_last_rpc,
-                                     bool first_stage_close);
-    void _add_block_failed_callback(bool is_last_rpc, bool first_stage_close);
+    void _add_block_success_callback(const PTabletWriterAddBlockResult& result,
+                                     const WriteBlockCallbackContext& ctx);
+    void _add_block_failed_callback(const WriteBlockCallbackContext& ctx);
 
     VTabletWriter* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
