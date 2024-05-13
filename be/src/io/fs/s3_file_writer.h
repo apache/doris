@@ -42,6 +42,7 @@ struct S3Conf;
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
+struct AsyncCloseStatusPack;
 
 class S3FileWriter final : public FileWriter {
 public:
@@ -49,14 +50,11 @@ public:
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
-    Status close() override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
 
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
 
     FileCacheAllocatorBuilder* cache_builder() const override {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
@@ -70,7 +68,10 @@ public:
     const std::string& bucket() const { return _bucket; }
     const std::string& upload_id() const { return _upload_id; }
 
+    Status close(bool non_block = false) override;
+
 private:
+    Status _close_impl();
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
@@ -97,7 +98,6 @@ private:
 
     std::atomic_bool _failed = false;
 
-    bool _closed = false;
     Status _st;
     size_t _bytes_appended = 0;
 
@@ -113,6 +113,8 @@ private:
     // Because hive committers have best-effort semantics,
     // this shortens the inconsistent time window.
     bool _used_by_s3_committer;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io
