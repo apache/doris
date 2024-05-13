@@ -20,8 +20,10 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <stdint.h>
 
+#include <condition_variable>
 #include <functional>
 #include <map>
 #include <memory>
@@ -30,6 +32,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -57,6 +60,8 @@ class ExecEnv;
 struct LocalMergeFilters {
     std::unique_ptr<std::mutex> lock = std::make_unique<std::mutex>();
     int merge_time = 0;
+    int merge_size_times = 0;
+    uint64_t local_merged_size = 0;
     std::vector<IRuntimeFilter*> filters;
 };
 
@@ -81,6 +86,15 @@ public:
 
     Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
 
+    IRuntimeFilter* try_get_product_filter(const int filter_id) {
+        std::lock_guard<std::mutex> l(_lock);
+        auto iter = _producer_map.find(filter_id);
+        if (iter == _producer_map.end()) {
+            return nullptr;
+        }
+        return iter->second;
+    }
+
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, IRuntimeFilter** consumer_filter,
@@ -104,6 +118,8 @@ public:
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
     Status get_merge_addr(TNetworkAddress* addr);
+
+    Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
 private:
     struct ConsumerFilterHolder {
@@ -146,16 +162,20 @@ public:
     Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
                  bool opt_remote_rf);
 
+    Status send_filter_size(const PSendFilterSizeRequest* request);
+
     UniqueId query_id() const { return _query_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t merge_time;
         int producer_size;
+        uint64_t global_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter = nullptr;
-        std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
+        std::unordered_set<UniqueId> arrive_id;
+        std::vector<PNetworkAddress> source_addrs;
         std::shared_ptr<ObjectPool> pool;
     };
 
@@ -174,8 +194,14 @@ private:
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
-    using CntlValwithLock =
-            std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
+
+    struct CntlValwithLock {
+        std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
+        std::unique_ptr<std::mutex> mutex;
+        CntlValwithLock(std::shared_ptr<RuntimeFilterCntlVal> input_cnt_val)
+                : cnt_val(std::move(input_cnt_val)), mutex(std::make_unique<std::mutex>()) {}
+    };
+
     std::map<int, CntlValwithLock> _filter_map;
     RuntimeFilterParamsContext* _state = nullptr;
 };

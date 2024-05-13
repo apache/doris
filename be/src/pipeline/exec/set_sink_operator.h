@@ -21,11 +21,8 @@
 
 #include "olap/olap_common.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-class ExecNode;
 
 namespace vectorized {
 template <class HashTableContext, bool is_intersected>
@@ -33,32 +30,6 @@ struct HashTableBuild;
 }
 
 namespace pipeline {
-
-template <bool is_intersect>
-class SetSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
-private:
-    constexpr static auto builder_name =
-            is_intersect ? "IntersectSinkOperator" : "ExceptSinkOperator";
-
-public:
-    SetSinkOperatorBuilder(int32_t id, ExecNode* set_node);
-    [[nodiscard]] bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-template <bool is_intersect>
-class SetSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
-public:
-    SetSinkOperator(OperatorBuilderBase* operator_builder,
-                    vectorized::VSetOperationNode<is_intersect>* set_node);
-
-    bool can_write() override { return true; }
-
-private:
-    vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
-};
 
 template <bool is_intersect>
 class SetSinkOperatorX;
@@ -73,6 +44,7 @@ public:
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SetSinkOperatorX<is_intersect>;

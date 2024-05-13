@@ -34,6 +34,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -66,8 +67,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
-bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
-bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
+bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeIndex& rhs);
 
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
@@ -116,8 +116,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
-// inherit index info from it's parent column
-void inherit_tablet_index(TabletSchemaSPtr& schema);
+// inherit attributes like index/agg info from it's parent column
+void inherit_root_attributes(TabletSchemaSPtr& schema);
 
 // Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
 // Block consists of two parts, dynamic part of columns and static part of columns.

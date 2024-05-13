@@ -155,21 +155,20 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     auto column_nums = _child_expr_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
-    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
-    // some case all not nullable column from children, but maybe need output nullable.
-    vector<bool> nullable_flags(column_nums, false);
-    for (int i = 0; i < column_nums; ++i) {
-        nullable_flags[i] = output_data_types[i]->is_nullable();
-    }
-
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
         const auto& ctx = _child_expr_lists[0][i];
-        _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
-                                                           : ctx->root()->data_type());
+        // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+        // some case all not nullable column from children, but maybe need output nullable.
+        if (output_data_types[i]->is_nullable()) {
+            _build_not_ignore_null.push_back(true);
+            _left_table_data_types.push_back(make_nullable(ctx->root()->data_type()));
+        } else {
+            _build_not_ignore_null.push_back(false);
+            _left_table_data_types.push_back(ctx->root()->data_type());
+        }
     }
     hash_table_init();
 
@@ -213,7 +212,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         return;
     }
     if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                *_hash_table_variants, _child_expr_lists[0])) {
+                *_hash_table_variants, _left_table_data_types)) {
         _hash_table_variants->emplace<SetSerializedHashTableContext>();
     }
 }
@@ -268,6 +267,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
                                                                    state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);
@@ -322,6 +322,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, Runtim
                     st = hash_table_build_process(arg, _arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);
@@ -335,14 +336,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         const auto& column = *_build_block.get_by_position(idx->first).column;
-        if (_mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
-            DCHECK(_mutable_cols[idx->second]->is_nullable());
-            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        _mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
     block_size++;
 }
@@ -372,6 +366,7 @@ Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int chil
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
                     }
                 },
                 *_hash_table_variants));
@@ -424,19 +419,12 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
-
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            const auto& col_nested = nullable->get_nested_column();
-            if (_build_not_ignore_null[i]) {
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
-            }
-
-        } else {
-            raw_ptrs[i] = column;
+        if (_build_not_ignore_null[i]) {
+            block.get_by_position(result_col_id).column =
+                    make_nullable(block.get_by_position(result_col_id).column);
         }
+        const auto* column = block.get_by_position(result_col_id).column.get();
+        raw_ptrs[i] = column;
         DCHECK_GE(result_col_id, 0);
         _build_col_idx.insert({result_col_id, i});
     }
@@ -521,8 +509,8 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                     bool is_need_shrink =
                             arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
                     if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(
-                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
+                        tmp_hash_table->init_buf_size(size_t(
+                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
                     }
 
                     arg.init_iterator();
@@ -558,6 +546,7 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                     }
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *_hash_table_variants);

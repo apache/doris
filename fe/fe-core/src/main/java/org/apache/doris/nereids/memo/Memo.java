@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
@@ -33,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -55,6 +58,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -69,6 +73,7 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
+    private final AtomicLong refreshVersion = new AtomicLong(1);
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -118,9 +123,13 @@ public class Memo {
         return groupExpressions.size();
     }
 
+    public long getRefreshVersion() {
+        return refreshVersion.get();
+    }
+
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
-        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
+        if (plan instanceof LogicalProject) {
             LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
             if (targetGroup != root) {
                 if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
@@ -406,6 +415,14 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
+        // TODO Support sync materialized view in the future
+        if (connectContext != null
+                && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
+                && plan instanceof LogicalCatalogRelation
+                && ((CatalogRelation) plan).getTable() instanceof MTMV
+                && !plan.getGroupExpression().isPresent()) {
+            refreshVersion.incrementAndGet();
+        }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
             Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
@@ -579,16 +596,6 @@ public class Memo {
         Group group = new Group(groupIdGenerator.getNextId(), logicalProperties);
         groups.put(group.getGroupId(), group);
         return group;
-    }
-
-    // This function is used to copy new group expression
-    // It's used in DPHyp after construct new group expression
-    public Group copyInGroupExpression(GroupExpression newGroupExpression) {
-        Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
-                newGroupExpression.getPlan().getLogicalProperties());
-        groups.put(newGroup.getGroupId(), newGroup);
-        groupExpressions.put(newGroupExpression, newGroupExpression);
-        return newGroup;
     }
 
     private CopyInResult rewriteByNewGroupExpression(Group targetGroup, Plan newPlan,

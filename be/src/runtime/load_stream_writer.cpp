@@ -75,7 +75,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
-    _query_thread_context.init(); // from load stream
+    _query_thread_context.init_unlocked(); // from load stream
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;

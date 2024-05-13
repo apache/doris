@@ -66,8 +66,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
         }
 
         // TODO, Save the query context in the thread context, instead of finding whether the query id is canceled in fragment_mgr.
-        if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
-                    doris::thread_context()->task_id())) {
+        if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
             if (doris::enable_thread_catch_bad_alloc) {
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
@@ -88,8 +87,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                     doris::MemInfo::refresh_interval_memory_growth += size;
                     break;
                 }
-                if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
-                            doris::thread_context()->task_id())) {
+                if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
                     if (doris::enable_thread_catch_bad_alloc) {
                         throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                     }
@@ -193,6 +191,30 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
     doris::MemTrackerLimiter::print_log_process_usage();
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
+
+#ifndef NDEBUG
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(void* buf,
+                                                                               size_t size) const {
+#ifdef BE_TEST
+    if (!doris::ExecEnv::ready()) {
+        return;
+    }
+#endif
+    doris::thread_context()->thread_mem_tracker()->add_address_sanitizers(buf, size);
+}
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizers(
+        void* buf, size_t size) const {
+#ifdef BE_TEST
+    if (!doris::ExecEnv::ready()) {
+        return;
+    }
+#endif
+    doris::thread_context()->thread_mem_tracker()->remove_address_sanitizers(buf, size);
+}
+#endif
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {

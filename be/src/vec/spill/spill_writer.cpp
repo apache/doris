@@ -22,6 +22,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -31,12 +32,6 @@ Status SpillWriter::open() {
         return Status::OK();
     }
     return io::global_local_filesystem()->create_file(file_path_, &file_writer_);
-}
-
-SpillWriter::~SpillWriter() {
-    if (!closed_) {
-        (void)Status::Error<ErrorCode::INTERNAL_ERROR>("spill writer not closed correctly");
-    }
 }
 
 Status SpillWriter::close() {
@@ -57,7 +52,7 @@ Status SpillWriter::close() {
     total_written_bytes_ += meta_.size();
     COUNTER_UPDATE(write_bytes_counter_, meta_.size());
 
-    ExecEnv::GetInstance()->spill_stream_mgr()->update_usage(data_dir_->path(), meta_.size());
+    data_dir_->update_spill_data_usage(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
 
@@ -65,7 +60,7 @@ Status SpillWriter::close() {
     return Status::OK();
 }
 
-Status SpillWriter::write(const Block& block, size_t& written_bytes) {
+Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& written_bytes) {
     written_bytes = 0;
     DCHECK(file_writer_);
     auto rows = block.rows();
@@ -76,7 +71,7 @@ Status SpillWriter::write(const Block& block, size_t& written_bytes) {
         auto tmp_block = block.clone_empty();
         const auto& src_data = block.get_columns_with_type_and_name();
 
-        for (size_t row_idx = 0; row_idx < rows;) {
+        for (size_t row_idx = 0; row_idx < rows && !state->is_cancelled();) {
             tmp_block.clear_column_data();
 
             auto& dst_data = tmp_block.get_columns_with_type_and_name();
@@ -107,30 +102,29 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         {
             PBlock pblock;
             SCOPED_TIMER(serialize_timer_);
-            status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
-                                     &uncompressed_bytes, &compressed_bytes,
-                                     segment_v2::CompressionTypePB::LZ4);
+            status = block.serialize(
+                    BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
+                    &compressed_bytes,
+                    segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
             RETURN_IF_ERROR(status);
             if (!pblock.SerializeToString(&buff)) {
                 return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>(
                         "serialize spill data error. [path={}]", file_path_);
             }
         }
-        auto* spill_stream_mgr = ExecEnv::GetInstance()->spill_stream_mgr();
-        auto splled_data_size = spill_stream_mgr->spilled_data_size(data_dir_->path());
-        if (spill_stream_mgr->reach_capacity_limit(splled_data_size, buff.size())) {
+        if (data_dir_->reach_capacity_limit(buff.size())) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                     "size: {}",
-                    data_dir_->path(), PrettyPrinter::print_bytes(config::spill_storage_limit),
-                    PrettyPrinter::print_bytes(
-                            spill_stream_mgr->spilled_data_size(data_dir_->path())));
+                    data_dir_->path(),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_limit()),
+                    PrettyPrinter::print_bytes(data_dir_->get_spill_data_bytes()));
         }
 
         {
             Defer defer {[&]() {
                 if (status.ok()) {
-                    spill_stream_mgr->update_usage(data_dir_->path(), buff.size());
+                    data_dir_->update_spill_data_usage(buff.size());
                 }
             }};
             {

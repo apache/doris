@@ -25,6 +25,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -67,6 +69,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog.tableExists(TableIdentifier.of(dbName, tblName));
     }
 
+    public boolean databaseExist(String dbName) {
+        return nsCatalog.namespaceExists(Namespace.of(dbName));
+    }
+
     public List<String> listDatabaseNames() {
         return nsCatalog.listNamespaces().stream()
                 .map(e -> e.toString())
@@ -84,19 +90,30 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
+        if (databaseExist(dbName)) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create database[{}] which already exists", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
+        }
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
         dorisCatalog.onRefresh(true);
     }
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getDbName();
-        if (dorisCatalog.getDbNameToId().containsKey(dbName)) {
-            Long aLong = dorisCatalog.getDbNameToId().get(dbName);
-            dorisCatalog.getIdToDb().remove(aLong);
-            dorisCatalog.getDbNameToId().remove(dbName);
+        if (!databaseExist(dbName)) {
+            if (stmt.isSetIfExists()) {
+                LOG.info("drop database[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+            }
         }
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         nsCatalog.dropNamespace(Namespace.of(dbName));
         dorisCatalog.onRefresh(true);
     }
@@ -109,6 +126,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
         String tableName = stmt.getTableName();
+        if (tableExist(dbName, tableName)) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
         List<Column> columns = stmt.getColumns();
         List<StructField> collect = columns.stream()
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
@@ -119,7 +144,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
     }
@@ -132,6 +157,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
         String tableName = stmt.getTableName();
+        if (!tableExist(dbName, tableName)) {
+            if (stmt.isSetIfExists()) {
+                LOG.info("drop table[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+            }
+        }
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
         db.setUnInitialized(true);
     }

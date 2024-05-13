@@ -24,8 +24,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
@@ -146,7 +146,8 @@ public class CreateUserStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris") && LdapConfig.ldap_authentication_enabled) {
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")
+                && AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP) {
             throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
         }
 

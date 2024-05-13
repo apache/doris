@@ -2085,12 +2085,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     public Integer visitLabel_stmt(Label_stmtContext ctx) {
         if (ctx.IDENTIFIER() != null) {
             exec.labels.push(ctx.IDENTIFIER().toString());
-        } else {
-            String label = ctx.LABEL_PL().getText();
-            if (label.endsWith(":")) {
-                label = label.substring(0, label.length() - 1);
-            }
-            exec.labels.push(label);
         }
         return 0;
     }

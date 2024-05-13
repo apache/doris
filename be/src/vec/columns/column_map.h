@@ -94,6 +94,7 @@ public:
     ColumnPtr convert_to_full_column_if_const() const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
+    bool is_variable_length() const override { return true; }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
@@ -101,6 +102,8 @@ public:
 
     void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert(const Field& x) override;
     void insert_default() override;
@@ -112,19 +115,18 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        return scatter_impl<ColumnMap>(num_columns, selector);
-    }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
@@ -134,27 +136,17 @@ public:
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnMap>(res, selector);
     }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
+    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnMap&>(rhs);
-        const size_t nested_row_size = r.size_at(row);
-        const size_t r_key_nested_start_off = r.offset_at(row);
-        const size_t r_val_nested_start_off = r.offset_at(row);
-
-        if (self_row == 0) {
-            keys_column->clear();
-            values_column->clear();
-        }
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // here we use batch size to avoid many virtual call in nested column
-        keys_column->insert_range_from(r.get_keys(), r_key_nested_start_off, nested_row_size);
-        values_column->insert_range_from(r.get_values(), r_val_nested_start_off, nested_row_size);
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        get_offsets()[self_row] = get_offsets()[self_row - 1];
+        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
@@ -214,6 +206,12 @@ public:
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        keys_column = keys_column->convert_column_if_overflow();
+        values_column = values_column->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
     }
 
 private:

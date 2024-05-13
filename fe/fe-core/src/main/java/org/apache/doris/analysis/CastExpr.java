@@ -132,6 +132,11 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
+            // as the targetType have struct field name, if use the default name will be
+            // like col1,col2, col3... in struct, and the filed name is import in BE.
+            if (type.isStructType() && e.type.isStructType()) {
+                getChild(0).setType(type);
+            }
             analysisDone();
             return;
         }
@@ -208,7 +213,7 @@ public class CastExpr extends Expr {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
-            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
                     + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
@@ -245,7 +250,6 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
-        msg.setOutputColumn(outputColumn);
         if (type.isNativeType() && getChild(0).getType().isNativeType()) {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
@@ -586,5 +590,10 @@ public class CastExpr extends Expr {
 
     public boolean isNotFold() {
         return this.notFold;
+    }
+
+    @Override
+    protected void compactForLiteral(Type type) {
+        // do nothing
     }
 }

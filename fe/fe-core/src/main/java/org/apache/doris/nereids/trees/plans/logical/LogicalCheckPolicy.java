@@ -22,6 +22,8 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -147,6 +149,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         ImmutableList.Builder<NamedExpression> dataMasks
                 = ImmutableList.builderWithExpectedSize(logicalRelation.getOutput().size());
 
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
         for (Slot slot : logicalRelation.getOutput()) {
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
@@ -165,12 +169,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             } else {
                 dataMasks.add(slot);
             }
+            if (sqlCacheContext.isPresent()) {
+                sqlCacheContext.get().addDataMaskPolicy(ctlName, dbName, tableName, slot.getName(), dataMaskPolicy);
+            }
         }
 
-        List<? extends RowFilterPolicy> policies = accessManager.evalRowFilterPolicies(
+        List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
                 currentUserIdentity, ctlName, dbName, tableName);
+        if (sqlCacheContext.isPresent()) {
+            sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
+        }
+
         return new RelatedPolicy(
-                Optional.ofNullable(CollectionUtils.isEmpty(policies) ? null : mergeRowPolicy(policies)),
+                Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
     }

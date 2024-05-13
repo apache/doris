@@ -12,6 +12,7 @@ db_securityadmin
 dbo
 guest
 information_schema
+mysql
 sys
 
 -- !test0 --
@@ -142,5 +143,6 @@ db_securityadmin
 dbo
 guest
 information_schema
+mysql
 sys
 

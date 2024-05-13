@@ -312,7 +312,7 @@ static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t 
 static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
     auto key = table_version_key({instance_id, db_id, table_id});
     std::string val(sizeof(int64_t), 0);
-    *reinterpret_cast<int64_t*>(val.data()) = (int64_t) 1;
+    *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -739,12 +739,12 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         *((int*)limit) = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_objects", [&](void* p) {
+    sp->set_call_back("MockS3Accessor::delete_objects", [&](void* p) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         bool found = recycler.check_recycle_tasks();
         ASSERT_EQ(found, true);
     });
-    sp->set_call_back("MockAccessor::delete_objects_by_prefix",
+    sp->set_call_back("MockS3Accessor::delete_objects_by_prefix",
                       [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
 
@@ -1627,7 +1627,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("MockAccessor::delete_objects_ret::pred",
+    sp->set_call_back("MockS3Accessor::delete_objects_ret::pred",
                       [](void* p) { *((bool*)p) = true; });
     sp->enable_processing();
     using namespace std::chrono;
@@ -1702,7 +1702,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
         EXPECT_EQ(expected_job_exists, exist) << table_id;
     }
 
-    sp->clear_call_back("MockAccessor::delete_objects_ret::pred");
+    sp->clear_call_back("MockS3Accessor::delete_objects_ret::pred");
     ASSERT_EQ(recycler.recycle_copy_jobs(), 0);
 
     // check object files
@@ -1882,7 +1882,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     std::string start_partition_version_key = partition_version_key({instance_id, 0, 0, 0});
     std::string end_partition_version_key = partition_version_key({instance_id, INT64_MAX, 0, 0});
-    ASSERT_EQ(txn->get(start_partition_version_key, end_partition_version_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(start_partition_version_key, end_partition_version_key, &it),
+              TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
     std::string start_table_version_key = table_version_key({instance_id, 0, 0});

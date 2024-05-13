@@ -975,7 +975,7 @@ public class OlapQueryCacheTest {
             LOG.warn("Sub nokey={}", cache.getNokeyStmt().toSql());
             Assert.assertEquals(cache.getNokeyStmt().toSql(),
                     "SELECT `eventdate` AS `eventdate`, sum(`pv`) AS `sum(``pv``)` "
-                            + "FROM (SELECT `eventdate` AS `eventdate`, count(`userid`) AS `pv` "
+                            + "FROM (SELECT `eventdate`, count(`userid`) `pv` "
                             + "FROM `testDb`.`appevent` WHERE (`eventid` = 1) GROUP BY `eventdate`) tbl "
                             + "GROUP BY `eventdate`");
 
@@ -997,7 +997,7 @@ public class OlapQueryCacheTest {
             LOG.warn("Sub rewrite={}", sql);
             Assert.assertEquals(sql,
                     "SELECT `eventdate` AS `eventdate`, sum(`pv`) AS `sum(``pv``)` "
-                            + "FROM (SELECT `eventdate` AS `eventdate`, count(`userid`) AS `pv` "
+                            + "FROM (SELECT `eventdate`, count(`userid`) `pv` "
                             + "FROM `testDb`.`appevent` WHERE (`eventdate` > '2020-01-13') "
                             + "AND (`eventdate` < '2020-01-16') AND (`eventid` = 1) GROUP BY `eventdate`) tbl "
                             + "GROUP BY `eventdate`");
@@ -1133,8 +1133,8 @@ public class OlapQueryCacheTest {
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, "
-                + "`origin`.`userid` AS `userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, "
-                + "`view2`.`userid` AS `userid` FROM `testDb`.`view2` view2 "
+                + "`origin`.`userid` AS `userid` FROM (SELECT `view2`.`eventdate` `eventdate`, "
+                + "`view2`.`userid` `userid` FROM `testDb`.`view2` view2 "
                 + "WHERE (`view2`.`eventdate` >= '2020-01-12') AND (`view2`.`eventdate` <= '2020-01-14')) origin|"
                 + "SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
         Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
@@ -1219,7 +1219,7 @@ public class OlapQueryCacheTest {
             Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
             Assert.assertEquals(cache.getSqlWithViewStmt(),
                     "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` "
-                            + "FROM (SELECT `eventdate` AS `eventdate`, count(`userid`) AS `cnt` "
+                            + "FROM (SELECT `eventdate`, count(`userid`) `cnt` "
                             + "FROM `testDb`.`view2` GROUP BY `eventdate`) origin|SELECT `eventdate` "
                             + "AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
         } catch (Exception e) {

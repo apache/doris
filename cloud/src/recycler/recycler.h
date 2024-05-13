@@ -89,6 +89,7 @@ public:
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
     ~InstanceRecycler();
 
+    // returns 0 for success otherwise error
     int init();
 
     void stop() { stopped_.store(true, std::memory_order_release); }
@@ -160,6 +161,12 @@ public:
     bool check_recycle_tasks();
 
 private:
+    // returns 0 for success otherwise error
+    int init_obj_store_accessors();
+
+    // returns 0 for success otherwise error
+    int init_storage_vault_accessors();
+
     /**
      * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
      *
@@ -195,6 +202,8 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     InstanceInfoPB instance_info_;
+
+    // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
     std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
 
     class InvertedIndexIdCache;

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -26,10 +27,9 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
-import avro.shaded.com.google.common.collect.Lists;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
@@ -38,77 +38,85 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
+import java.util.OptionalLong;
+import java.util.concurrent.ExecutorService;
 
 public class IcebergMetadataCache {
 
-    private final Cache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
-    private final Cache<IcebergMetadataCacheKey, Table> tableCache;
+    private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
+    private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
 
-    public IcebergMetadataCache() {
-        this.snapshotListCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
-            .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-            .build();
+    public IcebergMetadataCache(ExecutorService executor) {
+        CacheFactory snapshotListCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_hive_table_cache_num,
+                false,
+                null);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
-        this.tableCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
-            .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-            .build();
+        CacheFactory tableCacheFactory = new CacheFactory(
+                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_hive_table_cache_num,
+                false,
+                null);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
         IcebergMetadataCacheKey key =
-                IcebergMetadataCacheKey.of(catalog.getId(), params.getDatabase(), params.getTable());
-        List<Snapshot> ifPresent = snapshotListCache.getIfPresent(key);
-        if (ifPresent != null) {
-            return ifPresent;
-        }
-
-        Table icebergTable = getIcebergTable(catalog, params.getDatabase(), params.getTable());
-        List<Snapshot> snaps = Lists.newArrayList();
-        Iterables.addAll(snaps, icebergTable.snapshots());
-        snapshotListCache.put(key, snaps);
-        return snaps;
+                IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
+        return snapshotListCache.get(key);
     }
 
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
-        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog.getId(), dbName, tbName);
-        Table cacheTable = tableCache.getIfPresent(key);
-        if (cacheTable != null) {
-            return cacheTable;
-        }
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
+        return tableCache.get(key);
+    }
 
+    @NotNull
+    private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
+        Table icebergTable = getIcebergTable(key.catalog, key.dbName, key.tableName);
+        List<Snapshot> snaps = Lists.newArrayList();
+        Iterables.addAll(snaps, icebergTable.snapshots());
+        return snaps;
+    }
+
+    @NotNull
+    private Table loadTable(IcebergMetadataCacheKey key) {
         Catalog icebergCatalog;
-        if (catalog instanceof HMSExternalCatalog) {
-            HMSExternalCatalog ctg = (HMSExternalCatalog) catalog;
+        if (key.catalog instanceof HMSExternalCatalog) {
+            HMSExternalCatalog ctg = (HMSExternalCatalog) key.catalog;
             icebergCatalog = createIcebergHiveCatalog(
                     ctg.getHiveMetastoreUris(),
                     ctg.getCatalogProperty().getHadoopProperties(),
                     ctg.getProperties());
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            icebergCatalog = ((IcebergExternalCatalog) catalog).getCatalog();
+        } else if (key.catalog instanceof IcebergExternalCatalog) {
+            icebergCatalog = ((IcebergExternalCatalog) key.catalog).getCatalog();
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(catalog.getId(),
-                () -> icebergCatalog.loadTable(TableIdentifier.of(dbName, tbName)));
-        initIcebergTableFileIO(icebergTable, catalog.getProperties());
-        tableCache.put(key, icebergTable);
+        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(key.catalog.getId(),
+                () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
+        initIcebergTableFileIO(icebergTable, key.catalog.getProperties());
         return icebergTable;
     }
 
     public void invalidateCatalogCache(long catalogId) {
         snapshotListCache.asMap().keySet().stream()
-            .filter(key -> key.catalogId == catalogId)
+                .filter(key -> key.catalog.getId() == catalogId)
             .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
-                .filter(entry -> entry.getKey().catalogId == catalogId)
+                .filter(entry -> entry.getKey().catalog.getId() == catalogId)
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
                     tableCache.invalidate(entry.getKey());
@@ -117,13 +125,15 @@ public class IcebergMetadataCache {
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
         snapshotListCache.asMap().keySet().stream()
-            .filter(key -> key.catalogId == catalogId && key.dbName.equals(dbName) && key.tableName.equals(tblName))
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
+                        tblName))
             .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
-                    return key.catalogId == catalogId && key.dbName.equals(dbName) && key.tableName.equals(tblName);
+                    return key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
+                            tblName);
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
@@ -133,13 +143,13 @@ public class IcebergMetadataCache {
 
     public void invalidateDbCache(long catalogId, String dbName) {
         snapshotListCache.asMap().keySet().stream()
-                .filter(key -> key.catalogId == catalogId && key.dbName.equals(dbName))
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName))
                 .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
                     IcebergMetadataCacheKey key = entry.getKey();
-                    return key.catalogId == catalogId && key.dbName.equals(dbName);
+                    return key.catalog.getId() == catalogId && key.dbName.equals(dbName);
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
@@ -184,22 +194,18 @@ public class IcebergMetadataCache {
     }
 
     static class IcebergMetadataCacheKey {
-        long catalogId;
+        CatalogIf catalog;
         String dbName;
         String tableName;
 
-        public IcebergMetadataCacheKey(long catalogId, String dbName, String tableName) {
-            this.catalogId = catalogId;
+        public IcebergMetadataCacheKey(CatalogIf catalog, String dbName, String tableName) {
+            this.catalog = catalog;
             this.dbName = dbName;
             this.tableName = tableName;
         }
 
-        static IcebergMetadataCacheKey of(long catalogId, String dbName, String tableName) {
-            return new IcebergMetadataCacheKey(
-                catalogId,
-                dbName,
-                tableName
-            );
+        static IcebergMetadataCacheKey of(CatalogIf catalog, String dbName, String tableName) {
+            return new IcebergMetadataCacheKey(catalog, dbName, tableName);
         }
 
         @Override
@@ -211,14 +217,14 @@ public class IcebergMetadataCache {
                 return false;
             }
             IcebergMetadataCacheKey that = (IcebergMetadataCacheKey) o;
-            return catalogId == that.catalogId
+            return catalog.getId() == that.catalog.getId()
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, dbName, tableName);
+            return Objects.hash(catalog.getId(), dbName, tableName);
         }
     }
 }

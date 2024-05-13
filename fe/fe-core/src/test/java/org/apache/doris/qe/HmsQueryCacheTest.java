@@ -51,6 +51,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -109,6 +110,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private void init(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -367,9 +369,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -383,11 +385,11 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache1 = (SqlCache) ca.getCache();
 
         // latestTime is equals to the schema update time if not set partition update time
-        Assert.assertEquals(sqlCache1.getLatestTime(), tbl2.getSchemaUpdateTime());
+        Assert.assertEquals(tbl2.getSchemaUpdateTime(), sqlCache1.getLatestTime());
 
         // wait a second and set partition update time
         try {
@@ -401,7 +403,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         // check cache mode again
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
         SqlCache sqlCache2 = (SqlCache) ca.getCache();
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
 
         // the latest time will be changed and is equals to the partition update time
         Assert.assertEquals(later, sqlCache2.getLatestTime());
@@ -415,9 +417,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -431,11 +433,11 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache1 = (SqlCache) ca.getCache();
 
         // latestTime is equals to the schema update time if not set partition update time
-        Assert.assertEquals(sqlCache1.getLatestTime(), tbl2.getSchemaUpdateTime());
+        Assert.assertEquals(tbl2.getSchemaUpdateTime(), sqlCache1.getLatestTime());
 
         // wait a second and set partition update time
         try {
@@ -449,7 +451,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         // check cache mode again
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
         SqlCache sqlCache2 = (SqlCache) ca.getCache();
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
 
         // the latest time will be changed and is equals to the partition update time
         Assert.assertEquals(later, sqlCache2.getLatestTime());
@@ -463,9 +465,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode2);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -475,9 +477,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode2);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -487,13 +489,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode3);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Assert.assertEquals(cacheKey, "SELECT `hms_ctl`.`hms_db`.`hms_view2`.`k1` AS `k1` "
                     + "FROM `hms_ctl`.`hms_db`.`hms_view2`"
                     + "|SELECT * FROM hms_db.hms_tbl|SELECT * FROM hms_db.hms_view1");
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -503,12 +505,12 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode3);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "select * from hms_ctl.hms_db.hms_view2"
-                    + "|SELECT * FROM hms_db.hms_tbl|SELECT * FROM hms_db.hms_view1");
-        Assert.assertEquals(sqlCache.getLatestTime(), NOW);
+        Assert.assertEquals("select * from hms_ctl.hms_db.hms_view2"
+                    + "|SELECT * FROM hms_db.hms_tbl|SELECT * FROM hms_db.hms_view1", cacheKey);
+        Assert.assertEquals(NOW, sqlCache.getLatestTime());
     }
 
     @Test
@@ -518,7 +520,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(0);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.None);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
     @Test
@@ -528,7 +530,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(0);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.None);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
     @Test
@@ -540,7 +542,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1, olapScanNode);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.None);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
     @Test
@@ -552,6 +554,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1, olapScanNode);
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.None);
+        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 }

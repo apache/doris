@@ -243,8 +243,10 @@ suite("test_pk_uk_index_change", "inverted_index") {
             wait_for_latest_op_on_table_finish(tableNamePk, timeout)
 
             // build inverted index
-            sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+            if (!isCloudMode()) {
+                sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
+                wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+            }
         }
 
         sql "sync"
@@ -319,7 +321,10 @@ suite("test_pk_uk_index_change", "inverted_index") {
 
         // drop inverted index
         sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-        wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        wait_for_latest_op_on_table_finish(tableNamePk, timeout)
+        if (!isCloudMode()) {
+            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        }
     }
 }
 

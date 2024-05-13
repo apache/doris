@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = t3.ps_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->[ps_suppkey,l_suppkey]
+----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = t3.ps_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->[l_suppkey,ps_suppkey]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((t2.l_partkey = t1.ps_partkey) and (t2.l_suppkey = t1.ps_suppkey)) otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > t2.l_q)) build RFs:RF2 ps_partkey->[l_partkey];RF3 ps_suppkey->[l_suppkey]

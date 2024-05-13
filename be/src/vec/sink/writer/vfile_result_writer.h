@@ -52,9 +52,9 @@ public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const VExprContextSPtrs& _output_vexpr_ctxs, BufferControlBlock* sinker,
-                      Block* output_block, bool output_object_data,
-                      const RowDescriptor& output_row_descriptor);
+                      const VExprContextSPtrs& _output_vexpr_ctxs,
+                      std::shared_ptr<BufferControlBlock> sinker, Block* output_block,
+                      bool output_object_data, const RowDescriptor& output_row_descriptor);
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
@@ -79,10 +79,8 @@ private:
 
     Status _create_file_writer(const std::string& file_name);
     Status _create_next_file_writer();
-    Status _create_success_file();
     // get next export file name
     Status _get_next_file_name(std::string* file_name);
-    Status _get_success_file_name(std::string* file_name);
     void _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
@@ -131,7 +129,7 @@ private:
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
     // _sinker and _output_batch are not owned by FileResultWriter
-    BufferControlBlock* _sinker = nullptr;
+    std::shared_ptr<BufferControlBlock> _sinker = nullptr;
     Block* _output_block = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;

@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "recycler/s3_accessor.h"
 #include "recycler/white_black_list.h"
 
 namespace doris::cloud {
@@ -51,7 +52,7 @@ private:
     friend class RecyclerServiceImpl;
 
     std::shared_ptr<TxnKv> txn_kv_;
-    std::atomic_bool stopped_{false};
+    std::atomic_bool stopped_ {false};
     std::string ip_port_;
     std::vector<std::thread> workers_;
 
@@ -66,7 +67,6 @@ private:
     std::condition_variable notifier_;
 
     WhiteBlackList instance_filter_;
-
 };
 
 class InstanceChecker {
@@ -82,15 +82,24 @@ public:
     // Return -1 if encountering the situation that need to abort checker.
     // Return -2 if having S3 access errors or data loss
     int do_check();
+    // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
+    // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
-    int get_bucket_lifecycle(int64_t* lifecycle);
+    int get_bucket_lifecycle(int64_t* lifecycle_days);
     void stop() { stopped_.store(true, std::memory_order_release); }
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    // returns 0 for success otherwise error
+    int init_obj_store_accessors(const InstanceInfoPB& instance);
+
+    // returns 0 for success otherwise error
+    int init_storage_vault_accessors(const InstanceInfoPB& instance);
+
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
+    // id -> accessor
     std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
 };
 

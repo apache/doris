@@ -76,6 +76,9 @@ DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_total, finish_task, total);
 DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_failed, finish_task, failed);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_total, base_compaction, total);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_failed, base_compaction, failed);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_total, single_compaction, total);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_failed, single_compaction, failed);
+DEFINE_ENGINE_COUNTER_METRIC(single_compaction_request_cancelled, single_compaction, cancelled);
 DEFINE_ENGINE_COUNTER_METRIC(cumulative_compaction_request_total, cumulative_compaction, total);
 DEFINE_ENGINE_COUNTER_METRIC(cumulative_compaction_request_failed, cumulative_compaction, failed);
 DEFINE_ENGINE_COUNTER_METRIC(publish_task_request_total, publish, total);
@@ -180,6 +183,10 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_file_open_reading, MetricUnit::FILESYS
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_file_open_writing, MetricUnit::FILESYSTEM);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
+
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
 
@@ -219,6 +226,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, single_compaction_request_cancelled);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_total);
@@ -293,6 +303,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, broker_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_writing);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_writing);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

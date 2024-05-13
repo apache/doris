@@ -24,8 +24,6 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "udf/udf.h"
-#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -35,9 +33,7 @@ class SimpleFunctionFactory;
 void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
-void register_function_hll_cardinality(SimpleFunctionFactory& factory);
-void register_function_hll_empty(SimpleFunctionFactory& factory);
-void register_function_hll_hash(SimpleFunctionFactory& factory);
+void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
@@ -50,6 +46,7 @@ void register_function_int_div(SimpleFunctionFactory& factory);
 void register_function_bit(SimpleFunctionFactory& factory);
 void register_function_bit_count(SimpleFunctionFactory& factory);
 void register_function_bit_shift(SimpleFunctionFactory& factory);
+void register_function_round(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
@@ -81,6 +78,7 @@ void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
+void register_function_uuid_transforms(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -111,8 +109,8 @@ class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=4
-    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 4;
+    /// @TEMPORARY: for be_exec_version=5
+    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 5;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -151,7 +149,7 @@ public:
     /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_4_0"};
+        static std::string suffix {"_old_for_version_before_5_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
@@ -195,7 +193,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=3. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=4. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -203,7 +201,7 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=3
+    /// @TEMPORARY: for be_exec_version=4
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
@@ -221,9 +219,7 @@ public:
             register_function_bitmap(instance);
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
-            register_function_hll_cardinality(instance);
-            register_function_hll_empty(instance);
-            register_function_hll_hash(instance);
+            register_function_hll(instance);
             register_function_comparison(instance);
             register_function_logical(instance);
             register_function_case(instance);
@@ -231,6 +227,7 @@ public:
             register_function_conv(instance);
             register_function_plus(instance);
             register_function_minus(instance);
+            register_function_round(instance);
             register_function_math(instance);
             register_function_multiply(instance);
             register_function_divide(instance);
@@ -265,6 +262,7 @@ public:
             register_function_random(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
+            register_function_uuid_transforms(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);

@@ -102,7 +102,7 @@ class ExplainAction implements SuiteAction {
             for (String string : containsStrings) {
                 if (!explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
+                            + " but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t
@@ -111,7 +111,7 @@ class ExplainAction implements SuiteAction {
             for (String string : notContainsStrings) {
                 if (explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect not contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
+                            + " but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
                     throw t

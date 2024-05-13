@@ -54,9 +54,6 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -391,70 +388,6 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @Override
-    public void asyncRename(
-            Executor executor,
-            List<CompletableFuture<?>> renameFileFutures,
-            AtomicBoolean cancelled,
-            String origFilePath,
-            String destFilePath,
-            List<String> fileNames) {
-
-        for (String fileName : fileNames) {
-            Path source = new Path(origFilePath, fileName);
-            Path target = new Path(destFilePath, fileName);
-            renameFileFutures.add(CompletableFuture.runAsync(() -> {
-                if (cancelled.get()) {
-                    return;
-                }
-                Status status = rename(source.toString(), target.toString());
-                if (!status.ok()) {
-                    throw new RuntimeException(status.getErrMsg());
-                }
-            }, executor));
-        }
-    }
-
-    public Status renameDir(String origFilePath,
-                            String destFilePath,
-                            Runnable runWhenPathNotExist) {
-        Status status = exists(destFilePath);
-        if (status.ok()) {
-            throw new RuntimeException("Destination directory already exists: " + destFilePath);
-        }
-
-        String targetParent = new Path(destFilePath).getParent().toString();
-        status = exists(targetParent);
-        if (Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
-            status = makeDir(targetParent);
-        }
-        if (!status.ok()) {
-            throw new RuntimeException(status.getErrMsg());
-        }
-
-        runWhenPathNotExist.run();
-
-        return rename(origFilePath, destFilePath);
-    }
-
-    @Override
-    public void asyncRenameDir(Executor executor,
-                        List<CompletableFuture<?>> renameFileFutures,
-                        AtomicBoolean cancelled,
-                        String origFilePath,
-                        String destFilePath,
-                        Runnable runWhenPathNotExist) {
-        renameFileFutures.add(CompletableFuture.runAsync(() -> {
-            if (cancelled.get()) {
-                return;
-            }
-            Status status = renameDir(origFilePath, destFilePath, runWhenPathNotExist);
-            if (!status.ok()) {
-                throw new RuntimeException(status.getErrMsg());
-            }
-        }, executor));
-    }
-
-    @Override
     public Status delete(String remotePath) {
         try {
             URI pathUri = URI.create(remotePath);
@@ -481,7 +414,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @return Status.OK if success.
      */
     @Override
-    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
             FileSystem fileSystem = nativeFileSystem(remotePath);

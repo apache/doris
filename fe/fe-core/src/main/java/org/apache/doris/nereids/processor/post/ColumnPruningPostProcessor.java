@@ -40,9 +40,16 @@ import java.util.stream.Collectors;
 })
 public class ColumnPruningPostProcessor extends PlanPostProcessor {
     @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+    public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         Plan child = project.child();
         Plan newChild = child.accept(this, ctx);
+        if (project.isAllSlots()) {
+            Set<Slot> projects = project.getProjects().stream().map(Slot.class::cast).collect(Collectors.toSet());
+            Set<Slot> outputSet = newChild.getOutputSet();
+            if (outputSet.equals(projects)) {
+                return ((AbstractPhysicalPlan) newChild).copyStatsAndGroupIdFrom(project);
+            }
+        }
         if (newChild instanceof AbstractPhysicalJoin) {
             AbstractPhysicalJoin<? extends Plan, ? extends Plan> join = (AbstractPhysicalJoin) newChild;
             Plan left = join.left();
@@ -91,7 +98,7 @@ public class ColumnPruningPostProcessor extends PlanPostProcessor {
             }
 
             if (newLeft != left || newRight != right) {
-                return (PhysicalProject) project.withChildren(join.withChildren(newLeft, newRight));
+                return project.withChildren(join.withChildren(newLeft, newRight));
             } else {
                 return project;
             }

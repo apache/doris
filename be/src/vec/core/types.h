@@ -541,11 +541,11 @@ struct Decimal {
 
     /// If T is integral, the given value will be rounded to integer.
     template <std::floating_point U>
-    static constexpr U type_round(U value) noexcept {
+    static constexpr T type_round(U value) noexcept {
         if constexpr (wide::IntegralConcept<T>()) {
-            return round(value);
+            return T(round(value));
         }
-        return value;
+        return T(value);
     }
 
     static Decimal double_to_decimal(double value_) {

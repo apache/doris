@@ -151,15 +151,6 @@ private:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
-    void insert_many_default_type(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        T* input_val_ptr = (T*)data_ptr;
-        for (int i = 0; i < num; i++) {
-            data[old_size + i] = input_val_ptr[i];
-        }
-    }
-
 public:
     bool is_numeric() const override { return IsNumber<T>; }
 
@@ -177,24 +168,22 @@ public:
         data.push_back(unaligned_load<T>(pos));
     }
 
-    // note(wb) type of data_ptr element should be same with current column_vector's T
-    void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
-    }
-
-    void insert_raw_integers(T val, size_t n) {
+    void insert_many_vals(T val, size_t n) {
         auto old_size = data.size();
         data.resize(old_size + n);
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
     void insert_range_of_integer(T begin, T end) {
-        auto old_size = data.size();
-        data.resize(old_size + (end - begin));
-        for (int i = 0; i < end - begin; i++) {
-            data[old_size + i] = begin + i;
+        if constexpr (std::is_integral_v<T>) {
+            auto old_size = data.size();
+            data.resize(old_size + (end - begin));
+            for (int i = 0; i < end - begin; i++) {
+                data[old_size + i] = begin + i;
+            }
+        } else {
+            LOG(FATAL) << "double column not support insert_range_of_integer";
+            __builtin_unreachable();
         }
     }
 
@@ -233,12 +222,14 @@ public:
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {
-            insert_many_in_copy_way(data_ptr, num);
+            insert_many_raw_data(data_ptr, num);
         }
     }
 
-    void insert_many_raw_data(const char* pos, size_t num) override {
-        insert_many_in_copy_way(pos, num);
+    void insert_many_raw_data(const char* data_ptr, size_t num) override {
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -291,7 +282,7 @@ public:
         } else {
             if (this->is_date_type() || this->is_datetime_type()) {
                 char buf[64];
-                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[idx];
+                const auto& date_val = (const VecDateTimeValue&)data[idx];
                 auto len = date_val.to_buffer(buf);
                 hash = HashUtil::zlib_crc_hash(buf, len, hash);
             } else {
@@ -377,19 +368,6 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void fill(const value_type& element, size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        if constexpr (sizeof(value_type) == 1) {
-            memset(&data[old_size], element, sizeof(value_type) * num);
-        } else {
-            for (size_t i = 0; i < num; ++i) {
-                data[old_size + i] = element;
-            }
-        }
-    }
-
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
@@ -404,14 +382,13 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                           const IColumn::Selector& selector) const override {
-        return this->template scatter_impl<Self>(num_columns, selector);
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
     }
 
     bool is_fixed_and_contiguous() const override { return true; }

@@ -31,6 +31,7 @@ suite("test_crud_wlg") {
     sql "drop workload group if exists tag1_mem_wg1;"
     sql "drop workload group if exists tag1_mem_wg2;"
     sql "drop workload group if exists tag1_mem_wg3;"
+    sql "drop workload group if exists bypass_group;"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${table_name}` (
@@ -126,6 +127,12 @@ suite("test_crud_wlg") {
     sql "set workload_group=test_group;"
 
     qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+
+    // test drop workload group
+    sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    sql "drop workload group test_drop_wg"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
     // test memory_limit
     test {
@@ -300,21 +307,21 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
     Thread.sleep(10000)
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test insert into select will go to queue
     test {
-        sql "insert into ${table_name2} select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "insert into ${table_name2} select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test create table as select will go to queue
     test {
-        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
@@ -516,6 +523,81 @@ suite("test_crud_wlg") {
 
     qt_show_wg_tag "select name,MEMORY_LIMIT,CPU_HARD_LIMIT,TAG from information_schema.workload_groups where name in('tag1_wg1','tag1_wg2','tag2_wg1','tag1_wg3','tag1_mem_wg1','tag1_mem_wg2','tag1_mem_wg3') order by tag,name;"
 
+    // test bypass
+    sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
+    sql "set workload_group=bypass_group;"
+    test {
+        sql "select count(1) from information_schema.active_queries;"
+        exception "query waiting queue is full"
+    }
+
+    sql "set bypass_workload_group = true;"
+    sql "select count(1) from information_schema.active_queries;"
+
+    // test set remote scan pool
+    sql "drop workload group if exists test_remote_scan_wg;"
+    test {
+        sql "create workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='123');"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='123');"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='123');"
+        exception "must bigger or equal "
+    }
+
+    sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='20', 'min_remote_scan_thread_num'='10');"
+    qt_select_remote_scan_num "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='21')"
+    qt_select_remote_scan_num_2 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='5')"
+        exception "must bigger or equal"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='2')"
+    qt_select_remote_scan_num_3 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='30')"
+        exception "must bigger or equal"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='40', 'min_remote_scan_thread_num'='20')"
+    qt_select_remote_scan_num_4 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='5')"
+    qt_select_remote_scan_num_5 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='3', 'min_remote_scan_thread_num'='3')"
+    qt_select_remote_scan_num_6 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "drop workload group test_remote_scan_wg;"
+    sql "create workload group test_remote_scan_wg properties('cpu_share'='1024');"
+    test {
+        sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='30')"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='30')"
+        exception "must be specified simultaneously"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='5')"
+    qt_select_remote_scan_num_7 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='-1', 'min_remote_scan_thread_num'='-1')"
+    qt_select_remote_scan_num_8 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+    sql "drop workload group test_remote_scan_wg"
+
     sql "drop workload group tag1_wg1;"
     sql "drop workload group tag1_wg2;"
     sql "drop workload group if exists tag2_wg1;"
@@ -523,5 +605,6 @@ suite("test_crud_wlg") {
     sql "drop workload group tag1_mem_wg1;"
     sql "drop workload group tag1_mem_wg2;"
     sql "drop workload group tag1_mem_wg3;"
+    sql "drop workload group bypass_group;"
 
 }

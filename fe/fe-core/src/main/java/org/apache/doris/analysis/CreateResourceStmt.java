@@ -67,6 +67,24 @@ public class CreateResourceStmt extends DdlStmt {
         return resourceType;
     }
 
+    public void analyzeResourceType() throws UserException {
+        String type = properties.get(TYPE);
+        if (type == null) {
+            throw new AnalysisException("Resource type can't be null");
+        }
+        resourceType = ResourceType.fromString(type);
+        if (resourceType == ResourceType.UNKNOWN) {
+            throw new AnalysisException("Unsupported resource type: " + type);
+        }
+        if (resourceType == ResourceType.SPARK && !isExternal) {
+            throw new AnalysisException("Spark is external resource");
+        }
+        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
+            throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
+                    + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
+        }
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -83,21 +101,8 @@ public class CreateResourceStmt extends DdlStmt {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Resource properties can't be null");
         }
-        String type = properties.get(TYPE);
-        if (type == null) {
-            throw new AnalysisException("Resource type can't be null");
-        }
-        resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
-            throw new AnalysisException("Unsupported resource type: " + type);
-        }
-        if (resourceType == ResourceType.SPARK && !isExternal) {
-            throw new AnalysisException("Spark is external resource");
-        }
-        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
-            throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
-        }
+
+        analyzeResourceType();
     }
 
     @Override

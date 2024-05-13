@@ -73,6 +73,7 @@ struct TS3StorageParam {
     8: optional string root_path
     9: optional string bucket
     10: optional bool use_path_style = false
+    11: optional string token
 }
 
 struct TStoragePolicy {
@@ -98,6 +99,8 @@ struct TPushStoragePolicyReq {
     2: optional list<TStorageResource> resource
     3: optional list<i64> dropped_storage_policy
 }
+
+struct TCleanTrashReq {}
 
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
@@ -210,6 +213,7 @@ struct TAlterTabletReqV2 {
     // For cloud
     1000: optional i64 job_id
     1001: optional i64 expiration
+    1002: optional string storage_vault_id
 }
 
 struct TAlterInvertedIndexReq {
@@ -268,6 +272,7 @@ struct TPushReq {
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
+    17: optional string storage_vault_id
 }
 
 struct TCloneReq {
@@ -399,6 +404,10 @@ struct TPublishVersionRequest {
     4: optional set<Types.TTabletId> base_tablet_ids
 }
 
+struct TVisibleVersionReq {
+    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+}
+
 struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
@@ -510,6 +519,8 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+    34: optional TCleanTrashReq clean_trash_req
+    35: optional TVisibleVersionReq visible_version_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

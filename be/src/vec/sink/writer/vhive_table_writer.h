@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include "util/runtime_profile.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/writer/async_result_writer.h"
 
@@ -50,16 +51,14 @@ public:
     Status close(Status) override;
 
 private:
-    std::shared_ptr<VHivePartitionWriter> _create_partition_writer(vectorized::Block& block,
-                                                                   int position);
+    std::shared_ptr<VHivePartitionWriter> _create_partition_writer(
+            vectorized::Block& block, int position, const std::string* file_name = nullptr,
+            int file_name_index = 0);
 
     std::vector<std::string> _create_partition_values(vectorized::Block& block, int position);
 
     std::string _to_partition_value(const TypeDescriptor& type_desc,
                                     const ColumnWithTypeAndName& partition_column, int position);
-
-    std::string _get_file_extension(TFileFormatType::type file_format_type,
-                                    TFileCompressType::type write_compress_type);
 
     std::string _compute_file_name();
 
@@ -72,6 +71,24 @@ private:
     std::unordered_map<std::string, std::shared_ptr<VHivePartitionWriter>> _partitions_to_writers;
 
     VExprContextSPtrs _write_output_vexpr_ctxs;
+
+    size_t _row_count = 0;
+
+    // profile counters
+    int64_t _send_data_ns = 0;
+    int64_t _partition_writers_dispatch_ns = 0;
+    int64_t _partition_writers_write_ns = 0;
+    int64_t _close_ns = 0;
+    int64_t _write_file_count = 0;
+
+    RuntimeProfile::Counter* _written_rows_counter = nullptr;
+    RuntimeProfile::Counter* _send_data_timer = nullptr;
+    RuntimeProfile::Counter* _partition_writers_dispatch_timer = nullptr;
+    RuntimeProfile::Counter* _partition_writers_write_timer = nullptr;
+    RuntimeProfile::Counter* _partition_writers_count = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _write_file_counter = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

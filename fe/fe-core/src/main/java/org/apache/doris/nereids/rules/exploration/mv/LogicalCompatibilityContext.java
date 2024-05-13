@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.ExpressionPosition;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.Mapping.MappedRelation;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -32,33 +33,55 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * For outer join we should check the outer join compatibility between query and view
  */
 public class LogicalCompatibilityContext {
     private final BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping;
-    private final BiMap<Expression, Expression> queryToViewEdgeExpressionMapping;
     private final BiMap<Integer, Integer> queryToViewNodeIDMapping;
     private final ObjectId planNodeId;
+    private final Supplier<BiMap<Expression, Expression>> queryToViewJoinEdgeExpressionMappingSupplier;
+    private final Supplier<BiMap<Expression, Expression>> queryToViewNodeExpressionMappingSupplier;
+    private final Supplier<BiMap<Expression, Expression>> queryToViewFilterEdgeExpressionMappingSupplier;
+    @Deprecated
+    private BiMap<Expression, Expression> queryToViewAllExpressionMapping;
 
     /**
      * LogicalCompatibilityContext
      */
-    public LogicalCompatibilityContext(BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping,
-            BiMap<Expression, Expression> queryToViewEdgeExpressionMapping,
-            StructInfo queryStructInfo) {
+    private LogicalCompatibilityContext(BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping,
+            Map<SlotReference, SlotReference> viewToQuerySlotMapping, StructInfo queryStructInfo,
+            StructInfo viewStructInfo) {
+
+        this.queryToViewJoinEdgeExpressionMappingSupplier =
+                Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
+                        queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.JOIN_EDGE),
+                        viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.JOIN_EDGE)));
+
+        this.queryToViewNodeExpressionMappingSupplier =
+                Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
+                        queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE),
+                        viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE)));
+
+        this.queryToViewFilterEdgeExpressionMappingSupplier =
+                Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
+                        queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.FILTER_EDGE),
+                        viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.FILTER_EDGE)));
+
         this.queryToViewNodeMapping = queryToViewNodeMapping;
-        this.queryToViewEdgeExpressionMapping = queryToViewEdgeExpressionMapping;
         this.queryToViewNodeIDMapping = HashBiMap.create();
-        this.planNodeId = queryStructInfo.getOriginalPlan().getGroupExpression()
-                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         queryToViewNodeMapping.forEach((k, v) -> queryToViewNodeIDMapping.put(k.getIndex(), v.getIndex()));
+
+        this.planNodeId = queryStructInfo.getTopPlan().getGroupExpression()
+                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
     }
 
     public BiMap<StructInfoNode, StructInfoNode> getQueryToViewNodeMapping() {
@@ -69,8 +92,31 @@ public class LogicalCompatibilityContext {
         return queryToViewNodeIDMapping;
     }
 
-    public BiMap<Expression, Expression> getQueryToViewEdgeExpressionMapping() {
-        return queryToViewEdgeExpressionMapping;
+    /**
+     * Get all expression mapping in query to view
+     */
+    @Deprecated
+    public BiMap<Expression, Expression> getQueryToViewAllExpressionMapping() {
+        if (queryToViewAllExpressionMapping != null) {
+            return queryToViewAllExpressionMapping;
+        }
+        queryToViewAllExpressionMapping = HashBiMap.create();
+        queryToViewAllExpressionMapping.putAll(getQueryToViewJoinEdgeExpressionMapping());
+        queryToViewAllExpressionMapping.putAll(getQueryToViewNodeExpressionMapping());
+        queryToViewAllExpressionMapping.putAll(getQueryToViewFilterEdgeExpressionMapping());
+        return queryToViewAllExpressionMapping;
+    }
+
+    public BiMap<Expression, Expression> getQueryToViewJoinEdgeExpressionMapping() {
+        return queryToViewJoinEdgeExpressionMappingSupplier.get();
+    }
+
+    public BiMap<Expression, Expression> getQueryToViewNodeExpressionMapping() {
+        return queryToViewNodeExpressionMappingSupplier.get();
+    }
+
+    public BiMap<Expression, Expression> getQueryToViewFilterEdgeExpressionMapping() {
+        return queryToViewFilterEdgeExpressionMappingSupplier.get();
     }
 
     public ObjectId getPlanNodeId() {
@@ -104,24 +150,33 @@ public class LogicalCompatibilityContext {
         // init expression mapping
         Map<SlotReference, SlotReference> viewToQuerySlotMapping = queryToViewSlotMapping.inverse()
                 .toSlotReferenceMap();
-        Map<Expression, Expression> queryShuttledExprToExprMap =
-                queryStructInfo.getShuttledHashConjunctsToConjunctsMap();
-        Map<Expression, Expression> viewShuttledExprToExprMap =
-                viewStructInfo.getShuttledHashConjunctsToConjunctsMap();
+        return new LogicalCompatibilityContext(queryToViewNodeMapping,
+                viewToQuerySlotMapping,
+                queryStructInfo,
+                viewStructInfo);
+    }
+
+    private static BiMap<Expression, Expression> generateExpressionMapping(
+            Map<SlotReference, SlotReference> viewToQuerySlotMapping,
+            Map<Expression, Expression> queryShuttledExprToExprMap,
+            Map<Expression, Expression> viewShuttledExprToExprMap) {
         final Map<Expression, Expression> viewEdgeToConjunctsMapQueryBased = new HashMap<>();
+        BiMap<Expression, Expression> queryToViewEdgeMapping = HashBiMap.create();
+        if (queryShuttledExprToExprMap == null || viewShuttledExprToExprMap == null
+                || queryShuttledExprToExprMap.isEmpty() || viewShuttledExprToExprMap.isEmpty()) {
+            return queryToViewEdgeMapping;
+        }
         viewShuttledExprToExprMap.forEach((shuttledExpr, expr) -> {
             viewEdgeToConjunctsMapQueryBased.put(
-                    orderSlotAsc(ExpressionUtils.replace(shuttledExpr, viewToQuerySlotMapping)),
-                    expr);
+                    orderSlotAsc(ExpressionUtils.replace(shuttledExpr, viewToQuerySlotMapping)), expr);
         });
-        BiMap<Expression, Expression> queryToViewEdgeMapping = HashBiMap.create();
         queryShuttledExprToExprMap.forEach((exprSet, edge) -> {
             Expression viewExpr = viewEdgeToConjunctsMapQueryBased.get(orderSlotAsc(exprSet));
             if (viewExpr != null) {
                 queryToViewEdgeMapping.put(edge, viewExpr);
             }
         });
-        return new LogicalCompatibilityContext(queryToViewNodeMapping, queryToViewEdgeMapping, queryStructInfo);
+        return queryToViewEdgeMapping;
     }
 
     private static Expression orderSlotAsc(Expression expression) {
@@ -151,6 +206,14 @@ public class LogicalCompatibilityContext {
     public String toString() {
         return Utils.toSqlString("LogicalCompatibilityContext",
                 "queryToViewNodeMapping", queryToViewNodeMapping.toString(),
-                "queryToViewEdgeExpressionMapping", queryToViewEdgeExpressionMapping.toString());
+                "queryToViewJoinEdgeExpressionMapping",
+                queryToViewJoinEdgeExpressionMappingSupplier.get() == null
+                        ? "" : queryToViewJoinEdgeExpressionMappingSupplier.get().toString(),
+                "queryToViewNodeExpressionMapping",
+                queryToViewNodeExpressionMappingSupplier.get() == null
+                        ? "" : queryToViewNodeExpressionMappingSupplier.get().toString(),
+                "queryToViewFilterEdgeExpressionMapping",
+                queryToViewFilterEdgeExpressionMappingSupplier.get() == null
+                        ? "" : queryToViewFilterEdgeExpressionMappingSupplier.get().toString());
     }
 }

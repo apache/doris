@@ -25,6 +25,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
@@ -41,9 +42,16 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           spill_dir_(std::move(spill_dir)),
           batch_rows_(batch_rows),
           batch_bytes_(batch_bytes),
-          profile_(profile) {
-    io_thread_pool_ =
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool(data_dir->path());
+          profile_(profile) {}
+
+SpillStream::~SpillStream() {
+    bool exists = false;
+    auto status = io::global_local_filesystem()->exists(spill_dir_, &exists);
+    if (status.ok() && exists) {
+        auto gc_dir = fmt::format("{}/{}/{}", get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
+                                  std::filesystem::path(spill_dir_).filename().string());
+        (void)io::global_local_filesystem()->rename(spill_dir_, gc_dir);
+    }
 }
 
 Status SpillStream::prepare() {
@@ -59,14 +67,6 @@ void SpillStream::close() {
     }
     VLOG_ROW << "closing: " << stream_id_;
     closed_ = true;
-    if (spill_promise_) {
-        spill_future_.wait();
-        spill_promise_.reset();
-    }
-    if (read_promise_) {
-        read_future_.wait();
-        read_promise_.reset();
-    }
 
     if (writer_) {
         (void)writer_->close();
@@ -78,33 +78,20 @@ void SpillStream::close() {
     }
 }
 
+const TUniqueId& SpillStream::query_id() const {
+    return state_->query_id();
+}
+
 const std::string& SpillStream::get_spill_root_dir() const {
     return data_dir_->path();
 }
 Status SpillStream::prepare_spill() {
-    DCHECK(!spill_promise_);
-    RETURN_IF_ERROR(writer_->open());
-
-    spill_promise_ = std::make_unique<std::promise<Status>>();
-    spill_future_ = spill_promise_->get_future();
-    return Status::OK();
-}
-void SpillStream::end_spill(const Status& status) {
-    spill_promise_->set_value(status);
+    return writer_->open();
 }
 
-Status SpillStream::wait_spill() {
-    if (spill_promise_) {
-        auto status = spill_future_.get();
-        spill_promise_.reset();
-        return status;
-    }
-    return Status::OK();
-}
-
-Status SpillStream::spill_block(const Block& block, bool eof) {
+Status SpillStream::spill_block(RuntimeState* state, const Block& block, bool eof) {
     size_t written_bytes = 0;
-    RETURN_IF_ERROR(writer_->write(block, written_bytes));
+    RETURN_IF_ERROR(writer_->write(state, block, written_bytes));
     if (eof) {
         RETURN_IF_ERROR(writer_->close());
         writer_.reset();
@@ -119,31 +106,13 @@ Status SpillStream::spill_eof() {
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
-    DCHECK(!read_promise_);
     DCHECK(reader_ != nullptr);
-    Status status;
-    read_promise_ = std::make_unique<std::promise<Status>>();
-    read_future_ = read_promise_->get_future();
-    // use thread pool to limit concurrent io tasks
-    status = io_thread_pool_->submit_func([this, block, eos] {
-        SCOPED_ATTACH_TASK(state_);
-        Status st;
-        Defer defer {[&]() { read_promise_->set_value(st); }};
-        st = reader_->open();
-        if (!st.ok()) {
-            return;
-        }
-        st = reader_->read(block, eos);
-    });
-    if (!status.ok()) {
-        LOG(WARNING) << "read spill data failed: " << status;
-        read_promise_.reset();
-        return status;
-    }
+    DCHECK(!_is_reading);
+    _is_reading = true;
+    Defer defer([this] { _is_reading = false; });
 
-    status = read_future_.get();
-    read_promise_.reset();
-    return status;
+    RETURN_IF_ERROR(reader_->open());
+    return reader_->read(block, eos);
 }
 
 } // namespace doris::vectorized

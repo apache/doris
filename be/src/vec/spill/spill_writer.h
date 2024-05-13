@@ -25,6 +25,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
+class RuntimeState;
 
 namespace vectorized {
 class SpillDataDir;
@@ -35,13 +36,11 @@ public:
         file_path_ = dir + "/" + std::to_string(file_index_);
     }
 
-    ~SpillWriter();
-
     Status open();
 
     Status close();
 
-    Status write(const Block& block, size_t& written_bytes);
+    Status write(RuntimeState* state, const Block& block, size_t& written_bytes);
 
     int64_t get_id() const { return stream_id_; }
 

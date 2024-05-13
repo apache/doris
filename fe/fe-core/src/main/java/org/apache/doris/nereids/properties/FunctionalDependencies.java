@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,19 +40,30 @@ public class FunctionalDependencies {
 
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
             = new FunctionalDependencies(new NestedSet().toImmutable(),
-                    new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build());
+                    new NestedSet().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
+                    ImmutableEqualSet.empty(), new FuncDepsDG.Builder().build());
     private final NestedSet uniqueSet;
     private final NestedSet uniformSet;
     private final ImmutableSet<FdItem> fdItems;
+    private final ImmutableEqualSet<Slot> equalSet;
+    private final FuncDepsDG fdDg;
 
-    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems) {
+    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet, ImmutableSet<FdItem> fdItems,
+            ImmutableEqualSet<Slot> equalSet, FuncDepsDG fdDg) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
         this.fdItems = fdItems;
+        this.equalSet = equalSet;
+        this.fdDg = fdDg;
     }
 
     public boolean isEmpty() {
-        return uniformSet.isEmpty() && uniqueSet.isEmpty();
+        return uniformSet.isEmpty() && uniqueSet.isEmpty() && equalSet.isEmpty() && fdDg.isEmpty();
+    }
+
+    public boolean isDependent(Set<Slot> dominate, Set<Slot> dependency) {
+        return fdDg.findValidFuncDeps(Sets.union(dependency, dominate))
+                .isFuncDeps(dominate, dependency);
     }
 
     public boolean isUnique(Slot slot) {
@@ -63,7 +78,7 @@ public class FunctionalDependencies {
         return uniformSet.contains(slot);
     }
 
-    public boolean isUniform(ImmutableSet<Slot> slotSet) {
+    public boolean isUniform(Set<Slot> slotSet) {
         return !slotSet.isEmpty()
                 && (uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains));
     }
@@ -87,13 +102,30 @@ public class FunctionalDependencies {
         return slotSet.stream().noneMatch(Slot::nullable) && isUniform(slotSet);
     }
 
+    public boolean isNullSafeEqual(Slot l, Slot r) {
+        return equalSet.isEqual(l, r);
+    }
+
+    public FuncDeps getAllValidFuncDeps(Set<Slot> validSlots) {
+        return fdDg.findValidFuncDeps(validSlots);
+    }
+
+    public boolean isEqualAndNotNotNull(Slot l, Slot r) {
+        return equalSet.isEqual(l, r) && !l.nullable() && !r.nullable();
+    }
+
+    public List<Set<Slot>> calAllEqualSet() {
+        return equalSet.calEqualSetList();
+    }
+
     public ImmutableSet<FdItem> getFdItems() {
         return fdItems;
     }
 
     @Override
     public String toString() {
-        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s]", uniformSet, uniqueSet, fdItems);
+        return String.format("FuncDeps[uniform:%s, unique:%s, fdItems:%s, equalSet:%s, funcDeps: %s]",
+                uniformSet, uniqueSet, fdItems, equalSet, fdDg);
     }
 
     /**
@@ -103,17 +135,23 @@ public class FunctionalDependencies {
         private final NestedSet uniqueSet;
         private final NestedSet uniformSet;
         private ImmutableSet<FdItem> fdItems;
+        private final ImmutableEqualSet.Builder<Slot> equalSetBuilder;
+        private final FuncDepsDG.Builder fdDgBuilder;
 
         public Builder() {
             uniqueSet = new NestedSet();
             uniformSet = new NestedSet();
             fdItems = new ImmutableSet.Builder<FdItem>().build();
+            equalSetBuilder = new ImmutableEqualSet.Builder<>();
+            fdDgBuilder = new FuncDepsDG.Builder();
         }
 
         public Builder(FunctionalDependencies other) {
             this.uniformSet = new NestedSet(other.uniformSet);
             this.uniqueSet = new NestedSet(other.uniqueSet);
             this.fdItems = ImmutableSet.copyOf(other.fdItems);
+            equalSetBuilder = new ImmutableEqualSet.Builder<>(other.equalSet);
+            fdDgBuilder = new FuncDepsDG.Builder(other.fdDg);
         }
 
         public void addUniformSlot(Slot slot) {
@@ -136,6 +174,10 @@ public class FunctionalDependencies {
             uniqueSet.add(slotSet);
         }
 
+        public void addUniqueSlot(FunctionalDependencies functionalDependencies) {
+            uniqueSet.add(functionalDependencies.uniqueSet);
+        }
+
         public void addFdItems(ImmutableSet<FdItem> items) {
             fdItems = ImmutableSet.copyOf(items);
         }
@@ -143,11 +185,73 @@ public class FunctionalDependencies {
         public void addFunctionalDependencies(FunctionalDependencies fd) {
             uniformSet.add(fd.uniformSet);
             uniqueSet.add(fd.uniqueSet);
+            equalSetBuilder.addEqualSet(fd.equalSet);
+            fdDgBuilder.addDeps(fd.fdDg);
+        }
+
+        public void addFuncDepsDG(FunctionalDependencies fd) {
+            fdDgBuilder.addDeps(fd.fdDg);
+        }
+
+        public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
+            fdDgBuilder.addDeps(dominate, dependency);
+        }
+
+        /**
+         * add equal set in func deps.
+         * For equal Set {a1, a2, a3}, we will add (a1, a2) (a1, a3)
+         */
+        public void addDepsByEqualSet(Set<Slot> equalSet) {
+            if (equalSet.size() < 2) {
+                return;
+            }
+            Iterator<Slot> iterator = equalSet.iterator();
+            Set<Slot> first = ImmutableSet.of(iterator.next());
+
+            while (iterator.hasNext()) {
+                Set<Slot> slotSet = ImmutableSet.of(iterator.next());
+                fdDgBuilder.addDeps(first, slotSet);
+                fdDgBuilder.addDeps(slotSet, first);
+            }
+        }
+
+        public List<Set<Slot>> calEqualSetList() {
+            return equalSetBuilder.calEqualSetList();
+        }
+
+        /**
+         * get all unique slots
+         */
+        public List<Set<Slot>> getAllUnique() {
+            List<Set<Slot>> res = new ArrayList<>(uniqueSet.slotSets);
+            for (Slot s : uniqueSet.slots) {
+                res.add(ImmutableSet.of(s));
+            }
+            return res;
+        }
+
+        /**
+         * get all uniform slots
+         */
+        public List<Set<Slot>> getAllUniform() {
+            List<Set<Slot>> res = new ArrayList<>(uniformSet.slotSets);
+            for (Slot s : uniformSet.slots) {
+                res.add(ImmutableSet.of(s));
+            }
+            return res;
+        }
+
+        public void addEqualPair(Slot l, Slot r) {
+            equalSetBuilder.addEqualPair(l, r);
+        }
+
+        public void addEqualSet(FunctionalDependencies functionalDependencies) {
+            equalSetBuilder.addEqualSet(functionalDependencies.equalSet);
         }
 
         public FunctionalDependencies build() {
             return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable(),
-                    ImmutableSet.copyOf(fdItems));
+                    ImmutableSet.copyOf(fdItems), equalSetBuilder.build(), fdDgBuilder.build());
         }
 
         public void pruneSlots(Set<Slot> outputSlots) {
@@ -158,6 +262,7 @@ public class FunctionalDependencies {
         public void replace(Map<Slot, Slot> replaceMap) {
             uniformSet.replace(replaceMap);
             uniqueSet.replace(replaceMap);
+            equalSetBuilder.replace(replaceMap);
         }
     }
 
@@ -184,11 +289,11 @@ public class FunctionalDependencies {
             return slots.contains(slot);
         }
 
-        public boolean contains(ImmutableSet<Slot> slotSet) {
+        public boolean contains(Set<Slot> slotSet) {
             if (slotSet.size() == 1) {
                 return slots.contains(slotSet.iterator().next());
             }
-            return slotSets.contains(slotSet);
+            return slotSets.contains(ImmutableSet.copyOf(slotSet));
         }
 
         public boolean containsAnySub(Set<Slot> slotSet) {

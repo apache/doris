@@ -24,6 +24,23 @@
 
 namespace doris {
 
+class AsyncCancelQueryTask : public Runnable {
+    ENABLE_FACTORY_CREATOR(AsyncCancelQueryTask);
+
+public:
+    AsyncCancelQueryTask(TUniqueId query_id, const std::string& exceed_msg)
+            : _query_id(query_id), _exceed_msg(exceed_msg) {}
+    ~AsyncCancelQueryTask() override = default;
+    void run() override {
+        ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                _query_id, Status::MemoryLimitExceeded(_exceed_msg));
+    }
+
+private:
+    TUniqueId _query_id;
+    const std::string _exceed_msg;
+};
+
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
@@ -42,9 +59,18 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
-    if (is_attach_query()) {
-        ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
+    if (is_attach_query() && !_is_query_cancelled) {
+        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                AsyncCancelQueryTask::create_shared(_query_id, exceed_msg));
+        if (submit_st.ok()) {
+            // Use this flag to avoid the cancel request submit to pool many times, because even we cancel the query
+            // successfully, but the application may not use if (state.iscancelled) to exist quickly. And it may try to
+            // allocate memory and may failed again and the pool will be full.
+            _is_query_cancelled = true;
+        } else {
+            LOG(WARNING) << "Failed to submit cancel query task to pool, query_id "
+                         << print_id(_query_id) << ", error st " << submit_st;
+        }
     }
 }
 

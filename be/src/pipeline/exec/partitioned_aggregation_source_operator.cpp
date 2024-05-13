@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
-#include "vec//utils/util.hpp"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -123,12 +122,19 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer defer {[&]() {
+        if (!local_state._status.ok() || *eos) {
+            local_state._shared_state->close();
+        }
+    }};
+
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
     if (local_state._shared_state->is_spilled) {
-        RETURN_IF_ERROR(local_state.initiate_merge_spill_partition_agg_data(state));
+        local_state._status = local_state.initiate_merge_spill_partition_agg_data(state);
+        RETURN_IF_ERROR(local_state._status);
 
         /// When `_is_merging` is true means we are reading spilled data and merging the data into hash table.
         if (local_state._is_merging) {
@@ -138,7 +144,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
 
     // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
-    RETURN_IF_ERROR(_agg_source_operator->get_block(runtime_state, block, eos));
+    local_state._status = _agg_source_operator->get_block(runtime_state, block, eos);
+    RETURN_IF_ERROR(local_state._status);
     if (local_state._runtime_state) {
         auto* source_local_state =
                 local_state._runtime_state->get_local_state(_agg_source_operator->operator_id());
@@ -190,31 +197,54 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
     }
 
     _is_merging = true;
-    LOG(INFO) << "agg node " << _parent->node_id() << " merge spilled agg data";
+    VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node " << _parent->node_id()
+               << " merge spilled agg data";
 
     RETURN_IF_ERROR(Base::_shared_state->in_mem_shared_state->reset_hash_table());
     _dependency->Dependency::block();
 
     auto execution_context = state->get_task_execution_context();
-    _shared_state_holder = _shared_state->shared_from_this();
+    /// Resources in shared state will be released when the operator is closed,
+    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
+    /// So, we need hold the pointer of shared state.
+    std::weak_ptr<PartitionedAggSharedState> shared_state_holder =
+            _shared_state->shared_from_this();
+    auto query_id = state->query_id();
+    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
+
+    MonotonicStopWatch submit_timer;
+    submit_timer.start();
+
     RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-                    [this, state, execution_context] {
-                        auto execution_context_lock = execution_context.lock();
-                        if (!execution_context_lock) {
-                            LOG(INFO) << "execution_context released, maybe query was cancelled.";
+            ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+                    [this, state, query_id, mem_tracker, shared_state_holder, execution_context,
+                     submit_timer] {
+                        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+                        std::shared_ptr<TaskExecutionContext> execution_context_lock;
+                        auto shared_state_sptr = shared_state_holder.lock();
+                        if (shared_state_sptr) {
+                            execution_context_lock = execution_context.lock();
+                        }
+                        if (!shared_state_sptr || !execution_context_lock) {
+                            LOG(INFO) << "query " << print_id(query_id)
+                                      << " execution_context released, maybe query was cancelled.";
                             // FIXME: return status is meaningless?
                             return Status::Cancelled("Cancelled");
                         }
 
-                        SCOPED_ATTACH_TASK(state);
+                        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                         Defer defer {[&]() {
-                            if (!_status.ok()) {
-                                LOG(WARNING) << "agg node " << _parent->node_id()
-                                             << " merge spilled agg data error: " << _status;
+                            if (!_status.ok() || state->is_cancelled()) {
+                                if (!_status.ok()) {
+                                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                                                 << _parent->node_id()
+                                                 << " merge spilled agg data error: " << _status;
+                                }
+                                _shared_state->close();
                             } else if (_shared_state->spill_partitions.empty()) {
-                                LOG(INFO) << "agg node " << _parent->node_id()
-                                          << " merge spilled agg data finish";
+                                VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                                           << _parent->node_id()
+                                           << " merge spilled agg data finish";
                             }
                             Base::_shared_state->in_mem_shared_state->aggregate_data_container
                                     ->init_once();
@@ -227,12 +257,12 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                                !_shared_state->spill_partitions.empty()) {
                             for (auto& stream :
                                  _shared_state->spill_partitions[0]->spill_streams_) {
-                                stream->set_read_counters(Base::_spill_read_data_time,
-                                                          Base::_spill_deserialize_time,
-                                                          Base::_spill_read_bytes);
+                                stream->set_read_counters(
+                                        Base::_spill_read_data_time, Base::_spill_deserialize_time,
+                                        Base::_spill_read_bytes, Base::_spill_read_wait_io_timer);
                                 vectorized::Block block;
                                 bool eos = false;
-                                while (!eos) {
+                                while (!eos && !state->is_cancelled()) {
                                     {
                                         SCOPED_TIMER(Base::_spill_recover_time);
                                         _status = stream->read_next_block_sync(&block, &eos);

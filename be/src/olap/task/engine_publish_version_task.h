@@ -121,7 +121,7 @@ public:
               _partition_id(partition_id),
               _transaction_id(transaction_id),
               _version(version),
-              _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+              _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                             "AsyncTabletPublishTask")) {
         _stats.submit_time_us = MonotonicMicros();
     }

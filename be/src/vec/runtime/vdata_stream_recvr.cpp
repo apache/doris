@@ -349,7 +349,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
           _is_closed(false),
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
-          _enable_pipeline(state->enable_pipeline_exec()) {
+          _enable_pipeline(state->enable_pipeline_x_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
             std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
@@ -361,8 +361,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
         _sender_to_local_channel_dependency.resize(num_queues);
         for (size_t i = 0; i < num_queues; i++) {
             _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
-                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true,
-                    state->get_query_ctx());
+                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
         }
     }
     _sender_queues.reserve(num_queues);
@@ -555,6 +554,15 @@ void VDataStreamRecvr::PipSenderQueue::add_block(Block* block, bool use_move) {
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         update_blocks_memory_usage(block_mem_size);
         _data_arrival_cv.notify_one();
+    }
+}
+
+void VDataStreamRecvr::set_sink_dep_always_ready() const {
+    for (auto* sender_queues : sender_queues()) {
+        auto dep = sender_queues->local_channel_dependency();
+        if (dep) {
+            dep->set_always_ready();
+        }
     }
 }
 

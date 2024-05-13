@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -39,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Except.
@@ -109,29 +109,8 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies
-                .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = outputSupplier.get();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(0).getOutput()
-                : regularChildrenOutputs.get(0);
-        for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
-        }
-        builder.replace(replaceMap);
-        if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
-        }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()
@@ -151,5 +130,64 @@ public class LogicalExcept extends LogicalSetOperation {
         }
 
         return builder.build();
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        if (qualifier == Qualifier.DISTINCT) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
+        }
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        fdBuilder.replace(replaceMap);
     }
 }

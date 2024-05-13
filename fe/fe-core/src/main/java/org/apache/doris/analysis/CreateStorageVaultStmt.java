@@ -19,9 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -34,10 +37,12 @@ import java.util.Map;
 // PROPERTIES (key1 = value1, ...)
 public class CreateStorageVaultStmt extends DdlStmt {
     private static final String TYPE = "type";
+    private static final String SET_AS_DEFAULT = "set_as_default";
 
     private final boolean ifNotExists;
     private final String vaultName;
     private final Map<String, String> properties;
+    private boolean setAsDefault;
     private StorageVault.StorageVaultType vaultType;
 
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
@@ -49,6 +54,10 @@ public class CreateStorageVaultStmt extends DdlStmt {
 
     public boolean isIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean setAsDefault() {
+        return setAsDefault;
     }
 
     public String getStorageVaultName() {
@@ -72,6 +81,15 @@ public class CreateStorageVaultStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (Config.isNotCloudMode()) {
+            throw new AnalysisException("Storage Vault is only supported for cloud mode");
+        }
+        if (!FeConstants.runningUnitTest) {
+            // In legacy cloud mode, some s3 back-ended storage does need to use storage vault.
+            if (!((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+                throw new AnalysisException("Your cloud instance doesn't support storage vault");
+            }
+        }
         super.analyze(analyzer);
 
         // check auth
@@ -90,6 +108,7 @@ public class CreateStorageVaultStmt extends DdlStmt {
         if (type == null) {
             throw new AnalysisException("Storage Vault type can't be null");
         }
+        setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
     }
 

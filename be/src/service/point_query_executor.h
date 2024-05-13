@@ -91,8 +91,6 @@ public:
 
     const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
-    int64_t mem_size() const;
-
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -105,7 +103,6 @@ private:
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
     std::vector<std::string> _col_default_values;
-    int64_t _mem_size = 0;
 };
 
 // RowCache is a LRU cache for row store
@@ -214,8 +211,8 @@ private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::SIZE, config::tablet_lookup_cache_stale_sweep_time_sec) {
-    }
+                             LRUCacheType::NUMBER,
+                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -227,11 +224,10 @@ private:
         std::string key = encode_key(cache_id);
         auto* value = new CacheValue;
         value->item = item;
-        LOG(INFO) << "Add item mem size " << item->mem_size()
+        LOG(INFO) << "Add item mem"
                   << ", cache_capacity: " << get_total_capacity()
                   << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
-        auto* lru_handle =
-                insert(key, value, item->mem_size(), item->mem_size(), CachePriority::NORMAL);
+        auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }
 
@@ -316,7 +312,6 @@ private:
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
     // snapshot read version

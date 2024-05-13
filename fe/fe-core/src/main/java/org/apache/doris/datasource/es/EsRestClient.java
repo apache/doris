@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.es;
 
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.util.JsonUtil;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -235,11 +236,19 @@ public class EsRestClient {
         if (!currentNode.endsWith("/")) {
             currentNode = currentNode + "/";
         }
-        Request request = builder.get().url(currentNode + path).build();
-        if (LOG.isInfoEnabled()) {
-            LOG.info("es rest client request URL: {}", request.url().toString());
+        String url = currentNode + path;
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(url);
+            Request request = builder.get().url(currentNode + path).build();
+            if (LOG.isInfoEnabled()) {
+                LOG.info("es rest client request URL: {}", request.url().toString());
+            }
+            return httpClient.newCall(request).execute();
+        } catch (Exception e) {
+            throw new IOException(e);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
-        return httpClient.newCall(request).execute();
     }
 
     /**

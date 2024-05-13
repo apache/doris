@@ -65,7 +65,7 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
           _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     g_memtable_cnt << 1;
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     // TODO: Support ZOrderComparator in the future
@@ -210,8 +210,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
     }
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
-    size_t input_size = target_block.bytes() * num_rows / target_block.rows() *
-                        config::memtable_insert_memory_ratio;
+    auto input_size = size_t(target_block.bytes() * num_rows / target_block.rows() *
+                             config::memtable_insert_memory_ratio);
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {

@@ -68,11 +68,11 @@ std::string WorkloadGroup::debug_string() const {
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "spill_low_watermark={}, spill_high_watermark={}]",
+            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _spill_low_watermark, _spill_high_watermark);
+            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -112,14 +112,14 @@ int64_t WorkloadGroup::memory_used() {
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
-            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
+            used_memory += tracker->consumption();
         }
     }
     return used_memory;
 }
 
 void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
-    _weighted_mem_used.store(wg_total_mem_used * ratio, std::memory_order_relaxed);
+    _weighted_mem_used.store(int64_t(wg_total_mem_used * ratio), std::memory_order_relaxed);
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
@@ -142,30 +142,47 @@ void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter
     }
 }
 
-int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
     if (need_free_mem <= 0) {
         return 0;
     }
     int64_t used_memory = memory_used();
     int64_t freed_mem = 0;
 
-    std::string cancel_str = fmt::format(
-            "work load group memory exceeded limit, group id:{}, name:{}, used:{}, limit:{}, "
-            "backend:{}.",
-            _id, _name, MemTracker::print_bytes(used_memory),
-            MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
-    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
-                                                  const std::string& label) {
+    std::string cancel_str = "";
+    if (is_minor_gc) {
+        cancel_str = fmt::format(
+                "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
+                "backend:{}.",
+                _id, _name, MemTracker::print_bytes(used_memory),
+                MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+    } else {
+        if (_enable_memory_overcommit) {
+            cancel_str = fmt::format(
+                    "FullGC release wg overcommit mem, wg id:{}, name:{}, "
+                    "used:{},limit:{},backend:{}.",
+                    _id, _name, MemTracker::print_bytes(used_memory),
+                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+        } else {
+            cancel_str = fmt::format(
+                    "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
+                    "backend:{}.",
+                    _id, _name, MemTracker::print_bytes(used_memory),
+                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+        }
+    }
+    std::string process_mem_usage_str = MemTrackerLimiter::process_mem_log_str();
+    auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
+                                                                         const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. execute again after "
-                "enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption), process_mem_usage_str);
     };
-    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. execute again after "
-                "enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+    auto cancel_top_usage_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
+                                                                    const std::string& label) {
+        return fmt::format("{} cancel top memory used tracker <{}> consumption {}. details:{}",
+                           cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                           process_mem_usage_str);
     };
 
     LOG(INFO) << fmt::format(
@@ -188,7 +205,8 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile)
                 _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
                 MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     }
-    if (freed_mem >= need_free_mem) {
+    // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
+    if (is_minor_gc || freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
@@ -295,7 +313,8 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
     }
 
     // 10 max remote scan thread num
-    workload_group_info->max_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    workload_group_info->max_remote_scan_thread_num =
+            vectorized::ScannerScheduler::get_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         workload_group_info->max_remote_scan_thread_num =
@@ -303,7 +322,8 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
     }
 
     // 11 min remote scan thread num
-    workload_group_info->min_remote_scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    workload_group_info->min_remote_scan_thread_num =
+            vectorized::ScannerScheduler::get_remote_scan_thread_num();
     if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
         tworkload_group_info.min_remote_scan_thread_num > 0) {
         workload_group_info->min_remote_scan_thread_num =
@@ -359,9 +379,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         }
         auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::TaskScheduler>(
-                        exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
-                        "Pipe_" + tg_name, cg_cpu_ctl_ptr);
+                std::make_unique<pipeline::TaskScheduler>(exec_env, std::move(task_queue),
+                                                          "Pipe_" + tg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
@@ -374,7 +393,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + tg_name,
                                                                       cg_cpu_ctl_ptr);
-        Status ret = scan_scheduler->start();
+        Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
+                                           config::doris_scanner_thread_pool_thread_num,
+                                           config::doris_scanner_thread_pool_queue_size);
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
         } else {
@@ -382,14 +403,18 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         }
     }
     if (scan_thread_num > 0 && _scan_task_sched) {
-        _scan_task_sched->reset_thread_num(scan_thread_num);
+        _scan_task_sched->reset_thread_num(scan_thread_num, scan_thread_num);
     }
 
     if (_remote_scan_task_sched == nullptr) {
+        int remote_max_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+        int remote_scan_thread_queue_size =
+                vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
                                                                       cg_cpu_ctl_ptr);
-        Status ret = remote_scan_scheduler->start();
+        Status ret = remote_scan_scheduler->start(remote_max_thread_num, remote_max_thread_num,
+                                                  remote_scan_thread_queue_size);
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
@@ -397,11 +422,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                       << tg_id;
         }
     }
-    if (max_remote_scan_thread_num > 0 && _remote_scan_task_sched) {
-        _remote_scan_task_sched->reset_max_thread_num(max_remote_scan_thread_num);
-    }
-    if (min_remote_scan_thread_num > 0 && _remote_scan_task_sched) {
-        _remote_scan_task_sched->reset_min_thread_num(min_remote_scan_thread_num);
+    if (max_remote_scan_thread_num >= min_remote_scan_thread_num && _remote_scan_task_sched) {
+        _remote_scan_task_sched->reset_thread_num(max_remote_scan_thread_num,
+                                                  min_remote_scan_thread_num);
     }
 
     if (_non_pipe_thread_pool == nullptr) {
@@ -454,7 +477,7 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 }
 
 void WorkloadGroup::try_stop_schedulers() {
-    std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
     }

@@ -20,7 +20,10 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#endif
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <butil/iobuf.h>
 #include <math.h>
@@ -211,6 +214,7 @@ void Daemon::memory_maintenance_thread() {
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
+            doris::MemTrackerLimiter::clean_tracker_limiter_group();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
             // Refresh mem tracker each type counter.
@@ -285,7 +289,7 @@ void Daemon::memory_gc_thread() {
     }
 }
 
-void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
+void Daemon::memtable_memory_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
@@ -403,9 +407,8 @@ void Daemon::start() {
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "memtable_memory_limiter_tracker_refresh_thread",
-            [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
-            &_threads.emplace_back());
+            "Daemon", "memtable_memory_refresh_thread",
+            [this]() { this->memtable_memory_refresh_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {

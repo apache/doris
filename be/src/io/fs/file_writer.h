@@ -28,13 +28,22 @@
 
 namespace doris::io {
 class FileSystem;
+struct FileCacheAllocatorBuilder;
 
 // Only affects remote file writers
 struct FileWriterOptions {
+    // S3 committer will start multipart uploading all files on BE side,
+    // and then complete multipart upload these files on FE side.
+    // If you do not complete multi parts of a file, the file will not be visible.
+    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
+    // guarantee the atomicity of multiple files.
+    // Because hive committers have best-effort semantics,
+    // this shortens the inconsistent time window.
+    bool used_by_s3_committer = false;
     bool write_file_cache = false;
     bool is_cold_data = false;
-    bool sync_file_data = true;        // Whether flush data into storage system
-    int64_t file_cache_expiration = 0; // Absolute time
+    bool sync_file_data = true;         // Whether flush data into storage system
+    uint64_t file_cache_expiration = 0; // Absolute time
 };
 
 class FileWriter {
@@ -62,6 +71,8 @@ public:
     virtual size_t bytes_appended() const = 0;
 
     virtual bool closed() const = 0;
+
+    virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 };
 
 } // namespace doris::io

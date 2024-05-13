@@ -5,7 +5,7 @@ internal
 -- !show_db --
 doris_test
 information_schema
-performance_schema
+mysql
 
 -- !sql --
 internal
@@ -59,6 +59,7 @@ triggers
 user_privileges
 views
 workload_groups
+workload_policy
 
 -- !auto_default_t --
 0

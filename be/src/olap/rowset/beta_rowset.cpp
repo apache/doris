@@ -26,6 +26,7 @@
 #include <ostream>
 #include <utility>
 
+#include "beta_rowset.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -124,6 +125,21 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     return Status::OK();
 }
 
+void BetaRowset::clear_inverted_index_cache() {
+    for (int i = 0; i < num_segments(); ++i) {
+        auto seg_path = segment_file_path(i);
+        for (auto& column : tablet_schema()->columns()) {
+            const TabletIndex* index_meta = tablet_schema()->get_inverted_index(*column);
+            if (index_meta) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id(), index_meta->get_index_suffix());
+                (void)segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                        inverted_index_file);
+            }
+        }
+    }
+}
+
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
@@ -188,8 +204,8 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
-                                              _rowset_meta->num_segments());
+    clear_cache();
+
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -226,10 +242,6 @@ Status BetaRowset::remove() {
                         LOG(WARNING) << st.to_string();
                         success = false;
                     }
-                }
-                if (success) {
-                    RETURN_IF_ERROR(segment_v2::InvertedIndexSearcherCache::instance()->erase(
-                            inverted_index_file));
                 }
             }
         }
@@ -576,24 +588,41 @@ Status BetaRowset::add_to_binlog() {
         }
         linked_success_files.push_back(binlog_file);
 
-        for (const auto& index : _schema->indexes()) {
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
+        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index : _schema->indexes()) {
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                auto index_id = index.index_id();
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_file, index_id, index.get_index_suffix());
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            auto index_id = index.index_id();
-            auto index_file = InvertedIndexDescriptor::get_index_file_name(
-                    seg_file, index_id, index.get_index_suffix());
-            auto binlog_index_file = (std::filesystem::path(binlog_dir) /
-                                      std::filesystem::path(index_file).filename())
-                                             .string();
-            VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-            if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
-                status = Status::Error<OS_ERROR>(
-                        "fail to create hard link. from={}, to={}, errno={}", index_file,
-                        binlog_index_file, Errno::no());
-                return status;
+        } else {
+            if (_schema->has_inverted_index()) {
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(seg_file);
+                auto binlog_index_file = (std::filesystem::path(binlog_dir) /
+                                          std::filesystem::path(index_file).filename())
+                                                 .string();
+                VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
+                if (!local_fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
+                linked_success_files.push_back(binlog_index_file);
             }
-            linked_success_files.push_back(binlog_index_file);
         }
     }
 

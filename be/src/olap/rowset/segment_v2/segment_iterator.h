@@ -76,18 +76,20 @@ struct ColumnPredicateInfo {
     std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << query_value;
+           << ", query_value=" << join(query_values, ",");
         return ss.str();
     }
 
-    bool is_empty() const { return column_name.empty() && query_value.empty() && query_op.empty(); }
+    bool is_empty() const {
+        return column_name.empty() && query_values.empty() && query_op.empty();
+    }
 
     bool is_equal(const ColumnPredicateInfo& column_pred_info) const {
         if (column_pred_info.column_name != column_name) {
             return false;
         }
 
-        if (column_pred_info.query_value != query_value) {
+        if (column_pred_info.query_values != query_values) {
             return false;
         }
 
@@ -99,7 +101,7 @@ struct ColumnPredicateInfo {
     }
 
     std::string column_name;
-    std::string query_value;
+    std::vector<std::string> query_values;
     std::string query_op;
 };
 
@@ -274,6 +276,8 @@ private:
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
 
     [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
+    // same with _extract_common_expr_columns, but only extract columns that can be used for index
+    [[nodiscard]] Status _extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -284,6 +288,7 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
+    bool _check_apply_by_inverted_index(ColumnId col_id);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
@@ -375,7 +380,12 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
-    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+    bool _no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                size_t nrows_read);
+
+    bool _has_delete_predicate(ColumnId cid);
+
+    bool _can_opt_topn_reads() const;
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -404,6 +414,7 @@ private:
     // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
     std::set<ColumnId> _common_expr_columns;
+    std::set<ColumnId> _common_expr_columns_for_index;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
@@ -472,7 +483,7 @@ private:
     uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
-    vector<uint16_t> _sel_rowid_idx;
+    std::vector<uint16_t> _sel_rowid_idx;
 
     std::unique_ptr<ObjectPool> _pool;
 
@@ -483,6 +494,8 @@ private:
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;
+
+    std::vector<uint8_t> _ret_flags;
 };
 
 } // namespace segment_v2

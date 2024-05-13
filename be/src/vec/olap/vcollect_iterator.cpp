@@ -95,6 +95,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
     if (use_topn_next()) {
+        rs_splits.rs_reader->set_topn_limit(_topn_limit);
         _rs_splits.push_back(rs_splits);
         return Status::OK();
     }

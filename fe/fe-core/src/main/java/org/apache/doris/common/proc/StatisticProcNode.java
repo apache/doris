@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 
@@ -90,7 +89,7 @@ public class StatisticProcNode implements ProcNodeInterface {
 
             this.db.getTables().stream().filter(Objects::nonNull).forEach(t -> {
                 ++tableNum;
-                if (t.getType() == TableType.OLAP) {
+                if (t.isManagedTable()) {
                     OlapTable olapTable = (OlapTable) t;
                     olapTable.readLock();
                     try {

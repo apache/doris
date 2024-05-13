@@ -82,7 +82,9 @@ suite("test_array_index1"){
     sql """ ALTER TABLE ${indexTblName} ADD INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''; """
     wait_for_latest_op_on_table_finish(indexTblName, timeout)
 
-    sql """ BUILD INDEX index_inverted_inventors ON ${indexTblName}; """
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX index_inverted_inventors ON ${indexTblName}; """
+    }
 }
 
 suite("test_array_index2"){

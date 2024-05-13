@@ -86,9 +86,9 @@ public class StructLiteralTest {
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
         Assert.assertEquals("{\"col1\": 1, \"col2\": 2.15, \"col3\": \"11:22:33\", \"col4\": 1, \"col5\": "
                         + "\"shortstring\", \"col6\": 1000000000000000000000, \"col7\": 1.0, \"col8\": 2, \"col9\": \"2022-10-10\", \"col10\": \"2022-10-10 12:10:10\"}",
-                        structLiteral1.getStringValueInFe());
+                structLiteral1.getStringValueInFe());
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
-        Assert.assertEquals("{\"col1\": [1.0, 2.15], \"col2\": {\"1\":2.15}, \"col3\": "
+        Assert.assertEquals("{\"col1\": [1.0, 2.15], \"col2\": {1:2.15}, \"col3\": "
                         + "{\"col1\": 1, \"col2\": 2.15, \"col3\": 1.0, \"col4\": \"2022-10-10\"}}",
                 structLiteral2.getStringValueInFe());
         StructLiteral structLiteral3 = new StructLiteral();

@@ -40,8 +40,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------filter((customer_address.ca_state = 'CA'))

@@ -101,6 +101,16 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
         private ValueDesc buildRange(ComparisonPredicate predicate) {
             Expression right = predicate.child(1);
+            if (right.isNullLiteral()) {
+                // it's safe to return empty value if >, >=, <, <= and = with null
+                if ((predicate instanceof GreaterThan || predicate instanceof GreaterThanEqual
+                        || predicate instanceof LessThan || predicate instanceof LessThanEqual
+                        || predicate instanceof EqualTo)) {
+                    return new EmptyValue(predicate.child(0), predicate);
+                } else {
+                    return new UnknownValue(predicate);
+                }
+            }
             // only handle `NumericType` and `DateLikeType`
             if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
                 return ValueDesc.range(predicate);

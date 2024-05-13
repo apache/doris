@@ -27,8 +27,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,7 +36,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public class IntLiteral extends NumericLiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(IntLiteral.class);
 
     public static final long TINY_INT_MIN = Byte.MIN_VALUE; // -2^7 ~ 2^7 - 1
     public static final long TINY_INT_MAX = Byte.MAX_VALUE;

@@ -67,6 +67,10 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    Status do_inverted_index_compaction();
+
+    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
     Status check_correctness();
@@ -145,14 +149,10 @@ private:
 
     void build_basic_info();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
-
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
 
     Status do_compact_ordered_rowsets();
-
-    Status do_inverted_index_compaction();
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
@@ -171,14 +171,14 @@ public:
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
+    virtual void garbage_collection();
+
     CloudStorageEngine& _engine;
 
     int64_t _expiration = 0;
 
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
-    virtual void garbage_collection() {};
 
     Status execute_compact_impl(int64_t permits);
 

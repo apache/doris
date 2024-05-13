@@ -616,7 +616,8 @@ public class TableProperty implements Writable {
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold();
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildTTLSeconds();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -648,14 +649,14 @@ public class TableProperty implements Writable {
 
     // Return null if storage vault has not been set
     public String getStorageVaultId() {
-        return properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID);
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
     }
 
     public void setStorageVaultId(String storageVaultId) {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, storageVaultId);
     }
 
-    public String getStorageVauldName() {
+    public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
     }
 

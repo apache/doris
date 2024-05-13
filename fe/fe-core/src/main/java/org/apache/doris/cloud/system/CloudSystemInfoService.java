@@ -284,6 +284,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    @Override
     public void replayAddBackend(Backend newBackend) {
         super.replayAddBackend(newBackend);
         List<Backend> toAdd = new ArrayList<>();
@@ -291,11 +292,29 @@ public class CloudSystemInfoService extends SystemInfoService {
         updateCloudClusterMap(toAdd, new ArrayList<>());
     }
 
+    @Override
     public void replayDropBackend(Backend backend) {
         super.replayDropBackend(backend);
         List<Backend> toDel = new ArrayList<>();
         toDel.add(backend);
         updateCloudClusterMap(new ArrayList<>(), toDel);
+    }
+
+    @Override
+    public void replayModifyBackend(Backend backend) {
+        Backend memBe = getBackend(backend.getId());
+        // for rename cluster
+        String originalClusterName = memBe.getCloudClusterName();
+        String originalClusterId = memBe.getCloudClusterId();
+        String newClusterName = backend.getTagMap().getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+        if (!originalClusterName.equals(newClusterName)) {
+            // rename
+            updateClusterNameToId(newClusterName, originalClusterName, originalClusterId);
+            LOG.info("cloud mode replay rename cluster, "
+                    + "originalClusterName: {}, originalClusterId: {}, newClusterName: {}",
+                    originalClusterName, originalClusterId, newClusterName);
+        }
+        super.replayModifyBackend(backend);
     }
 
     public boolean availableBackendsExists() {
@@ -311,6 +330,16 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public boolean containClusterName(String clusterName) {
         return clusterNameToId.containsKey(clusterName);
+    }
+
+    @Override
+    public int getMinPipelineExecutorSize() {
+        if (ConnectContext.get() != null
+                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+            return 1;
+        }
+
+        return super.getMinPipelineExecutorSize();
     }
 
     @Override
@@ -622,10 +651,21 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("cant find clusterStatus in fe, clusterName {}", clusterName);
             return;
         }
+
+        if (Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+            LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
+            throw new DdlException("cluster " + clusterName + " is in manual shutdown");
+        }
+
         // nofity ms -> wait for clusterStatus to normal
-        LOG.debug("auto start wait cluster {} status {}-{}", clusterName, clusterStatus,
-                Cloud.ClusterStatus.valueOf(clusterStatus));
+        LOG.debug("auto start wait cluster {} status {}", clusterName, clusterStatus);
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
+            // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
+            // root ? see StatisticsUtil.buildConnectContext
+            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+                LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
+                return;
+            }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
             builder.setCloudUniqueId(Config.cloud_unique_id);
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
@@ -647,8 +687,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                 throw new DdlException("notify to resume cluster not ok");
             }
         }
-        // wait 15 mins?
-        int retryTimes = 15 * 60;
+        // wait 5 mins
+        int retryTimes = 5 * 60;
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();

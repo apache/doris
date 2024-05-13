@@ -113,6 +113,8 @@ public:
 
     const Path& path() const override { return _local_file_writer->path(); }
 
+    io::FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
+
 private:
     std::unique_ptr<io::FileWriter> _local_file_writer;
 };
@@ -232,6 +234,7 @@ public:
         st = engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_write_cooldown_meta_executors(); // default cons
         exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }

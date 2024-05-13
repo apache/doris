@@ -32,6 +32,7 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -440,8 +441,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPSERT_TRANSACTION_STATE:
             case OperationType.OP_DELETE_TRANSACTION_STATE: {
-                data = new TransactionState();
-                ((TransactionState) data).readFields(in);
+                data = TransactionState.read(in);
                 isRead = true;
                 break;
             }
@@ -792,6 +792,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                data = CloudWarmUpJob.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_MTMV_JOB:
             case OperationType.OP_CHANGE_MTMV_JOB:
             case OperationType.OP_DROP_MTMV_JOB:
@@ -952,11 +957,6 @@ public class JournalEntity implements Writable {
             // FIXME: support cloud related operation types.
             case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                 data = UpdateCloudReplicaInfo.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_MODIFY_TTL_SECONDS:
-            case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
                 isRead = true;
                 break;
             }

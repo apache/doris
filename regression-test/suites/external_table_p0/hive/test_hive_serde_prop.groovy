@@ -17,11 +17,16 @@
 
 suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "test_hive_serde_prop"
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String catalog_name = "test_${hivePrefix}_serde_prop"
         String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
         sql """drop catalog if exists ${catalog_name} """
 

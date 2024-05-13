@@ -391,15 +391,31 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId,
+    public void resetPartitionIdForRestore(
+            Map<Long, Long> partitionIdMap,
             ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
-        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
-        idToReplicaAllocation.remove(oldPartitionId);
-        idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);
-        if (!isSinglePartitioned) {
-            idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        Map<Long, DataProperty> origIdToDataProperty = idToDataProperty;
+        Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
+        Map<Long, PartitionItem> origIdToItem = idToItem;
+        Map<Long, Boolean> origIdToInMemory = idToInMemory;
+        Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
+        idToDataProperty = Maps.newHashMap();
+        idToReplicaAllocation = Maps.newHashMap();
+        idToItem = Maps.newHashMap();
+        idToInMemory = Maps.newHashMap();
+        idToStoragePolicy = Maps.newHashMap();
+
+        for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
+            idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
+            idToReplicaAllocation.put(entry.getKey(),
+                    restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
+                            : restoreReplicaAlloc);
+            if (!isSinglePartitioned) {
+                idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
+            }
+            idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
         }
-        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
     }
 
     @Override

@@ -41,11 +41,10 @@ using namespace ErrorCode;
 static constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
-static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
-                                                      bool sc_sorting) {
+std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+                                               int64_t mem_limit) {
     if (sc_sorting) {
-        return std::make_unique<VBaseSchemaChangeWithSorting>(
-                changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+        return std::make_unique<VBaseSchemaChangeWithSorting>(changer, mem_limit);
     }
     // else sc_directly
     return std::make_unique<VSchemaChangeDirectly>(changer);
@@ -155,6 +154,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
         break;
     }
+    sc_params.vault_id = request.storage_vault_id;
     if (!request.__isset.materialized_view_params) {
         return _convert_historical_rowsets(sc_params);
     }
@@ -206,7 +206,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
               << ", new_tablet=" << _new_tablet->tablet_id();
 
     // 2. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(changer, sc_sorting);
+    auto sc_procedure = get_sc_procedure(
+            changer, sc_sorting,
+            _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();
@@ -251,10 +253,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        if (_cloud_storage_engine.latest_fs() == nullptr) [[unlikely]] {
-            return Status::IOError("Invalid latest fs");
+        context.fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
+        if (context.fs == nullptr) {
+            return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                         sc_params.vault_id);
         }
-        context.fs = _cloud_storage_engine.latest_fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 

@@ -100,7 +100,12 @@ public:
 
         if constexpr (with_other_conjuncts ||
                       (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
-            return _find_batch_conjunct<JoinOpType, need_judge_null>(
+            constexpr bool null_aware_without_other_conjuncts =
+                    (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                     JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+                    !with_other_conjuncts;
+            return _find_batch_conjunct<JoinOpType, need_judge_null,
+                                        null_aware_without_other_conjuncts>(
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
 
@@ -309,7 +314,7 @@ private:
         return std::tuple {probe_idx, 0U, matched_cnt};
     }
 
-    template <int JoinOpType, bool need_judge_null>
+    template <int JoinOpType, bool need_judge_null, bool null_aware_without_other_conjuncts>
     auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                               int probe_idx, uint32_t build_idx, int probe_rows,
                               uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
@@ -339,6 +344,11 @@ private:
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
                     matched_cnt++;
+
+                    if constexpr (null_aware_without_other_conjuncts) {
+                        build_idx = 0;
+                        break;
+                    }
                 }
                 build_idx = next[build_idx];
             }

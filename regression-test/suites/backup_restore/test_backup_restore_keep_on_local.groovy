@@ -51,9 +51,7 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
         ON (${tableName})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
 

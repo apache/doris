@@ -38,7 +38,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
     }
 
     @Override
-    protected EsExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected EsExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog);
     }
 

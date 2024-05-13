@@ -124,8 +124,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), scan.getDatabase().getFullName(),
-                scan.getTable().getName(), PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
+                        scan.getDatabase().getFullName(),
+                        scan.getTable().getName(), PrivPredicate.LOAD)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     scan.getDatabase().getFullName() + ": " + scan.getTable().getName());
@@ -324,6 +326,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 checkIsNull((IsNull) child);
             } else if (child instanceof ComparisonPredicate) {
                 checkComparisonPredicate((ComparisonPredicate) child);
+            } else if (child instanceof InPredicate) {
+                checkInPredicate((InPredicate) child);
             } else {
                 throw new AnalysisException("Where clause only supports compound predicate,"
                         + " binary predicate, is_null predicate or in predicate. But we meet "

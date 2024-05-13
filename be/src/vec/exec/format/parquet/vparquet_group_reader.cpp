@@ -39,7 +39,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "schema_desc.h"
-#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -124,12 +123,17 @@ Status RowGroupReader::init(
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
-    for (auto& read_col : _read_columns) {
-        auto field = const_cast<FieldSchema*>(schema.get_column(read_col));
+    for (const auto& read_col : _read_columns) {
+        auto* field = const_cast<FieldSchema*>(schema.get_column(read_col));
+        auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
+        // TODO : support rested column types
+        const tparquet::OffsetIndex* offset_index =
+                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
+                                                                      : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size));
+                                                    max_buf_size, offset_index));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");

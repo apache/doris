@@ -105,6 +105,8 @@ public:
         return convert_to_full_column()->convert_to_full_column_if_const();
     }
 
+    bool is_variable_length() const override { return data->is_variable_length(); }
+
     ColumnPtr remove_low_cardinality() const;
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
@@ -247,11 +249,13 @@ public:
         }
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         assert_cast<Self&>(*res).resize(selector.size());
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        assert_cast<Self&>(*res).resize(end - begin);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
@@ -292,6 +296,7 @@ public:
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         LOG(FATAL) << "should not call the method in column const";
+        __builtin_unreachable();
     }
 };
 } // namespace doris::vectorized

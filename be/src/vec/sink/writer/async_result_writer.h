@@ -35,7 +35,7 @@ class TExpr;
 namespace pipeline {
 class AsyncWriterDependency;
 class Dependency;
-class PipelineXTask;
+class PipelineTask;
 
 } // namespace pipeline
 

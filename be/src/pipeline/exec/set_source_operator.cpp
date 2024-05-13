@@ -21,39 +21,14 @@
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "vec/exec/vset_operation_node.h"
-
-namespace doris {
-class ExecNode;
-} // namespace doris
 
 namespace doris::pipeline {
-
-template <bool is_intersect>
-SetSourceOperatorBuilder<is_intersect>::SetSourceOperatorBuilder(int32_t id, ExecNode* set_node)
-        : OperatorBuilder<vectorized::VSetOperationNode<is_intersect>>(id, builder_name, set_node) {
-}
-
-template <bool is_intersect>
-OperatorPtr SetSourceOperatorBuilder<is_intersect>::build_operator() {
-    return std::make_shared<SetSourceOperator<is_intersect>>(this, this->_node);
-}
-
-template <bool is_intersect>
-SetSourceOperator<is_intersect>::SetSourceOperator(
-        OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : SourceOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
-
-template class SetSourceOperatorBuilder<true>;
-template class SetSourceOperatorBuilder<false>;
-template class SetSourceOperator<true>;
-template class SetSourceOperator<false>;
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
@@ -63,7 +38,7 @@ template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<SetSharedState>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
@@ -102,6 +77,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
                                                                     state->batch_size(), eos);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);
@@ -176,14 +152,7 @@ void SetSourceOperatorX<is_intersect>::_add_result_columns(
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
         auto& column = *build_block.get_by_position(idx->first).column;
-        if (local_state._mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
-            DCHECK(local_state._mutable_cols[idx->second]->is_nullable());
-            ((vectorized::ColumnNullable*)(local_state._mutable_cols[idx->second].get()))
-                    ->insert_from_not_nullable(column, it->row_num);
-
-        } else {
-            local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
-        }
+        local_state._mutable_cols[idx->second]->insert_from(column, it->row_num);
     }
     block_size++;
 }

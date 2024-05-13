@@ -18,15 +18,15 @@
 #include "txn_kv.h"
 
 #include <bthread/countdown_event.h>
+#include <byteswap.h>
+#include <endian.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cstring>
-#include <iomanip>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -256,6 +256,10 @@ void Transaction::put(std::string_view key, std::string_view val) {
     StopWatch sw;
     fdb_transaction_set(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(), val.size());
     g_bvar_txn_kv_put << sw.elapsed_us();
+
+    ++num_put_keys_;
+    put_bytes_ += key.size() + val.size();
+    approximate_bytes_ = key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
 }
 
 // return 0 for success otherwise error
@@ -292,6 +296,7 @@ static TxnErrorCode await_future(FDBFuture* fut) {
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
     StopWatch sw;
+    approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
     auto release_fut = [fut, &sw](int*) {
@@ -330,6 +335,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               std::unique_ptr<cloud::RangeGetIterator>* iter, bool snapshot,
                               int limit) {
     StopWatch sw;
+    approximate_bytes_ += begin.size() + end.size();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); });
 
@@ -370,6 +376,9 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
                               FDBMutationType::FDB_MUTATION_TYPE_SET_VERSIONSTAMPED_KEY);
 
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
+    ++num_put_keys_;
+    put_bytes_ += key_prefix.size() + val.size();
+    approximate_bytes_ += key_prefix.size() * 3 + val.size();
 }
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
@@ -386,6 +395,9 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
                               FDBMutationType::FDB_MUTATION_TYPE_SET_VERSIONSTAMPED_VALUE);
 
     g_bvar_txn_kv_atomic_set_ver_value << sw.elapsed_us();
+    ++num_put_keys_;
+    put_bytes_ += key.size() + value.size();
+    approximate_bytes_ += key.size() * 3 + value.size();
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {
@@ -396,12 +408,31 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
                               sizeof(to_add), FDBMutationType::FDB_MUTATION_TYPE_ADD);
 
     g_bvar_txn_kv_atomic_add << sw.elapsed_us();
+    ++num_put_keys_;
+    put_bytes_ += key.size() + 8;
+    approximate_bytes_ += key.size() * 3 + 8;
+}
+
+bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
+    if (data.size() != sizeof(*val)) {
+        return false;
+    }
+
+    // ATTN: The FDB_MUTATION_TYPE_ADD stores integers in a little-endian representation.
+    std::memcpy(val, data.data(), sizeof(*val));
+#if __BYTE_ORDER == __BIG_ENDIAN
+    *val = bswap_64(*val);
+#endif
+    return true;
 }
 
 void Transaction::remove(std::string_view key) {
     StopWatch sw;
     fdb_transaction_clear(txn_, (uint8_t*)key.data(), key.size());
     g_bvar_txn_kv_remove << sw.elapsed_us();
+    ++num_del_keys_;
+    delete_bytes_ += key.size();
+    approximate_bytes_ += key.size() * 4; // See fdbclient/ReadYourWrites.actor.cpp for details.
 }
 
 void Transaction::remove(std::string_view begin, std::string_view end) {
@@ -409,6 +440,10 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     fdb_transaction_clear_range(txn_, (uint8_t*)begin.data(), begin.size(), (uint8_t*)end.data(),
                                 end.size());
     g_bvar_txn_kv_range_remove << sw.elapsed_us();
+    num_del_keys_ += 2;
+    delete_bytes_ += begin.size() + end.size();
+    approximate_bytes_ +=
+            (begin.size() + end.size()) * 2; // See fdbclient/ReadYourWrites.actor.cpp for details.
 }
 
 TxnErrorCode Transaction::commit() {
@@ -437,7 +472,7 @@ TxnErrorCode Transaction::commit() {
 
 TxnErrorCode Transaction::get_read_version(int64_t* version) {
     StopWatch sw;
-    auto fut = fdb_transaction_get_read_version(txn_);
+    auto* fut = fdb_transaction_get_read_version(txn_);
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [fut, &sw](...) {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get_read_version << sw.elapsed_us();
@@ -491,53 +526,63 @@ TxnErrorCode RangeGetIterator::init() {
 TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res,
                                     const std::vector<std::string>& keys,
                                     const BatchGetOptions& opts) {
+    struct FDBFutureDelete {
+        void operator()(FDBFuture* future) { fdb_future_destroy(future); }
+    };
+
+    res->clear();
     if (keys.empty()) {
         return TxnErrorCode::TXN_OK;
     }
+
     StopWatch sw;
-    std::vector<FDBFuture*> futures;
-    futures.reserve(keys.size());
-    for (const auto& k : keys) {
-        futures.push_back(fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
-    }
+    auto stop_watcher = [&sw](int*) { g_bvar_txn_kv_batch_get << sw.elapsed_us(); };
+    std::unique_ptr<int, decltype(stop_watcher)> defer((int*)0x01, std::move(stop_watcher));
 
-    auto release_futures = [&futures, &sw](int*) {
-        std::for_each(futures.begin(), futures.end(),
-                      [](FDBFuture* fut) { fdb_future_destroy(fut); });
-        g_bvar_txn_kv_batch_get << sw.elapsed_us();
-    };
-    std::unique_ptr<int, decltype(release_futures)> defer((int*)0x01, std::move(release_futures));
-
+    size_t num_keys = keys.size();
     res->reserve(keys.size());
-    DCHECK(keys.size() == futures.size());
-    auto size = futures.size();
-    for (auto i = 0; i < size; ++i) {
-        const auto& fut = futures[i];
-        RETURN_IF_ERROR(await_future(fut));
-        auto err = fdb_future_get_error(fut);
-        if (err) {
-            LOG(WARNING) << __PRETTY_FUNCTION__
-                         << " failed to fdb_future_get_error err=" << fdb_get_error(err)
-                         << " key=" << hex(keys[i]);
-            return cast_as_txn_code(err);
+    std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
+    futures.reserve(opts.concurrency);
+    for (size_t i = 0; i < num_keys; i += opts.concurrency) {
+        size_t size = std::min(i + opts.concurrency, num_keys);
+        for (size_t j = i; j < size; j++) {
+            const auto& k = keys[j];
+            futures.emplace_back(
+                    fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
+            approximate_bytes_ += k.size() * 2;
         }
-        fdb_bool_t found;
-        const uint8_t* ret;
-        int len;
-        err = fdb_future_get_value(fut, &found, &ret, &len);
 
-        if (err) {
-            LOG(WARNING) << __PRETTY_FUNCTION__
-                         << " failed to fdb_future_get_value err=" << fdb_get_error(err)
-                         << " key=" << hex(keys[i]);
-            return cast_as_txn_code(err);
+        size_t num_futures = futures.size();
+        for (auto j = 0; j < num_futures; j++) {
+            FDBFuture* future = futures[j].get();
+            std::string_view key = keys[i + j];
+            RETURN_IF_ERROR(await_future(future));
+            fdb_error_t err = fdb_future_get_error(future);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+            fdb_bool_t found;
+            const uint8_t* ret;
+            int len;
+            err = fdb_future_get_value(future, &found, &ret, &len);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_value err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+            if (!found) {
+                res->push_back(std::nullopt);
+                continue;
+            }
+            res->push_back(std::string((char*)ret, len));
         }
-        if (!found) {
-            res->push_back(std::nullopt);
-            continue;
-        }
-        res->push_back(std::string((char*)ret, len));
+        futures.clear();
     }
+    DCHECK_EQ(res->size(), num_keys);
     return TxnErrorCode::TXN_OK;
 }
 

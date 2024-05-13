@@ -324,8 +324,7 @@ public class HudiScanNode extends HiveScanNode {
         List<HivePartition> partitions = HiveMetaStoreClientHelper.ugiDoAs(
                 HiveMetaStoreClientHelper.getConfiguration(hmsTable),
                 () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
-        Executor executor = ((HudiCachedPartitionProcessor) Env.getCurrentEnv()
-                .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog())).getExecutor();
+        Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         partitions.forEach(partition -> executor.execute(() -> {
@@ -355,7 +354,7 @@ public class HudiScanNode extends HiveScanNode {
                     long fileSize = baseFile.getFileSize();
                     // Need add hdfs host to location
                     LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                    Path splitFilePath = locationPath.toScanRangeLocation();
+                    Path splitFilePath = locationPath.toStorageLocation();
                     splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
                             new String[0], partition.getPartitionValues()));
                 });

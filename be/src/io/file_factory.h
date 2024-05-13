@@ -94,7 +94,8 @@ public:
     static Result<io::FileWriterPtr> create_file_writer(
             TFileType::type type, ExecEnv* env,
             const std::vector<TNetworkAddress>& broker_addresses,
-            const std::map<std::string, std::string>& properties, const std::string& path);
+            const std::map<std::string, std::string>& properties, const std::string& path,
+            const io::FileWriterOptions& options);
 
     /// Create FileReader without FS
     static Result<io::FileReaderSPtr> create_file_reader(

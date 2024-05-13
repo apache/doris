@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
@@ -498,47 +499,61 @@ public class VariableMgr {
     }
 
     private static void fillValue(Object obj, Field field, VariableExpr desc) {
-        try {
-            switch (field.getType().getSimpleName()) {
-                case "boolean":
-                    desc.setType(Type.BOOLEAN);
-                    desc.setBoolValue(field.getBoolean(obj));
-                    break;
-                case "byte":
-                    desc.setType(Type.TINYINT);
-                    desc.setIntValue(field.getByte(obj));
-                    break;
-                case "short":
-                    desc.setType(Type.SMALLINT);
-                    desc.setIntValue(field.getShort(obj));
-                    break;
-                case "int":
-                    desc.setType(Type.INT);
-                    desc.setIntValue(field.getInt(obj));
-                    break;
-                case "long":
-                    desc.setType(Type.BIGINT);
-                    desc.setIntValue(field.getLong(obj));
-                    break;
-                case "float":
-                    desc.setType(Type.FLOAT);
-                    desc.setFloatValue(field.getFloat(obj));
-                    break;
-                case "double":
-                    desc.setType(Type.DOUBLE);
-                    desc.setFloatValue(field.getDouble(obj));
-                    break;
-                case "String":
-                    desc.setType(Type.VARCHAR);
-                    desc.setStringValue((String) field.get(obj));
-                    break;
-                default:
-                    desc.setType(Type.VARCHAR);
-                    desc.setStringValue("");
-                    break;
+        VarAttr attr = field.getAnnotation(VarAttr.class);
+        if (!Strings.isNullOrEmpty(attr.convertBoolToLongMethod())) {
+            try {
+                Preconditions.checkArgument(obj instanceof SessionVariable);
+                long val = (Long) SessionVariable.class.getDeclaredMethod(attr.convertBoolToLongMethod(), Boolean.class)
+                        .invoke(obj, field.getBoolean(obj));
+                desc.setType(Type.BIGINT);
+                desc.setIntValue(val);
+            } catch (Exception e) {
+                // should not happen
+                LOG.warn("failed to convert bool to long for var: {}", field.getName(), e);
             }
-        } catch (IllegalAccessException e) {
-            LOG.warn("Access failed.", e);
+        } else {
+            try {
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        desc.setType(Type.BOOLEAN);
+                        desc.setBoolValue(field.getBoolean(obj));
+                        break;
+                    case "byte":
+                        desc.setType(Type.TINYINT);
+                        desc.setIntValue(field.getByte(obj));
+                        break;
+                    case "short":
+                        desc.setType(Type.SMALLINT);
+                        desc.setIntValue(field.getShort(obj));
+                        break;
+                    case "int":
+                        desc.setType(Type.INT);
+                        desc.setIntValue(field.getInt(obj));
+                        break;
+                    case "long":
+                        desc.setType(Type.BIGINT);
+                        desc.setIntValue(field.getLong(obj));
+                        break;
+                    case "float":
+                        desc.setType(Type.FLOAT);
+                        desc.setFloatValue(field.getFloat(obj));
+                        break;
+                    case "double":
+                        desc.setType(Type.DOUBLE);
+                        desc.setFloatValue(field.getDouble(obj));
+                        break;
+                    case "String":
+                        desc.setType(Type.VARCHAR);
+                        desc.setStringValue((String) field.get(obj));
+                        break;
+                    default:
+                        desc.setType(Type.VARCHAR);
+                        desc.setStringValue("");
+                        break;
+                }
+            } catch (IllegalAccessException e) {
+                LOG.warn("Access failed.", e);
+            }
         }
     }
 
@@ -586,6 +601,18 @@ public class VariableMgr {
     }
 
     private static Literal getLiteral(Object obj, Field field) {
+        VarAttr attr = field.getAnnotation(VarAttr.class);
+        if (!Strings.isNullOrEmpty(attr.convertBoolToLongMethod())) {
+            try {
+                Preconditions.checkArgument(obj instanceof SessionVariable);
+                long val = (Long) SessionVariable.class.getDeclaredMethod(attr.convertBoolToLongMethod(), Boolean.class)
+                        .invoke(obj, field.getBoolean(obj));
+                return Literal.of(Long.valueOf(val));
+            } catch (Exception e) {
+                // should not happen
+                LOG.warn("failed to convert bool to long for var: {}", field.getName(), e);
+            }
+        }
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
@@ -790,6 +817,8 @@ public class VariableMgr {
 
         // Enum options for this config item, if it has.
         String[] options() default {};
+
+        String convertBoolToLongMethod() default "";
     }
 
     private static class VarContext {

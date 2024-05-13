@@ -23,9 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
@@ -38,10 +35,12 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 public class TransactionEntry {
 
@@ -71,8 +71,8 @@ public class TransactionEntry {
     private boolean isTransactionBegan = false;
     private long transactionId = -1;
     private TransactionState transactionState;
-    private List<Table> tableList = new ArrayList<>();
-    private List<TTabletCommitInfo> tabletCommitInfos = new ArrayList<>();
+    private List<SubTransactionState> subTransactionStates = new ArrayList<>();
+    private long timeoutTimestamp = -1;
 
     public TransactionEntry() {
     }
@@ -127,11 +127,11 @@ public class TransactionEntry {
         return txnConf != null && txnConf.isNeedTxn();
     }
 
-    public boolean isTxnIniting() {
+    public boolean isInsertValuesTxnIniting() {
         return isTxnModel() && txnConf.getTxnId() == -1;
     }
 
-    public boolean isTxnBegin() {
+    private boolean isInsertValuesTxnBegan() {
         return isTxnModel() && txnConf.getTxnId() != -1;
     }
 
@@ -163,44 +163,60 @@ public class TransactionEntry {
         this.pLoadId = pLoadId;
     }
 
-    // Used for insert into select
-    public void beginTransaction(DatabaseIf database, TableIf table)
-            throws DdlException, BeginTransactionException, MetaNotFoundException, AnalysisException,
-            QuotaExceedException {
-        if (isTxnBegin()) {
+    // Used for insert into select, return the sub_txn_id for this insert
+    public long beginTransaction(TableIf table) throws UserException {
+        if (isInsertValuesTxnBegan()) {
             // FIXME: support mix usage of `insert into values` and `insert into select`
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
         }
+        DatabaseIf database = table.getDatabase();
         if (!isTransactionBegan) {
+            long timeoutSecond = ConnectContext.get().getExecTimeout();
+            this.timeoutTimestamp = System.currentTimeMillis() + timeoutSecond * 1000;
             this.transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), Lists.newArrayList(table.getId()), label,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    LoadJobSourceType.INSERT_STREAMING, ConnectContext.get().getExecTimeout());
+                    LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
             this.isTransactionBegan = true;
             this.database = database;
             this.transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(database.getId(), transactionId);
+            return this.transactionId;
         } else {
             if (this.database.getId() != database.getId()) {
                 throw new AnalysisException(
                         "Transaction insert must be in the same database, expect db_id=" + this.database.getId());
             }
-            this.transactionState.getTableIdList().add(table.getId());
+            this.transactionState.addTableId(table.getId());
+            long subTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+            Env.getCurrentGlobalTransactionMgr().addSubTransaction(database.getId(), transactionId, subTxnId);
+            return subTxnId;
         }
     }
 
-    public TransactionStatus commitTransaction()
-            throws Exception {
+    public TransactionStatus commitTransaction() throws Exception {
         if (isTransactionBegan) {
-            if (Env.getCurrentGlobalTransactionMgr()
-                    .commitAndPublishTransaction(database, tableList, transactionId,
-                            TabletCommitInfo.fromThrift(tabletCommitInfos), ConnectContext.get().getExecTimeout())) {
-                return TransactionStatus.VISIBLE;
-            } else {
-                return TransactionStatus.COMMITTED;
+            try {
+                beforeFinishTransaction();
+                if (Env.getCurrentGlobalTransactionMgr()
+                        .commitAndPublishTransaction(database, transactionId, subTransactionStates,
+                                ConnectContext.get().getSessionVariable().getInsertVisibleTimeoutMs())) {
+                    return TransactionStatus.VISIBLE;
+                } else {
+                    return TransactionStatus.COMMITTED;
+                }
+            } catch (UserException e) {
+                LOG.error("Failed to commit transaction", e);
+                try {
+                    Env.getCurrentGlobalTransactionMgr()
+                            .abortTransaction(database.getId(), transactionId, e.getMessage());
+                } catch (Exception e1) {
+                    LOG.error("Failed to abort transaction", e1);
+                }
+                throw e;
             }
-        } else if (isTxnBegin()) {
+        } else if (isInsertValuesTxnBegan()) {
             InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(this);
             if (dataToSend.size() > 0) {
                 // send rest data
@@ -249,9 +265,10 @@ public class TransactionEntry {
     public long abortTransaction()
             throws UserException, TException, ExecutionException, InterruptedException, TimeoutException {
         if (isTransactionBegan) {
+            beforeFinishTransaction();
             Env.getCurrentGlobalTransactionMgr().abortTransaction(database.getId(), transactionId, "user rollback");
             return transactionId;
-        } else if (isTxnBegin()) {
+        } else if (isInsertValuesTxnBegan()) {
             InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(this);
             executor.abortTransaction();
             return txnConf.getTxnId();
@@ -261,22 +278,62 @@ public class TransactionEntry {
         }
     }
 
+    private void beforeFinishTransaction() {
+        if (isTransactionBegan) {
+            List<Long> tableIds = transactionState.getTableIdList().stream().distinct().collect(Collectors.toList());
+            transactionState.setTableIdList(tableIds);
+            subTransactionStates.sort((s1, s2) -> {
+                if (s1.getSubTransactionType() == SubTransactionType.INSERT
+                        && s2.getSubTransactionType() == SubTransactionType.DELETE) {
+                    return 1;
+                } else if (s1.getSubTransactionType() == SubTransactionType.DELETE
+                        && s2.getSubTransactionType() == SubTransactionType.INSERT) {
+                    return -1;
+                } else {
+                    return Long.compare(s1.getSubTransactionId(), s2.getSubTransactionId());
+                }
+            });
+            LOG.info("subTransactionStates={}", subTransactionStates);
+            transactionState.setSubTransactionStates(subTransactionStates);
+        }
+    }
+
     public long getTransactionId() {
         if (isTransactionBegan) {
             return transactionId;
-        } else if (isTxnBegin()) {
+        } else if (isInsertValuesTxnBegan()) {
             return txnConf.getTxnId();
         } else {
             return -1;
         }
     }
 
-    public void addCommitInfos(Table table, List<TTabletCommitInfo> commitInfos) {
-        this.tableList.add(table);
-        this.tabletCommitInfos.addAll(commitInfos);
+    public void abortSubTransaction(long subTransactionId, Table table) {
+        if (isTransactionBegan) {
+            this.transactionState.removeTableId(table.getId());
+            Env.getCurrentGlobalTransactionMgr().removeSubTransaction(table.getDatabase().getId(), subTransactionId);
+        }
+    }
+
+    public void addTabletCommitInfos(long subTxnId, Table table, List<TTabletCommitInfo> commitInfos,
+            SubTransactionType subTransactionType) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("label={}, txn_id={}, sub_txn_id={}, table={}, commit_infos={}",
+                    label, transactionId, subTxnId, table, commitInfos);
+        }
+        this.subTransactionStates.add(new SubTransactionState(subTxnId, table, commitInfos, subTransactionType));
+        Preconditions.checkState(transactionState.getTableIdList().size() == subTransactionStates.size(),
+                "txn_id={}, expect table_list={}, but is={}",
+                transactionId,
+                subTransactionStates.stream().map(s -> s.getTable().getId()).collect(Collectors.toList()),
+                transactionState.getTableIdList());
     }
 
     public boolean isTransactionBegan() {
         return this.isTransactionBegan;
+    }
+
+    public long getTimeout() {
+        return (timeoutTimestamp - System.currentTimeMillis()) / 1000;
     }
 }

@@ -19,20 +19,16 @@
 
 #include <common/multi_version.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
-#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
@@ -49,13 +45,12 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-class BlockedTaskScheduler;
 struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
+struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
-class FDCache;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -82,13 +77,12 @@ class RuntimeQueryStatiticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
-class LoadStreamStubPool;
+class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class BlockSpillManager;
 class BackendServiceClient;
-class ThreadContext;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -167,7 +161,6 @@ public:
         return nullptr;
     }
 
-    ThreadContext* env_thread_context() { return _env_thread_context; }
     // Save all MemTrackerLimiters in use.
     // Each group corresponds to several MemTrackerLimiters and has a lock.
     // Multiple groups are used to reduce the impact of locks.
@@ -180,6 +173,12 @@ public:
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
+        return _point_query_executor_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
+        return _block_compression_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
         return _rowid_storage_reader_tracker;
@@ -232,6 +231,9 @@ public:
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
     DNSCache* dns_cache() { return _dns_cache; }
+    WriteCooldownMetaExecutors* write_cooldown_meta_executors() {
+        return _write_cooldown_meta_executors.get();
+    }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -262,9 +264,10 @@ public:
     void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
         this->_dummy_lru_cache = dummy_lru_cache;
     }
+    void set_write_cooldown_meta_executors();
 
 #endif
-    LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
+    LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
     vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
@@ -288,10 +291,6 @@ public:
         return _inverted_index_query_cache;
     }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
-
-    std::shared_ptr<pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
-        return _global_block_scheduler;
-    }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
@@ -333,7 +332,6 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
-    ThreadContext* _env_thread_context = nullptr;
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
@@ -347,6 +345,10 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+
+    // Tracking memory may be shared between multiple queries.
+    std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -393,10 +395,11 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
-    std::unique_ptr<LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<LoadStreamMapPool> _load_stream_map_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
     DNSCache* _dns_cache = nullptr;
+    std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
     std::mutex _frontends_lock;
     // ip:brpc_port -> frontend_indo
@@ -419,11 +422,6 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
-
-    // used for query with group cpu hard limit
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _global_block_scheduler;
-    // used for query without workload group
-    std::shared_ptr<pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 

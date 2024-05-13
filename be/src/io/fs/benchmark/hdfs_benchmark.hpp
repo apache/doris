@@ -48,6 +48,7 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         io::FileReaderOptions reader_opts;
         FileSystemProperties params {
+                .system_type = TFileType::FILE_HDFS,
                 .hdfs_params = parse_properties(_conf_map),
         };
         FileDescription fd {.path = file_path};

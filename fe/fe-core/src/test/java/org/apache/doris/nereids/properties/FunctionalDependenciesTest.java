@@ -138,14 +138,14 @@ class FunctionalDependenciesTest extends TestWithFeService {
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUniform(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id, uni.id from agg full outer join uni "
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id from agg left outer join uni "
@@ -258,12 +258,12 @@ class FunctionalDependenciesTest extends TestWithFeService {
     @Test
     void testWindow() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select row_number() over(partition by id) from agg")
+                .analyze("select id, row_number() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select row_number() over(partition by name) from agg where name = '1'")
@@ -298,8 +298,10 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .analyze("select name from agg where id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutputSet()));
     }
 
     @Test

@@ -70,12 +70,8 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
         ON (${tableName}_2)
     """
 
-    while (!syncer.checkSnapshotFinish("${dbName}_1")) {
-        Thread.sleep(3000)
-    }
-    while (!syncer.checkSnapshotFinish("${dbName}_2")) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish("${dbName}_1")
+    syncer.waitSnapshotFinish("${dbName}_2")
 
     // Restore snapshot from repo_1 to db_1
     def snapshot = syncer.getSnapshotTimestamp("${repoName}_1", snapshotName)
@@ -93,9 +89,7 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish("${dbName}_1")) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish("${dbName}_1")
 
     result = sql "SELECT * FROM ${dbName}_1.${tableName}_1"
     assertEquals(result.size(), values.size());
@@ -116,9 +110,7 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish("${dbName}_2")) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish("${dbName}_2")
 
     result = sql "SELECT * FROM ${dbName}_2.${tableName}_2"
     assertEquals(result.size(), values.size());

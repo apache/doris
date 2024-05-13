@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.planner.PlanNode;
 
 import com.google.common.collect.ImmutableList;
@@ -63,7 +65,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -246,6 +247,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return scan.getTable().getBaseIndexId();
         }
 
+        MaterializedIndex baseIndex = scan.getTable().getBaseIndex();
+        candidates.add(baseIndex);
+
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
         Map<ExprId, String> exprIdToName = scan.getOutput()
@@ -266,11 +270,13 @@ public abstract class AbstractSelectMaterializedIndexRule {
                                 .sum())
                         // compare by column count
                         .thenComparing(rid -> table.getSchemaByIndexId((Long) rid).size())
+                        // prioritize using non-base index
+                        .thenComparing(rid -> (Long) rid == baseIndex.getId())
                         // compare by index id
                         .thenComparing(rid -> (Long) rid))
                 .collect(Collectors.toList());
 
-        return CollectionUtils.isEmpty(sortedIndexIds) ? scan.getTable().getBaseIndexId() : sortedIndexIds.get(0);
+        return sortedIndexIds.get(0);
     }
 
     protected static List<MaterializedIndex> matchPrefixMost(
@@ -283,6 +289,22 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .map(String::toLowerCase).collect(Collectors.toSet());
         Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of()).stream()
                 .map(String::toLowerCase).collect(Collectors.toSet());
+
+        // prioritize using index with where clause
+        if (candidate.stream()
+                .anyMatch(index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getWhereClause() != null)) {
+            candidate = candidate.stream()
+                    .filter(index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getWhereClause() != null)
+                    .collect(Collectors.toList());
+        }
+
+        // prioritize using index with pre agg
+        if (candidate.stream().anyMatch(
+                index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getKeysType() != KeysType.DUP_KEYS)) {
+            candidate = candidate.stream().filter(
+                    index -> scan.getTable().getIndexMetaByIndexId(index.getId()).getKeysType() != KeysType.DUP_KEYS)
+                    .collect(Collectors.toList());
+        }
 
         if (!(equalColNames.isEmpty() && nonEqualColNames.isEmpty())) {
             List<MaterializedIndex> matchingResult = matchKeyPrefixMost(scan.getTable(), candidate,
@@ -460,9 +482,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
         for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    continue;
-                }
                 if (baseSlot.toSql().equalsIgnoreCase(
                         org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(
                             normalizeName(mvSlot.getName())))) {
@@ -472,11 +491,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 }
             }
             if (!isPushed) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
-                    mvNameToMvSlot.put(normalizeName(
-                            org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvSlot.getName())),
-                            mvSlot);
-                }
                 mvNameToMvSlot.put(normalizeName(mvSlot.getName()), mvSlot);
             }
         }
@@ -567,20 +581,20 @@ public abstract class AbstractSelectMaterializedIndexRule {
         public LogicalRepeat<Plan> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void ctx) {
             Plan child = repeat.child(0).accept(this, ctx);
             List<List<Expression>> groupingSets = repeat.getGroupingSets();
-            ImmutableList.Builder<List<Expression>> newGroupingExprs = ImmutableList.builder();
+            List<List<Expression>> newGroupingExprs = Lists.newArrayList();
             for (List<Expression> expressions : groupingSets) {
-                newGroupingExprs.add(expressions.stream()
-                        .map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
-                        .collect(ImmutableList.toImmutableList())
-                );
+                newGroupingExprs.add(
+                        expressions.stream().map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                                .collect(ImmutableList.toImmutableList()));
             }
 
             List<NamedExpression> outputExpressions = repeat.getOutputExpressions();
-            List<NamedExpression> newOutputExpressions = outputExpressions.stream()
-                    .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
-                    .collect(ImmutableList.toImmutableList());
+            List<NamedExpression> newOutputExpressions = PlanUtils.adjustNullableForRepeat(newGroupingExprs,
+                    outputExpressions.stream()
+                            .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                            .collect(ImmutableList.toImmutableList()));
 
-            return repeat.withNormalizedExpr(newGroupingExprs.build(), newOutputExpressions, child);
+            return repeat.withNormalizedExpr(newGroupingExprs, newOutputExpressions, child);
         }
 
         @Override

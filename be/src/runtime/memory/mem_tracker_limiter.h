@@ -141,10 +141,6 @@ public:
     Status check_limit(int64_t bytes = 0);
     bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
 
-    // Returns the maximum consumption that can be made without exceeding the limit on
-    // this tracker limiter.
-    int64_t spare_capacity() const { return _limit - consumption(); }
-
     bool is_query_cancelled() { return _is_query_cancelled; }
 
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
@@ -160,6 +156,7 @@ public:
     }
 
     static void refresh_global_counter();
+    static void clean_tracker_limiter_group();
 
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
@@ -216,8 +213,8 @@ public:
 
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
-        if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
-            return TUniqueId();
+        if (label.find("#Id=") == std::string::npos) {
+            return {};
         }
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
@@ -231,6 +228,12 @@ public:
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
 
+#ifndef NDEBUG
+    void add_address_sanitizers(void* buf, size_t size);
+    void remove_address_sanitizers(void* buf, size_t size);
+    std::string print_address_sanitizers();
+#endif
+
     std::string debug_string() override {
         std::stringstream msg;
         msg << "limit: " << _limit << "; "
@@ -241,7 +244,6 @@ public:
     }
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tracker_limiter_group_it;
     std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
 
 private:
@@ -274,6 +276,16 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+
+#ifndef NDEBUG
+    struct AddressSanitizer {
+        size_t size;
+        std::string stack_trace;
+    };
+
+    std::mutex _address_sanitizers_mtx;
+    std::unordered_map<void*, AddressSanitizer> _address_sanitizers;
+#endif
 };
 
 inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {

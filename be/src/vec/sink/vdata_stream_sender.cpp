@@ -80,27 +80,29 @@ Status Channel<Parent>::init(RuntimeState* state) {
 
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
-    if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
-        _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
-                "127.0.0.1", _brpc_dest_addr.port);
-    } else {
-        _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
-    }
-
-    if (!_brpc_stub) {
-        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
-                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
-        LOG(WARNING) << msg;
-        return Status::InternalError(msg);
-    }
-
     if (state->query_options().__isset.enable_local_exchange) {
         _is_local &= state->query_options().enable_local_exchange;
     }
 
     if (_is_local) {
-        _local_recvr = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id);
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+    } else {
+        if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
+            _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
+                    "127.0.0.1", _brpc_dest_addr.port);
+        } else {
+            _brpc_stub =
+                    state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
+        }
+
+        if (!_brpc_stub) {
+            std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                          _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
     }
 
     _serializer.set_is_local(_is_local);
@@ -114,18 +116,117 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-std::shared_ptr<pipeline::Dependency> PipChannel<Parent>::get_local_channel_dependency() {
-    if (!Channel<Parent>::_local_recvr) {
-        if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "_local_recvr is null: " +
-                                    std::to_string(Channel<Parent>::_parent->parent()->node_id()));
+Status Channel<Parent>::init_stub(RuntimeState* state) {
+    if (_brpc_dest_addr.hostname.empty()) {
+        LOG(WARNING) << "there is no brpc destination address's hostname"
+                        ", maybe version is not compatible.";
+        return Status::InternalError("no brpc destination");
+    }
+    if (state->query_options().__isset.enable_local_exchange) {
+        _is_local &= state->query_options().enable_local_exchange;
+    }
+    if (_is_local) {
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+        return Status::OK();
+    }
+    if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
+        _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
+                "127.0.0.1", _brpc_dest_addr.port);
+    } else {
+        _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
+    }
+
+    if (!_brpc_stub) {
+        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+    return Status::OK();
+}
+
+template <typename Parent>
+Status Channel<Parent>::open(RuntimeState* state) {
+    _be_number = state->be_number();
+    _brpc_request = std::make_shared<PTransmitDataParams>();
+    // initialize brpc request
+    _brpc_request->mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request->mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request->finst_id();
+
+    _brpc_request->mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request->mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request->query_id();
+
+    _brpc_request->set_node_id(_dest_node_id);
+    _brpc_request->set_sender_id(_parent->sender_id());
+    _brpc_request->set_be_number(_be_number);
+
+    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
+
+    _serializer.set_is_local(_is_local);
+
+    // In bucket shuffle join will set fragment_instance_id (-1, -1)
+    // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
+    // so the empty channel not need call function close_internal()
+    _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    _state = state;
+    return Status::OK();
+}
+
+std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency() {
+    if (!Channel<pipeline::ExchangeSinkLocalState>::_local_recvr) {
+        throw Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "_local_recvr is null: " +
+                        std::to_string(Channel<pipeline::ExchangeSinkLocalState>::_parent->parent()
+                                               ->node_id()));
+    }
+    return Channel<pipeline::ExchangeSinkLocalState>::_local_recvr->get_local_channel_dependency(
+            Channel<pipeline::ExchangeSinkLocalState>::_parent->sender_id());
+}
+
+Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    std::unique_ptr<PBlock> pblock_ptr;
+    pblock_ptr.reset(block);
+
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
         } else {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+            _eos_send = true;
         }
     }
-    return Channel<Parent>::_local_recvr->get_local_channel_dependency(
-            Channel<Parent>::_parent->sender_id());
+    if (eos || block->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, exec_status}));
+    }
+    return Status::OK();
+}
+
+Status PipChannel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos) {
+    COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
+        }
+        _eos_send = true;
+    }
+    if (eos || block->get_block()->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+    }
+    return Status::OK();
+}
+
+Status PipChannel::send_current_block(bool eos, Status exec_status) {
+    if (Channel<pipeline::ExchangeSinkLocalState>::is_local()) {
+        return Channel<pipeline::ExchangeSinkLocalState>::send_local_block(exec_status, eos);
+    }
+    SCOPED_CONSUME_MEM_TRACKER(Channel<pipeline::ExchangeSinkLocalState>::_parent->mem_tracker());
+    RETURN_IF_ERROR(send_remote_block(_pblock.release(), eos, exec_status));
+    return Status::OK();
 }
 
 template <typename Parent>
@@ -339,21 +440,14 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
-    _enable_pipeline_exec = state->enable_pipeline_exec();
 
     for (int i = 0; i < destinations.size(); ++i) {
         const auto& fragment_instance_id = destinations[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
-            if (_enable_pipeline_exec) {
-                _channel_shared_ptrs.emplace_back(new PipChannel<VDataStreamSender>(
-                        this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                        sink.dest_node_id));
-            } else {
-                _channel_shared_ptrs.emplace_back(
-                        new Channel(this, row_desc, destinations[i].brpc_server,
-                                    fragment_instance_id, sink.dest_node_id));
-            }
+            _channel_shared_ptrs.emplace_back(new Channel(this, row_desc,
+                                                          destinations[i].brpc_server,
+                                                          fragment_instance_id, sink.dest_node_id));
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  _channel_shared_ptrs.size() - 1);
             _channels.push_back(_channel_shared_ptrs.back().get());
@@ -363,14 +457,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
         }
     }
     _name = "VDataStreamSender";
-    if (_enable_pipeline_exec) {
-        _broadcast_pb_blocks = vectorized::BroadcastPBlockHolderQueue::create_shared();
-        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
-            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
-        }
-    } else {
-        _cur_pb_block = &_pb_block1;
-    }
+    _cur_pb_block = &_pb_block1;
 }
 
 VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
@@ -588,38 +675,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     }
                 }
             }
-        } else if (_enable_pipeline_exec) {
-            std::shared_ptr<BroadcastPBlockHolder> block_holder = nullptr;
-            RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
-            {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                bool serialized = false;
-                RETURN_IF_ERROR(_serializer.next_serialized_block(
-                        block, block_holder->get_block(), _channels.size(), &serialized, eos));
-                if (serialized) {
-                    auto cur_block = _serializer.get_block()->to_block();
-                    if (!cur_block.empty()) {
-                        RETURN_IF_ERROR(_serializer.serialize_block(
-                                &cur_block, block_holder->get_block(), _channels.size()));
-                    } else {
-                        block_holder->get_block()->Clear();
-                    }
-                    Status status;
-                    for (auto channel : _channels) {
-                        if (!channel->is_receiver_eof()) {
-                            if (channel->is_local()) {
-                                status = channel->send_local_block(&cur_block);
-                            } else {
-                                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_broadcast_block(block_holder, eos);
-                            }
-                            HANDLE_CHANNEL_STATUS(state, channel, status);
-                        }
-                    }
-                    cur_block.clear_column_data();
-                    _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
-                }
-            }
         } else {
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
             bool serialized = false;
@@ -676,12 +731,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
-                                             (uint64_t*)_partitioner->get_channel_ids(), rows,
-                                             block, _enable_pipeline_exec ? eos : false));
+                                             _partitioner->get_channel_ids().get<uint64_t>(), rows,
+                                             block, false));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
-                                             (uint32_t*)_partitioner->get_channel_ids(), rows,
-                                             block, _enable_pipeline_exec ? eos : false));
+                                             _partitioner->get_channel_ids().get<uint32_t>(), rows,
+                                             block, false));
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         // check out of limit
@@ -714,8 +769,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(_send_new_partition_batch());
         }
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
-                                                  convert_block.get(),
-                                                  _enable_pipeline_exec ? eos : false));
+                                                  convert_block.get(), false));
 
     } else {
         // Range partition
@@ -723,22 +777,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         // 2. dispatch rows to channel
     }
 
-    // If eos == true, then this is the last block, should close the channel in this step.
-    Status final_st = Status::OK();
-    // For non-pipeline engine, there maybe an block in serializer, should wait for
-    if (eos && _enable_pipeline_exec) {
-        _serializer.reset_block();
-        for (int i = 0; i < _channels.size(); ++i) {
-            // For non-pipeline engine, this API maybe hang to wait last rpc.
-            // For pipeline engine, it will add block to exchange sink buffer,
-            // and then come into pending finish state.
-            Status st = _channels[i]->close(state, Status::OK());
-            if (!st.ok() && final_st.ok()) {
-                final_st = st;
-            }
-        }
-    }
-    return final_st;
+    return Status::OK();
 }
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
@@ -748,46 +787,43 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     }
 
     Status final_st = Status::OK();
-    if (!state->enable_pipeline_exec()) {
-        {
-            // send last block
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            // non pipeline engin not pass eos in send function, and maybe have create partition at last block
-            // so at here to check again
-            if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-                _row_distribution._deal_batched = true;
-                RETURN_IF_ERROR(_send_new_partition_batch());
-            }
-            if (_serializer.get_block() && _serializer.get_block()->rows() > 0) {
-                Block block = _serializer.get_block()->to_block();
-                RETURN_IF_ERROR(
-                        _serializer.serialize_block(&block, _cur_pb_block, _channels.size()));
-                Status status;
-                for (auto channel : _channels) {
-                    if (!channel->is_receiver_eof()) {
-                        if (channel->is_local()) {
-                            status = channel->send_local_block(&block);
-                        } else {
-                            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                            status = channel->send_remote_block(_cur_pb_block, false);
-                        }
-                        HANDLE_CHANNEL_STATUS(state, channel, status);
+    {
+        // send last block
+        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+        // non pipeline engin not pass eos in send function, and maybe have create partition at last block
+        // so at here to check again
+        if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+            _row_distribution._deal_batched = true;
+            RETURN_IF_ERROR(_send_new_partition_batch());
+        }
+        if (_serializer.get_block() && _serializer.get_block()->rows() > 0) {
+            Block block = _serializer.get_block()->to_block();
+            RETURN_IF_ERROR(_serializer.serialize_block(&block, _cur_pb_block, _channels.size()));
+            Status status;
+            for (auto channel : _channels) {
+                if (!channel->is_receiver_eof()) {
+                    if (channel->is_local()) {
+                        status = channel->send_local_block(&block);
+                    } else {
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                        status = channel->send_remote_block(_cur_pb_block, false);
                     }
+                    HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
             }
         }
-        for (int i = 0; i < _channels.size(); ++i) {
-            Status st = _channels[i]->close(state, exec_status);
-            if (!st.ok() && final_st.ok()) {
-                final_st = st;
-            }
+    }
+    for (int i = 0; i < _channels.size(); ++i) {
+        Status st = _channels[i]->close(state, exec_status);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
         }
-        // wait all channels to finish
-        for (int i = 0; i < _channels.size(); ++i) {
-            Status st = _channels[i]->close_wait(state);
-            if (!st.ok() && final_st.ok()) {
-                final_st = st;
-            }
+    }
+    // wait all channels to finish
+    for (int i = 0; i < _channels.size(); ++i) {
+        Status st = _channels[i]->close_wait(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
         }
     }
     if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
@@ -887,10 +923,9 @@ Status VDataStreamSender::_get_next_available_buffer(
     }
 }
 
-void VDataStreamSender::register_pipeline_channels(
-        pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
+void VDataStreamSender::register_pipeline_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : _channels) {
-        ((PipChannel<VDataStreamSender>*)channel)->register_exchange_buffer(buffer);
+        ((PipChannel*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -912,8 +947,6 @@ bool VDataStreamSender::channel_all_can_write() {
 
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
-template class PipChannel<pipeline::ExchangeSinkLocalState>;
-template class PipChannel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ExchangeSinkLocalState>;

@@ -24,14 +24,10 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
-namespace doris {
-class ExecNode;
-} // namespace doris
 namespace doris::vectorized {
 class ScannerDelegate;
 }
@@ -39,31 +35,13 @@ class ScannerDelegate;
 namespace doris::pipeline {
 class PipScannerContext;
 
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
-public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class ScanOperator : public SourceOperator<vectorized::VScanNode> {
-public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
-
-    bool can_read() override; // for source
-
-    bool runtime_filters_are_ready_or_timeout() override;
-
-    std::string debug_string() const override;
-};
-
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
-    virtual ~ScanLocalStateBase() = default;
+    ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;
 
@@ -134,13 +112,14 @@ class ScanOperatorX;
 template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
-    ScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    ScanLocalState(RuntimeState* state, OperatorXBase* parent)
+            : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const final;
 
     bool ready_to_read() override;
 
@@ -158,16 +137,40 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(RuntimeState* state,
-                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
+
+    std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
+        std::vector<int> result;
+        for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+            const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
+            if (!pred.inited()) {
+                continue;
+            }
+            if (_push_down_topn(pred) == push_down) {
+                result.push_back(id);
+            }
+        }
+        return result;
+    }
 
 protected:
     template <typename LocalStateType>
@@ -175,14 +178,15 @@ protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
 
-    virtual Status _init_profile() override;
-    virtual Status _process_conjuncts() {
-        RETURN_IF_ERROR(_normalize_conjuncts());
+    Status _init_profile() override;
+    virtual Status _process_conjuncts(RuntimeState* state) {
+        RETURN_IF_ERROR(_normalize_conjuncts(state));
         return Status::OK();
     }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
+    virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
@@ -220,7 +224,7 @@ protected:
         return Status::OK();
     }
 
-    Status _normalize_conjuncts();
+    Status _normalize_conjuncts(RuntimeState* state);
     Status _normalize_predicate(const vectorized::VExprSPtr& conjunct_expr_root,
                                 vectorized::VExprContext* context,
                                 vectorized::VExprSPtr& output_expr);
@@ -313,6 +317,8 @@ protected:
             const vectorized::VExpr* expr,
             phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
 
+    Status _get_topn_filters(RuntimeState* state);
+
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
@@ -364,7 +370,7 @@ protected:
 
     std::mutex _block_lock;
 
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
@@ -382,6 +388,8 @@ public:
         return get_block(state, block, eos);
     }
     [[nodiscard]] bool is_source() const override { return true; }
+
+    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
@@ -441,6 +449,8 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
+
+    std::vector<int> topn_filter_source_node_ids;
 };
 
 } // namespace doris::pipeline

@@ -24,7 +24,6 @@ namespace doris {
 
 DNSCache::DNSCache() {
     refresh_thread = std::thread(&DNSCache::_refresh_cache, this);
-    refresh_thread.detach();
 }
 
 DNSCache::~DNSCache() {

@@ -335,7 +335,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        uint32_t curr_interval = max_interval * ratio;
+        auto curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -398,20 +398,50 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
+int32_t StorageEngine::_auto_get_interval_by_disk_capacity(DataDir* data_dir) {
+    double disk_used = data_dir->get_usage(0);
+    double remain_used = 1 - disk_used;
+    DCHECK(remain_used >= 0 && remain_used <= 1);
+    DCHECK(config::path_gc_check_interval_second >= 0);
+    int32_t ret = 0;
+    if (remain_used > 0.9) {
+        // if config::path_gc_check_interval_second == 24h
+        ret = config::path_gc_check_interval_second;
+    } else if (remain_used > 0.7) {
+        // 12h
+        ret = config::path_gc_check_interval_second / 2;
+    } else if (remain_used > 0.5) {
+        // 6h
+        ret = config::path_gc_check_interval_second / 4;
+    } else if (remain_used > 0.3) {
+        // 4h
+        ret = config::path_gc_check_interval_second / 6;
+    } else {
+        // 3h
+        ret = config::path_gc_check_interval_second / 8;
+    }
+    return ret;
+}
+
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     LOG(INFO) << "try to start path gc thread!";
-    int32_t interval = config::path_gc_check_interval_second;
+    int32_t last_exec_time = 0;
     do {
-        LOG(INFO) << "try to perform path gc!";
-        data_dir->perform_path_gc();
+        int32_t current_time = time(nullptr);
 
-        interval = config::path_gc_check_interval_second;
+        int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+        if (current_time - last_exec_time >= interval) {
+            LOG(INFO) << "try to perform path gc! disk remain [" << 1 - data_dir->get_usage(0)
+                      << "] internal [" << interval << "]";
+            data_dir->perform_path_gc();
+            last_exec_time = time(nullptr);
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(5)));
     LOG(INFO) << "stop path gc thread!";
 }
 
@@ -686,7 +716,8 @@ void StorageEngine::_update_replica_infos_callback() {
 
         int start = 0;
         int tablet_size = all_tablets.size();
-        while (start < tablet_size) {
+        // The while loop may take a long time, we should skip it when stop
+        while (start < tablet_size && _stop_background_threads_latch.count() > 0) {
             int batch_size = std::min(100, tablet_size - start);
             int end = start + batch_size;
             TGetTabletReplicaInfosRequest request;
@@ -762,6 +793,7 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     }
 
     auto compaction = std::make_shared<SingleReplicaCompaction>(*this, tablet, compaction_type);
+    DorisMetrics::instance()->single_compaction_request_total->increment(1);
     auto st = compaction->prepare_compact();
 
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -802,7 +834,7 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         return;
     }
-    std::vector<Version> local_versions = tablet->get_all_versions();
+    std::vector<Version> local_versions = tablet->get_all_local_versions();
     for (const auto& local_version : local_versions) {
         auto version = response->add_versions();
         version->set_first(local_version.first);
@@ -917,8 +949,13 @@ bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr table
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()]
+                                    .insert(tablet->tablet_id())
+                                    .second);
+        break;
+    case CompactionType::FULL_COMPACTION:
+        already_existed = !(_tablet_submitted_full_compaction[tablet->data_dir()]
                                     .insert(tablet->tablet_id())
                                     .second);
         break;
@@ -934,8 +971,11 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     case CompactionType::CUMULATIVE_COMPACTION:
         removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
-    default:
+    case CompactionType::BASE_COMPACTION:
         removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+        break;
+    case CompactionType::FULL_COMPACTION:
+        removed = _tablet_submitted_full_compaction[tablet->data_dir()].erase(tablet->tablet_id());
         break;
     }
 
@@ -1303,9 +1343,6 @@ void StorageEngine::do_remove_unused_remote_files() {
 }
 
 void StorageEngine::_cold_data_compaction_producer_callback() {
-    std::unordered_set<int64_t> tablet_submitted;
-    std::mutex tablet_submitted_mtx;
-
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
         if (config::disable_auto_compaction ||
@@ -1315,8 +1352,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 
         std::unordered_set<int64_t> copied_tablet_submitted;
         {
-            std::lock_guard lock(tablet_submitted_mtx);
-            copied_tablet_submitted = tablet_submitted;
+            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+            copied_tablet_submitted = _cold_compaction_tablet_submitted;
         }
         int n = config::cold_data_compaction_thread_num - copied_tablet_submitted.size();
         if (n <= 0) {
@@ -1325,7 +1362,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         auto tablets = _tablet_manager->get_all_tablet([&copied_tablet_submitted](Tablet* t) {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
                    t->tablet_state() == TABLET_RUNNING &&
-                   !copied_tablet_submitted.count(t->tablet_id()) &&
+                   !copied_tablet_submitted.contains(t->tablet_id()) &&
                    !t->tablet_meta()->tablet_schema()->disable_auto_compaction();
         });
         std::vector<std::pair<TabletSharedPtr, int64_t>> tablet_to_compact;
@@ -1350,7 +1387,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
             // else, need to follow
             {
                 std::lock_guard lock(_running_cooldown_mutex);
-                if (_running_cooldown_tablets.count(t->table_id())) {
+                if (_running_cooldown_tablets.contains(t->table_id())) {
                     // already in cooldown queue
                     continue;
                 }
@@ -1373,12 +1410,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     [&, t = std::move(tablet), this]() {
                         auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.insert(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
                         }
                         Defer defer {[&] {
-                            std::lock_guard lock(tablet_submitted_mtx);
-                            tablet_submitted.erase(t->tablet_id());
+                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
                         }};
                         std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
                                                               std::try_to_lock);
@@ -1411,13 +1448,13 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                                                                               t = std::move(
                                                                                       tablet)]() {
                 {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
                 }
                 auto st = t->cooldown();
                 {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
+                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
                 }
                 if (!st.ok()) {
                     // The cooldown of the replica may be relatively slow

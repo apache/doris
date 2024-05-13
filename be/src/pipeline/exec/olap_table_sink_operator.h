@@ -18,29 +18,9 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/volap_table_sink.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class OlapTableSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VOlapTableSink> {
-public:
-    OlapTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "OlapTableSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
-public:
-    OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return _sink->can_write(); }
-};
+namespace doris::pipeline {
 
 class OlapTableSinkOperatorX;
 
@@ -52,13 +32,6 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkLocalState);
     OlapTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(exec_time_counter());
-        SCOPED_TIMER(_open_timer);
-        return Base::open(state);
-    }
-
     Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkOperatorX;
 
@@ -109,5 +82,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

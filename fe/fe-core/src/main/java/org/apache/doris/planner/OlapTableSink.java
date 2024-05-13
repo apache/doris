@@ -144,9 +144,9 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
-        String storageVaultId = dstTable.getTableProperty().getStorageVaultId();
-        if (storageVaultId != null && !storageVaultId.isEmpty()) {
-            tSink.setStorageVaultId(storageVaultId);
+        String vaultId = dstTable.getStorageVaultId();
+        if (vaultId != null && !vaultId.isEmpty()) {
+            tSink.setStorageVaultId(vaultId);
         }
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
@@ -533,10 +533,7 @@ public class OlapTableSink extends DataSink {
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
                                 + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
                         if (Config.isCloudMode()) {
-                            errMsg += ", or you may not have permission to access the current cluster";
-                            if (ConnectContext.get() != null) {
-                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
-                            }
+                            errMsg += ConnectContext.cloudNoBackendsReason();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }

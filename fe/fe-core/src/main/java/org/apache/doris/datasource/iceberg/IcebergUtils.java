@@ -25,17 +25,22 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -48,8 +53,12 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Not;
+import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
@@ -60,8 +69,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Iceberg utils
@@ -75,7 +83,6 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
-    private static final Pattern PARTITION_REG = Pattern.compile("(\\w+)\\((\\d+)?,?(\\w+)\\)");
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
@@ -107,6 +114,10 @@ public class IcebergUtils {
                     Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
                         expression = Expressions.and(left, right);
+                    } else if (left != null) {
+                        return left;
+                    } else if (right != null) {
+                        return right;
                     }
                     break;
                 }
@@ -209,6 +220,9 @@ public class IcebergUtils {
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
                 Object value = extractDorisLiteral(nestedField.type(), literalExpr);
+                if (value == null) {
+                    return null;
+                }
                 valueList.add(value);
             }
             if (inExpr.isNotIn()) {
@@ -220,16 +234,62 @@ public class IcebergUtils {
             }
         }
 
-        if (expression != null && expression instanceof Unbound) {
-            try {
-                ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
-                return expression;
-            } catch (Exception e) {
-                LOG.warn("Failed to check expression: " + e.getMessage());
-                return null;
-            }
+        return checkConversion(expression, schema);
+    }
+
+    private static Expression checkConversion(Expression expression, Schema schema) {
+        if (expression == null) {
+            return null;
         }
-        return null;
+        switch (expression.op()) {
+            case AND: {
+                And andExpr = (And) expression;
+                Expression left = checkConversion(andExpr.left(), schema);
+                Expression right = checkConversion(andExpr.right(), schema);
+                if (left != null && right != null) {
+                    return andExpr;
+                } else if (left != null) {
+                    return left;
+                } else if (right != null) {
+                    return right;
+                } else {
+                    return null;
+                }
+            }
+            case OR: {
+                Or orExpr = (Or) expression;
+                Expression left = checkConversion(orExpr.left(), schema);
+                Expression right = checkConversion(orExpr.right(), schema);
+                if (left == null || right == null) {
+                    return null;
+                } else {
+                    return orExpr;
+                }
+            }
+            case NOT: {
+                Not notExpr = (Not) expression;
+                Expression child = checkConversion(notExpr.child(), schema);
+                if (child == null) {
+                    return null;
+                } else {
+                    return notExpr;
+                }
+            }
+            case TRUE:
+            case FALSE:
+                return expression;
+            default:
+                if (!(expression instanceof Unbound)) {
+                    return null;
+                }
+                try {
+                    ((Unbound<?, ?>) expression).bind(schema.asStruct(), true);
+                    return expression;
+                } catch (Exception e) {
+                    LOG.debug("Failed to check expression: {}", e.getMessage());
+                    return null;
+                }
+        }
     }
 
     public static Object extractDorisLiteral(org.apache.iceberg.types.Type icebergType, Expr expr) {
@@ -248,6 +308,7 @@ public class IcebergUtils {
             DateLiteral dateLiteral = (DateLiteral) expr;
             switch (icebergTypeID) {
                 case STRING:
+                case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
                     return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
@@ -358,57 +419,51 @@ public class IcebergUtils {
         return slotRef;
     }
 
-    // "partition"="c1;day(c1);bucket(4,c3)"
-    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema)
+    public static PartitionSpec solveIcebergPartitionSpec(PartitionDesc partitionDesc, Schema schema)
             throws UserException {
-        if (properties.containsKey("partition")) {
-            PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-            String par = properties.get("partition").replaceAll(" ", "");
-            String[] pars = par.split(";");
-            for (String func : pars) {
-                if (func.contains("(")) {
-                    Matcher matcher = PARTITION_REG.matcher(func);
-                    if (matcher.matches()) {
-                        switch (matcher.group(1).toLowerCase()) {
-                            case "bucket":
-                                builder.bucket(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            case "year":
-                            case "years":
-                                builder.year(matcher.group(3));
-                                break;
-                            case "month":
-                            case "months":
-                                builder.month(matcher.group(3));
-                                break;
-                            case "date":
-                            case "day":
-                            case "days":
-                                builder.day(matcher.group(3));
-                                break;
-                            case "date_hour":
-                            case "hour":
-                            case "hours":
-                                builder.hour(matcher.group(3));
-                                break;
-                            case "truncate":
-                                builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
-                                break;
-                            default:
-                                throw new UserException("unsupported partition for " + matcher.group(1));
-                        }
-                    } else {
-                        throw new UserException("failed to get partition info from " + func);
-                    }
-                } else {
-                    builder.identity(func);
-                }
-            }
-            properties.remove("partition");
-            return builder.build();
-        } else {
+        if (partitionDesc == null) {
             return PartitionSpec.unpartitioned();
         }
+
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                builder.identity(((SlotRef) expr).getColumnName());
+            } else if (expr instanceof FunctionCallExpr) {
+                String exprName = expr.getExprName();
+                List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
+                switch (exprName.toLowerCase()) {
+                    case "bucket":
+                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    case "year":
+                    case "years":
+                        builder.year(params.get(0).getExprName());
+                        break;
+                    case "month":
+                    case "months":
+                        builder.month(params.get(0).getExprName());
+                        break;
+                    case "date":
+                    case "day":
+                    case "days":
+                        builder.day(params.get(0).getExprName());
+                        break;
+                    case "date_hour":
+                    case "hour":
+                    case "hours":
+                        builder.hour(params.get(0).getExprName());
+                        break;
+                    case "truncate":
+                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        break;
+                    default:
+                        throw new UserException("unsupported partition for " + exprName);
+                }
+            }
+        }
+        return builder.build();
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
@@ -453,8 +508,17 @@ public class IcebergUtils {
                 Types.ListType list = (Types.ListType) type;
                 return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
             case MAP:
+                Types.MapType map = (Types.MapType) type;
+                return new MapType(
+                    icebergTypeToDorisType(map.keyType()),
+                    icebergTypeToDorisType(map.valueType())
+                );
             case STRUCT:
-                return Type.UNSUPPORTED;
+                Types.StructType struct = (Types.StructType) type;
+                ArrayList<StructField> nestedTypes = struct.fields().stream().map(
+                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type()))
+                ).collect(Collectors.toCollection(ArrayList::new));
+                return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -511,4 +575,13 @@ public class IcebergUtils {
         return -1;
     }
 
+    public static String getFileFormat(Table table) {
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) {
+            return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+        } else {
+            return snapshot.summary().getOrDefault(
+                    TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        }
+    }
 }

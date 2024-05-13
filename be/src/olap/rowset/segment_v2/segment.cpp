@@ -408,6 +408,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
+        _meta_mem_usage += config::estimated_mem_per_column_reader;
     }
 
     // init by column path
@@ -416,7 +417,9 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         if (!column.has_path_info()) {
             continue;
         }
-        auto iter = column_path_to_footer_ordinal.find(*column.path_info_ptr());
+        auto path = column.has_path_info() ? *column.path_info_ptr()
+                                           : vectorized::PathInData(column.name_lower_case());
+        auto iter = column_path_to_footer_ordinal.find(path);
         if (iter == column_path_to_footer_ordinal.end()) {
             continue;
         }

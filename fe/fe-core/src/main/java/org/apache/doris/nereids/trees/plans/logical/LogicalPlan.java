@@ -24,9 +24,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -61,7 +62,38 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
+    default FunctionalDependencies computeFuncDeps() {
+        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
+        ImmutableSet<FdItem> fdItems = computeFdItems();
+        fdBuilder.addFdItems(fdItems);
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slot dependents unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUnique()) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all unique slot
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniform()) {
+                fdBuilder.addDeps(o, uniformSlot);
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            fdBuilder.addDepsByEqualSet(Sets.intersection(getOutputSet(), equalSet));
+        }
+        return fdBuilder.build();
+    }
 
-    ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier);
+    ImmutableSet<FdItem> computeFdItems();
+
+    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+
+    void computeUniform(FunctionalDependencies.Builder fdBuilder);
+
+    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    void computeFd(FunctionalDependencies.Builder fdBuilder);
 }
