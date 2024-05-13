@@ -483,4 +483,33 @@ suite("test_delete") {
     sql "set experimental_enable_nereids_planner = false;"
     sql "set @data_batch_num='2024-01-31 00:00:00';"
     sql "delete  from bi_acti_per_period_plan where data_batch_num =@data_batch_num; "
+
+    // delete bitmap
+    sql "drop table if exists table_bitmap"
+    sql """
+        CREATE TABLE if not exists `table_bitmap` (
+          `dt` DATE NULL,
+          `page_id` INT NULL,
+          `page_level` INT NULL,
+          `user_id` BITMAP NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`dt`, `page_id`, `page_level`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into table_bitmap values
+        ('2021-12-09',     101 ,          1 , BITMAP_FROM_STRING('100001,100002,100003,100004,100005')),
+        ('2021-12-09',     102 ,          2 , BITMAP_FROM_STRING('100001,100003,100004')),
+        ('2021-12-09',     103 ,          3 , BITMAP_FROM_STRING('100003'));
+    """
+
+    test {
+        sql "delete from table_bitmap where user_id is null"
+        exception "Can not apply delete condition to column type: BITMAP"
+    }
 }
