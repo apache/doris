@@ -23,6 +23,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion.OrExpandsionContext;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -57,6 +59,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -130,33 +133,42 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         }
 
         //2. Construct CTE with the children
-        // TODO(xiejiann): clone the total child
-        LogicalPlan leftClone = (LogicalPlan) join.left();
+        LogicalPlan leftClone = LogicalPlanDeepCopier.INSTANCE
+                .deepCopy((LogicalPlan) join.left(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), leftClone);
-        LogicalPlan rightClone = (LogicalPlan) join.right();
+        LogicalPlan rightClone = LogicalPlanDeepCopier.INSTANCE
+                .deepCopy((LogicalPlan) join.right(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), rightClone);
-        List<Plan> joins = new ArrayList<>();
+        Map<Slot, Slot> leftCloneToLeft = new HashMap<>();
+        for (int i = 0; i < leftClone.getOutput().size(); i++) {
+            leftCloneToLeft.put(leftClone.getOutput().get(i), (join.left()).getOutput().get(i));
+        }
+        Map<Slot, Slot> rightCloneToRight = new HashMap<>();
+        for (int i = 0; i < rightClone.getOutput().size(); i++) {
+            rightCloneToRight.put(rightClone.getOutput().get(i), (join.right()).getOutput().get(i));
+        }
 
         // 3. Expand join to hash join with CTE
+        List<Plan> joins = new ArrayList<>();
         if (join.getJoinType().isInnerJoin()) {
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
-                    join, leftProducer, rightProducer));
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
         } else if (join.getJoinType().isOuterJoin()) {
             // left outer join = inner join union left anti join
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
-                    join, leftProducer, rightProducer));
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
             joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                    hashOtherConditions, join, leftProducer, rightProducer));
+                    hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
             if (join.getJoinType().equals(JoinType.FULL_OUTER_JOIN)) {
                 // full outer join = inner join union left anti join union right anti join
-                joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                        hashOtherConditions, join, rightProducer, leftProducer));
+                joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                        join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
             }
         } else if (join.getJoinType().equals(JoinType.LEFT_ANTI_JOIN)) {
-            joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                    hashOtherConditions, join, leftProducer, rightProducer));
+            joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
         } else {
             throw new RuntimeException("or-expansion is not supported for " + join);
         }
@@ -191,6 +203,18 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         return null;
     }
 
+    private Map<Slot, Slot> constructReplaceMap(LogicalCTEConsumer leftConsumer, Map<Slot, Slot> leftCloneToLeft,
+            LogicalCTEConsumer rightConsumer, Map<Slot, Slot> rightCloneToRight) {
+        Map<Slot, Slot> replaced = new HashMap<>();
+        for (Entry<Slot, Slot> entry : leftConsumer.getProducerToConsumerOutputMap().entrySet()) {
+            replaced.put(leftCloneToLeft.get(entry.getKey()), entry.getValue());
+        }
+        for (Entry<Slot, Slot> entry : rightConsumer.getProducerToConsumerOutputMap().entrySet()) {
+            replaced.put(rightCloneToRight.get(entry.getKey()), entry.getValue());
+        }
+        return replaced;
+    }
+
     // expand Anti Join:
     // Left Anti join cond1 or cond2, other           Left Anti join cond1 and other
     // /                      \                         /                        \
@@ -201,7 +225,8 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             Pair<List<Expression>, List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> originJoin,
             LogicalCTEProducer<? extends Plan> leftProducer,
-            LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer) {
+            LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer,
+            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
         LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
                 leftProducer.getCteId(), "", leftProducer);
         LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
@@ -209,8 +234,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         ctx.putCTEIdToConsumer(left);
         ctx.putCTEIdToConsumer(right);
 
-        Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-        replaced.putAll(right.getProducerToConsumerOutputMap());
+        Map<Slot, Slot> replaced = constructReplaceMap(left, leftCloneToLeft, right, rightCloneToRight);
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
         List<Expression> newOtherConditions = otherConditions.stream()
@@ -232,8 +256,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             LogicalCTEConsumer newRight = new LogicalCTEConsumer(
                     ctx.getStatementContext().getNextRelationId(), rightProducer.getCteId(), "", rightProducer);
             ctx.putCTEIdToConsumer(newRight);
-            Map<Slot, Slot> newReplaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            newReplaced.putAll(newRight.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> newReplaced = constructReplaceMap(left, leftCloneToLeft, newRight, rightCloneToRight);
             newOtherConditions = otherConditions.stream()
                     .map(e -> e.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s))
                     .collect(Collectors.toList());
@@ -265,7 +288,8 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     private List<Plan> expandInnerJoin(CascadesContext ctx, Pair<List<Expression>,
             List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> join, LogicalCTEProducer<? extends Plan> leftProducer,
-            LogicalCTEProducer<? extends Plan> rightProducer) {
+            LogicalCTEProducer<? extends Plan> rightProducer,
+            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
         // For null values, equalTo and not equalTo both return false
@@ -289,8 +313,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             ctx.putCTEIdToConsumer(right);
 
             //rewrite conjuncts to replace the old slots with CTE slots
-            Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            replaced.putAll(right.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> replaced = constructReplaceMap(left, leftCloneToLeft, right, rightCloneToRight);
             List<Expression> hashCond = pair.first.stream()
                     .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
                     .collect(Collectors.toList());

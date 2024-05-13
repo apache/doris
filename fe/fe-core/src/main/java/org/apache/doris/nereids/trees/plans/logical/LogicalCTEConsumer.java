@@ -182,10 +182,9 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCteConsumer[" + id.asInt() + getOutput() + "]",
+        return Utils.toSqlString("LogicalCteConsumer[" + id.asInt() + "]",
                 "cteId", cteId,
                 "relationId", relationId,
-                "name", name,
-                "ctp", producerToConsumerOutputMap);
+                "name", name);
     }
 }
