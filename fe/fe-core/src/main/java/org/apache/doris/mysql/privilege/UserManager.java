@@ -245,15 +245,15 @@ public class UserManager implements Writable, GsonPostProcessable {
             return createUserWithoutLock(userIdent, pwd, domainUserIdent, setByResolver, comment);
         } finally {
             wlock.unlock();
-            LOG.info("dx test after wlock createUser {}", rwLock.getOwner());
+            LOG.info("dx test after unwlock createUser {}", rwLock.getOwner());
         }
     }
 
     public User createUserWithoutLock(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent,
                                       boolean setByResolver, String comment)
             throws PatternMatcherException {
-        if (userIdentityExist(userIdent, true)) {
-            User userByUserIdentity = getUserByUserIdentity(userIdent);
+        if (userIdentityExistWithoutLock(userIdent, true)) {
+            User userByUserIdentity = getUserByUserIdentityWithoutLock(userIdent);
             if (!userByUserIdentity.isSetByDomainResolver() && setByResolver) {
                 // If the user is NOT created by domain resolver,
                 // and the current operation is done by DomainResolver,
@@ -286,22 +286,26 @@ public class UserManager implements Writable, GsonPostProcessable {
         rlock.lock();
         LOG.info("dx test after wlock getUserByUserIdentity {}", rwLock.getOwner());
         try {
-            List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
-            if (CollectionUtils.isEmpty(nameToLists)) {
-                return null;
-            }
-            Iterator<User> iter = nameToLists.iterator();
-            while (iter.hasNext()) {
-                User user = iter.next();
-                if (user.getUserIdentity().equals(userIdent)) {
-                    return user;
-                }
-            }
-            return null;
+            return getUserByUserIdentityWithoutLock(userIdent);
         } finally {
-            rlock.lock();
+            rlock.unlock();
             LOG.info("dx test after unwlock getUserByUserIdentity {}", rwLock.getOwner());
         }
+    }
+
+    public User getUserByUserIdentityWithoutLock(UserIdentity userIdent) {
+        List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            return null;
+        }
+        Iterator<User> iter = nameToLists.iterator();
+        while (iter.hasNext()) {
+            User user = iter.next();
+            if (user.getUserIdentity().equals(userIdent)) {
+                return user;
+            }
+        }
+        return null;
     }
 
     public void removeUser(UserIdentity userIdent) {
@@ -402,7 +406,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             }
         } finally {
             wlock.unlock();
-            LOG.info("dx test before unwlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
+            LOG.info("dx test after unwlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
         }
     }
 
