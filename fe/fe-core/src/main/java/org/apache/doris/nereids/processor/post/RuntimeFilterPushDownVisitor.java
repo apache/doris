@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -432,4 +434,14 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         return false;
     }
 
+    @Override
+    public Boolean visitPhysicalCTEAnchor(PhysicalCTEAnchor<? extends Plan, ? extends Plan> anchor,
+            PushDownContext ctx) {
+        return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer, PushDownContext ctx) {
+        return false;
+    }
 }
