@@ -1873,6 +1873,7 @@ build_azure() {
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc
+        libunixodbc
         openssl
         libevent
         zlib
@@ -1933,6 +1934,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
+        dragonbox
         avx2neon
         libdeflate
         streamvbyte
@@ -1940,6 +1942,15 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
     )
+    if [ "$BUILD_AZURE_SDK" = "true" ]; then
+        echo "build azure C++ sdk"
+        read -r -a packages <<<"${packages[*]} azure"
+    fi
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        read -r -a packages <<<"binutils gettext ${packages[*]}"
+    elif [[ "$(uname -s)" == 'Linux' ]]; then
+        read -r -a packages <<<"${packages[*]} hadoop_libs"
+    fi
 fi
 
 for package in "${packages[@]}"; do
