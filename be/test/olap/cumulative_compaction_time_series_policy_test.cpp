@@ -659,7 +659,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_empty_rowsets) {
     }
 
     TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY));
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY));
     static_cast<void>(_tablet->init());
     _tablet->calculate_cumulative_point();
 
