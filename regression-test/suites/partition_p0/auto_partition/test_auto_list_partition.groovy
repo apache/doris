@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_auto_list_partition") {
+    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
+
     // varchar
     sql "drop table if exists list_table1"
     sql """

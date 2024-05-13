@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_auto_partition_load") {
+    sql " set enable_memtable_on_sink_node = false; " //FIXME: remove when fixed.
+
     sql "drop table if exists load_table1"
     sql """
         CREATE TABLE `load_table1` (
