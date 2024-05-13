@@ -400,11 +400,6 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchPhrasePrefix>();
     factory.register_function<FunctionMatchRegexp>();
     factory.register_function<FunctionMatchPhraseEdge>();
-    factory.register_function<FunctionMatchElementEQ>();
-    factory.register_function<FunctionMatchElementLT>();
-    factory.register_function<FunctionMatchElementGT>();
-    factory.register_function<FunctionMatchElementLE>();
-    factory.register_function<FunctionMatchElementGE>();
 }
 
 } // namespace doris::vectorized
