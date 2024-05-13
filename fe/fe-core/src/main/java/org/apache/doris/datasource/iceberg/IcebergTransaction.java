@@ -87,6 +87,10 @@ public class IcebergTransaction implements Transaction {
         appendFiles.commit();
     }
 
+    public long getUpdateCnt() {
+        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
+    }
+
     public List<CommitTaskData> convertToCommitTaskData() {
         List<CommitTaskData> commitTaskData = new ArrayList<>();
         for (TIcebergCommitData data : this.commitDataList) {
