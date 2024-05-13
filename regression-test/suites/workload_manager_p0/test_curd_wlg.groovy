@@ -128,6 +128,12 @@ suite("test_crud_wlg") {
 
     qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
+    // test drop workload group
+    sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    sql "drop workload group test_drop_wg"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+
     // test memory_limit
     test {
         sql "alter workload group test_group properties ( 'memory_limit'='100%' );"
