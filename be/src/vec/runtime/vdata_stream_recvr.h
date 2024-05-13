@@ -115,9 +115,9 @@ public:
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
+    bool could_eos_sink();
 
 private:
-    bool could_eos_sink();
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
