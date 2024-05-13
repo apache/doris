@@ -64,9 +64,8 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -269,36 +268,23 @@ public class NereidsSqlCacheManager {
             }
 
             if (Config.isCloudMode()) {
-                List<Long> partitionIds = scanTable.getScanPartitions();
+                Collection<Long> partitionIds = scanTable.getScanPartitions();
                 List<CloudPartition> partitions = partitionIds.stream()
                         .sorted()
                         .map(olapTable::getPartition)
-                        .map(partition -> (CloudPartition)partition)
+                        .map(partition -> (CloudPartition) partition)
                         .collect(Collectors.toList());
-                List<Long> versions = null;
                 try {
-                    versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+                    CloudPartition.getSnapshotVisibleVersion(partitions);
                 } catch (RpcException e) {
                     throw new RuntimeException(e);
                 }
-                Map<Long, Long> partitionIdVersionMap = new HashMap<>();
-                for (int i = 0; i < partitionIds.size(); i++) {
-                    partitionIdVersionMap.put(partitionIds.get(i), versions.get(i));
-                }
-                for (Long scanPartitionId : scanTable.getScanPartitions()) {
-                    Partition partition = olapTable.getPartition(scanPartitionId);
-                    // partition == null: is this partition truncated?
-                    if (partition == null) {
-                        return true;
-                    }
-                }
-            } else {
-                for (Long scanPartitionId : scanTable.getScanPartitions()) {
-                    Partition partition = olapTable.getPartition(scanPartitionId);
-                    // partition == null: is this partition truncated?
-                    if (partition == null) {
-                        return true;
-                    }
+            }
+            for (Long scanPartitionId : scanTable.getScanPartitions()) {
+                Partition partition = olapTable.getPartition(scanPartitionId);
+                // partition == null: is this partition truncated?
+                if (partition == null) {
+                    return true;
                 }
             }
         }

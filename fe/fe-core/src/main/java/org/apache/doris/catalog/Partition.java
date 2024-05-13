@@ -161,6 +161,13 @@ public class Partition extends MetaObject implements Writable {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
+    /* fromCache is only used in CloudPartition
+     * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
+     */
+    public long getVisibleVersion(Boolean fromCache) {
+        return visibleVersion;
+    }
+
     public long getVisibleVersion() {
         return visibleVersion;
     }

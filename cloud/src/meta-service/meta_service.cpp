@@ -269,6 +269,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version_pb.version());
+            response->set_version_update_time(version_pb.update_time());
         }
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
@@ -389,6 +390,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         break;
                     }
                     response->add_versions(version_pb.version());
+                    response->add_version_update_times(version_pb.update_time());
                 }
             }
         }

@@ -390,6 +390,7 @@ message TxnRunningPB {
 
 message VersionPB {
     optional int64 version = 1;
+    optional int64 update_time = 2;
 }
 
 message RecycleTxnPB {
@@ -662,6 +663,7 @@ message CommitTxnResponse {
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
     repeated TableStatsPB table_stats = 6;
+    optional int64 version_update_time = 7;
 }
 
 message AbortTxnRequest {
@@ -759,6 +761,8 @@ message GetVersionResponse {
     repeated int64 table_ids = 4;
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
+    repeated int64 version_update_times = 7;
+    optional int64 version_update_time = 8;
 };
 
 message GetObjStoreInfoRequest {

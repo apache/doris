@@ -1043,10 +1043,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     // Save versions
+    int64_t version_update_time = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    response->set_version_update_time(version_update_time);
     for (auto& i : new_versions) {
         std::string ver_val;
         VersionPB version_pb;
         version_pb.set_version(i.second);
+        version_pb.set_update_time(version_update_time);
         if (!version_pb.SerializeToString(&ver_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;

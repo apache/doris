@@ -72,10 +72,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -705,40 +703,25 @@ public class CacheAnalyzer {
                 olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
         scanTables.add(scanTable);
         if (Config.isCloudMode()) {
-            List<Long> partitionIds = node.getSelectedPartitionIds();
+            Collection<Long> partitionIds = node.getSelectedPartitionIds();
             List<CloudPartition> partitions = partitionIds.stream()
-                .sorted()
-                .map(olapTable::getPartition)
-                .map(partition -> (CloudPartition)partition)
-                .collect(Collectors.toList());
-            List<Long> versions = null;
+                    .sorted()
+                    .map(olapTable::getPartition)
+                    .map(partition -> (CloudPartition) partition)
+                    .collect(Collectors.toList());
             try {
-                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+                CloudPartition.getSnapshotVisibleVersion(partitions);
             } catch (RpcException e) {
                 throw new RuntimeException(e);
             }
-            Map<Long, Long> partitionIdVersionMap = new HashMap<>();
-            for (int i = 0; i < partitionIds.size(); i++) {
-                partitionIdVersionMap.put(partitionIds.get(i), versions.get(i));
-            }
-            for (Long partitionId : node.getSelectedPartitionIds()) {
-                Partition partition = olapTable.getPartition(partitionId);
-                scanTable.addScanPartition(partitionId);
-                if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
-                    cacheTable.latestPartitionId = partition.getId();
-                    cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                    cacheTable.latestPartitionVersion = partition.getVisibleVersion();
-                }
-            }
-        } else {
-            for (Long partitionId : node.getSelectedPartitionIds()) {
-                Partition partition = olapTable.getPartition(partitionId);
-                scanTable.addScanPartition(partitionId);
-                if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
-                    cacheTable.latestPartitionId = partition.getId();
-                    cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                    cacheTable.latestPartitionVersion = partition.getVisibleVersion();
-                }
+        }
+        for (Long partitionId : node.getSelectedPartitionIds()) {
+            Partition partition = olapTable.getPartition(partitionId);
+            scanTable.addScanPartition(partitionId);
+            if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
+                cacheTable.latestPartitionId = partition.getId();
+                cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
+                cacheTable.latestPartitionVersion = partition.getVisibleVersion(true);
             }
         }
         return cacheTable;
