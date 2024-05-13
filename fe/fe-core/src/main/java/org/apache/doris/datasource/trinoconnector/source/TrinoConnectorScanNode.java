@@ -71,6 +71,7 @@ import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.LimitApplicationResult;
+import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.transaction.IsolationLevel;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.BufferingSplitSource;
@@ -116,11 +117,27 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         initBackendPolicy();
         source = new TrinoConnectorSource(desc, table);
         initSchemaParams();
+        convertPredicate();
+    }
 
+    protected void convertPredicate() throws UserException {
+        if (conjuncts.isEmpty()) {
+            constraint = Constraint.alwaysTrue();
+        }
+        TupleDomain<ColumnHandle> summary = TupleDomain.all();
         TrinoConnectorPredicateConverter trinoConnectorPredicateConverter = new TrinoConnectorPredicateConverter(
                 source.getTargetTable().getColumnHandleMap(),
                 source.getTargetTable().getColumnMetadataMap());
-        constraint = trinoConnectorPredicateConverter.convertToTrinoConstraint(conjuncts);
+        try {
+            for (int i = 0; i < conjuncts.size(); ++i) {
+                summary = summary.intersect(
+                        trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(conjuncts.get(i)));
+            }
+        } catch (AnalysisException e) {
+            LOG.warn("Can not convert Expr to trino tuple domain, exception: {}", e.getMessage());
+            summary = TupleDomain.all();
+        }
+        constraint = new Constraint(summary);
     }
 
     @Override

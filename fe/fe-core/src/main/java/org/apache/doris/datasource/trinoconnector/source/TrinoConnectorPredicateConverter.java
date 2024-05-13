@@ -26,6 +26,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
@@ -36,16 +37,15 @@ import com.google.common.collect.Lists;
 import io.airlift.slice.Slices;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
-import io.trino.spi.connector.Constraint;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.LongTimestamp;
+import io.trino.spi.type.LongTimestampWithTimeZone;
+import io.trino.spi.type.TimeZoneKey;
 import io.trino.spi.type.Type;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -55,8 +55,6 @@ import java.util.TimeZone;
 
 
 public class TrinoConnectorPredicateConverter {
-    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPredicateConverter.class);
-
     private static final String EPOCH_DATE = "1970-01-01";
     private final Map<String, ColumnHandle> trinoConnectorColumnHandleMap;
 
@@ -68,33 +66,17 @@ public class TrinoConnectorPredicateConverter {
         this.trinoConnectorColumnMetadataMap = columnMetadataMap;
     }
 
-    public Constraint convertToTrinoConstraint(List<Expr> conjuncts) {
-        if (conjuncts.isEmpty()) {
-            return Constraint.alwaysTrue();
-        }
-        TupleDomain<ColumnHandle> summary = TupleDomain.all();
-        for (int i = 0; i < conjuncts.size(); ++i) {
-            summary = summary.intersect(convertExprToTrinoTupleDomain(conjuncts.get(i)));
-        }
-        return new Constraint(summary);
-    }
-
-    private TupleDomain<ColumnHandle> convertExprToTrinoTupleDomain(Expr predicate) {
-        try {
-            if (predicate instanceof CompoundPredicate) {
-                return compoundPredicateConverter((CompoundPredicate) predicate);
-            } else if (predicate instanceof InPredicate) {
-                return inPredicateConverter((InPredicate) predicate);
-            } else if (predicate instanceof BinaryPredicate) {
-                return binaryPredicateConverter((BinaryPredicate) predicate);
-            } else if (predicate instanceof IsNullPredicate) {
-                return isNullPredicateConverter((IsNullPredicate) predicate);
-            } else {
-                return TupleDomain.all();
-            }
-        } catch (AnalysisException e) {
-            LOG.warn("Can not convert Expr to trino tuple domain, exception: {}", e.getMessage());
-            return TupleDomain.all();
+    public TupleDomain<ColumnHandle> convertExprToTrinoTupleDomain(Expr predicate) throws AnalysisException {
+        if (predicate instanceof CompoundPredicate) {
+            return compoundPredicateConverter((CompoundPredicate) predicate);
+        } else if (predicate instanceof InPredicate) {
+            return inPredicateConverter((InPredicate) predicate);
+        } else if (predicate instanceof BinaryPredicate) {
+            return binaryPredicateConverter((BinaryPredicate) predicate);
+        } else if (predicate instanceof IsNullPredicate) {
+            return isNullPredicateConverter((IsNullPredicate) predicate);
+        } else {
+            throw new AnalysisException("Do not support convert predicate: [" + predicate + "].");
         }
     }
 
@@ -136,7 +118,10 @@ public class TrinoConnectorPredicateConverter {
             }
             ranges.add(Range.equal(type, convertLiteralToDomainValues(type.getClass(), literalExpr)));
         }
-        Domain domain = Domain.create(ValueSet.ofRanges(ranges), false);
+
+        Domain domain = predicate.isNotIn()
+                ? Domain.create(ValueSet.all(type).subtract(ValueSet.ofRanges(ranges)), false)
+                : Domain.create(ValueSet.ofRanges(ranges), false);
         TupleDomain<ColumnHandle> tupleDomain = TupleDomain.withColumnDomains(
                 ImmutableMap.of(trinoConnectorColumnHandleMap.get(colName), domain));
         return tupleDomain;
@@ -164,10 +149,15 @@ public class TrinoConnectorPredicateConverter {
                 domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
                         convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
                 break;
-            case EQ_FOR_NULL:
-                domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
-                        convertLiteralToDomainValues(type.getClass(), literalExpr))), true);
+            case EQ_FOR_NULL: {
+                if (literalExpr instanceof NullLiteral) {
+                    domain = Domain.onlyNull(type);
+                } else {
+                    domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
+                            convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
+                }
                 break;
+            }
             case NE:
                 domain = Domain.create(ValueSet.all(type).subtract(ValueSet.ofRanges(Range.equal(type,
                         convertLiteralToDomainValues(type.getClass(), literalExpr)))), false);
@@ -248,8 +238,11 @@ public class TrinoConnectorPredicateConverter {
             case "SmallintType":
             case "IntegerType":
             case "BigintType":
-            case "RealType":
                 return literalExpr.getLongValue();
+            case "RealType":
+                return (long) Float.floatToIntBits((float) literalExpr.getDoubleValue());
+            case "DoubleType":
+                return literalExpr.getDoubleValue();
             case "ShortDecimalType": {
                 BigDecimal value = (BigDecimal) literalExpr.getRealValue();
                 BigDecimal tmpValue = new BigDecimal(Math.pow(10, DecimalLiteral.getBigDecimalScale(value)));
@@ -268,29 +261,25 @@ public class TrinoConnectorPredicateConverter {
                 return Slices.utf8Slice((String) literalExpr.getRealValue());
             case "DateType":
                 return ((DateLiteral) literalExpr).daynr() - new DateLiteral(EPOCH_DATE).daynr();
-            case "DoubleType":
-                return literalExpr.getDoubleValue();
             case "ShortTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                return dateLiteral.unixTimestamp(TimeZone.getTimeZone(TimeUtils.UTC_TIME_ZONE)) * 1000
+                return dateLiteral.unixTimestamp(TimeZone.getTimeZone("GMT")) * 1000
                         + dateLiteral.getMicrosecond();
-            }
-            case "ShortTimestampWithTimeZoneType": {
-                DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * 1000 + dateLiteral.getMicrosecond();
             }
             case "LongTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                long epochMicros = dateLiteral.unixTimestamp(TimeZone.getTimeZone(TimeUtils.UTC_TIME_ZONE)) * 1000
+                long epochMicros = dateLiteral.unixTimestamp(TimeZone.getTimeZone("GMT")) * 1000
                         + dateLiteral.getMicrosecond();
                 return new LongTimestamp(epochMicros, 0);
             }
             case "LongTimestampWithTimeZoneType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                long epochMicros = dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * 1000
-                        + dateLiteral.getMicrosecond();
-                return new LongTimestamp(epochMicros, 0);
+                long epochMillis = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                int picosOfMilli = (int) dateLiteral.getMicrosecond() * 1000000;
+                TimeZoneKey timeZoneKey = TimeZoneKey.getTimeZoneKey(TimeUtils.getTimeZone().toZoneId().toString());
+                return LongTimestampWithTimeZone.fromEpochMillisAndFraction(epochMillis, picosOfMilli, timeZoneKey);
             }
+            case "ShortTimestampWithTimeZoneType":
             case "TimeType":
             case "ArrayType":
             case "MapType":
