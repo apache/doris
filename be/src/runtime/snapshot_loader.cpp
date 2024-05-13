@@ -338,7 +338,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             }
             // remove file which will be downloaded now.
             // this file will be added to local_files if it be downloaded successfully.
-            local_files.erase(find);
+            if (find != local_files.end()) {
+                local_files.erase(find);
+            }
             RETURN_IF_ERROR(_remote_fs->download(full_remote_file, full_local_file));
 
             // 3. check md5 of the downloaded file
