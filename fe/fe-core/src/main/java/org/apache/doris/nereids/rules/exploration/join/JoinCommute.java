@@ -25,8 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -58,6 +61,11 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
+                // For a nested loop join, if commutativity causes a join that could originally be executed
+                // in parallel to become non-parallelizable, then we reject this swap.
+                .whenNot(join -> JoinUtils.shouldNestedLoopJoin(join)
+                        && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
+                        && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left());
