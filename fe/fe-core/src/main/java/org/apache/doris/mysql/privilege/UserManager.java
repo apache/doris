@@ -73,22 +73,26 @@ public class UserManager implements Writable, GsonPostProcessable {
         rlock.lock();
         LOG.info("dx test after rlock userIdentityExist {}", rwLock.getOwner());
         try {
-            List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
-            if (CollectionUtils.isEmpty(users)) {
-                return false;
-            }
-            for (User user : users) {
-                if (user.getUserIdentity().getHost().equalsIgnoreCase(userIdentity.getHost())) {
-                    if (includeByDomain || !user.isSetByDomainResolver()) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            return userIdentityExistWithoutLock(userIdentity, includeByDomain);
         } finally {
             rlock.unlock();
             LOG.info("dx test after unrlock userIdentityExist {}", rwLock.getOwner());
         }
+    }
+
+    public boolean userIdentityExistWithoutLock(UserIdentity userIdentity, boolean includeByDomain) {
+        List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
+        if (CollectionUtils.isEmpty(users)) {
+            return false;
+        }
+        for (User user : users) {
+            if (user.getUserIdentity().getHost().equalsIgnoreCase(userIdentity.getHost())) {
+                if (includeByDomain || !user.isSetByDomainResolver()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public List<User> getUserByName(String name) {
@@ -236,6 +240,7 @@ public class UserManager implements Writable, GsonPostProcessable {
                            String comment) throws PatternMatcherException {
         LOG.info("dx test before wlock createUser {}", rwLock.getOwner());
         wlock.lock();
+        LOG.info("dx test after wlock createUser {}", rwLock.getOwner());
         try {
             return createUserWithoutLock(userIdent, pwd, domainUserIdent, setByResolver, comment);
         } finally {
@@ -373,7 +378,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
         LOG.info("dx test before wlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
         wlock.lock();
-        LOG.info("dx test before wlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
+        LOG.info("dx test after wlock addUserPrivEntriesByResolvedIPs {}", rwLock.getOwner());
         try {
             for (Entry<String, List<User>> userEntry : nameToUsers.entrySet()) {
                 for (Map.Entry<String, Set<String>> entry : resolvedIPsMap.entrySet()) {
