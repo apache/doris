@@ -108,7 +108,6 @@ struct AddBatchCounter {
 
 struct WriteBlockCallbackContext {
     std::atomic<bool> _is_last_rpc {false};
-    std::atomic<bool> _first_stage_close {false};
 };
 
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
@@ -165,11 +164,6 @@ public:
     void clear_in_flight() { _packet_in_flight = false; }
 
     bool is_packet_in_flight() { return _packet_in_flight; }
-
-    void first_of_two_stage_close_mark() {
-        DCHECK(_ctx._first_stage_close == false);
-        _ctx._first_stage_close = true;
-    }
 
     void end_mark() {
         DCHECK(_ctx._is_last_rpc == false);
@@ -262,7 +256,6 @@ public:
 
     void clear_all_blocks();
 
-    void close_first_stage();
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
@@ -282,7 +275,6 @@ public:
         return ss.str();
     }
 
-    void wait_first_stage();
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
@@ -361,8 +353,7 @@ protected:
     std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished {false};       // reuse for vectorized
-    std::atomic<bool> _close_first_stage_finished {false}; // for two-stage close.
+    std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 

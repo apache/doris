@@ -655,7 +655,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->cntl_->ignore_eovercrowded();
     }
 
-    if (request->pre_close() || request->eos()) {
+    if (request->eos()) {
         for (auto pid : _parent->_tablet_finder->partition_ids()) {
             request->add_partition_ids(pid);
         }
@@ -685,10 +685,6 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         _send_block_callback->end_mark();
         _send_finished = true;
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
-    }
-
-    if (request->pre_close()) {
-        _send_block_callback->first_of_two_stage_close_mark();
     }
 
     auto send_block_closure = AutoReleaseClosure<
@@ -788,9 +784,6 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
             }
             _add_batches_finished = true;
         }
-        if (ctx._first_stage_close) {
-            _close_first_stage_finished.store(true);
-        }
     } else {
         _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
                                      channel_info(), status.to_string()));
@@ -835,9 +828,6 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
         // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
         // will be blocked.
         _add_batches_finished = true;
-    }
-    if (ctx._first_stage_close) {
-        _close_first_stage_finished.store(true);
     }
 }
 
@@ -903,7 +893,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         }
     }
 
-    // waiting for finished, it may take a long time, so we couldn't set a timeout
+    // Waiting for finished until _add_batches_finished changed by rpc's finished callback.
+    // it may take a long time, so we couldn't set a timeout
     // For pipeline engine, the close is called in async writer's process block method,
     // so that it will not block pipeline thread.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
@@ -937,48 +928,12 @@ void VNodeChannel::_close_check() {
     CHECK(_cur_mutable_block == nullptr) << name();
 }
 
-void VNodeChannel::close_first_stage() {
-    auto st = none_of({_cancelled, _eos_is_produced});
-    if (!st.ok()) {
-        LOG(WARNING) << fmt::format("Node Channel {} in instance {} close first stage failed.",
-                                    _node_id, _parent->_sender_id);
-        return;
-    }
-
-    _cur_add_block_request->set_pre_close(true);
-    _cur_add_block_request->set_eos(false);
-    {
-        std::lock_guard<std::mutex> l(_pending_batches_lock);
-        if (!_cur_mutable_block) [[unlikely]] {
-            // never had a block arrived. add a dummy block
-            _cur_mutable_block = vectorized::MutableBlock::create_unique();
-        }
-        auto tmp_add_block_request =
-                std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
-        // when prepare to close, add block to queue so that try_send_pending_block thread will send it.
-        _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
-        _pending_batches_num++;
-        LOG(INFO) << channel_info() << " close for the first stage, left pending batch size: "
-                  << _pending_blocks.size();
-    }
-    _eos_is_produced = true;
-}
-
-void VNodeChannel::wait_first_stage() {
-    VLOG_NOTICE << _parent->_sender_id << "wait begin!";
-    while (!_close_first_stage_finished.load()) {
-        bthread_usleep(1000);
-    }
-    VLOG_CRITICAL << _parent->_sender_id << "wait finished!";
-}
-
 void VNodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         return;
     }
 
-    _cur_add_block_request->set_pre_close(false);
     _cur_add_block_request->set_eos(true);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -1426,6 +1381,9 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
 
     _try_close = true; // will stop periodic thread
     if (status.ok()) {
+        // BE id -> add_batch method counter
+        std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
+
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
         SCOPED_TIMER(_profile->total_time_counter());
@@ -1438,13 +1396,13 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
-                LOG(INFO) << _sender_id << " first stage close start";
+                VLOG_TRACE << _sender_id << " first stage close start";
                 index_channel->for_init_node_channel(
                         [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {
                                 return;
                             }
-                            ch->close_first_stage();
+                            ch->mark_close();
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
                                         status, ch->get_cancel_msg(), index_channel, ch);
@@ -1454,14 +1412,14 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                     break;
                 }
                 index_channel->for_init_node_channel(
-                        [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
+                        [this, &index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {
                                 return;
                             }
-                            ch->wait_first_stage();
-                            if (ch->is_cancelled()) {
+                            auto s = ch->close_wait(_state);
+                            if (!s.ok()) {
                                 status = cancel_channel_and_check_intolerable_failure(
-                                        status, ch->get_cancel_msg(), index_channel, ch);
+                                        status, s.to_string(), index_channel, ch);
                             }
                         });
                 if (!status.ok()) {
