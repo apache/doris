@@ -182,23 +182,6 @@ public:
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
 
-    bool has_dependency() {
-        _blocked_dep = _execution_dep->is_blocked_by(this);
-        if (_blocked_dep != nullptr) {
-            static_cast<Dependency*>(_blocked_dep)->start_watcher();
-            return true;
-        }
-
-        for (auto* op_dep : _filter_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return true;
-            }
-        }
-        return false;
-    }
-
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
     void put_in_runnable_queue() {
@@ -244,17 +227,7 @@ public:
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
-
-    Dependency* _runtime_filter_blocked_dependency() {
-        for (auto* op_dep : _filter_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
+    bool _wait_to_start();
 
     Status _extract_dependencies();
     void _init_profile();

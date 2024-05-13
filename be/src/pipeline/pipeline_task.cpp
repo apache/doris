@@ -198,6 +198,26 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+bool PipelineTask::_wait_to_start() {
+    // Before task starting, we should make sure
+    // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
+    // 2. Runtime filter dependencies are ready
+    _blocked_dep = _execution_dep->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        return true;
+    }
+
+    for (auto* op_dep : _filter_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
@@ -251,7 +271,7 @@ Status PipelineTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    if (has_dependency() || _runtime_filter_blocked_dependency() != nullptr) {
+    if (_wait_to_start()) {
         return Status::OK();
     }
     // The status must be runnable
