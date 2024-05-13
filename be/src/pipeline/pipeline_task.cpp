@@ -119,19 +119,20 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
+    _read_dependencies.resize(_operators.size());
+    size_t i = 0;
     for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
             return result.error();
         }
         auto* local_state = result.value();
-        const auto& deps = local_state->dependencies();
-        std::copy(deps.begin(), deps.end(),
-                  std::inserter(_read_dependencies, _read_dependencies.end()));
+        _read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
         }
+        i++;
     }
     {
         auto* local_state = _state->get_sink_local_state();
@@ -197,6 +198,35 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+bool PipelineTask::_is_blocked() {
+    // `_dry_run = true` means we do not need data from source operator.
+    if (!_dry_run) {
+        for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
+            // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
+            for (auto* dep : _read_dependencies[i]) {
+                _blocked_dep = dep->is_blocked_by(this);
+                if (_blocked_dep != nullptr) {
+                    _blocked_dep->start_watcher();
+                    return true;
+                }
+            }
+            // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
+            if (!_operators[i]->need_more_input_data(_state)) {
+                break;
+            }
+        }
+    }
+
+    for (auto* op_dep : _write_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
@@ -226,16 +256,11 @@ Status PipelineTask::execute(bool* eos) {
     }
     // The status must be runnable
     if (!_opened) {
-        {
-            RETURN_IF_ERROR(_open());
-        }
-        if (!source_can_read() || !sink_can_write()) {
-            return Status::OK();
-        }
+        { RETURN_IF_ERROR(_open()); }
     }
 
     while (!_fragment_context->is_canceled()) {
-        if ((_root->need_data_from_children(_state) && !source_can_read()) || !sink_can_write()) {
+        if (_is_blocked()) {
             return Status::OK();
         }
 
@@ -407,7 +432,7 @@ std::string PipelineTask::debug_string() {
                        _opened && !_finished ? _operators[i]->debug_string(_state, i)
                                              : _operators[i]->debug_string(i));
     }
-    fmt::format_to(debug_string_buffer, "\n{}",
+    fmt::format_to(debug_string_buffer, "\n{}\n",
                    _opened && !_finished ? _sink->debug_string(_state, _operators.size())
                                          : _sink->debug_string(_operators.size()));
     if (_finished) {
@@ -416,8 +441,10 @@ std::string PipelineTask::debug_string() {
 
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {
-        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _read_dependencies[i]->debug_string(i + 1));
+        for (size_t j = 0; i < _read_dependencies[i].size(); j++) {
+            fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                           _read_dependencies[i][j]->debug_string(i + 1));
+        }
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");

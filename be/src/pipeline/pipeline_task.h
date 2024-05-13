@@ -65,14 +65,6 @@ public:
     Status close(Status exec_status);
 
     Status close_sink(Status exec_status);
-    bool source_can_read() {
-        if (_dry_run) {
-            return true;
-        }
-        return _read_blocked_dependency() == nullptr;
-    }
-
-    bool sink_can_write() { return _write_blocked_dependency() == nullptr; }
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -98,7 +90,16 @@ public:
 
     std::string debug_string();
 
-    bool is_pending_finish() { return _finish_blocked_dependency() != nullptr; }
+    bool is_pending_finish() {
+        for (auto* fin_dep : _finish_dependencies) {
+            _blocked_dep = fin_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return true;
+            }
+        }
+        return false;
+    }
 
     std::shared_ptr<BasicSharedState> get_source_shared_state() {
         return _op_shared_states.contains(_source->operator_id())
@@ -148,8 +149,10 @@ public:
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
             }
-            for (auto* dep : _read_dependencies) {
-                dep->set_always_ready();
+            for (auto& deps : _read_dependencies) {
+                for (auto* dep : deps) {
+                    dep->set_always_ready();
+                }
             }
             for (auto* dep : _write_dependencies) {
                 dep->set_always_ready();
@@ -232,38 +235,7 @@ public:
 
 private:
     friend class RuntimeFilterDependency;
-    Dependency* _write_blocked_dependency() {
-        for (auto* op_dep : _write_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
-
-    Dependency* _finish_blocked_dependency() {
-        for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
-
-    Dependency* _read_blocked_dependency() {
-        for (auto* op_dep : _read_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
+    bool _is_blocked();
 
     Dependency* _runtime_filter_blocked_dependency() {
         for (auto* op_dep : _filter_dependencies) {
@@ -330,7 +302,8 @@ private:
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
-    std::vector<Dependency*> _read_dependencies;
+    // `_read_dependencies` is stored as same order as `_operators`
+    std::vector<std::vector<Dependency*>> _read_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _filter_dependencies;

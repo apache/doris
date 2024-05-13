@@ -553,7 +553,7 @@ template <typename LocalStateType>
 Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                     bool* eos) {
     auto& local_state = get_local_state(state);
-    if (need_more_input_data(state)) {
+    if (OperatorX<LocalStateType>::need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
                 OperatorX<LocalStateType>::_child_x->row_desc().num_materialized_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
@@ -568,13 +568,13 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
         }
     }
 
-    if (!need_more_input_data(state)) {
+    if (!OperatorX<LocalStateType>::need_more_input_data(state)) {
         SCOPED_TIMER(local_state.exec_time_counter());
         bool new_eos = false;
         RETURN_IF_ERROR(pull(state, block, &new_eos));
         if (new_eos) {
             *eos = true;
-        } else if (!need_more_input_data(state)) {
+        } else if (!OperatorX<LocalStateType>::need_more_input_data(state)) {
             *eos = false;
         }
     }
