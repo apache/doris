@@ -128,7 +128,6 @@ public:
             }
             std::string data(1, '0');
             ASSERT_TRUE(writer->append(Slice(data.data(), data.size())).ok());
-            ASSERT_TRUE(writer->finalize().ok());
             ASSERT_TRUE(writer->close().ok());
         }
         ExecEnv::GetInstance()->_file_cache_factory = factory.get();
