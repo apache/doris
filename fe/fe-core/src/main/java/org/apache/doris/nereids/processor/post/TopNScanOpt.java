@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -156,6 +157,7 @@ public class TopNScanOpt extends PlanPostProcessor {
                 || relation instanceof PhysicalOdbcScan
                 || relation instanceof PhysicalEsScan
                 || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalJdbcScan;
+                || relation instanceof PhysicalJdbcScan
+                || relation instanceof PhysicalDeferMaterializeOlapScan;
     }
 }
