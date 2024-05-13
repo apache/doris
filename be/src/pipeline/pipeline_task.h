@@ -188,6 +188,14 @@ public:
             static_cast<Dependency*>(_blocked_dep)->start_watcher();
             return true;
         }
+
+        for (auto* op_dep : _filter_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return true;
+            }
+        }
         return false;
     }
 

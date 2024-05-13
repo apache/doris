@@ -828,6 +828,7 @@ public:
                                       bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
                                       bool eos) const = 0;
+    bool need_more_input_data(RuntimeState* state) const override { return true; }
 };
 
 template <typename Writer, typename Parent>

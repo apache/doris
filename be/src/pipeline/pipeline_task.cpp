@@ -256,7 +256,7 @@ Status PipelineTask::execute(bool* eos) {
     }
     // The status must be runnable
     if (!_opened) {
-        { RETURN_IF_ERROR(_open()); }
+        RETURN_IF_ERROR(_open());
     }
 
     while (!_fragment_context->is_canceled()) {
@@ -441,7 +441,7 @@ std::string PipelineTask::debug_string() {
 
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {
-        for (size_t j = 0; i < _read_dependencies[i].size(); j++) {
+        for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
             fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                            _read_dependencies[i][j]->debug_string(i + 1));
         }
