@@ -368,11 +368,7 @@ fi
 if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     # compatible with old thirdparty
     if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        if [[ "$(uname -s)" != 'Darwin' ]]; then # mac disable overwrite malloc/free
-            USE_JEMALLOC_HOOK='ON'
-        else
-            USE_JEMALLOC_HOOK='OFF'
-        fi
+        USE_JEMALLOC_HOOK='ON'
     fi
 else
     if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
