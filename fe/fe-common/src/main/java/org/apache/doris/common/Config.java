@@ -1306,12 +1306,18 @@ public class Config extends ConfigBase {
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_last_version_interval_second = 30;
+
+    /**
+     *  Expire sql sql in frontend time
+     */
     @ConfField(
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
     )
-    public static int cache_last_version_interval_second = 30;
+    public static int expire_sql_cache_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached

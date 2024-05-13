@@ -771,9 +771,7 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
-        this.sqlCacheManager = new NereidsSqlCacheManager(
-                Config.sql_cache_manage_num, Config.cache_last_version_interval_second
-        );
+        this.sqlCacheManager = new NereidsSqlCacheManager();
     }
 
     public static void destroyCheckpoint() {
