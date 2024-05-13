@@ -36,8 +36,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
-import com.dmetasoul.lakesoul.meta.jnr.NativeMetadataJavaClient;
-import com.dmetasoul.lakesoul.meta.jnr.SplitDesc;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +94,16 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
+    public static boolean isExistHashPartition(TableInfo tif) {
+        JSONObject tableProperties = JSON.parseObject(tif.getProperties());
+        if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM()) &&
+            tableProperties.getString(LakeSoulOptions.HASH_BUCKET_NUM()).equals("-1")) {
+            return false;
+        } else {
+            return tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM());
+        }
+    }
+
     public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
@@ -112,16 +120,46 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     protected List<Split> getSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
-        List<SplitDesc> splitDescs =
-                NativeMetadataJavaClient.getInstance()
-                        .createSplitDescArray(this.table.getTableName(), this.table.getTableNamespace());
-        for (SplitDesc sd : splitDescs) {
-            LakeSoulSplit lakeSoulSplit = new LakeSoulSplit(
-                    sd, 0, 0, 0, new String[0], null
-            );
-            lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
-            splits.add(lakeSoulSplit);
+        Map<String, Map<Integer, List<String>>> splitByRangeAndHashPartition = new LinkedHashMap<>();
+        TableInfo tif = table;
+        DataFileInfo[] dfinfos = DataOperation.getTableDataInfo(table.getTableId());
+        for (DataFileInfo pif : dfinfos) {
+            if (isExistHashPartition(tif) && pif.file_bucket_id() != -1) {
+                splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
+                    .computeIfAbsent(pif.file_bucket_id(), v -> new ArrayList<>())
+                    .add(pif.path());
+            } else {
+                splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
+                    .computeIfAbsent(-1, v -> new ArrayList<>())
+                    .add(pif.path());
+            }
         }
+        List<String> pkKeys = null;
+        if(!table.getPartitions().equals(";")){
+            pkKeys = Lists.newArrayList(table.getPartitions().split(";")[1].split(","));
+        }
+
+        for (Map.Entry<String, Map<Integer, List<String>>> entry : splitByRangeAndHashPartition.entrySet()) {
+            String rangeKey = entry.getKey();
+            LinkedHashMap<String, String> rangeDesc = new LinkedHashMap<>();
+            if (!rangeKey.equals("-5")) {
+                String[] keys = rangeKey.split(",");
+                for (String item : keys) {
+                    String[] kv = item.split("=");
+                    rangeDesc.put(kv[0], kv[1]);
+                }
+            }
+            for (Map.Entry<Integer, List<String>> split : entry.getValue().entrySet()) {
+                LakeSoulSplit lakeSoulSplit = new LakeSoulSplit(
+                    split.getValue(),
+                    pkKeys,
+                    rangeDesc,
+                    table.getTableSchema(),
+                    0, 0, 0,
+                    new String[0], null);
+                lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
+                splits.add(lakeSoulSplit);
+            }
         return splits;
     }
 
