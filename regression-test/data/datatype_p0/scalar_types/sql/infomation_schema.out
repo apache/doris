@@ -12,7 +12,7 @@ internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_double	
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimal	10	\N	YES	decimal	\N	\N	20	3	\N	\N	\N	decimalv3(20, 3)					20	3	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimalv3	11	\N	YES	decimal	\N	\N	20	3	\N	\N	\N	decimalv3(20, 3)					20	3	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_date	12	\N	YES	date	\N	\N	\N	\N	\N	\N	\N	date					\N	\N	\N	\N
-internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetime	13	\N	YES	datetime	\N	\N	\N	\N	0	\N	\N	datetime					\N	\N	\N	\N
+internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetime	13	\N	YES	datetime	\N	\N	\N	\N	\N	\N	\N	datetime					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datev2	14	\N	YES	date	\N	\N	\N	\N	\N	\N	\N	date					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetimev2	15	\N	YES	datetime	\N	\N	\N	\N	0	\N	\N	datetime					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_char	16	\N	YES	char	15	60	\N	\N	\N	\N	\N	char(15)					15	\N	\N	\N
