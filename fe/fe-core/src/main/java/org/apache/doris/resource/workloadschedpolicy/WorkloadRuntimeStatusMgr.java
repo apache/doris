@@ -19,7 +19,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
@@ -37,7 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class WorkloadRuntimeStatusMgr {
+public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, Map<String, TQueryStatistics>> beToQueryStatsMap = Maps.newConcurrentMap();
@@ -46,45 +46,35 @@ public class WorkloadRuntimeStatusMgr {
     private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
 
-    class WorkloadRuntimeStatsThread extends Daemon {
-
-        WorkloadRuntimeStatusMgr workloadStatsMgr;
-
-        public WorkloadRuntimeStatsThread(WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr, String threadName,
-                int interval) {
-            super(threadName, interval);
-            this.workloadStatsMgr = workloadRuntimeStatusMgr;
-        }
-
-        @Override
-        protected void runOneCycle() {
-            // 1 merge be query statistics
-            Map<String, TQueryStatistics> queryStatisticsMap = workloadStatsMgr.getQueryStatisticsMap();
-
-            // 2 log query audit
-            List<AuditEvent> auditEventList = workloadStatsMgr.getQueryNeedAudit();
-            for (AuditEvent auditEvent : auditEventList) {
-                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-                if (queryStats != null) {
-                    auditEvent.scanRows = queryStats.scan_rows;
-                    auditEvent.scanBytes = queryStats.scan_bytes;
-                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
-                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
-                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
-                }
-                Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
-            }
-
-            // 3 clear beToQueryStatsMap when be report timeout
-            workloadStatsMgr.clearReportTimeoutBeStatistics();
-        }
-
+    public WorkloadRuntimeStatusMgr() {
+        super("workload-runtime-stats-thread", Config.workload_runtime_status_thread_interval_ms);
     }
 
-    private Daemon thread = null;
+    @Override
+    protected void runAfterCatalogReady() {
+        // 1 merge be query statistics
+        Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
+
+        // 2 log query audit
+        List<AuditEvent> auditEventList = getQueryNeedAudit();
+        for (AuditEvent auditEvent : auditEventList) {
+            TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+            if (queryStats != null) {
+                auditEvent.scanRows = queryStats.scan_rows;
+                auditEvent.scanBytes = queryStats.scan_bytes;
+                auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
+                auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+            }
+            Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+        }
+
+        // 3 clear beToQueryStatsMap when be report timeout
+        clearReportTimeoutBeStatistics();
+    }
 
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
@@ -116,12 +106,6 @@ public class WorkloadRuntimeStatusMgr {
             queryAuditEventLogWriteUnlock();
         }
         return ret;
-    }
-
-    public void start() {
-        thread = new WorkloadRuntimeStatsThread(this, "workload-runtime-stats-thread",
-                Config.workload_runtime_status_thread_interval_ms);
-        thread.start();
     }
 
     public void updateBeQueryStats(TReportWorkloadRuntimeStatusParams params) {

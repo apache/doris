@@ -123,7 +123,6 @@ TEST_F(S3FileWriterTest, multi_part_io_error) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(!s3_file_writer->finalize().ok());
         // The second part would fail uploading itself to s3
         // so the result of close should be not ok
         ASSERT_TRUE(!s3_file_writer->close().ok());
@@ -166,7 +165,6 @@ TEST_F(S3FileWriterTest, put_object_io_error) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(!s3_file_writer->finalize().ok());
         // The object might be timeout but still succeed in loading
         ASSERT_TRUE(!s3_file_writer->close().ok());
     }
@@ -266,7 +264,6 @@ TEST_F(S3FileWriterTest, normal) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(s3_file_writer->finalize().ok());
         ASSERT_EQ(Status::OK(), s3_file_writer->close());
         int64_t s3_file_size = 0;
         ASSERT_EQ(Status::OK(), s3_fs->file_size("normal", &s3_file_size));
@@ -299,7 +296,6 @@ TEST_F(S3FileWriterTest, smallFile) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(s3_file_writer->finalize().ok());
         ASSERT_EQ(Status::OK(), s3_file_writer->close());
         int64_t s3_file_size = 0;
         ASSERT_EQ(Status::OK(), s3_fs->file_size("small", &s3_file_size));
@@ -359,7 +355,6 @@ TEST_F(S3FileWriterTest, finalize_error) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(!s3_file_writer->finalize().ok());
         bool exits = false;
         static_cast<void>(s3_fs->exists("finalize_error", &exits));
         ASSERT_TRUE(!exits);
@@ -396,7 +391,6 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(s3_file_writer->finalize().ok());
         // The second part would fail uploading itself to s3
         // so the result of close should be not ok
         auto st = s3_file_writer->close();
@@ -435,7 +429,6 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(s3_file_writer->finalize().ok());
         // The second part would fail uploading itself to s3
         // so the result of close should be not ok
         auto st = s3_file_writer->close();
@@ -474,7 +467,6 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
             offset += bytes_read;
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
-        ASSERT_TRUE(s3_file_writer->finalize().ok());
         // The second part would fail uploading itself to s3
         // so the result of close should be not ok
         auto st = s3_file_writer->close();
