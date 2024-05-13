@@ -543,7 +543,7 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 DUPLICATE KEY(i_item_sk)
-DISTRIBUTED BY HASH(i_item_sk) BUCKETS 24
+DISTRIBUTED BY HASH(i_item_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );

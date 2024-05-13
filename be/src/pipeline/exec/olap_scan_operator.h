@@ -80,7 +80,12 @@ private:
 
     bool _storage_no_merge() override;
 
-    bool _push_down_topn() override { return true; }
+    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+        if (!predicate.target_is_slot()) {
+            return false;
+        }
+        return _is_key_column(predicate.get_col_name()) || _storage_no_merge();
+    }
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 

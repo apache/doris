@@ -651,10 +651,21 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("cant find clusterStatus in fe, clusterName {}", clusterName);
             return;
         }
+
+        if (Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+            LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
+            throw new DdlException("cluster " + clusterName + " is in manual shutdown");
+        }
+
         // nofity ms -> wait for clusterStatus to normal
-        LOG.debug("auto start wait cluster {} status {}-{}", clusterName, clusterStatus,
-                Cloud.ClusterStatus.valueOf(clusterStatus));
+        LOG.debug("auto start wait cluster {} status {}", clusterName, clusterStatus);
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
+            // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
+            // root ? see StatisticsUtil.buildConnectContext
+            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+                LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
+                return;
+            }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
             builder.setCloudUniqueId(Config.cloud_unique_id);
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
@@ -676,8 +687,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                 throw new DdlException("notify to resume cluster not ok");
             }
         }
-        // wait 15 mins?
-        int retryTimes = 15 * 60;
+        // wait 5 mins
+        int retryTimes = 5 * 60;
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();

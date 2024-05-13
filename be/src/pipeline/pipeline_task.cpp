@@ -227,7 +227,6 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     if (!_opened) {
         {
-            SCOPED_RAW_TIMER(&time_spent);
             RETURN_IF_ERROR(_open());
         }
         if (!source_can_read() || !sink_can_write()) {
@@ -251,7 +250,6 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -304,12 +302,21 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     }
     const auto min_revocable_mem_bytes = state->min_revocable_mem();
+
+    if (UNLIKELY(state->enable_force_spill())) {
+        if (revocable_mem_bytes >= min_revocable_mem_bytes) {
+            LOG_ONCE(INFO) << "spill force, query: " << print_id(state->query_id());
+            return true;
+        }
+    }
+
     bool is_wg_mem_low_water_mark = false;
     bool is_wg_mem_high_water_mark = false;
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_N(INFO, 10) << "revoke memory, hight water mark";
+            VLOG_DEBUG << "query " << print_id(state->query_id())
+                       << " revoke memory, hight water mark";
             return true;
         }
         return false;
@@ -329,12 +336,12 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
 
-        LOG_EVERY_N(INFO, 10) << "revoke memory, low water mark, revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                              << ", mem_limit_of_op: "
-                              << PrettyPrinter::print_bytes(mem_limit_of_op)
-                              << ", min_revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
+                             << " revoke memory, low water mark, revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                             << ", min_revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
@@ -388,8 +395,8 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
     auto* cur_blocked_dep = _blocked_dep;
+    auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, dry run = {}, elapse time "
                    "= {}s], block dependency = {}, is running = {}\noperators: ",
