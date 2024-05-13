@@ -174,11 +174,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
-    // (if has) handle first stage close for auto partition table. close those NON-incremental opened channel.
-    if ((request.has_pre_close() && request.pre_close()) || (request.has_eos() && request.eos())) {
-        if (request.has_pre_close() && request.pre_close()) {
-            VLOG_NOTICE << "pre close of " << request.sender_id();
-        }
+    // if channel is incremental, maybe hang on close until all close request arrived.
+    if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
         if (!st.ok()) {
@@ -199,17 +196,18 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
-    // for init node we close
+
+    // for init node, we close waiting(hang on) all close request and let them return together.
     if (!channel->is_incremental_channel()) {
-        LOG(WARNING) << "reciever close waiting!" << request.sender_id();
-        CHECK(request.has_pre_close());
+        VLOG_TRACE << "reciever close waiting!" << request.sender_id();
         int count = 0;
         while (!channel->is_finished()) {
             bthread_usleep(1000);
             count++;
         }
-        LOG(WARNING) << "reciever close wait finished!" << request.sender_id();
-        if (count >= 1000 * _timeout_s) {
+        // now maybe finished or cancelled.
+        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
+        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
             return Status::InternalError("Tablets channel didn't wait all close");
         }
     }
