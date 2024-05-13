@@ -200,6 +200,42 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "       \"replication_num\" = \"1\"\n"
                 + "    );\n"
                 + "\n");
+
+        createTable("CREATE TABLE `test1` (\n"
+                + "`pre_batch_no` VARCHAR(100) NULL COMMENT 'pre_batch_no',\n"
+                + "`batch_no` VARCHAR(100) NULL COMMENT 'batch_no',\n"
+                + "`vin_type1` VARCHAR(50) NULL COMMENT 'vin',\n"
+                + "`upgrade_day` date COMMENT 'upgrade_day'\n"
+                + ") ENGINE=OLAP\n"
+                + "unique KEY(`pre_batch_no`,`batch_no`, `vin_type1`, `upgrade_day`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "PARTITION BY RANGE(`upgrade_day`)\n"
+                + "(\n"
+                + "FROM (\"2024-03-20\") TO (\"2024-03-31\") INTERVAL 1 DAY\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`vin_type1`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "       \"replication_num\" = \"1\"\n"
+                + ");\n"
+        );
+
+        createTable("CREATE TABLE `test2` (\n"
+                + "`batch_no` VARCHAR(100) NULL COMMENT 'batch_no',\n"
+                + "`vin_type2` VARCHAR(50) NULL COMMENT 'vin',\n"
+                + "`status` VARCHAR(50) COMMENT 'status',\n"
+                + "`upgrade_day` date  not null COMMENT 'upgrade_day' \n"
+                + ") ENGINE=OLAP\n"
+                + "Duplicate KEY(`batch_no`,`vin_type2`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "PARTITION BY RANGE(`upgrade_day`)\n"
+                + "(\n"
+                + "FROM (\"2024-01-01\") TO (\"2024-01-10\") INTERVAL 1 DAY\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`vin_type2`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "       \"replication_num\" = \"1\"\n"
+                + ");\n"
+        );
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
@@ -362,6 +398,32 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", rewrittenPlan);
                             Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
+
+        PlanChecker.from(connectContext)
+                .checkExplain("    select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 1\n"
+                                + "    from lineitem_list_partition t1\n"
+                                + "    left outer join lineitem_list_partition t2\n"
+                                + "    on t1.l_shipdate = t2.l_shipdate\n"
+                                + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_orderkey", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
+
+        PlanChecker.from(connectContext)
+                .checkExplain("    select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 1\n"
+                                + "    from lineitem_list_partition t1\n"
+                                + "    right outer join lineitem_list_partition t2\n"
+                                + "    on t1.l_shipdate = t2.l_shipdate\n"
+                                + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_orderkey", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
     }
 
     @Test
@@ -484,6 +546,47 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
                             Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoWhenMultiBaseTablePartition() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select\n"
+                                + "t1.upgrade_day,\n"
+                                + "t1.batch_no,\n"
+                                + "t1.vin_type1\n"
+                                + "from\n"
+                                + "(\n"
+                                + "SELECT\n"
+                                + "batch_no,\n"
+                                + "vin_type1,\n"
+                                + "upgrade_day\n"
+                                + "FROM test1\n"
+                                + "where batch_no like 'c%'\n"
+                                + "group by batch_no,\n"
+                                + "vin_type1,\n"
+                                + "upgrade_day\n"
+                                + ")t1\n"
+                                + "left join\n"
+                                + "(\n"
+                                + "select\n"
+                                + "batch_no,\n"
+                                + "vin_type2,\n"
+                                + "status\n"
+                                + "from test2\n"
+                                + "group by batch_no,\n"
+                                + "vin_type2,\n"
+                                + "status\n"
+                                + ")t2 on t1.vin_type1 = t2.vin_type2;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("upgrade_day", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
                         });
     }
 
