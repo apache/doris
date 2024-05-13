@@ -34,7 +34,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
-import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
@@ -128,7 +127,7 @@ public class PointQueryExec implements CoordInterface {
             this.cacheID = prepareStmt.getID();
             this.serializedDescTable = prepareStmt.getSerializedDescTable();
             this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
-            this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
+            this.isBinaryProtocol = true;
             this.serializedQueryOptions = prepareStmt.getSerializedQueryOptions();
         } else {
             // TODO
@@ -202,7 +201,7 @@ public class PointQueryExec implements CoordInterface {
     }
 
     @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Status cancelReason) {
         // Do nothing
     }
 

@@ -788,7 +788,7 @@ public class StatisticsUtil {
     }
 
     protected static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
-        SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
+        SessionVariable sessionVariable =  VariableMgr.getDefaultSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
         return sessionVariable;
@@ -811,6 +811,16 @@ public class StatisticsUtil {
             LOG.warn("Fail to get value of enable auto analyze internal catalog, return false by default", e);
         }
         return true;
+    }
+
+    public static boolean enablePartitionAnalyze() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
+        }
+        return false;
     }
 
     public static int getInsertMergeCount() {

@@ -429,8 +429,7 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             _shared_state = info.shared_state->template cast<SharedStateArg>();
 
             _dependency = _shared_state->create_source_dependency(
-                    _parent->operator_id(), _parent->node_id(), _parent->get_name(),
-                    state->get_query_ctx());
+                    _parent->operator_id(), _parent->node_id(), _parent->get_name());
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
@@ -507,8 +506,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         } else {
             _shared_state = info.shared_state->template cast<SharedState>();
             _dependency = _shared_state->create_sink_dependency(
-                    _parent->dests_id().front(), _parent->node_id(), _parent->get_name(),
-                    state->get_query_ctx());
+                    _parent->dests_id().front(), _parent->node_id(), _parent->get_name());
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
@@ -588,8 +586,8 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency = AsyncWriterDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _async_writer_dependency =
+            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(

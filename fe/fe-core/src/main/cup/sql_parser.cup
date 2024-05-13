@@ -1234,7 +1234,11 @@ stmt ::=
     | insert_overwrite_stmt : stmt
     {: RESULT = stmt; :}
     | update_stmt : stmt
-    {: RESULT = stmt; :}
+    {:
+        RESULT = stmt;
+        stmt.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | backup_stmt : stmt
     {: RESULT = stmt; :}
     | restore_stmt : stmt
@@ -3914,6 +3918,18 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
     :}
+    | KW_DEFAULT INTEGER_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
+    | KW_DEFAULT LARGE_INTEGER_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
+    | KW_DEFAULT DECIMAL_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
     ;
 
 opt_is_key ::=
@@ -5786,7 +5802,7 @@ expr_or_default ::=
 prepare_stmt ::=
     KW_PREPARE variable_name:name KW_FROM select_stmt:s
     {:
-        RESULT = new PrepareStmt(s, name, false);
+        RESULT = new PrepareStmt(s, name);
         s.setPlaceHolders(parser.placeholder_expr_list);
         parser.placeholder_expr_list.clear();
     :}
@@ -6548,7 +6564,7 @@ with_analysis_properties ::=
     | KW_SQL
     {:
         RESULT = new HashMap<String, String>() {{
-             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+             put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         }};
     :}
 
@@ -8406,6 +8422,36 @@ keyword ::=
     | KW_BELONG:id
     {: RESULT = id; :}
     | KW_STAGE:id
+    {: RESULT = id; :}
+    | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VARIANT:id
+    {: RESULT = id; :}
+    | KW_IPV4:id
+    {: RESULT = id; :}
+    | KW_IPV6:id
+    {: RESULT = id; :}
+    | KW_MATCH_ANY:id
+    {: RESULT = id; :}
+    | KW_MATCH_ALL:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_PREFIX:id
+    {: RESULT = id; :}
+    | KW_MATCH_REGEXP:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_EDGE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_EQ:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GT:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_LE:id
+    {: RESULT = id; :}
+    | KW_MATCH_ELEMENT_GE:id
     {: RESULT = id; :}
     ;
 

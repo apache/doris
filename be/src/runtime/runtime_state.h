@@ -185,10 +185,10 @@ public:
                _query_options.enable_common_expr_pushdown_for_inverted_index;
     };
 
-    bool enable_faster_float_convert() const {
-        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
+    bool mysql_row_binary_format() const {
+        return _query_options.__isset.mysql_row_binary_format &&
+               _query_options.mysql_row_binary_format;
     }
-
     Status query_status();
 
     // Appends error to the _error_log if there is space
@@ -230,14 +230,6 @@ public:
     int be_number(void) const { return _be_number; }
 
     // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const std::string& err_msg) {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = Status::InternalError(err_msg);
-    }
-
     void set_process_status(const Status& status) {
         if (status.ok()) {
             return;
@@ -248,12 +240,6 @@ public:
         }
         _process_status = status;
     }
-
-    // Sets _process_status to MEM_LIMIT_EXCEEDED.
-    // Subsequent calls to this will be no-ops. Returns _process_status.
-    // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
-    // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -605,15 +591,22 @@ public:
     bool is_nereids() const;
 
     bool enable_join_spill() const {
-        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
     }
 
     bool enable_sort_spill() const {
-        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
     }
 
     bool enable_agg_spill() const {
-        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+    }
+
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
     int64_t min_revocable_mem() const {

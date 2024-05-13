@@ -1766,7 +1766,7 @@ public class Env {
 
         dnsCache.start();
 
-        workloadGroupMgr.startUpdateThread();
+        workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
 

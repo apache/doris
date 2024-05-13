@@ -15,7 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-    suite("test_round") {
+suite("test_round") {
+    sql "set enable_fold_constant_by_be=false;"
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+
+    qt_select "SELECT round(123.123, 1.123);"
+    qt_select """SELECT round(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT truncate(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT truncate(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT ceil(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT ceil(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round_bankers(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round_bankers(123.123, -1.123) FROM numbers("number"="10");"""
+    sql """drop table if exists test_round_1; """
+    sql """
+        create table test_round_1(big_key bigint not NULL)
+                DISTRIBUTED BY HASH(big_key) BUCKETS 1 PROPERTIES ("replication_num" = "1");
+    """
+    qt_select """SELECT truncate(cast(round(8990.65 - 4556.2354, 2.4652) as Decimal(9,4)), 2);"""
+    qt_select """SELECT cast(round(round(465.56,min(-5.987)),2) as DECIMAL)"""
+    qt_select """
+        SELECT truncate(100,2)<-2308.57 , cast(round(round(465.56,min(-5.987)),2) as DECIMAL) , cast(truncate(round(8990.65-4556.2354,2.4652),2)as DECIMAL) from test_round_1;
+    """
+
+    qt_select """
+        SELECT truncate(123456789.123456789, -9);
+    """
+
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
     qt_select "SELECT round_bankers(10.12345)"
@@ -61,6 +89,11 @@
     qt_select """ SELECT ceil(col1, 7), ceil(col2, 7), ceil(col3, 7) FROM `${tableName}`; """
     qt_select """ SELECT truncate(col1, 7), truncate(col2, 7), truncate(col3, 7) FROM `${tableName}`; """
     qt_select """ SELECT round_bankers(col1, 7), round_bankers(col2, 7), round_bankers(col3, 7) FROM `${tableName}`; """
+
+    qt_select_fix """ SELECT round(col1, 6.234), round(col2, 6.234), round(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT floor(col1, 6.234), floor(col2, 6.234), floor(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT truncate(col1, 6.234), truncate(col2, 6.234), truncate(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT round_bankers(col1, 6.234), round_bankers(col2, 6.234), round_bankers(col3, 6.234) FROM `${tableName}`; """
 
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 
