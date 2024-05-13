@@ -69,6 +69,9 @@ Status WalReader::read_block(PBlock& block) {
             file_reader->read_at(_offset, {row_len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
     size_t block_len = decode_fixed64_le(row_len_buf);
+    if (block_len == 0) {
+        return Status::InternalError("fail to read wal {} ,block is empty", _file_name);
+    }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);

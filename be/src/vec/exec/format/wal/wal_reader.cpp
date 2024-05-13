@@ -17,6 +17,7 @@
 
 #include "wal_reader.h"
 
+#include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
 #include "common/sync_point.h"
 #include "gutil/strings/split.h"
@@ -65,6 +66,11 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (!st.ok()) {
         LOG(WARNING) << "Failed to read wal on path = " << _wal_path;
         return st;
+    }
+    int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
+    if (!BeExecVersionManager::check_be_exec_version(be_exec_version)) {
+        return Status::InternalError("check be exec version fail when reading wal file {}",
+                                     _wal_path);
     }
     vectorized::Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
