@@ -37,6 +37,14 @@ public interface SplitGenerator {
     }
 
     /**
+     * Get all file splits if the producer doesn't support batch mode.
+     */
+    default List<Split> getSplits() throws UserException {
+        // todo: remove this interface if batch mode is stable
+        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
+    }
+
+    /**
      * `getNextBatch` should return empty list even if `hasNext` returns false.
      */
     default boolean hasNext() {

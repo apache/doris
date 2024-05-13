@@ -97,6 +97,7 @@ public class HiveScanNode extends FileQueryScanNode {
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
+    private boolean partitionInit = false;
     private List<HivePartition> prunedPartitions;
     private Iterator<HivePartition> prunedPartitionsIter;
     private int numSplitsPerPartition = NUM_SPLITS_PER_PARTITION;
@@ -129,9 +130,6 @@ public class HiveScanNode extends FileQueryScanNode {
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
-
-        prunedPartitions = getPartitions();
-        prunedPartitionsIter = prunedPartitions.iterator();
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
@@ -204,9 +202,13 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected List<Split> getSplits() throws UserException {
+    public List<Split> getSplits() throws UserException {
         long start = System.currentTimeMillis();
         try {
+            if (!partitionInit) {
+                prunedPartitions = getPartitions();
+                partitionInit = true;
+            }
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
@@ -229,6 +231,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
+    @Override
     public List<Split> getNextBatch(int maxBatchSize) throws UserException {
         try {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -256,15 +259,27 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
+    @Override
     public boolean hasNext() {
         return prunedPartitionsIter.hasNext();
     }
 
+    @Override
     public boolean isBatchMode() {
+        if (!partitionInit) {
+            try {
+                prunedPartitions = getPartitions();
+            } catch (Exception e) {
+                return false;
+            }
+            prunedPartitionsIter = prunedPartitions.iterator();
+            partitionInit = true;
+        }
         int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
     }
 
+    @Override
     public int numApproximateSplits() {
         return numSplitsPerPartition * prunedPartitions.size();
     }

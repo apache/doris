@@ -42,7 +42,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileScanNode;
@@ -51,7 +50,6 @@ import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
@@ -132,10 +130,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public void setSortColumn(String column) {
         sortColumn = column;
-    }
-
-    protected List<Split> getSplits() throws UserException {
-        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**

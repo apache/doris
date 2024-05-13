@@ -99,6 +99,7 @@ public class HudiScanNode extends HiveScanNode {
     private boolean incrementalRead = false;
     private IncrementalRelation incrementalRelation;
 
+    private boolean partitionInit = false;
     private HoodieTimeline timeline;
     private Option<String> snapshotTimestamp;
     private String queryInstant;
@@ -212,16 +213,12 @@ public class HudiScanNode extends HiveScanNode {
             if (!snapshotInstant.isPresent()) {
                 prunedPartitions = Collections.emptyList();
                 prunedPartitionsIter = prunedPartitions.iterator();
+                partitionInit = true;
                 return;
             }
             queryInstant = snapshotInstant.get().getTimestamp();
             snapshotTimestamp = Option.empty();
         }
-        // Non partition table will get one dummy partition
-        prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
-        prunedPartitionsIter = prunedPartitions.iterator();
     }
 
     @Override
@@ -382,11 +379,18 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return getIncrementalSplits();
         }
+        if (!partitionInit) {
+            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
+                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
+            partitionInit = true;
+        }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         getPartitionSplits(prunedPartitions, splits);
         return splits;
     }
 
+    @Override
     public List<Split> getNextBatch(int maxBatchSize) throws UserException {
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         int numPartitions = 0;
@@ -404,18 +408,29 @@ public class HudiScanNode extends HiveScanNode {
         return splits;
     }
 
+    @Override
     public boolean hasNext() {
         return prunedPartitionsIter.hasNext();
     }
 
+    @Override
     public boolean isBatchMode() {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return false;
+        }
+        if (!partitionInit) {
+            // Non partition table will get one dummy partition
+            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
+                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
+            prunedPartitionsIter = prunedPartitions.iterator();
+            partitionInit = true;
         }
         int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
     }
 
+    @Override
     public int numApproximateSplits() {
         return numSplitsPerPartition * prunedPartitions.size();
     }

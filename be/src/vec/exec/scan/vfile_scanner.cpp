@@ -283,7 +283,12 @@ Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
-    RETURN_IF_ERROR(_init_expr_ctxes());
+    if (_first_scan_range) {
+        RETURN_IF_ERROR(_init_expr_ctxes());
+    } else {
+        // there's no scan range in split source. stop scanner directly.
+        _scanner_eof = true;
+    }
 
     return Status::OK();
 }
