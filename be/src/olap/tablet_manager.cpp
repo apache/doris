@@ -803,7 +803,8 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         picked_tablet.emplace_back(std::move(best_tablet));
     }
 
-    if (best_single_compact_tablet != nullptr) {
+    // pick single compaction tablet needs the highest score
+    if (best_single_compact_tablet != nullptr && single_compact_highest_score >= highest_score) {
         VLOG_CRITICAL << "Found the best tablet for single compaction. "
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_single_compact_tablet->tablet_id()

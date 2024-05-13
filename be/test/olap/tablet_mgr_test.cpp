@@ -453,6 +453,15 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_EQ(compact_tablets[1]->tablet_id(), 20);
     ASSERT_EQ(score, 23);
 
+    create_tablet(21, false, rowset_size++);
+
+    compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+            CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+            cumulative_compaction_policies);
+    ASSERT_EQ(compact_tablets.size(), 1);
+    ASSERT_EQ(compact_tablets[0]->tablet_id(), 21);
+    ASSERT_EQ(score, 24);
+
     // drop all tablets
     for (int64_t id = 1; id <= 20; ++id) {
         Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
