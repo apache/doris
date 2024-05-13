@@ -604,13 +604,13 @@ public class IcebergUtils {
         }
         String fileFormat = getFileFormat(table);
         if (fileFormat.equalsIgnoreCase("parquet")) {
-            properties.getOrDefault(
+            return properties.getOrDefault(
                     TableProperties.PARQUET_COMPRESSION, TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
         } else if (fileFormat.equalsIgnoreCase("orc")) {
-            properties.getOrDefault(
+            return properties.getOrDefault(
                     TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
         } else if (fileFormat.equalsIgnoreCase("avro")) {
-            properties.getOrDefault(
+            return properties.getOrDefault(
                     TableProperties.AVRO_COMPRESSION, TableProperties.AVRO_COMPRESSION_DEFAULT);
         }
         throw new NotSupportedException("Unsupported file format: " + fileFormat);
