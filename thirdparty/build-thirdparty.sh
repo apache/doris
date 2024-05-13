@@ -1855,15 +1855,19 @@ build_azure() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-    MACHINE_TYPE="$(uname -m)"
-    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        CFLAGS="--target=aarch64-linux-gnu -march=armv8-a+crc" NEON64_CFLAGS=" "
-    else
-        AVX2_CFLAGS=-mavx2 SSSE3_CFLAGS=-mssse3 SSE41_CFLAGS=-msse4.1 SSE42_CFLAGS=-msse4.2 AVX_CFLAGS=-mavx
-    fi
+    # export BUILD_PERFORMANCE_TESTS=FALSE
+    # export BUILD_WINDOWS_UWP=TRUE
+    # export CMAKE_UNITY_BUILD=FALSE
+    # export DISABLE_AZURE_CORE_OPENTELEMETRY=TRUE
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DAZURE_SDK_DISABLE_AUTO_VCPKG=TRUE -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+
+    # unset BUILD_PERFORMANCE_TESTS
+    # unset BUILD_WINDOWS_UWP
+    # unset CMAKE_UNITY_BUILD
+    # unset DISABLE_AZURE_CORE_OPENTELEMETRY
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -1936,11 +1940,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
     )
-    if [[ "$(uname -s)" == 'Darwin' ]]; then
-        read -r -a packages <<<"binutils gettext ${packages[*]}"
-    elif [[ "$(uname -s)" == 'Linux' ]]; then
-        read -r -a packages <<<"${packages[*]} hadoop_libs"
-    fi
 fi
 
 for package in "${packages[@]}"; do
