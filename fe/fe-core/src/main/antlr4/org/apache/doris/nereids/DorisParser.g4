@@ -1168,7 +1168,7 @@ nonReserved
     | MAP
     | MATCH_ALL
     | MATCH_ANY
-    | MATCH_ELEMENT_EQ
+    | MATCH_columnName
     | MATCH_ELEMENT_GE
     | MATCH_ELEMENT_GT
     | MATCH_ELEMENT_LE
