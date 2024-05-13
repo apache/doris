@@ -59,7 +59,7 @@ public:
     static Status create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs);
     ~S3FileSystem() override;
     // Guarded by external lock.
-    void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
+    Status set_conf(S3Conf s3_conf);
 
     std::shared_ptr<Aws::S3::S3Client> get_client() const {
         std::lock_guard lock(_client_mu);
