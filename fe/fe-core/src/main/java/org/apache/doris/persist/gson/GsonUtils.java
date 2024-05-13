@@ -359,7 +359,7 @@ public class GsonUtils {
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
-    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
+    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().setExclusionStrategies(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
