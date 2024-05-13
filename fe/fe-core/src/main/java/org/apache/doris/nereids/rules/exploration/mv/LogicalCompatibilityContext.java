@@ -92,31 +92,28 @@ public class LogicalCompatibilityContext {
         return queryToViewNodeIDMapping;
     }
 
-    /**
-     * Get all expression mapping in query to view
-     */
-    @Deprecated
-    public BiMap<Expression, Expression> getQueryToViewAllExpressionMapping() {
-        if (queryToViewAllExpressionMapping != null) {
-            return queryToViewAllExpressionMapping;
-        }
-        queryToViewAllExpressionMapping = HashBiMap.create();
-        queryToViewAllExpressionMapping.putAll(getQueryToViewJoinEdgeExpressionMapping());
-        queryToViewAllExpressionMapping.putAll(getQueryToViewNodeExpressionMapping());
-        queryToViewAllExpressionMapping.putAll(getQueryToViewFilterEdgeExpressionMapping());
-        return queryToViewAllExpressionMapping;
+    public Expression getQueryJoinExprFromView(Expression viewJoinExpr) {
+        return queryToViewJoinEdgeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
     }
 
-    public BiMap<Expression, Expression> getQueryToViewJoinEdgeExpressionMapping() {
-        return queryToViewJoinEdgeExpressionMappingSupplier.get();
+    public Expression getViewJoinExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewJoinEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public BiMap<Expression, Expression> getQueryToViewNodeExpressionMapping() {
-        return queryToViewNodeExpressionMappingSupplier.get();
+    public Expression getQueryFilterExprFromView(Expression viewJoinExpr) {
+        return queryToViewFilterEdgeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
     }
 
-    public BiMap<Expression, Expression> getQueryToViewFilterEdgeExpressionMapping() {
-        return queryToViewFilterEdgeExpressionMappingSupplier.get();
+    public Expression getViewFilterExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewFilterEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
+    }
+
+    public Expression getQueryNodeExpFromView(Expression viewJoinExpr) {
+        return queryToViewNodeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
+    }
+
+    public Expression getViewNodeExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewNodeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
     public ObjectId getPlanNodeId() {
