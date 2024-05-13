@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -117,8 +119,9 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     } else {
                         throw new RuntimeException("or-expansion is not supported for " + join);
                     }
-
+                    LogicalPlanDeepCopier.INSTANCE.deepCopy(p)
                     //4. union all joins and construct LogicalCTEAnchor with CTEs
+                    System.out.println(ctx.cascadesContext.getMemo().getRoot());
                     List<List<SlotReference>> childrenOutputs = joins.stream()
                             .map(j -> j.getOutput().stream()
                                     .map(SlotReference.class::cast)

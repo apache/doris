@@ -89,7 +89,7 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCteAnchor[" + id.asInt() + "]",
+        return Utils.toSqlString("LogicalCteAnchor[" + id.asInt() + getOutput() + "]",
                 "cteId", cteId);
     }
 }
