@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_table_level_compaction_policy", "nonConcurrent") {
+suite("test_table_level_compaction_policy") {
     def tableName = "test_table_level_compaction_policy"
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -257,7 +257,7 @@ suite("test_table_level_compaction_policy", "nonConcurrent") {
             );
     """
     sql """sync"""
-    
+
     test {
         sql """
             alter table  ${tableName} set ("enable_single_replica_compaction" = "true")
