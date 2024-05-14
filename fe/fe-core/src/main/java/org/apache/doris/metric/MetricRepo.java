@@ -279,19 +279,15 @@ public final class MetricRepo {
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
-        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second");
-        GAUGE_QUERY_PER_SECOND.setValue(0.0);
+        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_PER_SECOND);
-        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second");
-        GAUGE_REQUEST_PER_SECOND.setValue(0.0);
+        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_REQUEST_PER_SECOND);
-        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate");
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_ERR_RATE);
-        GAUGE_QUERY_ERR_RATE.setValue(0.0);
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score", MetricUnit.NOUNIT,
-                "max tablet compaction score of all backends");
+                "max tablet compaction score of all backends", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
-        GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
         // query
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");
@@ -333,7 +329,7 @@ public final class MetricRepo {
                 "number of query instance begin"));
         USER_GAUGE_QUERY_INSTANCE_NUM = addLabeledMetrics("user", () ->
                 new GaugeMetricImpl<>("query_instance_num", MetricUnit.NOUNIT,
-                "number of running query instances of current user"));
+                "number of running query instances of current user", 0L));
         GaugeMetric<Long> queryInstanceNum = new GaugeMetric<Long>("query_instance_num",
                 MetricUnit.NOUNIT, "number of query instances of all current users") {
             @Override
@@ -471,7 +467,7 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(txnNum);
         DB_GAUGE_TXN_NUM = addLabeledMetrics("db", () ->
-                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions", 0L));
         GaugeMetric<Long> publishTxnNum = new GaugeMetric<Long>("publish_txn_num", MetricUnit.NOUNIT,
                 "number of publish transactions") {
             @Override
@@ -481,7 +477,8 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
         DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
-                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT, "number of publish transactions"));
+                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT,
+                "number of publish transactions", 0L));
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
                 "total rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ROWS);

@@ -40,11 +40,11 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -55,9 +55,11 @@ public class CastExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(CastExpr.class);
 
     // Only set for explicit casts. Null for implicit casts.
+    @SerializedName("ttd")
     private TypeDef targetTypeDef;
 
     // True if this is a "pre-analyzed" implicit cast.
+    @SerializedName("ii")
     private boolean isImplicit;
 
     // True if this cast does not change the type.
@@ -89,7 +91,7 @@ public class CastExpr extends Expr {
     }
 
     // only used restore from readFields.
-    public CastExpr() {
+    private CastExpr() {
 
     }
 
@@ -459,21 +461,6 @@ public class CastExpr extends Expr {
             return new BoolLiteral(value.getStringValue());
         }
         return this;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeBoolean(isImplicit);
-        if (targetTypeDef.getType() instanceof ScalarType) {
-            ScalarType scalarType = (ScalarType) targetTypeDef.getType();
-            TypeUtils.writeScalaType(scalarType, out);
-        } else {
-            throw new IOException("Can not write type " + targetTypeDef.getType());
-        }
-        out.writeInt(children.size());
-        for (Expr expr : children) {
-            Expr.writeTo(expr, out);
-        }
     }
 
     public static CastExpr read(DataInput input) throws IOException {

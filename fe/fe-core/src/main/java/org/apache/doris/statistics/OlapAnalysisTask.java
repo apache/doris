@@ -33,8 +33,6 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
@@ -120,19 +118,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
-            Map<String, String> params = new HashMap<>();
-            params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-            params.put("catalogId", String.valueOf(catalog.getId()));
-            params.put("catalogName", catalog.getName());
-            params.put("dbId", String.valueOf(db.getId()));
-            params.put("tblId", String.valueOf(tbl.getId()));
-            params.put("idxId", String.valueOf(info.indexId));
-            params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
-            params.put("dataSizeFunction", getDataSizeFunction(col, false));
-            params.put("dbName", db.getFullName());
-            params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-            params.put("tblName", tbl.getName());
+            Map<String, String> params = buildSqlParams();
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
@@ -141,7 +127,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("rowCount", String.valueOf(totalRowCount));
             params.put("type", col.getType().toString());
             params.put("limit", "");
-            params.put("index", getIndex());
             if (needLimit()) {
                 // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
                 // the scaleFactor.
@@ -190,11 +175,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return null;
         }
         long startTime = System.currentTimeMillis();
-        Map<String, String> params = new HashMap<>();
-        params.put("dbName", db.getFullName());
-        params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-        params.put("tblName", tbl.getName());
-        params.put("index", getIndex());
+        Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
         stmtExecutor = new StmtExecutor(context.connectContext, sql);
@@ -215,48 +196,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
             doPartitionTable();
         } else {
-            doNonPartitionTable();
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+            runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
         }
     }
 
-    /**
-     * 1. Get stats of each partition
-     * 2. insert partition in batch
-     * 3. calculate column stats based on partition stats
-     */
-    protected void doPartitionTable() throws Exception {
-        Map<String, String> params = buildSqlParams();
-        Set<String> partitionNames = tbl.getPartitionNames();
-        List<String> sqls = Lists.newArrayList();
-        int count = 0;
-        for (String part : partitionNames) {
-            params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
-            params.put("partitionInfo", "partition " + part);
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
-            count++;
-            if (count == PARTITION_BATCH_SIZE) {
-                String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
-                        + Joiner.on(" UNION ALL ").join(sqls);
-                runInsert(sql);
-                sqls.clear();
-                count = 0;
-            }
-        }
-        if (count > 0) {
-            String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
-                    + Joiner.on(" UNION ALL ").join(sqls);
-            runInsert(sql);
-        }
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
-        runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+    @Override
+    protected String getPartitionInfo(String partitionName) {
+        return "partition " + partitionName;
     }
 
-    protected void doNonPartitionTable() {
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
-        runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
-    }
-
+    @Override
     protected Map<String, String> buildSqlParams() {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);

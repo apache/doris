@@ -433,7 +433,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
-        ColumnType.Type dorisType = column.getColumnTyp();
+        ColumnType.Type dorisType = column.getColumnPrimitiveType();
         if (column.isNullAt(rowIdx)) {
             insertNullColumn(parameterIndex, dorisType);
             return;

@@ -35,12 +35,19 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.MessageFormat;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public abstract class BaseAnalysisTask {
 
@@ -337,6 +344,48 @@ public abstract class BaseAnalysisTask {
 
     public void setJob(AnalysisJob job) {
         this.job = job;
+    }
+
+    /**
+     * 1. Get stats of each partition
+     * 2. insert partition in batch
+     * 3. calculate column stats based on partition stats
+     */
+    protected void doPartitionTable() throws Exception {
+        Map<String, String> params = buildSqlParams();
+        params.put("dataSizeFunction", getDataSizeFunction(col, false));
+        Set<String> partitionNames = tbl.getPartitionNames();
+        List<String> sqls = Lists.newArrayList();
+        int count = 0;
+        for (String part : partitionNames) {
+            params.put("partId", "'" + StatisticsUtil.escapeColumnName(part) + "'");
+            params.put("partitionInfo", getPartitionInfo(part));
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
+            count++;
+            if (count == PARTITION_BATCH_SIZE) {
+                String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+                        + Joiner.on(" UNION ALL ").join(sqls);
+                runInsert(sql);
+                sqls.clear();
+                count = 0;
+            }
+        }
+        if (count > 0) {
+            String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+                    + Joiner.on(" UNION ALL ").join(sqls);
+            runInsert(sql);
+        }
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+    }
+
+    protected String getPartitionInfo(String partitionName) {
+        return "";
+    }
+
+    protected Map<String, String> buildSqlParams() {
+        return Maps.newHashMap();
     }
 
     protected void runQuery(String sql) {

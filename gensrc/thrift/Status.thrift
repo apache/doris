@@ -43,6 +43,7 @@ enum TStatusCode {
     INTERNAL_ERROR                  = 6,
     THRIFT_RPC_ERROR                = 7,
     TIMEOUT                         = 8,
+    LIMIT_REACH                     = 9,  // Its ok to reuse this error code, because this error code is not used in 1.1
     //KUDU_NOT_ENABLED                = 9,  // Deprecated
     //KUDU_NOT_SUPPORTED_ON_OS        = 10, // Deprecated
     MEM_ALLOC_FAILED                = 11,

@@ -59,6 +59,8 @@ static std::string_view print_cluster_status(const ClusterStatus& status) {
         return "SUSPENDED";
     case ClusterStatus::TO_RESUME:
         return "TO_RESUME";
+    case ClusterStatus::MANUAL_SHUTDOWN:
+        return "MANUAL_SHUTDOWN";
     default:
         return "UNKNOWN";
     }
@@ -1825,6 +1827,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                                     {ClusterStatus::SUSPENDED, ClusterStatus::TO_RESUME},
                                     {ClusterStatus::TO_RESUME, ClusterStatus::NORMAL},
                                     {ClusterStatus::SUSPENDED, ClusterStatus::NORMAL},
+                                    {ClusterStatus::NORMAL, ClusterStatus::MANUAL_SHUTDOWN},
+                                    {ClusterStatus::MANUAL_SHUTDOWN, ClusterStatus::NORMAL},
                             };
                     auto from = c.cluster_status();
                     auto to = request->cluster().cluster_status();
