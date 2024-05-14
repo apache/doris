@@ -77,8 +77,8 @@ VOrcOutputStream::~VOrcOutputStream() {
 
 void VOrcOutputStream::close() {
     if (!_is_closed) {
+        Defer defer {[this] { _is_closed = true; }};
         Status st = _file_writer->close();
-        _is_closed = true;
         if (!st.ok()) {
             LOG(WARNING) << "close orc output stream failed: " << st;
             throw std::runtime_error(st.to_string());
