@@ -60,11 +60,11 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     });
     if ((*result_column_id) >= 0) {
         auto& data = block->get_by_position(*result_column_id);
-        DataTypePtr expr_data_type = root()->data_type();
-        if (expr_data_type->is_nullable() && !data.type->is_nullable()) {
-            expr_data_type = remove_nullable(expr_data_type);
+        DataTypePtr column_data_type = data.type;
+        if (column_data_type->is_nullable() && !root()->data_type()->is_nullable()) {
+            column_data_type = remove_nullable(column_data_type);
         }
-        if (!data.type->equals(*expr_data_type)) {
+        if (!root()->data_type()->equals(*column_data_type)) {
             return Status::InternalError(
                     "expr data type : {} can not match block column data type : {}",
                     root()->data_type()->get_name(), data.type->get_name());
