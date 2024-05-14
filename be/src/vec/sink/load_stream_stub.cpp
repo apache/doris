@@ -175,9 +175,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         *request.add_tablets() = tablet;
     }
     POpenLoadStreamResponse response;
-    // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
-    // see: https://github.com/apache/brpc/issues/392
-    const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
+    // set load_id as connection_group to distinguish different streaming connections
+    const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "single",
+                                                             print_id(_load_id));
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
