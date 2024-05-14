@@ -573,7 +573,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             rf.getSrcExpr(), targetList, targetExpressions, rf.getType(), rf.getExprOrder(),
                             rf.getBuilderNode(), buildSideNdv, rf.isBloomFilterSizeCalculatedByNdv(),
-                            cteNode);
+                            rf.gettMinMaxType(), cteNode);
                     targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
