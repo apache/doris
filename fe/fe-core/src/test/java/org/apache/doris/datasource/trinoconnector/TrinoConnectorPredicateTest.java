@@ -20,8 +20,10 @@ package org.apache.doris.datasource.trinoconnector;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -69,28 +71,29 @@ import org.junit.Test;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Objects;
 
 public class TrinoConnectorPredicateTest {
 
     private static final ImmutableMap<String, ColumnHandle> trinoConnectorColumnHandleMap =
              new ImmutableMap.Builder()
-                     .put("c_bool", new MockColumnHandle())
-                     .put("c_tinyint", new MockColumnHandle())
-                     .put("c_smallint", new MockColumnHandle())
-                     .put("c_int", new MockColumnHandle())
-                     .put("c_bigint", new MockColumnHandle())
-                     .put("c_real", new MockColumnHandle())
-                     .put("c_short_decimal", new MockColumnHandle())
-                     .put("c_long_decimal", new MockColumnHandle())
-                     .put("c_char", new MockColumnHandle())
-                     .put("c_varchar", new MockColumnHandle())
-                     .put("c_varbinary", new MockColumnHandle())
-                     .put("c_date", new MockColumnHandle())
-                     .put("c_double", new MockColumnHandle())
-                     .put("c_short_timestamp", new MockColumnHandle())
-                     // .put("c_short_timestamp_timezone", new MockColumnHandle())
-                     .put("c_long_timestamp", new MockColumnHandle())
-                     .put("c_long_timestamp_timezone", new MockColumnHandle())
+                     .put("c_bool", new MockColumnHandle("c_bool"))
+                     .put("c_tinyint", new MockColumnHandle("c_tinyint"))
+                     .put("c_smallint", new MockColumnHandle("c_smallint"))
+                     .put("c_int", new MockColumnHandle("c_int"))
+                     .put("c_bigint", new MockColumnHandle("c_bigint"))
+                     .put("c_real", new MockColumnHandle("c_real"))
+                     .put("c_short_decimal", new MockColumnHandle("c_short_decimal"))
+                     .put("c_long_decimal", new MockColumnHandle("c_long_decimal"))
+                     .put("c_char", new MockColumnHandle("c_char"))
+                     .put("c_varchar", new MockColumnHandle("c_varchar"))
+                     .put("c_varbinary", new MockColumnHandle("c_varbinary"))
+                     .put("c_date", new MockColumnHandle("c_date"))
+                     .put("c_double", new MockColumnHandle("c_double"))
+                     .put("c_short_timestamp", new MockColumnHandle("c_short_timestamp"))
+                     // .put("c_short_timestamp_timezone", new MockColumnHandle("c_short_timestamp_timezone"))
+                     .put("c_long_timestamp", new MockColumnHandle("c_long_timestamp"))
+                     .put("c_long_timestamp_timezone", new MockColumnHandle("c_long_timestamp_timezone"))
                      .build();
 
     private static final ImmutableMap<String, ColumnMetadata> trinoConnectorColumnMetadataMap =
@@ -585,39 +588,70 @@ public class TrinoConnectorPredicateTest {
         }
     }
 
-    // @Test
-    // public void testCompoundPredicate() throws AnalysisException {
-    //     // construct slotRefs and literalLists
-    //     List<SlotRef> slotRefs = mockSlotRefs();
-    //     List<LiteralExpr> literalList = mockLiteralExpr();
-    //
-    //     // test results, construct equal binary predicate
-    //     List<Expr> validExprs = Lists.newArrayList();
-    //     for (int i = 0; i < slotRefs.size(); i++) {
-    //         BinaryPredicate expr = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRefs.get(i),
-    //                 literalList.get(i));
-    //         validExprs.add(expr);
-    //     }
-    //
-    //     // AND
-    //     for (int i = 0; i < validExprs.size(); i++) {
-    //         for (int j = 0; j < validExprs.size(); j++) {
-    //             System.out.println("i = " + i + "; j = " + j);
-    //             CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND,
-    //                     validExprs.get(i), validExprs.get(j));
-    //             trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
-    //         }
-    //     }
-    //
-    //     // OR
-    //     for (int i = 0; i < validExprs.size(); i++) {
-    //         for (int j = 0; j < validExprs.size(); j++) {
-    //             CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR,
-    //                     validExprs.get(i), validExprs.get(j));
-    //             trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
-    //         }
-    //     }
-    // }
+    @Test
+    public void testCompoundPredicate() throws AnalysisException {
+        // construct slotRefs and literalLists
+        List<SlotRef> slotRefs = mockSlotRefs();
+        List<LiteralExpr> literalList = mockLiteralExpr();
+
+        // valid expr
+        List<Expr> validExprs = Lists.newArrayList();
+        for (int i = 0; i < slotRefs.size(); i++) {
+            BinaryPredicate expr = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRefs.get(i),
+                    literalList.get(i));
+            validExprs.add(expr);
+        }
+
+        // invalid expr
+        BinaryPredicate invalidExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                literalList.get(0), literalList.get(0));
+
+        // AND
+        // valid AND valid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < validExprs.size(); j++) {
+                CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                        validExprs.get(i), validExprs.get(j));
+                trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
+            }
+        }
+
+        // valid AND invalid
+        CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                validExprs.get(0), invalidExpr);
+        trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
+
+        // invalid AND valid
+        andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, invalidExpr, validExprs.get(0));
+        trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
+
+        // invalid AND invalid
+        andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, invalidExpr, invalidExpr);
+        try {
+            trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(andPredicate);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Can not convert both sides of compound predicate"));
+        }
+
+        // OR
+        // valid OR valid
+        for (int i = 0; i < validExprs.size(); i++) {
+            for (int j = 0; j < validExprs.size(); j++) {
+                CompoundPredicate orPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                        validExprs.get(i), validExprs.get(j));
+                trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(orPredicate);
+            }
+        }
+
+        // // valid OR valid
+        try {
+            CompoundPredicate orPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                    validExprs.get(0), invalidExpr);
+            trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(orPredicate);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("slotRef is null in binaryPredicateConverter"));
+        }
+    }
 
     private List<SlotRef> mockSlotRefs() {
         return new ImmutableList.Builder()
@@ -675,14 +709,27 @@ public class TrinoConnectorPredicateTest {
     }
 
     private static class MockColumnHandle implements ColumnHandle {
-        @Override
-        public int hashCode() {
-            return 0;
+        private String colName;
+
+        MockColumnHandle(String colName) {
+            this.colName = colName;
         }
 
         @Override
-        public boolean equals(Object other) {
-            return true;
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            MockColumnHandle that = (MockColumnHandle) o;
+            return colName.equals(that.colName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(colName);
         }
     }
 }

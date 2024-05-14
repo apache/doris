@@ -46,6 +46,8 @@ import io.trino.spi.type.LongTimestamp;
 import io.trino.spi.type.LongTimestampWithTimeZone;
 import io.trino.spi.type.TimeZoneKey;
 import io.trino.spi.type.Type;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -55,7 +57,9 @@ import java.util.TimeZone;
 
 
 public class TrinoConnectorPredicateConverter {
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorPredicateConverter.class);
     private static final String EPOCH_DATE = "1970-01-01";
+    private static final String GMT = "GMT";
     private final Map<String, ColumnHandle> trinoConnectorColumnHandleMap;
 
     private final Map<String, ColumnMetadata> trinoConnectorColumnMetadataMap;
@@ -82,17 +86,33 @@ public class TrinoConnectorPredicateConverter {
 
     private TupleDomain<ColumnHandle> compoundPredicateConverter(CompoundPredicate compoundPredicate)
             throws AnalysisException {
-        TupleDomain<ColumnHandle> left = convertExprToTrinoTupleDomain(compoundPredicate.getChild(0));
-        Objects.requireNonNull(left, "left tupleDomain is null.");
         switch (compoundPredicate.getOp()) {
             case AND: {
-                TupleDomain<ColumnHandle> right = convertExprToTrinoTupleDomain(compoundPredicate.getChild(1));
-                Objects.requireNonNull(right, "right tupleDomain is null.");
-                return left.intersect(right);
+                TupleDomain<ColumnHandle> left = null;
+                TupleDomain<ColumnHandle> right = null;
+                try {
+                    left = convertExprToTrinoTupleDomain(compoundPredicate.getChild(0));
+                } catch (AnalysisException e) {
+                    LOG.warn("left predicate of compund predicate failed, exception: " + e.getMessage());
+                }
+                try {
+                    right = convertExprToTrinoTupleDomain(compoundPredicate.getChild(1));
+                } catch (AnalysisException e) {
+                    LOG.warn("right predicate of compound predicate failed, exception: " + e.getMessage());
+                }
+                if (left != null && right != null) {
+                    return left.intersect(right);
+                } else if (left != null) {
+                    return left;
+                } else if (right != null) {
+                    return right;
+                }
+                throw new AnalysisException("Can not convert both sides of compound predicate ["
+                        + compoundPredicate.getOp() + "] to TupleDomain.");
             }
             case OR: {
+                TupleDomain<ColumnHandle> left = convertExprToTrinoTupleDomain(compoundPredicate.getChild(0));
                 TupleDomain<ColumnHandle> right = convertExprToTrinoTupleDomain(compoundPredicate.getChild(1));
-                Objects.requireNonNull(right, "right tupleDomain is null.");
                 return TupleDomain.columnWiseUnion(left, right);
             }
             case NOT:
@@ -263,12 +283,12 @@ public class TrinoConnectorPredicateConverter {
                 return ((DateLiteral) literalExpr).daynr() - new DateLiteral(EPOCH_DATE).daynr();
             case "ShortTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                return dateLiteral.unixTimestamp(TimeZone.getTimeZone("GMT")) * 1000
+                return dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000
                         + dateLiteral.getMicrosecond();
             }
             case "LongTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                long epochMicros = dateLiteral.unixTimestamp(TimeZone.getTimeZone("GMT")) * 1000
+                long epochMicros = dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000
                         + dateLiteral.getMicrosecond();
                 return new LongTimestamp(epochMicros, 0);
             }
