@@ -64,7 +64,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     std::vector<std::string> column_names;
     column_names.reserve(_columns.size());
     for (int i = 0; i < _columns.size(); i++) {
-        column_names.emplace_back(_columns[i].name);
+        if (_non_write_columns_indices.find(i) == _non_write_columns_indices.end()) {
+            column_names.emplace_back(_columns[i].name);
+        }
     }
 
     switch (_file_format_type) {
@@ -155,7 +157,6 @@ Status VHivePartitionWriter::write(vectorized::Block& block, vectorized::IColumn
     RETURN_IF_ERROR(_projection_and_filter_block(block, filter, &output_block));
     RETURN_IF_ERROR(_file_format_transformer->write(output_block));
     _row_count += output_block.rows();
-    _input_size_in_bytes += output_block.bytes();
     return Status::OK();
 }
 
@@ -198,7 +199,7 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     hive_partition_update.__set_location(location);
     hive_partition_update.__set_file_names({_get_target_file_name()});
     hive_partition_update.__set_row_count(_row_count);
-    hive_partition_update.__set_file_size(_input_size_in_bytes);
+    hive_partition_update.__set_file_size(_file_format_transformer->written_len());
 
     if (_write_info.file_type == TFileType::FILE_S3) {
         doris::io::S3FileWriter* s3_mpu_file_writer =
