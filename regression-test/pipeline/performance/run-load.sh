@@ -65,7 +65,7 @@ http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf http_port)
 clt="mysql -h127.0.0.1 -P${query_port} -uroot "
 DB="load_test_db"
 exit_flag=0
-
+${clt} -e "set global enable_profile=true;"
 (
     set -e
     shopt -s inherit_errexit
@@ -691,7 +691,7 @@ exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
-    stop_doris
+    # stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
