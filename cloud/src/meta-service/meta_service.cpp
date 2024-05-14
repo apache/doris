@@ -261,6 +261,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version);
+            // TODO response->set_version_update_time();
         } else {
             VersionPB version_pb;
             if (!version_pb.ParseFromString(ver_val)) {
@@ -382,6 +383,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         break;
                     }
                     response->add_versions(version);
+                    // TODO response->add_version_update_times();
                 } else {
                     VersionPB version_pb;
                     if (!version_pb.ParseFromString(*value)) {

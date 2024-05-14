@@ -422,7 +422,7 @@ public class SqlCacheContext {
     @lombok.AllArgsConstructor
     public static class ScanTable {
         public final FullTableName fullTableName;
-        public final long latestTimestamp;
+        // public final long latestTimestamp;
         public final long latestVersion;
         public final List<Long> scanPartitions = Lists.newArrayList();
 

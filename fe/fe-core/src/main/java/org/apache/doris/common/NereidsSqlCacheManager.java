@@ -257,13 +257,12 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableTime = olapTable.getVisibleVersionTime();
-            long cacheTableTime = scanTable.latestTimestamp;
+            //long currentTableTime = olapTable.getVisibleVersionTime();
+            //long cacheTableTime = scanTable.latestTimestamp;
             long currentTableVersion = olapTable.getVisibleVersion();
             long cacheTableVersion = scanTable.latestVersion;
             // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableTime > cacheTableTime
-                    || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
+            if (currentTableVersion != cacheTableVersion) {
                 return true;
             }
 

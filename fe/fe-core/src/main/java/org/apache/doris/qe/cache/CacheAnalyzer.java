@@ -700,7 +700,8 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
-                olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
+                olapTable.getVisibleVersion());
+        // olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
         scanTables.add(scanTable);
         if (Config.isCloudMode()) {
             Collection<Long> partitionIds = node.getSelectedPartitionIds();
@@ -736,8 +737,7 @@ public class CacheAnalyzer {
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
-                catalog.getName(), database.getFullName(), tableIf.getName()
-        ), cacheTable.latestPartitionTime, 0);
+                catalog.getName(), database.getFullName(), tableIf.getName()), 0);
         scanTables.add(scanTable);
         return cacheTable;
     }

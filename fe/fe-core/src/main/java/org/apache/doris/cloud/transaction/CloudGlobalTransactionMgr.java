@@ -343,7 +343,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // a map to record <tableId, [firstLoadPartitionIds]>
         Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
         for (int idx = 0; idx < totalPartitionNum; ++idx) {
-            // TODO(zhengyu): // should update the version time got from ms or be
             long version = commitTxnResponse.getVersions(idx);
             long tableId = commitTxnResponse.getTableIds(idx);
             if (version == 2) {
@@ -364,6 +363,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 continue;
             }
             partition.setCachedVisibleVersion(version, commitTxnResponse.getVersionUpdateTime());
+            LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
+                    txnId, tableId, partition.getId(), version, commitTxnResponse.getVersionUpdateTime());
         }
         env.getAnalysisManager().setNewPartitionLoaded(
                 tablePartitionMap.keySet().stream().collect(Collectors.toList()));

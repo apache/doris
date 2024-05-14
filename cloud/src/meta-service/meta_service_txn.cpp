@@ -1059,7 +1059,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
         txn->put(i.first, ver_val);
         LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
-                  << " txn_id=" << txn_id;
+                  << " txn_id=" << txn_id << " update_time=" << version_update_time;
 
         std::string_view ver_key = i.first;
         ver_key.remove_prefix(1); // Remove key space

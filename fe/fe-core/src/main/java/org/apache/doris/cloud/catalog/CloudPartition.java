@@ -89,7 +89,6 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    // TODO(zhengyu): should update the version time got from ms
     public void setCachedVisibleVersion(long version, Long versionUpdateTime) {
         // we only care the version should increase monotonically and ignore the readers
         LOG.debug("setCachedVisibleVersion use CloudPartition {}, version: {}, old version: {}",
@@ -254,7 +253,7 @@ public class CloudPartition extends Partition {
         }
 
         if (versionUpdateTimes != null) {
-            versionUpdateTimes.addAll(resp.getVersionUpdateTimes());
+            versionUpdateTimes.addAll(resp.getVersionUpdateTimesList());
         }
 
         return versions;
