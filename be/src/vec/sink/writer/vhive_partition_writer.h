@@ -88,7 +88,6 @@ private:
     TUpdateMode::type _update_mode;
 
     size_t _row_count = 0;
-    size_t _input_size_in_bytes = 0;
 
     const VExprContextSPtrs& _vec_output_expr_ctxs;
     const VExprContextSPtrs& _write_output_expr_ctxs;
