@@ -336,7 +336,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals("akk", hdProps.get(OssProperties.ACCESS_KEY));
         Assertions.assertEquals("skk", hdProps.get(OssProperties.SECRET_KEY));
-        Assertions.assertEquals("http://oss-cn-beijing-internal.aliyuncs.com",
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com",
                 hdProps.get(OssProperties.ENDPOINT));
 
         String queryDlf2 = "create catalog hms_dlf2 properties (\n"
@@ -392,7 +392,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Map<String, String> hdProps3 = catalog3.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals("akk", hdProps3.get(OssProperties.ACCESS_KEY));
         Assertions.assertEquals("skk", hdProps3.get(OssProperties.SECRET_KEY));
-        Assertions.assertEquals("http://oss-cn-beijing-internal.aliyuncs.com", hdProps3.get(OssProperties.ENDPOINT));
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", hdProps3.get(OssProperties.ENDPOINT));
     }
 
     @Test
