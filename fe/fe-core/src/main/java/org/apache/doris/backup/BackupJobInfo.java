@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -99,6 +100,8 @@ public class BackupJobInfo implements Writable {
     public int minorVersion;
     @SerializedName("patch_version")
     public int patchVersion;
+    @SerializedName("is_force_replication_allocation")
+    public boolean isForceReplicationAllocation;
 
     @SerializedName("tablet_be_map")
     public Map<Long, Long> tabletBeMap = Maps.newHashMap();
@@ -607,6 +610,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.majorVersion = Version.DORIS_BUILD_VERSION_MAJOR;
         jobInfo.minorVersion = Version.DORIS_BUILD_VERSION_MINOR;
         jobInfo.patchVersion = Version.DORIS_BUILD_VERSION_PATCH;
+        jobInfo.isForceReplicationAllocation = !Config.force_olap_table_replication_allocation.isEmpty();
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
