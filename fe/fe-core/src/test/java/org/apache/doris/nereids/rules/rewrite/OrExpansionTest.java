@@ -51,6 +51,7 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
 
     @Test
     void testOrExpand() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select t1.id1 + 1 as id from t1 join t2 on t1.id1 = t2.id1 or t1.id2 = t2.id2";
         Plan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -63,6 +64,7 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
 
     @Test
     void testOrExpandCTE() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().inlineCTEReferencedThreshold = 0;
         String sql = "with t3 as (select t1.id1 + 1 as id1, t1.id2 + 2 as id2 from t1), "
                 + "t4 as (select t2.id1 + 1 as id1, t2.id2 + 2 as id2  from t2) "
