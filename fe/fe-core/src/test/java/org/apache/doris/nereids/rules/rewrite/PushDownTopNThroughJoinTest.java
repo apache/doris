@@ -45,6 +45,7 @@ class PushDownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
         createDatabase("test");
 
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `k1` int(11) NOT NULL,\n"

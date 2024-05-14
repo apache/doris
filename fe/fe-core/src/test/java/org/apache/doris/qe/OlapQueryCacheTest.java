@@ -128,6 +128,7 @@ public class OlapQueryCacheTest {
             Config.cache_enable_partition_mode = true;
             context.getSessionVariable().setEnableSqlCache(true);
             context.getSessionVariable().setEnablePartitionCache(true);
+
             Config.cache_last_version_interval_second = 7200;
         } catch (UnknownHostException e) {
             e.printStackTrace();
@@ -510,6 +511,7 @@ public class OlapQueryCacheTest {
             LogicalPlan plan = new NereidsParser().parseSingle(sql);
             OriginStatement originStatement = new OriginStatement(sql, 0);
             StatementContext statementContext = new StatementContext(ctx, originStatement);
+            ctx.setStatementContext(statementContext);
             NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
             LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, statementContext);
             nereidsPlanner.plan(adapter);
