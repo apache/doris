@@ -645,7 +645,7 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         return;
     } else if (err != TxnErrorCode::TXN_OK) [[unlikely]] {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to get tablet, err=internal error";
+        msg = fmt::format("failed to get tablet, err={}", err);
         return;
     }
 
@@ -983,7 +983,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to check whether rowset exists";
+        msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
 
@@ -1096,7 +1096,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to check whether rowset exists";
+        msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
     // write schema kv if rowset_meta has schema
@@ -1205,7 +1205,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                 "txn_id={}, tablet_id={}, rowset_id={}",
                 hex(update_key), instance_id, rowset_meta.txn_id(), tablet_id,
                 rowset_meta.rowset_id_v2());
-        msg = "failed to check whether rowset exists";
+        msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
 
@@ -1356,8 +1356,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
                           rowset_meta.schema_version(), rowset_meta.start_version(),
-                          rowset_meta.end_version(),
-                          err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found" : "internal error");
+                          rowset_meta.end_version(), err);
         return false;
     }
     auto schema = rowset_meta.mutable_tablet_schema();

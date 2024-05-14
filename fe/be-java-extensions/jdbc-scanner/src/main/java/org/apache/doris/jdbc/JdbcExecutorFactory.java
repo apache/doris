@@ -34,6 +34,8 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/DB2JdbcExecutor";
             case CLICKHOUSE:
                 return "org/apache/doris/jdbc/ClickHouseJdbcExecutor";
+            case SAP_HANA:
+                return "org/apache/doris/jdbc/SapHanaJdbcExecutor";
             default:
                 return "org/apache/doris/jdbc/DefaultJdbcExecutor";
         }
