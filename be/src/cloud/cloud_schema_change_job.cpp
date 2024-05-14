@@ -41,11 +41,10 @@ using namespace ErrorCode;
 static constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
-static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
-                                                      bool sc_sorting) {
+std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+                                               int64_t mem_limit) {
     if (sc_sorting) {
-        return std::make_unique<VBaseSchemaChangeWithSorting>(
-                changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+        return std::make_unique<VBaseSchemaChangeWithSorting>(changer, mem_limit);
     }
     // else sc_directly
     return std::make_unique<VSchemaChangeDirectly>(changer);
@@ -207,7 +206,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
               << ", new_tablet=" << _new_tablet->tablet_id();
 
     // 2. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(changer, sc_sorting);
+    auto sc_procedure = get_sc_procedure(
+            changer, sc_sorting,
+            _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();

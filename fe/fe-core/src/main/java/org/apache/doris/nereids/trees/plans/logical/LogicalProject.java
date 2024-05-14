@@ -57,33 +57,22 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
     private final boolean isDistinct;
-    private final boolean canEliminate;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, ImmutableList.of(), false, true, ImmutableList.of(child));
-    }
-
-    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean canEliminate) {
-        this(projects, ImmutableList.of(), false, canEliminate, ImmutableList.of(child));
+        this(projects, ImmutableList.of(), false, ImmutableList.of(child));
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
             boolean isDistinct, List<Plan> child) {
-        this(projects, excepts, isDistinct, true, Optional.empty(), Optional.empty(), child);
+        this(projects, excepts, isDistinct, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
             boolean isDistinct, Plan child) {
-        this(projects, excepts, isDistinct, true, Optional.empty(), Optional.empty(), ImmutableList.of(child));
-    }
-
-    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
-            boolean isDistinct, boolean canEliminate, List<Plan> child) {
-        this(projects, excepts, isDistinct, canEliminate, Optional.empty(), Optional.empty(), child);
+        this(projects, excepts, isDistinct, Optional.empty(), Optional.empty(), ImmutableList.of(child));
     }
 
     private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts, boolean isDistinct,
-            boolean canEliminate,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
@@ -97,7 +86,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 : projects;
         this.excepts = Utils.fastToImmutableList(excepts);
         this.isDistinct = isDistinct;
-        this.canEliminate = canEliminate;
     }
 
     /**
@@ -112,16 +100,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     public List<NamedExpression> getExcepts() {
         return excepts;
-    }
-
-    /** isAllSlots */
-    public boolean isAllSlots() {
-        for (NamedExpression project : projects) {
-            if (!project.isSlot()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override
@@ -173,18 +151,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects, canEliminate);
+        return Objects.hash(projects);
     }
 
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, Utils.fastToImmutableList(children));
+        return new LogicalProject<>(projects, excepts, isDistinct, Utils.fastToImmutableList(children));
     }
 
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate,
+        return new LogicalProject<>(projects, excepts, isDistinct,
                 groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
@@ -192,29 +170,20 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate,
+        return new LogicalProject<>(projects, excepts, isDistinct,
                 groupExpression, logicalProperties, children);
     }
 
-    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isDistinct, isEliminate,
-                Optional.empty(), Optional.of(getLogicalProperties()), children);
-    }
-
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, children);
+        return new LogicalProject<>(projects, excepts, isDistinct, children);
     }
 
     public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, ImmutableList.of(child));
+        return new LogicalProject<>(projects, excepts, isDistinct, ImmutableList.of(child));
     }
 
     public boolean isDistinct() {
         return isDistinct;
-    }
-
-    public boolean canEliminate() {
-        return canEliminate;
     }
 
     @Override
@@ -302,5 +271,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             }
         }
         fdBuilder.pruneSlots(getOutputSet());
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

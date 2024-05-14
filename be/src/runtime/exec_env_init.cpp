@@ -111,6 +111,23 @@
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
 
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
+
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -151,6 +168,14 @@ static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
     return {min_num, max_num};
+}
+
+ThreadPool* ExecEnv::non_block_close_thread_pool() {
+#ifdef BE_TEST
+    return get_non_block_close_thread_pool();
+#else
+    return _non_block_close_thread_pool.get();
+#endif
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
@@ -208,11 +233,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadPollerThreadPool")
-                              .set_min_threads(4)
-                              .set_max_threads(16)
-                              .build(&_s3_downloader_download_poller_thread_pool));
-
     auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
@@ -240,16 +260,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
-
-    static_cast<void>(ThreadPoolBuilder("SyncLoadForTabletsThreadPool")
-                              .set_max_threads(config::sync_load_for_tablets_thread)
-                              .set_min_threads(config::sync_load_for_tablets_thread)
-                              .build(&_sync_load_for_tablets_thread_pool));
-
-    static_cast<void>(ThreadPoolBuilder("S3DownloaderDownloadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
-                              .build(&_s3_downloader_download_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(config::min_nonblock_close_thread_num)
+                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .build(&_non_block_close_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -325,11 +339,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode" << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
-        _file_cache_block_downloader = new io::FileCacheBlockS3Downloader(
-                *dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
-        _cloud_warm_up_manager =
-                new CloudWarmUpManager(*dynamic_cast<CloudStorageEngine*>(_storage_engine.get()));
-        _tablet_hotspot = new TabletHotspot();
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -506,9 +515,18 @@ Status ExecEnv::_init_mem_env() {
     if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
         segment_cache_capacity = fd_number * 2 / 5;
     }
+
+    int64_t segment_cache_mem_limit =
+            MemInfo::mem_limit() / 100 * config::segment_cache_memory_percentage;
+    // config::segment_cache_memory_percentage;
+    int64_t min_segment_cache_mem_limit =
+            min(segment_cache_mem_limit, segment_cache_capacity *
+                                                 config::estimated_num_columns_per_segment *
+                                                 config::estimated_mem_per_column_reader);
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
-              << " segment_cache_capacity: " << segment_cache_capacity;
-    _segment_loader = new SegmentLoader(segment_cache_capacity);
+              << " segment_cache_capacity: " << segment_cache_capacity
+              << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
@@ -650,6 +668,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
@@ -664,11 +683,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
-    if (config::is_cloud_mode()) {
-        SAFE_DELETE(_file_cache_block_downloader);
-        SAFE_DELETE(_tablet_hotspot);
-        SAFE_DELETE(_cloud_warm_up_manager);
-    }
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -700,9 +714,9 @@ void ExecEnv::destroy() {
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
+    _non_block_close_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
-    _s3_downloader_download_poller_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);

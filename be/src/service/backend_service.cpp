@@ -589,8 +589,8 @@ Status BaseBackendService::start_plan_fragment_execution(
 void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                               const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
-    _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
-                                               PPlanFragmentCancelReason::INTERNAL_ERROR);
+    _exec_env->fragment_mgr()->cancel_instance(
+            params.fragment_instance_id, Status::InternalError("cancel message received from FE"));
 }
 
 void BaseBackendService::transmit_data(TTransmitDataResult& return_val,
@@ -1182,6 +1182,7 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     }
 
     report_exec_status_params->__set_query_id(TUniqueId());
+    report_exec_status_params->__set_done(false);
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);

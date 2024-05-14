@@ -34,13 +34,13 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
-import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -126,7 +127,7 @@ public class PointQueryExec implements CoordInterface {
             this.cacheID = prepareStmt.getID();
             this.serializedDescTable = prepareStmt.getSerializedDescTable();
             this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
-            this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
+            this.isBinaryProtocol = true;
             this.serializedQueryOptions = prepareStmt.getSerializedQueryOptions();
         } else {
             // TODO
@@ -200,7 +201,7 @@ public class PointQueryExec implements CoordInterface {
     }
 
     @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Status cancelReason) {
         // Do nothing
     }
 
@@ -376,5 +377,10 @@ public class PointQueryExec implements CoordInterface {
 
     public void cancel() {
         isCancel = true;
+    }
+
+    @Override
+    public List<TNetworkAddress> getInvolvedBackends() {
+        return Lists.newArrayList();
     }
 }

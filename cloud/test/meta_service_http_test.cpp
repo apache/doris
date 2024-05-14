@@ -630,6 +630,61 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
     }
 
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("中文not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("   ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support  ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
     // case: request has invalid argument
     {
         AlterClusterRequest req;

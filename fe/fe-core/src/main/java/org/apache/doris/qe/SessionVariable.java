@@ -76,6 +76,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
     public static final String SCANNER_SCALE_UP_RATIO = "scanner_scale_up_ratio";
@@ -129,6 +130,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+
+    public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -385,6 +388,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
+    public static final String ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX
+            = "enable_common_expr_pushdown_for_inverted_index";
+
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
@@ -482,9 +488,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG = "enable_auto_analyze_internal_catalog";
 
-    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
+    public static final String ENABLE_PARTITION_ANALYZE = "enable_partition_analyze";
 
-    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
@@ -502,6 +508,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
     public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
@@ -609,6 +616,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "default 0, use doris_scanner_thread_pool_thread_num in be.conf"
     })
     public int numScannerThreads = 0;
+
+    @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
+    public int localExchangeFreeBlocksLimit = 4;
 
     @VariableMgr.VarAttr(name = SCANNER_SCALE_UP_RATIO, needForward = true, description = {
             "ScanNode自适应的增加扫描并发，最大允许增长的并发倍率，默认为0，关闭该功能",
@@ -906,7 +916,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableNereidsDmlWithPipeline = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
-    public boolean enableStrictConsistencyDml = false;
+    public boolean enableStrictConsistencyDml = true;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
@@ -1341,6 +1351,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
+            "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
+    public boolean enableServeSidePreparedStatement = false;
+
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST, varType = VariableAnnotation.DEPRECATED)
@@ -1370,6 +1384,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
             "是否启用inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
+
+    // Whether enable query expr with inverted index.
+    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, needForward = true, description = {
+            "是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
+    public boolean enableCommonExpPushDownForInvertedIndex = false;
 
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
@@ -1561,6 +1580,11 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyzeInternalCatalog = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_PARTITION_ANALYZE,
+            description = {"临时参数，收否收集分区级别统计信息", "Temp variable， enable to collect partition level statistics."},
+            flag = VariableMgr.GLOBAL)
+    public boolean enablePartitionAnalyze = false;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
             description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
                 "Maximum table width to enable auto analyze, "
@@ -1579,10 +1603,6 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
-
-    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
-            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
-    public boolean fasterFloatConvert = false;
 
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
             description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
@@ -1781,6 +1801,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAggSpill = false;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_FORCE_SPILL,
+            description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
+                    "Controls whether enable force spill."
+            },
+            needForward = true, fuzzy = true
+    )
+    public boolean enableForceSpill = false;
+
+    @VariableMgr.VarAttr(
             name = DATA_QUEUE_MAX_BLOCKS,
             description = {"DataQueue 中每个子队列允许最大的 block 个数",
                     "Max blocks in DataQueue."},
@@ -1933,7 +1962,7 @@ public class SessionVariable implements Serializable, Writable {
                     this.batchSize = 4064;
                     this.enableFoldConstantByBe = true;
                 } else {
-                    this.batchSize = 50;
+                    this.batchSize = 1024;
                     this.enableFoldConstantByBe = false;
                 }
             }
@@ -1963,7 +1992,7 @@ public class SessionVariable implements Serializable, Writable {
                         this.minRevocableMem = 1024 * 1024;
                         break;
                     default:
-                        this.minRevocableMem = 100 * 1024 * 1024 * 1024;
+                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
                         break;
                 }
             } else {
@@ -2611,6 +2640,10 @@ public class SessionVariable implements Serializable, Writable {
         return runtimeFilterType;
     }
 
+    public boolean allowedRuntimeFilterType(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) != 0;
+    }
+
     public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
         return (runtimeFilterType & type.getValue()) == type.getValue();
     }
@@ -3063,6 +3096,16 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
     }
 
+
+    public boolean isEnableCommonExprPushdownForInvertedIndex() {
+        return enableCommonExpPushDownForInvertedIndex;
+    }
+
+
+    public void setEnableCommonExprPushdownForInvertedIndex(boolean enableCommonExpPushDownForInvertedIndex) {
+        this.enableCommonExpPushDownForInvertedIndex = enableCommonExpPushDownForInvertedIndex;
+    }
+
     public boolean isEnablePushDownCountOnIndex() {
         return enablePushDownCountOnIndex;
     }
@@ -3121,6 +3164,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
         tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
@@ -3206,6 +3250,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
+        tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
@@ -3221,8 +3266,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setFasterFloatConvert(fasterFloatConvert);
-
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
         tResult.setSkipMissingVersion(skipMissingVersion);
@@ -3237,6 +3280,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableJoinSpill(enableJoinSpill);
         tResult.setEnableSortSpill(enableSortSpill);
         tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
@@ -3502,6 +3546,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public boolean isEnableStrictConsistencyDml() {
+        return this.enableStrictConsistencyDml;
+    }
+
+    public void setEnableStrictConsistencyDml(boolean value) {
+        this.enableStrictConsistencyDml = value;
     }
 
     public void disableStrictConsistencyDmlOnce() throws DdlException {

@@ -206,7 +206,7 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
 
     _workers[TTaskType::CALCULATE_DELETE_BITMAP] = std::make_unique<TaskWorkerPool>(
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
-            [&engine](auto&& task) { return calc_delete_bimtap_callback(engine, task); });
+            [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds,

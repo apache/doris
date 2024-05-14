@@ -276,7 +276,7 @@ rm -f "${UDF_RUNTIME_DIR}"/*
 # clean all gcda file
 while read -r gcda_file; do
     rm "${gcda_file}"
-done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
+done < <(find "${CMAKE_BUILD_DIR}" -name "*gcda")
 
 # prepare gtest output dir
 GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"

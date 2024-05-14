@@ -41,7 +41,7 @@
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "gutil/strings/substitute.h"
-#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -543,7 +543,8 @@ public:
             break;
         }
         case RuntimeFilterType::BITMAP_FILTER: {
-            // do nothing because we assume bitmap filter join always have full data
+            // use input bitmap directly because we assume bitmap filter join always have full data
+            _context->bitmap_filter_func = wrapper->_context->bitmap_filter_func;
             break;
         }
         default:
@@ -1301,16 +1302,16 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependency) {
+void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
     _dependency = dependency;
-    _dependency->add();
+    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        _dependency->sub();
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
     }
 }
 

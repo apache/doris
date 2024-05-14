@@ -55,12 +55,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
@@ -71,7 +71,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -88,8 +87,6 @@ public class FunctionCallExpr extends Expr {
     public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
             .add("multi_search_all_positions").add("multi_match_any").build();
-
-    private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -115,30 +112,8 @@ public class FunctionCallExpr extends Expr {
                 return returnType;
             }
         };
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
-            } else if (children.size() == 2) {
-                Preconditions.checkArgument(children.get(1) instanceof IntLiteral
-                        || (children.get(1) instanceof CastExpr
-                                && children.get(1).getChild(0) instanceof IntLiteral),
-                        "2nd argument of function round/floor/ceil must be literal");
-                if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
-                    children.get(1).getChild(0).setType(children.get(1).getType());
-                    children.set(1, children.get(1).getChild(0));
-                } else {
-                    children.get(1).setType(Type.INT);
-                }
-                int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
-            } else {
-                return returnType;
-            }
-        };
 
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> truncateRule = (children, returnType) -> {
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
@@ -268,7 +243,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("dround", roundRule);
         PRECISION_INFER_RULE.put("dceil", roundRule);
         PRECISION_INFER_RULE.put("dfloor", roundRule);
-        PRECISION_INFER_RULE.put("truncate", truncateRule);
+        PRECISION_INFER_RULE.put("truncate", roundRule);
     }
 
     public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION = new ImmutableSortedSet.Builder(
@@ -279,8 +254,9 @@ public class FunctionCallExpr extends Expr {
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
 
+    @SerializedName("fnn")
     private FunctionName fnName;
-    // private BuiltinAggregateFunction.Operator aggOp;
+    @SerializedName("fnp")
     private FunctionParams fnParams;
 
     private FunctionParams aggFnParams;
@@ -288,8 +264,10 @@ public class FunctionCallExpr extends Expr {
     private List<OrderByElement> orderByElements = Lists.newArrayList();
 
     // check analytic function
+    @SerializedName("iafc")
     private boolean isAnalyticFnCall = false;
     // check table function
+    @SerializedName("itfc")
     private boolean isTableFnCall = false;
 
     // Indicates whether this is a merge aggregation function that should use the
@@ -341,7 +319,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     // only used restore from readFields.
-    private FunctionCallExpr() {
+    protected FunctionCallExpr() {
         super();
     }
 
@@ -583,12 +561,17 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
-        if (orderByElements.size() != o.orderByElements.size()) {
+        if (orderByElements == null ^ o.orderByElements == null) {
             return false;
         }
-        for (int i = 0; i < orderByElements.size(); i++) {
-            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+        if (orderByElements != null) {
+            if (orderByElements.size() != o.orderByElements.size()) {
                 return false;
+            }
+            for (int i = 0; i < orderByElements.size(); i++) {
+                if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                    return false;
+                }
             }
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
@@ -806,11 +789,6 @@ public class FunctionCallExpr extends Expr {
     public boolean isAggregateFunction() {
         Preconditions.checkState(fn != null);
         return fn instanceof AggregateFunction && !isAnalyticFnCall;
-    }
-
-    public boolean isBuiltin() {
-        Preconditions.checkState(fn != null);
-        return fn instanceof BuiltinAggregateFunction && !isAnalyticFnCall;
     }
 
     /**
@@ -2399,14 +2377,6 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        fnName.write(out);
-        fnParams.write(out);
-        out.writeBoolean(isAnalyticFnCall);
-        out.writeBoolean(isMergeAggFn);
-    }
-
     public void readFields(DataInput in) throws IOException {
         fnName = FunctionName.read(in);
         fnParams = FunctionParams.read(in);
@@ -2421,16 +2391,6 @@ public class FunctionCallExpr extends Expr {
         FunctionCallExpr func = new FunctionCallExpr();
         func.readFields(in);
         return func;
-    }
-
-    // Used for store load
-    public boolean supportSerializable() {
-        for (Expr child : children) {
-            if (!child.supportSerializable()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override

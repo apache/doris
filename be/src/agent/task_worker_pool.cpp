@@ -185,11 +185,17 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
                                 std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
@@ -254,11 +260,17 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             CloudSchemaChangeJob job(engine,
                                      std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
@@ -524,7 +536,7 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_conut,
+        std::string_view name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
@@ -537,8 +549,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
     CHECK(st.ok()) << name << ": " << st;
 
     st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_conut)
-                 .set_max_threads(high_prior_worker_conut)
+                 .set_min_threads(high_prior_worker_count)
+                 .set_max_threads(high_prior_worker_count)
                  .build(&_high_prior_pool);
     CHECK(st.ok()) << name << ": " << st;
 
@@ -2013,7 +2025,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
-void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletId> error_tablet_ids;
     std::vector<TTabletId> succ_tablet_ids;
     Status status;

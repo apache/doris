@@ -378,6 +378,15 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     approximate_bytes_ += key.size() + 8;
 }
 
+bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
+    if (data.size() != sizeof(int64_t)) {
+        return false;
+    }
+
+    memcpy(val, data.data(), sizeof(*val));
+    return true;
+}
+
 void Transaction::remove(std::string_view key) {
     std::lock_guard<std::mutex> l(lock_);
     std::string k(key.data(), key.size());

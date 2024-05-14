@@ -241,6 +241,9 @@ public:
         }
     }
 
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          std::vector<size_t> positions);
+
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,

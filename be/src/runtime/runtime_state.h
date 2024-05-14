@@ -30,6 +30,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,7 +51,7 @@ namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
-class PipelineXTask;
+class PipelineTask;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -178,10 +179,16 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    bool enable_faster_float_convert() const {
-        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
-    }
+    bool enable_common_expr_pushdown_for_inverted_index() const {
+        return enable_common_expr_pushdown() &&
+               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
+               _query_options.enable_common_expr_pushdown_for_inverted_index;
+    };
 
+    bool mysql_row_binary_format() const {
+        return _query_options.__isset.mysql_row_binary_format &&
+               _query_options.mysql_row_binary_format;
+    }
     Status query_status();
 
     // Appends error to the _error_log if there is space
@@ -223,14 +230,6 @@ public:
     int be_number(void) const { return _be_number; }
 
     // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const std::string& err_msg) {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = Status::InternalError(err_msg);
-    }
-
     void set_process_status(const Status& status) {
         if (status.ok()) {
             return;
@@ -241,12 +240,6 @@ public:
         }
         _process_status = status;
     }
-
-    // Sets _process_status to MEM_LIMIT_EXCEEDED.
-    // Subsequent calls to this will be no-ops. Returns _process_status.
-    // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
-    // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -428,7 +421,7 @@ public:
         return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }
 
-    bool data_queue_max_blocks() const {
+    int64_t data_queue_max_blocks() const {
         return _query_options.__isset.data_queue_max_blocks ? _query_options.data_queue_max_blocks
                                                             : 1;
     }
@@ -572,18 +565,9 @@ public:
 
     void resize_op_id_to_local_state(int operator_size);
 
-    auto& pipeline_id_to_profile() {
-        for (auto& pipeline_profile : _pipeline_id_to_profile) {
-            // pipeline 0
-            //  pipeline task 0
-            //  pipeline task 1
-            //  pipleine task 2
-            //  .......
-            // sort by pipeline task total time
-            pipeline_profile->sort_children_by_total_time();
-        }
-        return _pipeline_id_to_profile;
-    }
+    std::vector<std::shared_ptr<RuntimeProfile>> pipeline_id_to_profile();
+
+    std::vector<std::shared_ptr<RuntimeProfile>> build_pipeline_profile(std::size_t pipeline_size);
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
         _task_execution_context_inited = true;
@@ -607,15 +591,22 @@ public:
     bool is_nereids() const;
 
     bool enable_join_spill() const {
-        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
     }
 
     bool enable_sort_spill() const {
-        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
     }
 
     bool enable_agg_spill() const {
-        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+    }
+
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
     int64_t min_revocable_mem() const {
@@ -760,7 +751,9 @@ private:
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
 
-    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+    // only to lock _pipeline_id_to_profile
+    std::shared_mutex _pipeline_profile_lock;
+    std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

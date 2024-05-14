@@ -30,11 +30,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
-#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
@@ -63,7 +62,6 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
-    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -74,7 +72,9 @@ public:
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile_x() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile_x() const;
 
-    bool is_timeout(const VecDateTimeValue& now) const;
+    bool is_timeout(timespec now) const;
+
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
     PipelinePtr add_pipeline();
 
@@ -95,8 +95,7 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status reason);
 
     // TODO: Support pipeline runtime filter
 
@@ -120,8 +119,6 @@ public:
     void refresh_next_report_time();
 
     std::string debug_string();
-
-    uint64_t create_time() const { return _create_time; }
 
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
@@ -249,12 +246,11 @@ private:
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
 
-    VecDateTimeValue _start_time;
     int _timeout = -1;
 
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
+    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
     bool _need_local_merge = false;
 
@@ -322,7 +318,6 @@ private:
 
     // Total instance num running on all BEs
     int _total_instances = -1;
-    uint64_t _create_time;
     bool _require_bucket_distribution = false;
 };
 } // namespace pipeline

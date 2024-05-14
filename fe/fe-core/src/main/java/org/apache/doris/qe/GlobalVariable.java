@@ -59,6 +59,8 @@ public final class GlobalVariable {
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
     public static final String READ_ONLY = "read_only";
     public static final String SUPER_READ_ONLY = "super_read_only";
+    public static final String DEFAULT_USING_META_CACHE_FOR_EXTERNAL_CATALOG
+            = "default_using_meta_cache_for_external_catalog";
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "

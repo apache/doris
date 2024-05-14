@@ -26,6 +26,7 @@ public class TpchTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("db1");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         // Create tables.
         String lineitem = "CREATE TABLE db1.lineitem (\n"

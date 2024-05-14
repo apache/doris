@@ -220,4 +220,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
         // don't generate any equal pair
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate any equal pair
+    }
 }

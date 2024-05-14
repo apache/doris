@@ -249,6 +249,12 @@ public:
         _last_base_compaction_schedule_millis = millis;
     }
 
+    void set_last_single_compaction_failure_status(std::string status) {
+        _last_single_compaction_failure_status = std::move(status);
+    }
+
+    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -266,8 +272,6 @@ public:
     // used for single compaction to get the local versions
     // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
     std::vector<Version> get_all_local_versions();
-
-    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -316,6 +320,8 @@ public:
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
         std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
     }
+
+    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -554,6 +560,10 @@ private:
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
     std::string _last_base_compaction_status;
+
+    // single replica compaction status
+    std::string _last_single_compaction_failure_status;
+    Version _last_fetched_version;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;

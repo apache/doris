@@ -254,83 +254,8 @@ public class TabletInvertedIndex {
 
                             // check if should clear transactions
                             if (backendTabletInfo.isSetTransactionIds()) {
-                                List<Long> transactionIds = backendTabletInfo.getTransactionIds();
-                                GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
-                                for (Long transactionId : transactionIds) {
-                                    TransactionState transactionState
-                                            = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
-                                    if (transactionState == null
-                                            || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-                                        synchronized (transactionsToClear) {
-                                            transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
-                                        }
-                                        if (LOG.isDebugEnabled()) {
-                                            LOG.debug("transaction id [{}] is not valid any more, "
-                                                    + "clear it from backend [{}]", transactionId, backendId);
-                                        }
-                                    } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                                        TableCommitInfo tableCommitInfo
-                                                = transactionState.getTableCommitInfo(tabletMeta.getTableId());
-                                        PartitionCommitInfo partitionCommitInfo = tableCommitInfo == null
-                                                ? null : tableCommitInfo.getPartitionCommitInfo(partitionId);
-                                        if (partitionCommitInfo != null) {
-                                            TPartitionVersionInfo versionInfo
-                                                    = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
-                                                    partitionCommitInfo.getVersion(), 0);
-                                            synchronized (transactionsToPublish) {
-                                                ListMultimap<Long, TPartitionVersionInfo> map
-                                                        = transactionsToPublish.get(transactionState.getDbId());
-                                                if (map == null) {
-                                                    map = ArrayListMultimap.create();
-                                                    transactionsToPublish.put(transactionState.getDbId(), map);
-                                                }
-                                                map.put(transactionId, versionInfo);
-                                            }
-                                        }
-                                    } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                                        // for some reasons, transaction pushlish succeed replica num less than quorum,
-                                        // this transaction's status can not to be VISIBLE, and this publish task of
-                                        // this replica of this tablet on this backend need retry publish success to
-                                        // make transaction VISIBLE when last publish failed.
-                                        Map<Long, PublishVersionTask> publishVersionTask =
-                                                        transactionState.getPublishVersionTasks();
-                                        PublishVersionTask task = publishVersionTask.get(backendId);
-                                        if (task != null && task.isFinished()) {
-                                            List<Long> errorTablets = task.getErrorTablets();
-                                            if (errorTablets != null) {
-                                                for (int i = 0; i < errorTablets.size(); i++) {
-                                                    if (tabletId == errorTablets.get(i)) {
-                                                        TableCommitInfo tableCommitInfo
-                                                                = transactionState.getTableCommitInfo(
-                                                                        tabletMeta.getTableId());
-                                                        PartitionCommitInfo partitionCommitInfo =
-                                                                tableCommitInfo == null ? null :
-                                                                tableCommitInfo.getPartitionCommitInfo(partitionId);
-                                                        if (partitionCommitInfo != null) {
-                                                            TPartitionVersionInfo versionInfo
-                                                                    = new TPartitionVersionInfo(
-                                                                        tabletMeta.getPartitionId(),
-                                                                        partitionCommitInfo.getVersion(), 0);
-                                                            synchronized (transactionsToPublish) {
-                                                                ListMultimap<Long, TPartitionVersionInfo> map
-                                                                        = transactionsToPublish.get(
-                                                                        transactionState.getDbId());
-                                                                if (map == null) {
-                                                                    map = ArrayListMultimap.create();
-                                                                    transactionsToPublish.put(
-                                                                            transactionState.getDbId(), map);
-                                                                }
-                                                                map.put(transactionId, versionInfo);
-                                                            }
-                                                        }
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                    }
-                                }
+                                handleBackendTransactions(backendId, backendTabletInfo.getTransactionIds(), tabletId,
+                                        tabletMeta, transactionsToPublish, transactionsToClear);
                             } // end for txn id
 
                             // update replicase's version count
@@ -384,6 +309,82 @@ public class TabletInvertedIndex {
                 backendPartitionsVersion.size(), partitionVersionSyncMap.size(),
                 transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
                 tabletRecoveryMap.size(), (end - start));
+    }
+
+    private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
+            TabletMeta tabletMeta, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            ListMultimap<Long, Long> transactionsToClear) {
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        long partitionId = tabletMeta.getPartitionId();
+        for (Long transactionId : transactionIds) {
+            TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
+            if (transactionState == null || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
+                synchronized (transactionsToClear) {
+                    transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("transaction id [{}] is not valid any more, clear it from backend [{}]",
+                            transactionId, backendId);
+                }
+            } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                publishPartition(transactionState, transactionId, tabletMeta, partitionId, transactionsToPublish);
+            } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                // for some reasons, transaction pushlish succeed replica num less than quorum,
+                // this transaction's status can not to be VISIBLE, and this publish task of
+                // this replica of this tablet on this backend need retry publish success to
+                // make transaction VISIBLE when last publish failed.
+                Map<Long, List<PublishVersionTask>> publishVersionTask = transactionState.getPublishVersionTasks();
+                List<PublishVersionTask> tasks = publishVersionTask.get(backendId);
+                for (PublishVersionTask task : tasks) {
+                    if (task != null && task.isFinished()) {
+                        List<Long> errorTablets = task.getErrorTablets();
+                        if (errorTablets != null) {
+                            for (int i = 0; i < errorTablets.size(); i++) {
+                                if (tabletId == errorTablets.get(i)) {
+                                    publishPartition(transactionState, transactionId, tabletMeta, partitionId,
+                                            transactionsToPublish);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // the transactionId may be sub transaction id or transaction id
+    private TPartitionVersionInfo generatePartitionVersionInfoWhenReport(TransactionState transactionState,
+            long transactionId, TabletMeta tabletMeta, long partitionId) {
+        TableCommitInfo tableCommitInfo;
+        if (transactionState.getSubTransactionStates() == null) {
+            tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
+        } else {
+            tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(transactionId);
+        }
+        if (tableCommitInfo != null && tableCommitInfo.getPartitionCommitInfo(partitionId) != null) {
+            PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
+            return new TPartitionVersionInfo(tabletMeta.getPartitionId(),
+                    partitionCommitInfo.getVersion(), 0);
+        }
+        return null;
+    }
+
+    private void publishPartition(TransactionState transactionState, long transactionId, TabletMeta tabletMeta,
+            long partitionId, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
+        TPartitionVersionInfo versionInfo = generatePartitionVersionInfoWhenReport(transactionState,
+                transactionId, tabletMeta, partitionId);
+        if (versionInfo != null) {
+            synchronized (transactionsToPublish) {
+                ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
+                        transactionState.getDbId());
+                if (map == null) {
+                    map = ArrayListMultimap.create();
+                    transactionsToPublish.put(transactionState.getDbId(), map);
+                }
+                map.put(transactionId, versionInfo);
+            }
+        }
     }
 
     public Long getTabletIdByReplica(long replicaId) {
@@ -648,8 +649,19 @@ public class TabletInvertedIndex {
             }
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
-                replicaToTabletMap.remove(replica.getId());
-                replicaMetaTable.remove(tabletId, backendId);
+
+                // sometimes, replicas may have same replica id in different backend
+                // we need to cover this situation to avoid some "replica not found" issue
+                if (replicaMetaTable.containsRow(tabletId)) {
+                    long replicaNum = replicaMetaTable.row(tabletId).values().stream()
+                            .filter(c -> c.getId() == replica.getId()).count();
+                    if (replicaNum == 0) {
+                        replicaToTabletMap.remove(replica.getId());
+                    }
+                } else {
+                    replicaToTabletMap.remove(replica.getId());
+                }
+
                 backingReplicaMetaTable.remove(backendId, tabletId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("delete replica {} of tablet {} in backend {}",

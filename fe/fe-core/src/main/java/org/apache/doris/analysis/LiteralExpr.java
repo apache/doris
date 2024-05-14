@@ -34,7 +34,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -302,15 +301,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
     }
 
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-    }
-
     public void readFields(DataInput in) throws IOException {
     }
 
@@ -341,14 +331,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public String toString() {
         return getStringValue();
-    }
-
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
     }
 
     public static LiteralExpr getLiteralByMysqlType(int mysqlType) throws AnalysisException {
@@ -498,5 +480,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");
         }
+    }
+
+    // Parse from binary data, the format follows mysql binary protocal
+    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
+    // Return next offset
+    public void setupParamFromBinary(ByteBuffer data) {
+        Preconditions.checkState(false,
+                "should implement this in derived class. " + this.type.toSql());
     }
 }

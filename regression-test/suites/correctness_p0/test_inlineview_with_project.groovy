@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_inlineview_with_project") {
-    sql "set enable_nereids_planner=false"
     sql """
         drop table if exists cir_1756_t1;
     """

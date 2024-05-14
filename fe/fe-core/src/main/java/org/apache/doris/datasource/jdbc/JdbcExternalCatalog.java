@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.jdbc;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
@@ -248,14 +249,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        JdbcExternalDatabase db = (JdbcExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (db != null && db.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            db.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return jdbcClient.getTablesNameList(dbName);
-        }
+        return jdbcClient.getTablesNameList(dbName);
     }
 
     @Override
@@ -265,10 +259,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
-        if (isReplay) {
-            return;
-        }
+    public void checkWhenCreating() throws DdlException {
+        super.checkWhenCreating();
         Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(JdbcResource.DRIVER_URL)) {
             String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
@@ -295,6 +287,35 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void executeStmt(String stmt) {
         makeSureInitialized();
         jdbcClient.executeStmt(stmt);
+    }
+
+    /**
+     * Get columns from query
+     *
+     * @param query, the query string
+     * @return the columns
+     */
+    public List<Column> getColumnsFromQuery(String query) {
+        makeSureInitialized();
+        return jdbcClient.getColumnsFromQuery(query);
+    }
+
+    public void configureJdbcTable(JdbcTable jdbcTable, String tableName) {
+        jdbcTable.setCatalogId(this.getId());
+        jdbcTable.setExternalTableName(tableName);
+        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
+        jdbcTable.setJdbcUrl(this.getJdbcUrl());
+        jdbcTable.setJdbcUser(this.getJdbcUser());
+        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
+        jdbcTable.setDriverClass(this.getDriverClass());
+        jdbcTable.setDriverUrl(this.getDriverUrl());
+        jdbcTable.setCheckSum(this.getCheckSum());
+        jdbcTable.setResourceName(this.getResource());
+        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
     }
 
     private void testJdbcConnection(boolean isReplay) throws DdlException {
@@ -361,19 +382,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private JdbcTable getTestConnectionJdbcTable() throws DdlException {
         JdbcTable jdbcTable = new JdbcTable(0, "test_jdbc_connection", Lists.newArrayList(),
                 TableType.JDBC_EXTERNAL_TABLE);
-        jdbcTable.setCatalogId(this.getId());
-        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
-        jdbcTable.setJdbcUrl(this.getJdbcUrl());
-        jdbcTable.setJdbcUser(this.getJdbcUser());
-        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
-        jdbcTable.setDriverClass(this.getDriverClass());
-        jdbcTable.setDriverUrl(this.getDriverUrl());
+        this.configureJdbcTable(jdbcTable, "test_jdbc_connection");
+
+        // Special checksum computation
         jdbcTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
-        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
-        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
-        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
-        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
-        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+
         return jdbcTable;
     }
 }

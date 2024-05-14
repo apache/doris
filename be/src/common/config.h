@@ -129,6 +129,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Schema change memory limit as a fraction of soft memory limit.
+DECLARE_Double(schema_change_mem_limit_frac);
+
 // Many modern allocators (for example) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -538,8 +541,6 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-// Default, if less than or equal 32 core, the following are 128, 128, 10240, 10240 in turn.
-//          if greater than 32 core, the following are core num * 4, core num * 4, core num * 320, core num * 320 in turn
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -1033,6 +1034,8 @@ DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_read_cache_file_directly);
+DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
+DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1094,6 +1097,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_mInt32(segment_cache_capacity);
+DECLARE_mInt32(estimated_num_columns_per_segment);
+DECLARE_mInt32(estimated_mem_per_column_reader);
+DECLARE_Int32(segment_cache_memory_percentage);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
@@ -1213,6 +1219,8 @@ DECLARE_mBool(exit_on_exception);
 DECLARE_mString(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
+DECLARE_mBool(enable_workload_group_memory_gc);
+
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
@@ -1322,6 +1330,17 @@ DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
 // The max ratio for ttl cache's size
 DECLARE_mInt64(max_ttl_cache_ratio);
+// The maximum jvm heap usage ratio for hdfs write workload
+DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
+// The max retry times when hdfs write failed
+DECLARE_mInt64(hdfs_jni_write_max_retry_time);
+
+// The min thread num for NonBlockCloseThreadPool
+DECLARE_Int64(min_nonblock_close_thread_num);
+// The max thread num for NonBlockCloseThreadPool
+DECLARE_Int64(max_nonblock_close_thread_num);
 
 #ifdef BE_TEST
 // test s3

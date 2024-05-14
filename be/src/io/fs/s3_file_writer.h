@@ -42,6 +42,7 @@ struct S3Conf;
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
+struct AsyncCloseStatusPack;
 
 class S3FileWriter final : public FileWriter {
 public:
@@ -49,25 +50,34 @@ public:
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
-    Status close() override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
 
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
 
     FileCacheAllocatorBuilder* cache_builder() const override {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }
 
+    const std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& completed_parts() const {
+        return _completed_parts;
+    }
+
+    const std::string& key() const { return _key; }
+    const std::string& bucket() const { return _bucket; }
+    const std::string& upload_id() const { return _upload_id; }
+
+    Status close(bool non_block = false) override;
+
 private:
+    Status _close_impl();
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
+    Status _set_upload_to_remote_less_than_buffer_size();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
@@ -88,13 +98,23 @@ private:
 
     std::atomic_bool _failed = false;
 
-    bool _closed = false;
     Status _st;
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
     std::unique_ptr<FileCacheAllocatorBuilder>
             _cache_builder; // nullptr if disable write file cache
+
+    // S3 committer will start multipart uploading all files on BE side,
+    // and then complete multipart upload these files on FE side.
+    // If you do not complete multi parts of a file, the file will not be visible.
+    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
+    // guarantee the atomicity of multiple files.
+    // Because hive committers have best-effort semantics,
+    // this shortens the inconsistent time window.
+    bool _used_by_s3_committer;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io

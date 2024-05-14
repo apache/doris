@@ -45,11 +45,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
     }
 
-    @Override
-    protected void init() {
-        super.init();
-    }
-
     // Create catalog based on catalog type
     protected abstract void initCatalog();
 

@@ -141,10 +141,6 @@ public:
     Status check_limit(int64_t bytes = 0);
     bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
 
-    // Returns the maximum consumption that can be made without exceeding the limit on
-    // this tracker limiter.
-    int64_t spare_capacity() const { return _limit - consumption(); }
-
     bool is_query_cancelled() { return _is_query_cancelled; }
 
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }

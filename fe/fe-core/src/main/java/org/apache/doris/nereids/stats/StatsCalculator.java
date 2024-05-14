@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -124,6 +125,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -764,12 +766,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Set<SlotReference> slotSet = slotSetBuilder.build();
         Map<Expression, ColumnStatisticBuilder> columnStatisticBuilderMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
+        boolean isOlapTable = table instanceof OlapTable;
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
-        // rows newly updated after last analyze
-        long deltaRowCount = tableMeta == null ? 0 : tableMeta.updatedRows.get();
+        long tableUpdatedRows = tableMeta == null ? 0 : tableMeta.updatedRows.get();
         double rowCount = catalogRelation.getTable().getRowCountForNereids();
-        boolean hasUnknownCol = false;
+        boolean hasUnknownKeyCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
             OlapScan olapScan = (OlapScan) catalogRelation;
@@ -777,11 +779,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 idxId = olapScan.getSelectedIndexId();
             }
         }
-        if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
-            LOG.debug("{} is partially analyzed, clear min/max values in column stats",
-                    catalogRelation.getTable().getName());
-        }
         for (SlotReference slotReference : slotSet) {
+            boolean usedAsKey = false;
+            if (ConnectContext.get() != null && slotReference.getColumn().isPresent()
+                    && ConnectContext.get().getStatementContext() != null) {
+                usedAsKey = ConnectContext.get().getStatementContext().isKeyColumn(slotReference.getColumn().get());
+            }
             String colName = slotReference.getColumn().isPresent()
                     ? slotReference.getColumn().get().getName()
                     : slotReference.getName();
@@ -789,6 +792,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
+            }
+            long deltaRowCount = 0;
+            if (isOlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                ColStatsMeta colMeta = tableMeta == null ? null : tableMeta.findColumnStatsMeta(
+                        olapTable.getIndexNameById(idxId == -1 ? olapTable.getBaseIndexId() : idxId), colName);
+                deltaRowCount = colMeta == null ? 0 : tableUpdatedRows - colMeta.updatedRows;
             }
             ColumnStatistic cache;
             if (!FeConstants.enableInternalSchemaDb
@@ -804,24 +814,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count + deltaRowCount);
             } else {
-                hasUnknownCol = true;
+                if (usedAsKey) {
+                    hasUnknownKeyCol = true;
+                }
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                // deltaRowCount > 0 indicates that
+                // new data is loaded to the table after this column was analyzed last time.
+                // In this case, need to eliminate min/max value for this column.
                 if (deltaRowCount > 0) {
                     // clear min-max to avoid error estimation
                     // for example, after yesterday data loaded, user send query about yesterday immediately.
                     // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
                     // estimates the filter result is zero
                     colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                            .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                        .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("{}.{} is partially analyzed, clear min/max values in column stats",
+                                table.getName(), colName);
+                    }
                 }
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
-                hasUnknownCol = true;
+                hasUnknownKeyCol = true;
             }
         }
-        if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+        if (hasUnknownKeyCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
         return normalizeCatalogRelationColumnStatsRowCount(rowCount, columnStatisticBuilderMap);

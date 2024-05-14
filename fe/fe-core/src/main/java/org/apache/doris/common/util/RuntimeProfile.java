@@ -628,7 +628,13 @@ public class RuntimeProfile {
         childLock.writeLock().lock();
         try {
             if (childMap.containsKey(child.name)) {
-                childList.removeIf(e -> e.first.name.equals(child.name));
+                // Pipeline/Instance has alread finished.
+                // This could happen because the report profile rpc is async.
+                if (childMap.get(child.name).getIsDone() || childMap.get(child.name).getIsCancel()) {
+                    return;
+                } else {
+                    childList.removeIf(e -> e.first.name.equals(child.name));
+                }
             }
             this.childMap.put(child.name, child);
             Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);

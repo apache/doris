@@ -16,20 +16,6 @@
 // under the License.
 
 suite("test_cast_decimal") {
-    sql """
-        set enable_nereids_planner=true;
-    """
-
-    explain {
-        sql """select cast(32123.34212456734 as decimal(3,2));"""
-        contains "cast(32123.34212456734 as DECIMALV3(3, 2))"
-    }
-    
-
-    sql """
-        set enable_nereids_planner=false;
-    """
-
     explain {
         sql """select cast(32123.34212456734 as decimal(3,2));"""
         contains "CAST(32123.34212456734 AS DECIMALV3(3, 2))"

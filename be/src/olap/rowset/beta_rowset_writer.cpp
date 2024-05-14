@@ -130,7 +130,9 @@ Status SegmentFileCollection::close() {
     }
 
     for (auto&& [_, writer] : _file_writers) {
-        RETURN_IF_ERROR(writer->close());
+        if (writer->closed() != io::FileWriterState::CLOSED) {
+            RETURN_IF_ERROR(writer->close());
+        }
     }
 
     return Status::OK();

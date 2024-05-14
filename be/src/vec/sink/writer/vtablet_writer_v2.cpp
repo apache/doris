@@ -278,15 +278,15 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, tablets_for_schema,
-                                     _total_streams, idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
+                                     idle_timeout_ms, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, {}, _total_streams,
-                                     idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, {}, _total_streams, idle_timeout_ms,
+                                     _state->enable_profile()));
     }
     return Status::OK();
 }
@@ -457,7 +457,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes, false);
+    auto st = delta_writer->write(block.get(), rows.row_idxes);
     return st;
 }
 

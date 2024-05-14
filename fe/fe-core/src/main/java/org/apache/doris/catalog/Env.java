@@ -229,6 +229,7 @@ import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
@@ -780,9 +781,7 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
-        this.sqlCacheManager = new NereidsSqlCacheManager(
-                Config.sql_cache_manage_num, Config.cache_last_version_interval_second
-        );
+        this.sqlCacheManager = new NereidsSqlCacheManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1741,7 +1740,7 @@ public class Env {
 
         dnsCache.start();
 
-        workloadGroupMgr.startUpdateThread();
+        workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
 
@@ -3240,7 +3239,7 @@ public class Env {
             }
             // There MUST BE 2 space in front of each column description line
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 sb.append("  ").append(
                         column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
             } else {
@@ -3927,7 +3926,7 @@ public class Env {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -4425,7 +4424,7 @@ public class Env {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
                 }
 
-                if (table.getType() == TableType.OLAP) {
+                if (table.isManagedTable()) {
                     // olap table should also check if any rollup has same name as "newTableName"
                     ((OlapTable) table).checkAndSetName(newTableName, false);
                 } else {
@@ -4523,24 +4522,29 @@ public class Env {
                 groupSchema.checkColocateSchema(table);
             }
 
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
-            if (groupSchema == null) {
-                // assign to a newly created group, set backends sequence.
-                // we arbitrarily choose a tablet backends sequence from this table,
-                // let the colocation balancer do the work.
-                backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
-            }
-            // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
+            if (Config.isCloudMode()) {
+                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
+            } else {
+                Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
+                if (groupSchema == null) {
+                    // assign to a newly created group, set backends sequence.
+                    // we arbitrarily choose a tablet backends sequence from this table,
+                    // let the colocation balancer do the work.
+                    backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
+                }
+                // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
+                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
 
-            if (groupSchema == null) {
-                Preconditions.checkNotNull(backendsPerBucketSeq);
-                colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                if (groupSchema == null) {
+                    Preconditions.checkNotNull(backendsPerBucketSeq);
+                    colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                }
+
+                // set this group as unstable
+                colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
+                        false /* edit log is along with modify table log */);
             }
 
-            // set this group as unstable
-            colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
-                    false /* edit log is along with modify table log */);
             table.setColocateGroup(assignedGroup);
         } else {
             // unset colocation group
@@ -5426,7 +5430,7 @@ public class Env {
         globalFunctionMgr.replayDropFunction(functionSearchDesc);
     }
 
-    public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
+    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
         Map<String, String> configs = stmt.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -5435,6 +5439,22 @@ public class Env {
                 ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
             } catch (ConfigException e) {
                 throw new DdlException(e.getMessage());
+            }
+        }
+
+        if (stmt.isApplyToAll()) {
+            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                    continue;
+                }
+
+                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+                FEOpExecutor executor = new FEOpExecutor(feAddr, stmt.getLocalSetStmt(), ConnectContext.get(), false);
+                executor.execute();
+                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
+                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
+                }
             }
         }
     }
@@ -5495,7 +5515,7 @@ public class Env {
         List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
         for (ReplicaPersistInfo info : replicaPersistInfos) {
             OlapTable olapTable = (OlapTable) getInternalCatalog().getDb(info.getDbId())
-                    .flatMap(db -> db.getTable(info.getTableId())).filter(t -> t.getType() == TableType.OLAP)
+                    .flatMap(db -> db.getTable(info.getTableId())).filter(t -> t.isManagedTable())
                     .orElse(null);
             if (olapTable == null) {
                 continue;
@@ -6010,7 +6030,7 @@ public class Env {
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 

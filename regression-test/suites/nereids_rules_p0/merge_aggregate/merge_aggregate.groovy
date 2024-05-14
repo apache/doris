@@ -17,6 +17,8 @@
 suite("merge_aggregate") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql """
           DROP TABLE IF EXISTS mal_test1
          """

@@ -70,12 +70,16 @@ private:
  *    f. shrink some function's nullable mode.
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
+ *
+ * 5: start from doris 2.1.4
+ *    a. change the impl of percentile
 */
-constexpr inline int BeExecVersionManager::max_be_exec_version = 4;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
 constexpr inline int BITMAP_SERDE = 3;
 constexpr inline int USE_NEW_SERDE = 4; // release on DORIS version 2.1
+constexpr inline int OLD_WAL_SERDE = 3; // use to solve compatibility issues, see pr #32299
 
 } // namespace doris

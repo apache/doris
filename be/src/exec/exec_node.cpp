@@ -43,7 +43,6 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
-#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/group_commit_scan_node.h"

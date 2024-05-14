@@ -99,9 +99,9 @@ statementBase
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
         (REFRESH refreshMethod? refreshTrigger?)?
-        (KEY keys=identifierList)?
+        ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
+        (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
@@ -223,6 +223,11 @@ refreshSchedule
 
 refreshMethod
     : COMPLETE | AUTO
+    ;
+
+mvPartition
+    : partitionKey = identifier
+    | partitionExpr = functionCallExpression
     ;
 
 identifierOrStringLiteral
@@ -579,8 +584,8 @@ columnDef
         (aggType=aggTypeDef)?
         ((NOT)? NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL| CURRENT_DATE
-            | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -676,6 +681,7 @@ booleanExpression
     | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=XOR right=booleanExpression                   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
@@ -1055,6 +1061,7 @@ nonReserved
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
+    | CONSTRAINTS
     | CONVERT
     | COPY
     | COUNT
@@ -1075,10 +1082,10 @@ nonReserved
     | DATEADD
     | DATEDIFF
     | DATETIME
-    | DATETIMEV2
-    | DATEV2
     | DATETIMEV1
+    | DATETIMEV2
     | DATEV1
+    | DATEV2
     | DAY
     | DAYS_ADD
     | DAYS_SUB
@@ -1137,6 +1144,8 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IPV4
+    | IPV6
     | IS_NOT_NULL_PRED
     | IS_NULL_PRED
     | ISNULL
@@ -1162,6 +1171,12 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCH_ALL
+    | MATCH_ANY
+    | MATCH_PHRASE
+    | MATCH_PHRASE_EDGE
+    | MATCH_PHRASE_PREFIX
+    | MATCH_REGEXP
     | MATERIALIZED
     | MAX
     | MEMO
@@ -1202,11 +1217,11 @@ nonReserved
     | PERMISSIVE
     | PHYSICAL
     | PLAN
-    | PROCESS
     | PLUGIN
     | PLUGINS
     | POLICY
     | PROC
+    | PROCESS
     | PROCESSLIST
     | PROFILE
     | PROPERTIES
@@ -1284,6 +1299,8 @@ nonReserved
     | VALUE
     | VARCHAR
     | VARIABLES
+    | VARIANT
+    | VAULT
     | VERBOSE
     | VERSION
     | VIEW
