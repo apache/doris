@@ -20,19 +20,16 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Planner_types.h>
 #include <pthread.h>
 
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
 #include <ostream>
-#include <typeinfo>
 #include <utility>
 
 #include "cloud/config.h"
@@ -40,8 +37,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "exec/exec_node.h"
-#include "exec/scan_node.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
@@ -103,22 +98,10 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/scan/new_es_scan_node.h"
-#include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
-#include "vec/exec/scan/new_odbc_scan_node.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
-#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vexchange_node.h"
-#include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
