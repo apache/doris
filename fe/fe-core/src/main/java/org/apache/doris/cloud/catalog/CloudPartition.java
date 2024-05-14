@@ -24,6 +24,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
@@ -334,7 +335,8 @@ public class CloudPartition extends Partition {
 
     private static boolean isEmptyPartitionPruneDisabled() {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().getDisableEmptyPartitionPrune()) {
+        if (ctx != null && ctx.getSessionVariable().getDisableNereidsRules().get(RuleType.valueOf(
+                "PRUNE_EMPTY_PARTITION").type())) {
             return true;
         }
         return false;
