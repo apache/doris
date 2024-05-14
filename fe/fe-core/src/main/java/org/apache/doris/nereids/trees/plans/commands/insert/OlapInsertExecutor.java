@@ -79,8 +79,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
-            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     public long getTxnId() {

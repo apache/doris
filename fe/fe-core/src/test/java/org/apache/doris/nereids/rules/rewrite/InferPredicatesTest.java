@@ -74,6 +74,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                         + "properties('replication_num' = '1');");
 
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
