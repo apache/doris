@@ -170,7 +170,6 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
     if (tablet_id == 0) {
         // overall compaction status
         RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
-        return Status::OK();
     } else {
         std::string json_template = R"({
             "status" : "Success",
@@ -213,11 +212,10 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         // not running any compaction
         *json_result =
                 strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
-
-        LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id
-                  << " table id: " << table_id;
-        return Status::OK();
     }
+    LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
+    return Status::OK();
 }
 
 void CloudCompactionAction::handle(HttpRequest* req) {
