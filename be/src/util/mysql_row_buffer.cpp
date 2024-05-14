@@ -488,8 +488,10 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data, int sc
         } else {
             length = 0;
         }
-        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
-                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
+        if constexpr (std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
+                      std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
             if (scale > 0 || data.microsecond()) {
                 int4store(pos + 7, data.microsecond());
                 length = 11;
