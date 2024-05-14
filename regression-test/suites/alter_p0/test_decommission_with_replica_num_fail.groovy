@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_decommission_with_replica_num_fail') {
+suite('test_decommission_with_replica_num_fail', 'nonConcurrent') {
     def tbl = 'test_decommission_with_replica_num_fail'
     def backends = sql_return_maparray('show backends')
     def replicaNum = 0
