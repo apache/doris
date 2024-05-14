@@ -1113,9 +1113,13 @@ public class ConnectContext {
 
     public static String cloudNoBackendsReason() {
         StringBuilder sb = new StringBuilder();
-        sb.append(" ");
         if (ConnectContext.get() != null) {
             String clusterName = ConnectContext.get().getCloudCluster();
+            String hits = "or you may not have permission to access the current cluster = ";
+            sb.append(" ");
+            if (Strings.isNullOrEmpty(clusterName)) {
+                return sb.append(hits).append("cluster name empty").toString();
+            }
             String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudStatusByName(clusterName);
             if (!Strings.isNullOrEmpty(clusterStatus)
