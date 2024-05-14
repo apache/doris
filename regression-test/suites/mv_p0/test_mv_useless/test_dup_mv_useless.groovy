@@ -69,6 +69,6 @@ suite ("test_dup_mv_useless") {
         "replication_num"="1"
         );
         """
-        exception "Duplicate column name"
+        exception "duplicate column name"
     }
 }
