@@ -19,6 +19,8 @@ suite("test_runtimefilter_with_window") {
  sql """ set enable_nereids_planner=true"""
  sql """ set disable_join_reorder=true"""
  sql """ set enable_runtime_filter_prune=false"""
+sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
  sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table1` """
  sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table2` """
  sql """

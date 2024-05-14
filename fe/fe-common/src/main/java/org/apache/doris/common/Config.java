@@ -1314,12 +1314,18 @@ public class Config extends ConfigBase {
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_last_version_interval_second = 30;
+
+    /**
+     *  Expire sql sql in frontend time
+     */
     @ConfField(
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
     )
-    public static int cache_last_version_interval_second = 30;
+    public static int expire_sql_cache_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -2555,10 +2561,12 @@ public class Config extends ConfigBase {
     public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
+            + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
-                    + "and the deleted labels can be reused."
+                    + "and the deleted labels can be reused. "
+                    + "When the value is -1, it indicates no threshold."
     })
     public static int label_num_threshold = 2000;
 
@@ -2616,6 +2624,12 @@ public class Config extends ConfigBase {
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
+    @ConfField(description = {"是否启用FE 日志文件按照大小删除策略，当日志大小超过指定大小，删除相关的log。默认为按照时间策略删除",
+        "Whether to enable the FE log file deletion policy based on size, "
+            + "where logs exceeding the specified size are deleted. "
+            + "It is disabled by default and follows a time-based deletion policy."},
+            options = {"age", "size"})
+    public static String log_rollover_strategy = "age";
 
     @ConfField public static int info_sys_accumulated_file_size = 4;
     @ConfField public static int warn_sys_accumulated_file_size = 2;
@@ -2689,6 +2703,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_create_inverted_index_for_array = false;
 
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,

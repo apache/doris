@@ -112,6 +112,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -140,6 +141,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -2398,20 +2400,35 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
-        // set storage vault
-        String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
-        String storageVaultId = null;
-        // If user does not specify one storage vault then FE would use the default vault
-        if (Strings.isNullOrEmpty(storageVaultName)) {
-            Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
-            if (info != null) {
-                storageVaultName = info.first;
-                storageVaultId = info.second;
+        if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
+            // set storage vault
+            String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
+            String storageVaultId = null;
+            // If user does not specify one storage vault then FE would use the default vault
+            if (Strings.isNullOrEmpty(storageVaultName)) {
+                Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
+                if (info != null) {
+                    storageVaultName = info.first;
+                    storageVaultId = info.second;
+                }
             }
-        }
-        olapTable.setStorageVaultName(storageVaultName);
-        if (storageVaultId != null) {
-            olapTable.setStorageVaultId(storageVaultId);
+
+            if (storageVaultName == null || storageVaultName.isEmpty()) {
+                throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+            }
+
+            // Check if user has storage vault usage privilege
+            if (!env.getAuth()
+                    .checkStorageVaultPriv(ctx.getCurrentUserIdentity(), storageVaultName, PrivPredicate.USAGE)) {
+                throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
+                        + "'@'" + ConnectContext.get().getRemoteIP()
+                        + "' for storage vault '" + storageVaultName + "'");
+            }
+
+            olapTable.setStorageVaultName(storageVaultName);
+            if (storageVaultId != null) {
+                olapTable.setStorageVaultId(storageVaultId);
+            }
         }
 
         // check `update on current_timestamp`
@@ -2492,8 +2509,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setStoreRowColumn(storeRowColumn);
 
         // set skip inverted index on load
-        boolean skipWriteIndexOnLoad = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, false);
+        boolean skipWriteIndexOnLoad = PropertyAnalyzer.analyzeSkipWriteIndexOnLoad(properties);
         olapTable.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
 
         boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);

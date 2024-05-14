@@ -46,7 +46,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -251,10 +250,6 @@ public class AnalysisManager implements Writable {
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
-        if (!jobInfo.partitionOnly && stmt.isAllColumns()
-                && StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
-            createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
-        }
         constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
@@ -349,7 +344,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
-        infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
+        infoBuilder.setUsingSqlForExternalTable(stmt.usingSqlForExternalTable());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -372,7 +367,11 @@ public class AnalysisManager implements Writable {
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
-        infoBuilder.setRowCount(StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount());
+        // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
+        // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
+                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
+        infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         infoBuilder.setPriority(JobPriority.MANUAL);
@@ -426,27 +425,6 @@ public class AnalysisManager implements Writable {
     public void logCreateAnalysisJob(AnalysisInfo analysisJob) {
         replayCreateAnalysisJob(analysisJob);
         Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
-    }
-
-    @VisibleForTesting
-    public void createTableLevelTaskForExternalTable(AnalysisInfo jobInfo,
-            Map<Long, BaseAnalysisTask> analysisTasks,
-            boolean isSync) throws DdlException {
-
-        if (jobInfo.analysisType == AnalysisType.HISTOGRAM) {
-            return;
-        }
-        AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-        long taskId = Env.getCurrentEnv().getNextId();
-        AnalysisInfo analysisInfo = colTaskInfoBuilder.setIndexId(-1L).setLastExecTimeInMs(System.currentTimeMillis())
-                .setTaskId(taskId).setColName("TableRowCount").setExternalTableLevelTask(true).build();
-        analysisTasks.put(taskId, createTask(analysisInfo));
-        jobInfo.addTaskId(taskId);
-        if (isSync) {
-            // For sync job, don't need to persist, return here and execute it immediately.
-            return;
-        }
-        replayCreateAnalysisTask(analysisInfo);
     }
 
     public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
@@ -517,11 +495,6 @@ public class AnalysisManager implements Writable {
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        // External Table only update table stats when all tasks finished.
-        // Because it needs to get the row count from the result of row count task.
-        if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
-            return;
-        }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
             updateTableStatsStatus(new TableStatsMeta(jobInfo.rowCount, jobInfo, tbl));

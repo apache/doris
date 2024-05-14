@@ -216,6 +216,10 @@ public class LeadingHint extends Hint {
                 pair.second = relationIdTableNamePair.second;
                 isUpdate = true;
             }
+            if (pair.second.equals(relationIdTableNamePair.second)) {
+                pair.first = relationIdTableNamePair.first;
+                isUpdate = true;
+            }
         }
         if (!isUpdate) {
             relationIdAndTableName.add(relationIdTableNamePair);

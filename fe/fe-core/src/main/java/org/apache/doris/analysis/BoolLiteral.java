@@ -27,13 +27,15 @@ import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public class BoolLiteral extends LiteralExpr {
+    @SerializedName("v")
     private boolean value;
 
     private BoolLiteral() {
@@ -134,12 +136,6 @@ public class BoolLiteral extends LiteralExpr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BOOL_LITERAL;
         msg.bool_literal = new TBoolLiteral(value);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeBoolean(value);
     }
 
     public void readFields(DataInput in) throws IOException {

@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -153,6 +154,7 @@ const std::string GetDorisJNIClasspathOption() {
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
+
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
@@ -173,6 +175,7 @@ jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
 jmethodID JniUtil::get_jmx_json_ = nullptr;
 jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
 jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
+jlong JniUtil::max_jvm_heap_memory_size_ = 0;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -204,6 +207,50 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     return Status::OK();
 }
 
+void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
+    // The start_be.sh would set JAVA_OPTS
+    std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    std::istringstream iss(java_opts);
+    std::string opt;
+    while (iss >> opt) {
+        if (opt.find("-Xmx") == 0) {
+            std::string xmxValue = opt.substr(4);
+            char unit = xmxValue.back();
+            xmxValue.pop_back();
+            long long value = std::stoll(xmxValue);
+            switch (unit) {
+            case 'g':
+            case 'G':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
+                break;
+            case 'm':
+            case 'M':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024;
+                break;
+            case 'k':
+            case 'K':
+                max_jvm_heap_memory_size_ = value * 1024;
+                break;
+            default:
+                max_jvm_heap_memory_size_ = value;
+                break;
+            }
+        }
+    }
+    if (0 == max_jvm_heap_memory_size_) {
+        LOG(FATAL) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+    }
+    LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+}
+
+size_t JniUtil::get_max_jni_heap_memory_size() {
+#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+    return std::numeric_limits<size_t>::max();
+#else
+    return max_jvm_heap_memory_size_;
+#endif
+}
+
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
@@ -220,6 +267,9 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     // the hadoop libhdfs will do all the stuff
     SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
+    if (nullptr != tls_env_) {
+        parse_max_heap_memory_size_from_jvm(tls_env_);
+    }
 #endif
     *env = tls_env_;
     return Status::OK();

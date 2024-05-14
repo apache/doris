@@ -118,6 +118,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
+        if (extCatalog.getUseMetaCache().isPresent()) {
+            if (extCatalog.getUseMetaCache().get() && metaCache != null) {
+                metaCache.invalidateAll();
+            } else if (!extCatalog.getUseMetaCache().get()) {
+                for (T table : idToTbl.values()) {
+                    table.unsetObjectCreated();
+                }
+            }
+        }
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
         }
@@ -131,9 +140,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         extCatalog.makeSureInitialized();
         if (!initialized) {
             if (extCatalog.getUseMetaCache().get()) {
-                if (metaCache != null) {
-                    metaCache.invalidateAll();
-                } else {
+                if (metaCache == null) {
                     metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                             name,
                             OptionalLong.of(86400L),
@@ -175,7 +182,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table.isPresent()) {
-                table.get().unsetObjectCreated();
                 tmpTableNameToId.put(table.get().getName(), table.get().getId());
                 tmpIdToTbl.put(table.get().getId(), table.get());
             }
@@ -206,7 +212,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     T table = idToTbl.get(tblId);
-                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {
@@ -370,7 +375,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
-            return metaCache.getMetaObj(tableName).get();
+            return metaCache.getMetaObj(tableName).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;

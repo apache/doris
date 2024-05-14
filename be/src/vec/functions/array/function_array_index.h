@@ -125,9 +125,9 @@ public:
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         auto* param_value = reinterpret_cast<ParamValue*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        if (param_value == nullptr) {
+        if (param_value == nullptr || param_value->value.is_null()) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, param_value is nullptr");
+                    "Inverted index evaluate skipped, param_value is nullptr or value is null");
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
@@ -135,7 +135,7 @@ public:
         if (is_string_type(param_value->type)) {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, num_rows, roaring));
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
         } else {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),

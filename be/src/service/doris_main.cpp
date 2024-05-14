@@ -24,7 +24,10 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#endif
 #include <libgen.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -313,7 +316,7 @@ int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
-    extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
+    // extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
     // Some developers will modify status.h and we use a very ticky logic to init error_states
     // and it maybe not inited. So add a check here.
     doris::ErrorCode::error_code_init.check_init();

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_array_functions_array_join", "p0") {
-
-    sql "set enable_nereids_planner=false;"
     // ============= array join =========
     qt_old_sql "SELECT 'array-join';"
     // only support array_join with two arguments

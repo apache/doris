@@ -92,10 +92,16 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create writer based on sink type
     switch (_sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
+    case TResultSinkType::MYSQL_PROTOCAL: {
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
+    }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
         RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));

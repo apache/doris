@@ -33,7 +33,7 @@ public:
     ~AsyncCancelQueryTask() override = default;
     void run() override {
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                _query_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, _exceed_msg);
+                _query_id, Status::MemoryLimitExceeded(_exceed_msg));
     }
 
 private:

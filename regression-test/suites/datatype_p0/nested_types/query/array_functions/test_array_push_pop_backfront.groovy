@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_array_push_pop_backfront", "p0") {
-
-    sql "set enable_nereids_planner=false;"
-
     qt_old_sql "SELECT 'array_pushback-pushfrony'"
     order_qt_old_sql "SELECT array_pushback(Null, 1);"
     order_qt_old_sql "SELECT array_pushback([1], 1);"

@@ -135,15 +135,13 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                                                         _state->be_number(), state);
 
     register_channels(_sink_buffer.get());
-    _queue_dependency =
-            Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                      "ExchangeSinkQueueDependency", true, state->get_query_ctx());
+    _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "ExchangeSinkQueueDependency", true);
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency =
-                Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                          "BroadcastDependency", true, state->get_query_ctx());
+        _broadcast_dependency = Dependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_blocks =
                 vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
@@ -636,6 +634,9 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
+        // sink won't see those filtered rows, we should compensate here
+        _state->set_num_rows_load_total(_state->num_rows_load_filtered() +
+                                        _state->num_rows_load_unselected());
     }
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);

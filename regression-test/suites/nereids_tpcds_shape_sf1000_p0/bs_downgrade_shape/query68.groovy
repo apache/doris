@@ -32,6 +32,7 @@ suite("query68") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql 'set enable_bucket_shuffle_downgrade=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     def ds = """select  c_last_name
        ,c_first_name
        ,ca_city

@@ -39,12 +39,11 @@ struct ScheduleRecord {
     uint64_t thread_id;
     uint64_t start_time;
     uint64_t end_time;
-    std::string_view state_name;
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
     std::string to_string(uint64_t append_value) const {
-        return fmt::format("{}|{}|{}|{}|{}|{}|{}|{}\n", doris::to_string(query_id), task_id,
-                           core_id, thread_id, start_time, end_time, state_name, append_value);
+        return fmt::format("{}|{}|{}|{}|{}|{}|{}\n", doris::to_string(query_id), task_id, core_id,
+                           thread_id, start_time, end_time, append_value);
     }
 };
 
