@@ -48,20 +48,19 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
-    FileWriterState closed() const override { return _close_state; }
+    State state() const override { return _state; }
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
     Status _close_impl();
 
-private:
     ExecEnv* _env = nullptr;
     const TNetworkAddress _address;
     Path _path;
     size_t _cur_offset = 0;
     TBrokerFD _fd;
-    FileWriterState _close_state {FileWriterState::OPEN};
+    State _state {State::OPENED};
 };
 
 } // end namespace io
