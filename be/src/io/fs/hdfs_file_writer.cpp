@@ -50,6 +50,7 @@ bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
+bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
 
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
@@ -141,6 +142,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
     }
     hdfs_file_writer_total << 1;
     hdfs_file_being_written << 1;
+    inflight_hdfs_file_writer << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
 }
@@ -150,11 +152,13 @@ HdfsFileWriter::~HdfsFileWriter() {
         // For thread safety
         std::ignore = _async_close_pack->promise.get_future();
         _async_close_pack = nullptr;
+        inflight_hdfs_file_writer << -1;
     }
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
         _flush_and_reset_approximate_jni_buffer_size();
+        inflight_hdfs_file_writer << -1;
     }
 
     hdfs_file_being_written << -1;
@@ -283,6 +287,7 @@ Status HdfsFileWriter::_close_impl() {
         return _st;
     }
     hdfs_file_created_total << 1;
+    inflight_hdfs_file_writer << -1;
     return Status::OK();
 }
 
