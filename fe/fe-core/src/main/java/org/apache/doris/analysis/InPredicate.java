@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,7 +51,8 @@ public class InPredicate extends Predicate {
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
-    private final boolean isNotIn;
+    @SerializedName("ini")
+    private boolean isNotIn;
 
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
@@ -84,6 +86,10 @@ public class InPredicate extends Predicate {
                     null, null, null, false));
 
         }
+    }
+
+    private InPredicate() {
+        // use for serde only
     }
 
     // First child is the comparison expr for which we

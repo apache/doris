@@ -27,8 +27,9 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -36,6 +37,7 @@ import java.nio.ByteOrder;
 import java.text.NumberFormat;
 
 public class FloatLiteral extends NumericLiteralExpr {
+    @SerializedName("v")
     private double value;
 
     public FloatLiteral() {
@@ -232,12 +234,6 @@ public class FloatLiteral extends NumericLiteralExpr {
     public void swapSign() throws NotImplementedException {
         // swapping sign does not change the type
         value = -value;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeDouble(value);
     }
 
     public void readFields(DataInput in) throws IOException {
