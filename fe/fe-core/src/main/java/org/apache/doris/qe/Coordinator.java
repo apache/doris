@@ -455,6 +455,12 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnablePipelineXEngine(vec);
     }
 
+    public void setExecPipEngineForLoading(boolean vec) {
+        this.enablePipelineEngine = true;
+        this.enablePipelineXEngine = true;
+        setExecPipEngine(true);
+    }
+
     public Status getExecStatus() {
         return queryStatus;
     }
@@ -608,7 +614,7 @@ public class Coordinator implements CoordInterface {
     }
 
 
-    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+    public TPipelineFragmentParams getStreamLoadPlan() throws Exception {
         processFragmentAssignmentAndParams();
 
         // This is a load process.
@@ -618,9 +624,9 @@ public class Coordinator implements CoordInterface {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
         LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
 
-        List<TExecPlanFragmentParams> tExecPlanFragmentParams
-                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
-        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        Map<TNetworkAddress, TPipelineFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toTPipelineParams(0);
+        TPipelineFragmentParams fragmentParams = tExecPlanFragmentParams.values().stream().findFirst().get();
         return fragmentParams;
     }
 

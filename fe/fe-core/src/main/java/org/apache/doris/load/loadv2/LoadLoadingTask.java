@@ -147,6 +147,7 @@ public class LoadLoadingTask extends LoadTask {
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
                 enabelProfile);
+        curCoordinator.setExecPipEngineForLoading(Config.enable_pipeline_load);
         if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }

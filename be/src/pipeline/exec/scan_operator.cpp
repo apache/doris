@@ -24,6 +24,7 @@
 
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
@@ -1466,5 +1467,7 @@ template class ScanOperatorX<EsScanLocalState>;
 template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
+template class ScanOperatorX<GroupCommitLocalState>;
+template class ScanLocalState<GroupCommitLocalState>;
 
 } // namespace doris::pipeline

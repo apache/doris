@@ -3271,6 +3271,7 @@ public class StmtExecutor {
             RowBatch batch;
             coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator());
+            coord.setExecPipEngineForLoading(true);
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

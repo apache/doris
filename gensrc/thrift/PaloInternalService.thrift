@@ -761,6 +761,8 @@ struct TPipelineFragmentParams {
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
   40: optional bool is_nereids = true;
+  41: optional i64 wal_id
+  42: optional i64 content_length
 
   // For cloud
   1000: optional bool is_mow_table;

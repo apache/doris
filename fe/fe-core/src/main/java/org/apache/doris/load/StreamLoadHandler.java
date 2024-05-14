@@ -39,7 +39,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -235,7 +234,7 @@ public class StreamLoadHandler {
                 pipeResult.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
                 fragmentParams.add(pipeResult);
             } else {
-                TExecPlanFragmentParams result = null;
+                TPipelineFragmentParams result = null;
                 result = planner.plan(streamLoadTask.getId(), index);
                 result.setTableName(table.getName());
                 result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
