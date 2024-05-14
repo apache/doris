@@ -669,7 +669,9 @@ Status BetaRowsetWriter::_close_file_writers() {
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
-        if (_segcompaction_worker->get_file_writer()) {
+        if (auto& seg_comp_writer = _segcompaction_worker->get_file_writer();
+            nullptr != seg_comp_writer &&
+            seg_comp_writer->closed() != io::FileWriterState::CLOSED) {
             RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_worker->get_file_writer()->close(),
                                            "close segment compaction worker failed");
         }
