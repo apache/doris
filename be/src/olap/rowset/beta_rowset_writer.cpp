@@ -673,7 +673,7 @@ Status BetaRowsetWriter::_close_file_writers() {
         // segcompaction worker would do file wrier's close function in compact_segments
         if (auto& seg_comp_file_writer = _segcompaction_worker->get_file_writer();
             nullptr != seg_comp_file_writer &&
-            seg_comp_file_writer->closed() != io::FileWriterState::CLOSED) {
+            seg_comp_file_writer->state() != io::FileWrier::State::CLOSED) {
             RETURN_NOT_OK_STATUS_WITH_WARN(seg_comp_file_writer->close(),
                                            "close segment compaction worker failed");
         }
