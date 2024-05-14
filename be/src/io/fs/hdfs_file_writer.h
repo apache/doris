@@ -29,6 +29,7 @@ namespace io {
 class HdfsHandler;
 class BlockFileCache;
 struct FileCacheAllocatorBuilder;
+struct AsyncCloseStatusPack;
 
 class HdfsFileWriter final : public FileWriter {
 public:
@@ -44,31 +45,33 @@ public:
                    std::string fs_name, const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    FileWriterState closed() const override { return _close_state; }
+
+    Status close(bool non_block = false) override;
 
     FileCacheAllocatorBuilder* cache_builder() const override {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }
 
 private:
+    Status _close_impl();
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();
     Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
     Status _append(std::string_view content);
+    void _flush_and_reset_approximate_jni_buffer_size();
+    Status _acquire_jni_memory(size_t size);
 
     Path _path;
     std::shared_ptr<HdfsHandler> _hdfs_handler = nullptr;
     hdfsFile _hdfs_file = nullptr;
     std::string _fs_name;
     size_t _bytes_appended = 0;
-    bool _closed = false;
     bool _sync_file_data;
     std::unique_ptr<FileCacheAllocatorBuilder>
             _cache_builder; // nullptr if disable write file cache
@@ -87,6 +90,12 @@ private:
         std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
+    size_t _approximate_jni_buffer_size = 0;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    // We should make sure that close_impl's return value is consistent
+    // So we need add one field to restore the value first time return by calling close_impl
+    Status _st;
+    FileWriterState _close_state {FileWriterState::OPEN};
 };
 
 } // namespace io

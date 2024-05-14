@@ -240,6 +240,9 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         logger.info("trigger_full_compaction_on_tablets normally")
         trigger_full_compaction_on_tablets.call(tablets)
 
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
         if (isCloudMode) {

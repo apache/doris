@@ -106,7 +106,7 @@ TEST_F(StreamSinkFileWriterTest, Test) {
 
     CHECK_STATUS_OK(writer.appendv(&(*slices.begin()), slices.size()));
     EXPECT_EQ(NUM_STREAM, g_num_request);
-    CHECK_STATUS_OK(writer.finalize());
+    CHECK_STATUS_OK(writer.close());
     EXPECT_EQ(NUM_STREAM * 2, g_num_request);
 }
 

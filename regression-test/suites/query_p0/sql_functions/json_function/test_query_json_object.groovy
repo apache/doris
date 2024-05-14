@@ -43,7 +43,7 @@ suite("test_query_json_object", "query") {
     qt_sql1 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName} order by k0;"
     test {
         sql """select k0,json_object(k3,123) from ${tableName} order by k0;"""
-        exception "[CANCELLED][INTERNAL_ERROR] function json_object can not input null value , JSON documents may not contain NULL member names."
+        exception "function json_object can not input null value , JSON documents may not contain NULL member names."
     }
     sql "DROP TABLE ${tableName};"
 }
