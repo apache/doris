@@ -60,6 +60,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     // If the destination path contains a schema, use the schema directly.
     // If not, use defaultFS.
     // Otherwise a write error will occur.
+    // example:
+    //    hdfs://host:port/path1/path2  --> hdfs://host:port
+    //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
     string::size_type idx = file_description.path.find("://");
     if (idx != string::npos) {
         idx = file_description.path.find("/", idx + 3);
