@@ -348,10 +348,12 @@ public class PaimonScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         String result = super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%spaimonNativeReadSplits=%d/%d\n",
-                        prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum))
-                + prefix + "PaimonSplitStats: \n";
-        for (SplitStat splitStat : splitStats) {
-            result += String.format("%s  %s\n", prefix, splitStat);
+                        prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum));
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            result += prefix + "PaimonSplitStats: \n";
+            for (SplitStat splitStat : splitStats) {
+                result += String.format("%s  %s\n", prefix, splitStat);
+            }
         }
         return result;
     }
