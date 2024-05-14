@@ -108,6 +108,11 @@ S3FileWriter::~S3FileWriter() {
         // For thread safety
         std::ignore = _async_close_pack->future.get();
         _async_close_pack = nullptr;
+    } else {
+        // Consider one situation where the file writer is destructed after it submit at least one async task
+        // without calling close(), then there exists one occasion where the async task is executed right after
+        // the correspoding S3 file writer is already destructed
+        _wait_until_finish(fmt::format("wait s3 file {} upload to be finished", _path.native()));
     }
     // We won't do S3 abort operation in BE, we let s3 service do it own.
     if (closed() == FileWriterState::OPEN && !_failed) {
