@@ -68,6 +68,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.routineload.ErrorReason;
@@ -140,6 +141,8 @@ import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFetchSplitBatchRequest;
+import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -209,6 +212,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
@@ -954,6 +958,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TFetchSplitBatchResult fetchSplitBatch(TFetchSplitBatchRequest request) throws TException {
+        TFetchSplitBatchResult result = new TFetchSplitBatchResult();
+        SplitSource splitSource =
+                Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
+        if (splitSource == null) {
+            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+        }
+        try {
+            List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
+            result.setSplits(locations);
+            return result;
+        } catch (Exception e) {
+            throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
+        }
     }
 
     @Override
