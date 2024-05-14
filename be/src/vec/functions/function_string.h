@@ -1710,9 +1710,9 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
+
+                // make compatible with mysql. return empty string if pad is empty
                 if (pad_char_size == 0) {
-                    // return NULL when the string to be paded is missing
-                    null_map_data[i] = true;
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                     continue;
                 }
