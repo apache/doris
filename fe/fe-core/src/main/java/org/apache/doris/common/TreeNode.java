@@ -22,6 +22,7 @@ package org.apache.doris.common;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,6 +32,7 @@ import java.util.List;
  * Generic tree structure. Only concrete subclasses of this can be instantiated.
  */
 public class TreeNode<NodeType extends TreeNode<NodeType>> {
+    @SerializedName("children")
     protected ArrayList<NodeType> children = Lists.newArrayList();
 
     public NodeType getChild(int i) {
