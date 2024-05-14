@@ -131,7 +131,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, OrExpandsionContext ctx) {
-        join = (LogicalJoin<? extends Plan, ? extends Plan>) join.accept(this, ctx);
+        join = (LogicalJoin<? extends Plan, ? extends Plan>) this.visit(join, ctx);
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
             return join;
         }
