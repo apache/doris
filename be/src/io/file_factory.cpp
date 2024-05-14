@@ -97,6 +97,9 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
         // If the destination path contains a schema, use the schema directly.
         // If not, use defaultFS.
         // Otherwise a write error will occur.
+        // example:
+        //    hdfs://host:port/path1/path2  --> hdfs://host:port
+        //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
         string::size_type idx = path.find("://");
         if (idx != string::npos) {
             idx = path.find("/", idx + 3);
