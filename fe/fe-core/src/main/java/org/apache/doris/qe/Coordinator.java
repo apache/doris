@@ -357,12 +357,12 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments);
-
     }
 
     // Used for broker load task/export task/update coordinator
+    // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance) {
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -370,6 +370,7 @@ public class Coordinator implements CoordInterface {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
+        this.queryOptions.setEnableProfile(enableProfile);
         this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
