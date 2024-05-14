@@ -326,7 +326,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         break;
     }
     case TYPE_DOUBLE: {
-        if (type_str != "java.lang.Double" && type_str != "java.math.BigDecimal") {
+        if (type_str != "java.lang.Double" && type_str != "java.math.BigDecimal" &&
+            type_str != "java.lang.String") {
             return Status::InternalError(error_msg);
         }
         break;
