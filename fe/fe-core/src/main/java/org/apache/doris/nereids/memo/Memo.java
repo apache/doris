@@ -30,6 +30,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -53,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +76,10 @@ public class Memo {
     private static long stateId = 0;
     private final ConnectContext connectContext;
     private final AtomicLong refreshVersion = new AtomicLong(1);
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
+            new LinkedHashMap<>();
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
+            new LinkedHashMap<>();
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -125,6 +131,46 @@ public class Memo {
 
     public long getRefreshVersion() {
         return refreshVersion.get();
+    }
+
+    /**
+     * Record materialization check result for performance
+     */
+    public void recordMaterializationCheckResult(Class<? extends AbstractMaterializedViewRule> target,
+            Long checkedMaterializationId, boolean isSuccess) {
+        if (isSuccess) {
+            Set<Long> checkedSet = materializationCheckSuccessMap.get(target);
+            if (checkedSet == null) {
+                checkedSet = new HashSet<>();
+                materializationCheckSuccessMap.put(target, checkedSet);
+            }
+            checkedSet.add(checkedMaterializationId);
+        } else {
+            Set<Long> checkResultSet = materializationCheckFailMap.get(target);
+            if (checkResultSet == null) {
+                checkResultSet = new HashSet<>();
+                materializationCheckFailMap.put(target, checkResultSet);
+            }
+            checkResultSet.add(checkedMaterializationId);
+        }
+    }
+
+    /**
+     * Get the info for materialization context is checked
+     *
+     * @return if true, check successfully, if false check fail, if null not checked
+     */
+    public Boolean materializationHasChecked(Class<? extends AbstractMaterializedViewRule> target,
+            long materializationId) {
+        Set<Long> checkSuccessSet = materializationCheckSuccessMap.get(target);
+        if (checkSuccessSet != null && checkSuccessSet.contains(materializationId)) {
+            return true;
+        }
+        Set<Long> checkFailSet = materializationCheckFailMap.get(target);
+        if (checkFailSet != null && checkFailSet.contains(materializationId)) {
+            return false;
+        }
+        return null;
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
