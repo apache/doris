@@ -1711,6 +1711,14 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
+                if (col_len_data[i] > context->state()->repeat_max_num()) {
+                    return Status::InvalidArgument(
+                            " {} function the length argument is {} exceeded maximum default "
+                            "value: {}."
+                            "if you really need this length, you could change the session variable "
+                            "set repeat_max_num = xxx.",
+                            get_name(), col_len_data[i], context->state()->repeat_max_num());
+                }
                 if (pad_char_size == 0) {
                     // return NULL when the string to be paded is missing
                     null_map_data[i] = true;
