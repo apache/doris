@@ -102,6 +102,8 @@ Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::str
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    LOG(INFO) << "begin to handle show compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
 
     //TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
@@ -110,6 +112,8 @@ Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::str
     }
 
     tablet->get_compaction_status(json_result);
+    LOG(INFO) << "finished to handle show compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
     return Status::OK();
 }
 
@@ -119,6 +123,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    LOG(INFO) << "begin to handle run compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
 
     // check compaction_type equals 'base' or 'cumulative'
     auto& compaction_type = req->param(PARAM_COMPACTION_TYPE);
@@ -133,6 +139,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
+    LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
+              << " table id: " << table_id;
     // 3. submit compaction task
     RETURN_IF_ERROR(_engine.submit_compaction_task(
             tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
@@ -140,7 +148,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
                             ? CompactionType::CUMULATIVE_COMPACTION
                             : CompactionType::FULL_COMPACTION));
 
-    LOG(INFO) << "Manual compaction task is successfully triggered";
+    LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
+              << " table id: " << table_id;
     *json_result =
             "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
             "id: " +
@@ -155,6 +164,8 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
 
     // check req_tablet_id is not empty
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    LOG(INFO) << "begin to handle run status compaction, tablet id: " << tablet_id
+              << " table id: " << table_id;
 
     if (tablet_id == 0) {
         // overall compaction status
@@ -202,6 +213,9 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         // not running any compaction
         *json_result =
                 strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+
+        LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id
+                  << " table id: " << table_id;
         return Status::OK();
     }
 }
