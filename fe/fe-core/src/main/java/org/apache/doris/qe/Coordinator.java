@@ -1487,7 +1487,8 @@ public class Coordinator implements CoordInterface {
                 // Print an error stack here to know why send cancel again.
                 LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
                         + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), queryStatus.toString(), new Exception());
+                        DebugUtil.printId(queryId), queryStatus.toString(),
+                        new Exception("cancel failed"));
             } else {
                 queryStatus.updateStatus(cancelReason.getErrorCode(), cancelReason.getErrorMsg());
             }
@@ -2477,12 +2478,16 @@ public class Coordinator implements CoordInterface {
         if (externalScanRange != null) {
             TFileScanRange fileScanRange = externalScanRange.getFileScanRange();
             if (fileScanRange != null) {
-                scanRangeNum += fileScanRange.getRanges().size();
+                if (fileScanRange.isSetRanges()) {
+                    scanRangeNum += fileScanRange.getRanges().size();
+                } else if (fileScanRange.isSetSplitSource()) {
+                    scanRangeNum += fileScanRange.getSplitSource().getNumSplits();
+                }
             }
         }
         TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
         if (paloScanRange != null) {
-            scanRangeNum = scanRangeNum + 1;
+            scanRangeNum += 1;
         }
         // TODO: more ranges?
     }
