@@ -829,7 +829,7 @@ class Suite implements GroovyInterceptable {
         host_ips = host_ips.unique()
         for (def ip in host_ips) {
             staticLogger.info("scp to ${ip}")
-            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_connector}\"", true)
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", true)
             executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
             scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
