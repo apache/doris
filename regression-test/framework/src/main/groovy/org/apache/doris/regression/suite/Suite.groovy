@@ -799,14 +799,6 @@ class Suite implements GroovyInterceptable {
         def path_connector_tmp = "${dir_connector_tmp}/connectors"
         def path_connector = "${dir_download}/connectors"
 
-        def cmds = [] as List
-        cmds.add("mkdir -p ${dir_download}")
-        cmds.add("rm -rf ${path_tar}")
-        cmds.add("rm -rf ${dir_connector_tmp}")
-        cmds.add("mkdir -p ${dir_connector_tmp}")
-        cmds.add("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}")
-        cmds.add("tar -zxvf ${path_tar} -C ${dir_connector_tmp}")
-
         def executeCommand = { String cmd, Boolean mustSuc ->
             try {
                 staticLogger.info("execute ${cmd}")
@@ -822,14 +814,17 @@ class Suite implements GroovyInterceptable {
             }
         }
 
-        for (def cmd in cmds) {
-            executeCommand(cmd, true)
-        }
+        executeCommand("mkdir -p ${dir_download}", false)
+        executeCommand("rm -rf ${path_tar}", false)
+        executeCommand("rm -rf ${dir_connector_tmp}", false)
+        executeCommand("mkdir -p ${dir_connector_tmp}", false)
+        executeCommand("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}", true)
+        executeCommand("tar -zxvf ${path_tar} -C ${dir_connector_tmp}", true)
 
         host_ips = host_ips.unique()
         for (def ip in host_ips) {
             staticLogger.info("scp to ${ip}")
-            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", true)
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", false)
             executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
             scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
         }
