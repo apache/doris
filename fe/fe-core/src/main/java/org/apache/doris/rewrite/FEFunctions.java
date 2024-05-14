@@ -289,17 +289,17 @@ public class FEFunctions {
 
     @FEFunction(name = "months_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
     public static DateLiteral monthsSubDate(LiteralExpr date, LiteralExpr month) throws AnalysisException {
-        return yearsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
     }
 
     @FEFunction(name = "months_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
     public static DateLiteral monthsSubDateV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
-        return yearsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
     }
 
     @FEFunction(name = "months_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
     public static DateLiteral monthsSubDateTimeV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
-        return yearsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
     }
 
     @FEFunction(name = "days_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
