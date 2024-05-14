@@ -389,7 +389,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         List<NamedExpression> output = setOperation.getOutputs();
         for (int j = 0; j < output.size(); j++) {
             NamedExpression expr = output.get(j);
-            if (expr.getName().equals(probeSlot.getName())) {
+            if (expr.getExprId().equals(probeSlot.getExprId())) {
                 projIndex = j;
                 break;
             }
@@ -397,10 +397,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (projIndex == -1) {
             return false;
         }
+        // probeExpr only has one input slot
         for (int i = 0; i < setOperation.children().size(); i++) {
             Map<Expression, Expression> map = Maps.newHashMap();
-            // probeExpr only has one input slot
-            map.put(ctx.probeExpr.getInputSlots().iterator().next(),
+            map.put(probeSlot,
                     setOperation.getRegularChildrenOutputs().get(i).get(projIndex));
             Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
             PushDownContext childPushDownContext = ctx.withNewProbeExpression(newProbeExpr);
