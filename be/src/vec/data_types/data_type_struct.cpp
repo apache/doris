@@ -298,6 +298,21 @@ MutableColumnPtr DataTypeStruct::create_column() const {
     return ColumnStruct::create(std::move(tuple_columns));
 }
 
+Status DataTypeStruct::check_column_type(const IColumn* column) const {
+    const auto* col_struct = check_and_get_column<ColumnStruct>(column);
+    RETURN_IF_ERROR(_check_column_is_null(col_struct));
+    if (elems.size() != col_struct->tuple_size()) {
+        return Status::InternalError(
+                "struct size can not match, column struct size = {} , struct data type size = {}",
+                col_struct->tuple_size(), elems.size());
+    }
+    const size_t size = elems.size();
+    for (size_t i = 0; i < size; i++) {
+        RETURN_IF_ERROR(elems[i]->check_column_type(&col_struct->get_column(i)));
+    }
+    return Status::OK();
+}
+
 Field DataTypeStruct::get_default() const {
     size_t size = elems.size();
     Tuple t;
