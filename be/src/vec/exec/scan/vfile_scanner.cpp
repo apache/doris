@@ -838,8 +838,6 @@ Status VFileScanner::_get_next_reader() {
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
-
-                RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader = std::move(iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
@@ -891,8 +889,6 @@ Status VFileScanner::_get_next_reader() {
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
-
-                RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader = std::move(iceberg_reader);
             } else {
                 init_status = orc_reader->init_reader(
