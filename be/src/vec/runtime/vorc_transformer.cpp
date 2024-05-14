@@ -91,7 +91,10 @@ void VOrcOutputStream::write(const void* data, size_t length) {
         Status st = _file_writer->append({static_cast<const uint8_t*>(data), length});
         if (!st.ok()) {
             LOG(WARNING) << "Write to ORC file failed: " << st;
-            return;
+            // When a write error occurs,
+            // the error needs to be thrown to the upper layer.
+            // so that fe can get the exception.
+            throw std::runtime_error(st.to_string());
         }
         _cur_pos += length;
         _written_len += length;
@@ -148,9 +151,10 @@ Status VOrcTransformer::open() {
     }
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
-    _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
-    if (_writer == nullptr) {
-        return Status::InternalError("Failed to create file writer");
+    try {
+        _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
+    } catch (const std::exception& e) {
+        return Status::InternalError("failed to create writer: {}", e.what());
     }
     return Status::OK();
 }
