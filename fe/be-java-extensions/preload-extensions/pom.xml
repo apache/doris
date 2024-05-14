@@ -33,7 +33,7 @@ under the License.
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.2.0</spark.version>
+        <spark.version>3.3.4</spark.version>
         <janino.version>3.0.16</janino.version>
     </properties>
 
@@ -61,6 +61,12 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
             <!-- Must be provided, we use hadoop_libs in BE's 3rd party instead -->
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-annotations</artifactId>
+            <version>${hadoop.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
