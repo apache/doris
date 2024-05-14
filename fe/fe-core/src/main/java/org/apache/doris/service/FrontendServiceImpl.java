@@ -2303,15 +2303,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        if (!request.isSetSchemaTableName()) {
-            return MetadataGenerator.errorResult("Fetch schema table name is not set");
-        }
-        // tvf queries
-        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
-            return MetadataGenerator.getMetadataTable(request);
-        } else {
-            // database information_schema's tables
-            return MetadataGenerator.getSchemaTableData(request);
+        try {
+            if (!request.isSetSchemaTableName()) {
+                return MetadataGenerator.errorResult("Fetch schema table name is not set");
+            }
+            // tvf queries
+            if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+                return MetadataGenerator.getMetadataTable(request);
+            } else {
+                // database information_schema's tables
+                return MetadataGenerator.getSchemaTableData(request);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to fetchSchemaTableData", e);
+            return MetadataGenerator.errorResult(e.getMessage());
         }
     }
 
