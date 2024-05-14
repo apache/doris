@@ -105,6 +105,31 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     }
 
     @Override
+    public Plan visitLogicalCTEAnchor(
+            LogicalCTEAnchor<? extends Plan, ? extends Plan> anchor, OrExpandsionContext ctx) {
+        Plan child1 = anchor.child(0).accept(this, ctx);
+        // Consumer's CTE must be child of the cteAnchor in this case:
+        // anchor
+        // +-producer1
+        // +-agg(consumer1) join agg(consumer1)
+        // ------------>
+        // anchor
+        // +-producer1
+        // +-anchor
+        // +--producer2(agg2(consumer1))
+        // +--producer3(agg3(consumer1))
+        // +-consumer2 join consumer3
+        OrExpandsionContext consumerContext =
+                new OrExpandsionContext(ctx.statementContext, ctx.cascadesContext);
+        Plan child2 = anchor.child(1).accept(this, consumerContext);
+        for (int i = consumerContext.cteProducerList.size() - 1; i >= 0; i--) {
+            LogicalCTEProducer<? extends Plan> producer = consumerContext.cteProducerList.get(i);
+            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2);
+        }
+        return anchor.withChildren(ImmutableList.of(child1, child2));
+    }
+
+    @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, OrExpandsionContext ctx) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) this.visit(join, ctx);
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
