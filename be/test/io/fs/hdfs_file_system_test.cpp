@@ -43,43 +43,35 @@ TEST(HdfsFileSystemTest, Write) {
     st = local_fs->create_file(fmt::format("{}/mock_hdfs_file", test_dir), &local_file_writer);
     ASSERT_TRUE(st.ok()) << st;
 
-    sp->set_call_back(
-            "HdfsFileWriter::close::hdfsHSync",
-            [](auto&& args) {
-                auto* ret = try_any_cast_ret<int>(args);
-                ret->first = 0; // noop, return success
-                ret->second = true;
-            });
+    sp->set_call_back("HdfsFileWriter::close::hdfsHSync", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0; // noop, return success
+        ret->second = true;
+    });
 
-    sp->set_call_back(
-            "HdfsFileWriter::close::hdfsCloseFile",
-            [&](auto&& args) {
-                auto st = local_file_writer->close();
-                ASSERT_TRUE(st.ok()) << st;
-                auto* ret = try_any_cast_ret<int>(args);
-                ret->first = 0; // return success
-                ret->second = true;
-            });
+    sp->set_call_back("HdfsFileWriter::close::hdfsCloseFile", [&](auto&& args) {
+        auto st = local_file_writer->close();
+        ASSERT_TRUE(st.ok()) << st;
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0; // return success
+        ret->second = true;
+    });
 
-    sp->set_call_back(
-            "HdfsFileWriter::append_hdfs_file::hdfsWrite",
-            [&](auto&& args) {
-                auto content = try_any_cast<std::string_view>(args[0]);
-                auto st = local_file_writer->append({content.data(), content.size()});
-                ASSERT_TRUE(st.ok()) << st;
-                auto* ret = try_any_cast_ret<int>(args);
-                ret->first = content.size(); // return bytes written
-                ret->second = true;
-            });
+    sp->set_call_back("HdfsFileWriter::append_hdfs_file::hdfsWrite", [&](auto&& args) {
+        auto content = try_any_cast<std::string_view>(args[0]);
+        auto st = local_file_writer->append({content.data(), content.size()});
+        ASSERT_TRUE(st.ok()) << st;
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = content.size(); // return bytes written
+        ret->second = true;
+    });
 
-    sp->set_call_back(
-            "HdfsFileWriter::finalize::hdfsFlush",
-            [](auto&& args) {
-                auto* ret = try_any_cast_ret<int>(args);
-                ret->first = 0; // noop, return success
-                ret->second = true;
-            });
-    
+    sp->set_call_back("HdfsFileWriter::finalize::hdfsFlush", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0; // noop, return success
+        ret->second = true;
+    });
+
     Defer defer {[&]() {
         sp->clear_call_back("HdfsFileWriter::close::hdfsHSync");
         sp->clear_call_back("HdfsFileWriter::close::hdfsCloseFile");

@@ -155,8 +155,6 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-
-
 ThreadPool* ExecEnv::non_block_close_thread_pool() {
 #ifdef BE_TEST
     return get_non_block_close_thread_pool();
