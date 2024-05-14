@@ -208,14 +208,14 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 }
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
-    // The start_be.sh would set JAVA_OPTS
+    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
     std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
     std::string opt;
     while (iss >> opt) {
         if (opt.find("-Xmx") == 0) {
             std::string xmxValue = opt.substr(4);
-            LOG_INFO("The max heap vaule is {}", xmxValue);
+            LOG(INFO) << "The max heap vaule is " << xmxValue;
             char unit = xmxValue.back();
             xmxValue.pop_back();
             long long value = std::stoll(xmxValue);
