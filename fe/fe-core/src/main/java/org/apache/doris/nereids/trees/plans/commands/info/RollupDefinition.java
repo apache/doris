@@ -44,6 +44,7 @@ public class RollupDefinition {
         this.properties = Maps.newHashMap(properties);
     }
 
+    // check rollup validity
     public void validate() throws AnalysisException {
         Set<String> colSet = Sets.newHashSet();
         for (String col : cols) {
