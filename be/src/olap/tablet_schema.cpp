@@ -856,7 +856,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
-    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type()) {
+    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type() ||
+        _cols.back()->is_extracted_column()) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_path_to_index[_cols.back()->path_info_ptr().get()] = _num_columns;
     } else if (col_type == ColumnType::NORMAL) {

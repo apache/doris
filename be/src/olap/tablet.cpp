@@ -1825,7 +1825,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
-    context.tablet_schema->copy_from(*(rowset.tablet_schema()));
+    // context.tablet_schema->copy_from(*(rowset.tablet_schema()));
+    context.tablet_schema = rowset.tablet_schema()->copy_without_extracted_columns();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;

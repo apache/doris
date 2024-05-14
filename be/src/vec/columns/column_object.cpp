@@ -745,8 +745,13 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         auto* root = get_subcolumn({});
-        if (!root) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
+        if (root == nullptr) {
+            bool succ = add_sub_column({}, num_rows);
+            if (!succ) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Failed to add root sub column {}");
+            }
+            root = get_subcolumn({});
         }
         root->insert(field);
         ++num_rows;

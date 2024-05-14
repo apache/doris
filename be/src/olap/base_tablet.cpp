@@ -188,7 +188,7 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
         static_cast<void>(
                 vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
+        VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
     }
     return target_schema;
 }
@@ -452,8 +452,8 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     CHECK(tablet_schema->store_row_column());
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-    const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id,
+                                                 tablet_schema->column(BeConsts::ROW_STORE_COL),
                                                  &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
@@ -624,6 +624,10 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 rowset_schema->has_sequence_col() &&
                 (std::find(including_cids.cbegin(), including_cids.cend(),
                            rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
+    bool has_variants = rowset_schema->num_variant_columns() > 0;
+    if (has_variants) {
+        rowset_schema = rowset_schema->copy_without_extracted_columns();
     }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
@@ -871,9 +875,9 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
-    const auto& column = *DORIS_TRY(tablet_schema.column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, column, &segment_cache_handle,
-                                                 &column_iterator, &stats));
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid,
+                                                 tablet_schema.column(BeConsts::ROW_STORE_COL),
+                                                 &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
@@ -1241,6 +1245,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
         // update the shared_ptr to new bitmap, which is consistent with current rowset.
         txn_info->delete_bitmap = delete_bitmap;
+        // rowset->meta_meta()->tablet_schema() maybe updated so update rowset tablet schema
+        if (rowset->rowset_meta()->tablet_schema() != rowset->tablet_schema()) {
+            rowset->set_schema(rowset->rowset_meta()->tablet_schema());
+        }
 
         // erase segment cache cause we will add a segment to rowset
         SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
