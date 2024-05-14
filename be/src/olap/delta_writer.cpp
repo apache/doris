@@ -112,7 +112,8 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+Status BaseDeltaWriter::write(const vectorized::Block* block,
+                              const std::vector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
