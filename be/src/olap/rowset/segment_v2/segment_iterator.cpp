@@ -2265,7 +2265,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
-        _output_index_result_column(nullptr, 0, block);
+        if (!_enable_common_expr_pushdown || !_remaining_conjunct_roots.empty()) {
+            _output_index_result_column(nullptr, 0, block);
+        }
     } else {
         uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
