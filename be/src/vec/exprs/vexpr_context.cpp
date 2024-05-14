@@ -29,6 +29,8 @@
 #include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -58,7 +60,11 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     });
     if ((*result_column_id) >= 0) {
         auto& data = block->get_by_position(*result_column_id);
-        if (!data.type->equals(*(root()->data_type()))) {
+        DataTypePtr expr_data_type = root()->data_type();
+        if (expr_data_type->is_nullable() && !data.type->is_nullable()) {
+            expr_data_type = remove_nullable(expr_data_type);
+        }
+        if (!data.type->equals(*expr_data_type)) {
             return Status::InternalError(
                     "expr data type : {} can not match block column data type : {}",
                     root()->data_type()->get_name(), data.type->get_name());
