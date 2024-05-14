@@ -203,11 +203,11 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 }
 
 Status HdfsFileWriter::close(bool non_block) {
-    if (closed() == FileWriterState::CLOSED) {
+    if (state() == State::CLOSED) {
         return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
                                      _path.native(), _fs_name);
     }
-    if (closed() == FileWriterState::ASYNC_CLOSING) {
+    if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
@@ -215,20 +215,20 @@ Status HdfsFileWriter::close(bool non_block) {
         _st = _async_close_pack->future.get();
         _async_close_pack = nullptr;
         // We should wait for all the pre async task to be finished
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
         return _st;
     }
     if (non_block) {
-        _close_state = FileWriterState::ASYNC_CLOSING;
+        _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
     _st = _close_impl();
-    _close_state = FileWriterState::CLOSED;
+    _state = State::CLOSED;
     return _st;
 }
 
@@ -405,7 +405,7 @@ Status HdfsFileWriter::_append(std::string_view content) {
 }
 
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 

@@ -109,7 +109,7 @@ S3FileWriter::~S3FileWriter() {
         _async_close_pack = nullptr;
     }
     // We won't do S3 abort operation in BE, we let s3 service do it own.
-    if (closed() == FileWriterState::OPEN && !_failed) {
+    if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
     s3_file_being_written << -1;
@@ -157,11 +157,11 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 }
 
 Status S3FileWriter::close(bool non_block) {
-    if (closed() == FileWriterState::CLOSED) {
+    if (state() == State::CLOSED) {
         return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
                                      _path.native(), _key);
     }
-    if (closed() == FileWriterState::ASYNC_CLOSING) {
+    if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
@@ -169,20 +169,20 @@ Status S3FileWriter::close(bool non_block) {
         _st = _async_close_pack->future.get();
         _async_close_pack = nullptr;
         // We should wait for all the pre async task to be finished
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
         return _st;
     }
     if (non_block) {
-        _close_state = FileWriterState::ASYNC_CLOSING;
+        _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
                 [&]() { _async_close_pack->promise.set_value(_close_impl()); });
     }
     _st = _close_impl();
-    _close_state = FileWriterState::CLOSED;
+    _state = State::CLOSED;
     return _st;
 }
 
@@ -242,7 +242,7 @@ Status S3FileWriter::_close_impl() {
 }
 
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (closed() != FileWriterState::OPEN) [[unlikely]] {
+    if (state() != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
@@ -470,7 +470,7 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    DCHECK(closed() != FileWriterState::CLOSED) << fmt::format("state is {}", closed());
+    DCHECK(state() != State::CLOSED) << fmt::format("state is {}", state());
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*buf.get_stream()));

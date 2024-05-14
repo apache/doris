@@ -105,7 +105,7 @@ public:
         return _local_file_writer->appendv(data, data_cnt);
     }
 
-    io::FileWriterState closed() const override { return _local_file_writer->closed(); }
+    io::FileWriter::State state() const override { return _local_file_writer->state(); }
 
     size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
