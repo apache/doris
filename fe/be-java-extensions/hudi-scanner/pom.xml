@@ -32,7 +32,6 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <scala.version>2.12.15</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.3.4</spark.version>
         <sparkbundle.version>3.2</sparkbundle.version>
         <janino.version>3.0.16</janino.version>
         <avro.version>1.11.3</avro.version>

@@ -33,7 +33,6 @@ under the License.
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <scala.binary.version>2.12</scala.binary.version>
-        <spark.version>3.3.4</spark.version>
         <janino.version>3.0.16</janino.version>
     </properties>
 

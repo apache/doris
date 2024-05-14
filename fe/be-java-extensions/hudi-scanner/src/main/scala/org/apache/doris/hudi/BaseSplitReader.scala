@@ -498,7 +498,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                 hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     partitionedFile => {
       val reader = new HoodieAvroHFileReader(
-        hadoopConf, new Path(partitionedFile.filePath), new CacheConfig(hadoopConf))
+        hadoopConf, partitionedFile.filePath.toPath, new CacheConfig(hadoopConf))
 
       val requiredRowSchema = requiredDataSchema.structTypeSchema
       // NOTE: Schema has to be parsed at this point, since Avro's [[Schema]] aren't serializable
@@ -573,7 +573,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
 
     BaseFileReader(
       read = partitionedFile => {
-        val extension = FSUtils.getFileExtension(partitionedFile.filePath)
+        val extension = FSUtils.getFileExtension(partitionedFile.filePath.toString())
         if (tableBaseFileFormat.getFileExtension.equals(extension)) {
           read(partitionedFile)
         } else {
