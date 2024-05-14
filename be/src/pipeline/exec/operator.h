@@ -838,9 +838,9 @@ public:
     using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency =
-                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+        _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                          parent->get_name() + "_FINISH_DEPENDENCY",
+                                                          true, DependencyType::AFTER_EXECUTION);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -860,7 +860,7 @@ protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
 
-    std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
+    std::shared_ptr<Dependency> _async_writer_dependency;
 
     std::shared_ptr<Dependency> _finish_dependency;
 };

@@ -28,9 +28,9 @@ namespace doris::pipeline {
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {
-    _finish_dependency =
-            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                         parent->get_name() + "_SPILL_DEPENDENCY", true);
+    _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                      parent->get_name() + "_SPILL_DEPENDENCY",
+                                                      true, DependencyType::AFTER_EXECUTION);
 }
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                           doris::pipeline::LocalSinkStateInfo& info) {

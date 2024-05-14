@@ -49,7 +49,6 @@ class Dependency;
 class PipelineTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
-using DependencyMap = std::map<int, std::vector<DependencySPtr>>;
 
 static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 60 * 1000L * 1000L * 1000L;
 static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
@@ -84,24 +83,27 @@ struct BasicSharedState {
     Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
 };
 
+/**
+ * We divide dependency into three categories:
+ * 1. BEFORE_EXECUTION: pipeline tasks need to wait for this before execution. (i.e. ExecutionDependency, RuntimeFilterDependency)
+ * 2. DURING_EXECUTION: In execution phase, tasks should be running only if this dependency is ready. (i.e. Read/Write Dependency)
+ * 3. AFTER_EXECUTION: After execution phase, tasks should be closed after this dependency is ready.
+ */
+enum class DependencyType : uint8_t {
+    BEFORE_EXECUTION = 0,
+    DURING_EXECUTION = 1,
+    AFTER_EXECUTION = 2,
+};
+
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
-    Dependency(int id, int node_id, std::string name)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(false),
-              _ready(false) {}
-    Dependency(int id, int node_id, std::string name, bool ready)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(true),
-              _ready(ready) {}
+    Dependency(int id, int node_id, std::string name, DependencyType type)
+            : _id(id), _node_id(node_id), _name(std::move(name)), _type(type), _ready(false) {}
+    Dependency(int id, int node_id, std::string name, bool ready, DependencyType type)
+            : _id(id), _node_id(node_id), _name(std::move(name)), _type(type), _ready(ready) {}
     virtual ~Dependency() = default;
 
-    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     BasicSharedState* shared_state() { return _shared_state; }
@@ -117,12 +119,10 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
@@ -165,7 +165,7 @@ protected:
     const int _id;
     const int _node_id;
     const std::string _name;
-    const bool _is_write_dependency;
+    const DependencyType _type;
     std::atomic<bool> _ready;
 
     BasicSharedState* _shared_state = nullptr;
@@ -187,7 +187,7 @@ struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : Dependency(id, node_id, name, true, DependencyType::AFTER_EXECUTION) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -278,7 +278,8 @@ struct RuntimeFilterTimerQueue {
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
+            : Dependency(id, node_id, name, DependencyType::BEFORE_EXECUTION),
+              _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
     Dependency* is_blocked_by(PipelineTask* task) override;
@@ -574,15 +575,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-class AsyncWriterDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id)
-            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
-    ~AsyncWriterDependency() override = default;
-};
-
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
@@ -735,7 +727,8 @@ public:
     void create_source_dependencies(int operator_id, int node_id) {
         for (size_t i = 0; i < source_deps.size(); i++) {
             source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
-                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY",
+                                                          DependencyType::DURING_EXECUTION);
             source_deps[i]->set_shared_state(this);
         }
     };

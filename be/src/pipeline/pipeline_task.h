@@ -133,7 +133,7 @@ public:
         return _op_shared_states[id].get();
     }
 
-    void wake_up();
+    void wake_up(DependencyType& type);
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 

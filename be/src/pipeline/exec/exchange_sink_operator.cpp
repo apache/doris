@@ -136,12 +136,14 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     register_channels(_sink_buffer.get());
     _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                  "ExchangeSinkQueueDependency", true);
+                                                  "ExchangeSinkQueueDependency", true,
+                                                  DependencyType::DURING_EXECUTION);
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
+        _broadcast_dependency = Dependency::create_shared(_parent->operator_id(),
+                                                          _parent->node_id(), "BroadcastDependency",
+                                                          true, DependencyType::DURING_EXECUTION);
         _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_blocks =
                 vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);

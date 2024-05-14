@@ -69,7 +69,8 @@ template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                 _parent->get_name() + "_DEPENDENCY");
+                                                 _parent->get_name() + "_DEPENDENCY",
+                                                 DependencyType::DURING_EXECUTION);
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());

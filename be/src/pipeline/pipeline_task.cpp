@@ -137,8 +137,6 @@ Status PipelineTask::_extract_dependencies() {
     {
         auto* local_state = _state->get_sink_local_state();
         _write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
-                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -488,7 +486,26 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void PipelineTask::wake_up() {
+void PipelineTask::wake_up(DependencyType& type) {
+    switch (type) {
+    case DependencyType::BEFORE_EXECUTION:
+        if (_wait_to_start()) {
+            return;
+        }
+        break;
+    case DependencyType::DURING_EXECUTION:
+        if (_is_blocked()) {
+            return;
+        }
+        break;
+    case DependencyType::AFTER_EXECUTION:
+        if (is_pending_finish()) {
+            return;
+        }
+        break;
+    default:
+        __builtin_unreachable();
+    }
     // call by dependency
     static_cast<void>(get_task_queue()->push_back(this));
 }

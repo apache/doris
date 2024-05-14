@@ -751,7 +751,8 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                      std::to_string((int)data_distribution.distribution_type));
     }
     auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
-                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
+                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
+                                                 DependencyType::DURING_EXECUTION);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});

@@ -586,8 +586,9 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency =
-            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _async_writer_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                         "AsyncWriterDependency", true,
+                                                         DependencyType::DURING_EXECUTION);
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
