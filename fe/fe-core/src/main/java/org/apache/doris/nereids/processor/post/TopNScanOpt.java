@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;

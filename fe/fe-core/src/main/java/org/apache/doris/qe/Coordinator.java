@@ -3832,10 +3832,8 @@ public class Coordinator implements CoordInterface {
             }
             Set<Integer> topnFilterSources = Sets.newLinkedHashSet();
             for (ScanNode scanNode : scanNodes) {
-                if (scanNode instanceof OlapScanNode) {
-                    for (SortNode sortNode : ((OlapScanNode) scanNode).getTopnFilterSortNodes()) {
-                        topnFilterSources.add(sortNode.getId().asInt());
-                    }
+                for (SortNode sortNode : scanNode.getTopnFilterSortNodes()) {
+                    topnFilterSources.add(sortNode.getId().asInt());
                 }
             }
 
