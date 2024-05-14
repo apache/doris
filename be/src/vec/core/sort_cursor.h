@@ -163,8 +163,8 @@ struct MergeSortCursorImpl {
         rows = all_columns[0]->size();
     }
 
-    bool isFirst() const { return pos == 0; }
-    bool isLast() const { return pos + 1 >= rows; }
+    bool is_first() const { return pos == 0; }
+    bool is_last() const { return pos + 1 >= rows; }
     void next() { ++pos; }
 
     virtual bool has_next_block() { return false; }

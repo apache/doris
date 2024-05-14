@@ -73,6 +73,7 @@ struct TS3StorageParam {
     8: optional string root_path
     9: optional string bucket
     10: optional bool use_path_style = false
+    11: optional string token
 }
 
 struct TStoragePolicy {

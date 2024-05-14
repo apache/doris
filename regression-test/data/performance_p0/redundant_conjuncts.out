@@ -2,36 +2,35 @@
 -- !redundant_conjuncts --
 PLAN FRAGMENT 0
   OUTPUT EXPRS:
-    `v1`
-  PARTITION: HASH_PARTITIONED: `regression_test_performance_p0`.`redundant_conjuncts`.`k1`
+    v1[#2]
+  PARTITION: UNPARTITIONED
 
   HAS_COLO_PLAN_NODE: false
 
   VRESULT SINK
      MYSQL_PROTOCAL
 
-  0:VOlapScanNode
-     TABLE: regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
-     PREDICATES: (`k1` = 1)
-     partitions=0/1 (), tablets=0/0, tabletList=
-     cardinality=0, avgRowSize=8.0, numNodes=1
-     pushAggOp=NONE
+  1:VEXCHANGE
+     offset: 0
+     distribute expr lists: 
 
--- !redundant_conjuncts_gnerated_by_extract_common_filter --
-PLAN FRAGMENT 0
-  OUTPUT EXPRS:
-    `v1`
-  PARTITION: HASH_PARTITIONED: `regression_test_performance_p0`.`redundant_conjuncts`.`k1`
+PLAN FRAGMENT 1
+
+  PARTITION: HASH_PARTITIONED: k1[#0]
 
   HAS_COLO_PLAN_NODE: false
 
-  VRESULT SINK
-     MYSQL_PROTOCAL
+  STREAM DATA SINK
+    EXCHANGE ID: 01
+    UNPARTITIONED
 
-  0:VOlapScanNode
-     TABLE: regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
-     PREDICATES: (`k1` = 1) OR (`k1` = 2)
+  0:VOlapScanNode(90)
+     TABLE: regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: ON
+     PREDICATES: (k1[#0] = 1)
      partitions=0/1 (), tablets=0/0, tabletList=
-     cardinality=0, avgRowSize=8.0, numNodes=1
+     cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
+     final projections: v1[#1]
+     final project output tuple id: 1
+planed with unknown column statistics
 

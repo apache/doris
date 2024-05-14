@@ -111,6 +111,7 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }
+    _shared_state->data_queue.set_max_blocks_in_sub_queue(state->data_queue_max_blocks());
     return Status::OK();
 }
 

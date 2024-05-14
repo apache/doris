@@ -251,8 +251,6 @@ suite("nereids_test_ctas") {
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
 
-        sql 'set enable_nereids_planner=false'
-
         sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
 
         String descC = sql 'desc c'

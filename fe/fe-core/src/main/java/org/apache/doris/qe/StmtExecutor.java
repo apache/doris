@@ -48,6 +48,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PrepareStmt;
+import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
@@ -123,12 +124,14 @@ import org.apache.doris.load.loadv2.LoadManagerAdapter;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
+import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -265,6 +268,9 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+
+    private ExecuteStmt execStmt;
+    PrepareStmtContext preparedStmtCtx = null;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -555,7 +561,9 @@ public class StmtExecutor {
                                 .getLogicalPlan()).isExternalTableSink();
                     }
                     boolean forceFallback = isInsertCommand && !isExternalTableInsert && !context.isTxnModel();
-                    if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner
+                    if (e instanceof NereidsException
+                            && !(((NereidsException) e).getException() instanceof MustFallbackException)
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner
                             && !forceFallback) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         context.getState().setError(e.getMessage());
@@ -674,9 +682,14 @@ public class StmtExecutor {
             }
             try {
                 ((Command) logicalPlan).run(context, this);
+            } catch (MustFallbackException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                }
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.setState(e.getQueryState());
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
@@ -684,7 +697,7 @@ public class StmtExecutor {
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
@@ -692,7 +705,7 @@ public class StmtExecutor {
             } catch (Exception e) {
                 // Maybe our bug
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
@@ -1054,9 +1067,8 @@ public class StmtExecutor {
         parseByLegacy();
 
         boolean preparedStmtReanalyzed = false;
-        PrepareStmtContext preparedStmtCtx = null;
         if (parsedStmt instanceof ExecuteStmt) {
-            ExecuteStmt execStmt = (ExecuteStmt) parsedStmt;
+            execStmt = (ExecuteStmt) parsedStmt;
             preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
             if (preparedStmtCtx == null) {
                 throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
@@ -1077,7 +1089,8 @@ public class StmtExecutor {
             }
             // continue analyze
             preparedStmtReanalyzed = true;
-            preparedStmtCtx.stmt.analyze(analyzer);
+            preparedStmtCtx.stmt.reset();
+            // preparedStmtCtx.stmt.analyze(analyzer);
         }
 
         // yiguolei: insert stmt's grammar analysis will write editlog,
@@ -1092,7 +1105,7 @@ public class StmtExecutor {
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
-                        String.valueOf(context.getEnv().getNextStmtId()), true /*binary protocol*/);
+                        String.valueOf(context.getEnv().getNextStmtId()));
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
@@ -1130,7 +1143,6 @@ public class StmtExecutor {
                         "enable_unified_load=true, should be insert stmt");
             }
         }
-
         if (parsedStmt instanceof QueryStmt
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt
@@ -1193,7 +1205,9 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed) {
+        if (preparedStmtReanalyzed
+                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
+            prepareStmt.asignValues(execStmt.getArgs());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update planner and analyzer after prepared statement reanalyzed");
             }
@@ -1257,6 +1271,12 @@ public class StmtExecutor {
                 queryStmt.removeOrderByElements();
             }
         }
+        if (prepareStmt != null) {
+            analyzer.setPrepareStmt(prepareStmt);
+            if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
+                prepareStmt.asignValues(execStmt.getArgs());
+            }
+        }
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).isGroupCommit()) {
@@ -1315,14 +1335,14 @@ public class StmtExecutor {
                         Lists.newArrayList(parsedStmt.getColLabels());
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
-
-                if (prepareStmt != null) {
-                    // Re-analyze prepareStmt with a new analyzer
-                    prepareStmt.reset();
-                    prepareStmt.analyze(analyzer);
-                }
                 // query re-analyze
                 parsedStmt.reset();
+                if (prepareStmt != null) {
+                    analyzer.setPrepareStmt(prepareStmt);
+                    if (execStmt != null && prepareStmt.getPreparedType() != PreparedType.FULL_PREPARED) {
+                        prepareStmt.asignValues(execStmt.getArgs());
+                    }
+                }
                 analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
@@ -1595,7 +1615,8 @@ public class StmtExecutor {
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         // TODO FE not support doris field type conversion to arrow field type.
-        if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+        if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)
+                    && context.getCommand() != MysqlCommand.COM_STMT_EXECUTE) {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
@@ -2332,12 +2353,12 @@ public class StmtExecutor {
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                    prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                        prepareStmt.getName(), context.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                        context, planner, analyzer, prepareStmt.getName()));
-        if (prepareStmt.isBinaryProtocol()) {
+                            context, planner, analyzer, prepareStmt.getName()));
+        if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             sendStmtPrepareOK();
         }
     }
@@ -2414,13 +2435,18 @@ public class StmtExecutor {
                 serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        // send EOF if nessessary
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-            context.getState().setEof();
-        } else {
-            context.getState().setOk();
-        }
+        context.getMysqlChannel().flush();
+        context.getState().setNoop();
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
@@ -3119,6 +3145,8 @@ public class StmtExecutor {
         try {
             if (sessionVariable.isEnableNereidsPlanner()) {
                 try {
+                    // disable shuffle for http stream (only 1 sink)
+                    sessionVariable.disableStrictConsistencyDmlOnce();
                     httpStreamParams = generateHttpStreamNereidsPlan(queryId);
                 } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {

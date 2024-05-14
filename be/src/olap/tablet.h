@@ -272,6 +272,12 @@ public:
         _last_base_compaction_schedule_millis = millis;
     }
 
+    void set_last_single_compaction_failure_status(std::string status) {
+        _last_single_compaction_failure_status = std::move(status);
+    }
+
+    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -338,6 +344,8 @@ public:
     }
 
     std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -582,6 +590,12 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void set_is_full_compaction_running(bool is_full_compaction_running) {
+        _is_full_compaction_running = is_full_compaction_running;
+    }
+    inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
+    void clear_cache();
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -629,6 +643,8 @@ private:
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
     std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
+
+    void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -684,6 +700,10 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
     std::string _last_base_compaction_status;
 
+    // single replica compaction status
+    std::string _last_single_compaction_failure_status;
+    Version _last_fetched_version;
+
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
@@ -715,6 +735,8 @@ private:
     std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
+
+    std::atomic_bool _is_full_compaction_running = false;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

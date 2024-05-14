@@ -208,11 +208,11 @@ public:
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
 };
 
-struct CountedFinishDependency final : public FinishDependency {
+struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : FinishDependency(id, node_id, name, query_ctx) {}
+            : Dependency(id, node_id, name, true, query_ctx) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -689,8 +689,18 @@ public:
             }
             return;
         }
+
+        // here need to change type to nullable, because some case eg:
+        // (select 0) intersect (select null) the build side hash table should not
+        // ignore null value.
+        std::vector<DataTypePtr> data_types;
+        for (const auto& ctx : child_exprs_lists[0]) {
+            data_types.emplace_back(build_not_ignore_null[0]
+                                            ? make_nullable(ctx->root()->data_type())
+                                            : ctx->root()->data_type());
+        }
         if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                    *hash_table_variants, child_exprs_lists[0])) {
+                    *hash_table_variants, data_types)) {
             hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
     }

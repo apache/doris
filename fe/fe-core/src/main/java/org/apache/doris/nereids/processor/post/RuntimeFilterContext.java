@@ -130,6 +130,7 @@ public class RuntimeFilterContext {
 
     private int targetNullCount = 0;
 
+    private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
     /**
@@ -157,6 +158,23 @@ public class RuntimeFilterContext {
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
+    }
+
+    public void setRelationsUsedByPlan(Plan plan, Set<PhysicalRelation> relations) {
+        relationsUsedByPlan.put(plan, relations);
+    }
+
+    /**
+     * return true, if the relation is in the subtree
+     */
+    public boolean isRelationUseByPlan(Plan plan, PhysicalRelation relation) {
+        Set<PhysicalRelation> relations = relationsUsedByPlan.get(plan);
+        if (relations == null) {
+            relations = Sets.newHashSet();
+            RuntimeFilterGenerator.getAllScanInfo(plan, relations);
+            relationsUsedByPlan.put(plan, relations);
+        }
+        return relations.contains(relation);
     }
 
     public SessionVariable getSessionVariable() {
@@ -272,10 +290,6 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
-    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
-        return aliasTransferMap.remove(slot);
-    }
-
     public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
         return aliasTransferMap.get(slot);
     }
@@ -353,7 +367,7 @@ public class RuntimeFilterContext {
     }
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
-        return joinToTargetExprId.get(join);
+        return joinToTargetExprId.getOrDefault(join, Lists.newArrayList());
     }
 
     public SlotReference getCorrespondingOlapSlotReference(SlotReference slot) {

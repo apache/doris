@@ -1094,7 +1094,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer,
+        public PlanFragment visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer,
             PlanTranslatorContext context) {
         CTEId cteId = cteConsumer.getCteId();
 

@@ -37,7 +37,10 @@ import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -65,6 +68,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Iceberg utils
@@ -503,8 +507,17 @@ public class IcebergUtils {
                 Types.ListType list = (Types.ListType) type;
                 return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
             case MAP:
+                Types.MapType map = (Types.MapType) type;
+                return new MapType(
+                    icebergTypeToDorisType(map.keyType()),
+                    icebergTypeToDorisType(map.valueType())
+                );
             case STRUCT:
-                return Type.UNSUPPORTED;
+                Types.StructType struct = (Types.StructType) type;
+                ArrayList<StructField> nestedTypes = struct.fields().stream().map(
+                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type()))
+                ).collect(Collectors.toCollection(ArrayList::new));
+                return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }

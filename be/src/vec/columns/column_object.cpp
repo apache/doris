@@ -51,6 +51,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
@@ -956,7 +957,8 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                                 rapidjson::Value& root,
-                                rapidjson::Document::AllocatorType& allocator, int row) {
+                                rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                int row) {
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
         return Status::InternalError(
@@ -977,7 +979,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                      << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
         return Status::NotFound("Not found path {}", path.get_path());
     }
-    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, row));
+    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, mem_pool, row));
     return Status::OK();
 }
 
@@ -1079,14 +1081,16 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
     if (!doc_structure->IsNull()) {
         root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
     }
+    Arena mem_pool;
 #ifndef NDEBUG
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                subcolumn->data.get_least_common_type_serde(),
-                subcolumn->data.get_least_common_type(), root, doc_structure->GetAllocator(), row));
+        RETURN_IF_ERROR(find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(),
+                                                 subcolumn->path,
+                                                 subcolumn->data.get_least_common_type_serde(),
+                                                 subcolumn->data.get_least_common_type(), root,
+                                                 doc_structure->GetAllocator(), mem_pool, row));
         if (subcolumn->path.empty() && !root.IsObject()) {
             // root was modified, only handle root node
             break;
@@ -1147,6 +1151,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
             root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
         }
         size_t null_count = 0;
+        Arena mem_pool;
         for (const auto& subcolumn : sparse_columns) {
             auto& column = subcolumn->data.get_finalized_column_ptr();
             if (assert_cast<const ColumnNullable&>(*column).is_null_at(i)) {
@@ -1156,7 +1161,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
             bool succ = find_and_set_leave_value(column, subcolumn->path,
                                                  subcolumn->data.get_least_common_type_serde(),
                                                  subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), i);
+                                                 doc_structure->GetAllocator(), mem_pool, i);
             if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;

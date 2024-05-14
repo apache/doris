@@ -302,6 +302,9 @@ public:
     // set skip index compaction next time
     void set_skip_index_compaction(int32_t column_id) { skip_index_compaction.insert(column_id); }
 
+    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
+    void clear_cache();
+
 protected:
     friend class RowsetFactory;
 

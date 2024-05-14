@@ -1039,6 +1039,10 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
+DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
+// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
+DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1123,6 +1127,8 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
+
+DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
@@ -1673,11 +1679,18 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
+        std::string config_val = it.second;
+        // For compatibility, this PR #32933 change the log dir's config logic,
+        // and deprecate the `sys_log_dir` config.
+        if (it.first == "sys_log_dir" && config_val == "") {
+            config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
+        }
+
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.emplace_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(config_val == "1" ? "true" : "false");
         } else {
-            _config.push_back(it.second);
+            _config.push_back(config_val);
         }
         _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 

@@ -1078,6 +1078,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_mInt32(segment_cache_capacity);
+DECLARE_mInt32(estimated_num_columns_per_segment);
+DECLARE_mInt32(estimated_mem_per_column_reader);
+DECLARE_Int32(segment_cache_memory_percentage);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
@@ -1195,6 +1198,8 @@ DECLARE_mBool(exit_on_exception);
 // cgroup
 DECLARE_mString(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_cgroup_cpu_soft_limit);
+
+DECLARE_mBool(enable_workload_group_memory_gc);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);

@@ -46,6 +46,7 @@ void register_function_int_div(SimpleFunctionFactory& factory);
 void register_function_bit(SimpleFunctionFactory& factory);
 void register_function_bit_count(SimpleFunctionFactory& factory);
 void register_function_bit_shift(SimpleFunctionFactory& factory);
+void register_function_round(SimpleFunctionFactory& factory);
 void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
@@ -226,6 +227,7 @@ public:
             register_function_conv(instance);
             register_function_plus(instance);
             register_function_minus(instance);
+            register_function_round(instance);
             register_function_math(instance);
             register_function_multiply(instance);
             register_function_divide(instance);

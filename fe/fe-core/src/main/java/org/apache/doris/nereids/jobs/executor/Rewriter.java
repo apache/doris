@@ -471,7 +471,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
                 topic("or expansion",
-                        topDown(new OrExpansion())),
+                        custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE)),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

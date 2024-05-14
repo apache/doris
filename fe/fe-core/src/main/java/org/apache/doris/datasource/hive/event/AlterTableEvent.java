@@ -158,7 +158,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getRefreshManager()
                     .refreshExternalTableFromEvent(catalogName, tableBefore.getDbName(), tableBefore.getTableName(),
-                            eventTime, true);
+                            eventTime);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

@@ -978,6 +978,7 @@ void MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
         auto& dst = _columns[i];
         const auto& src = *block_data[i].column.get();
+        DCHECK_GE(src.size(), row_end - row_begin);
         dst->insert_indices_from(src, row_begin, row_end);
     }
 }

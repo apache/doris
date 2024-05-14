@@ -47,7 +47,7 @@ public class MTMVTaskTest {
     private long ptwoId = 2L;
     private String ptwoName = "p2";
     private List<Long> allPartitionIds = Lists.newArrayList(poneId, ptwoId);
-    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet());
+    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
 
     @Mocked
     private MTMV mtmv;

@@ -26,11 +26,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class EncryptKeyRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
     private EncryptKeyName encryptKeyName;
     private EncryptKey encryptKey;
 

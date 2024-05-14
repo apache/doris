@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -63,9 +64,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_HAVING_COEFFICIENT = 0.01;
 
-    public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
-    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.001;
+    public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
     private Set<Slot> aggSlots;
 
     private boolean isOnBaseTable = false;
@@ -420,7 +420,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
         ColumnStatistic childColStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
         if (childColStats.isUnKnown()) {
-            return new StatisticsBuilder(context.statistics).build();
+            double row = context.statistics.getRowCount() * DEFAULT_ISNULL_SELECTIVITY;
+            return new StatisticsBuilder(context.statistics).setRowCount(row).build();
         }
         double outputRowCount = childColStats.numNulls;
         if (!isOnBaseTable) {
@@ -494,6 +495,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setNdv(intersectRange.getDistinctValues())
                     .setNumNulls(0);
             double sel = leftRange.overlapPercentWith(rightRange);
+            if (!(leftExpr.getDataType() instanceof RangeScalable) && (sel != 0.0 && sel != 1.0)) {
+                sel = DEFAULT_INEQUALITY_COEFFICIENT;
+            }
             sel = getNotNullSelectivity(leftStats, sel);
             updatedStatistics = context.statistics.withSel(sel);
             leftColumnStatisticBuilder.setCount(updatedStatistics.getRowCount());
@@ -550,8 +554,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
 
         double leftOverlapPercent = leftRange.overlapPercentWith(rightRange);
-        // Left always greater than right
-        if (leftOverlapPercent == 0) {
+
+        if (leftOverlapPercent == 0.0) {
+            // Left always greater than right
             return context.statistics.withRowCount(0.0);
         }
         StatisticRange leftAlwaysLessThanRightRange = new StatisticRange(leftStats.minValue, leftStats.minExpr,
@@ -580,9 +585,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setNdv(rightStats.ndv * (rightAlwaysGreaterRangeFraction + rightOverlappingRangeFraction))
                 .setNumNulls(0)
                 .build();
-        double sel = leftAlwaysLessThanRightPercent
-                + leftOverlapPercent * rightOverlappingRangeFraction * DEFAULT_INEQUALITY_COEFFICIENT
-                + leftOverlapPercent * rightAlwaysGreaterRangeFraction;
+        double sel = DEFAULT_INEQUALITY_COEFFICIENT;
+        if (leftExpr.getDataType() instanceof RangeScalable) {
+            sel = leftAlwaysLessThanRightPercent
+                    + leftOverlapPercent * rightOverlappingRangeFraction * DEFAULT_INEQUALITY_COEFFICIENT
+                    + leftOverlapPercent * rightAlwaysGreaterRangeFraction;
+        } else if (leftOverlapPercent == 1.0) {
+            sel = 1.0;
+        }
         context.addKeyIfSlot(leftExpr);
         context.addKeyIfSlot(rightExpr);
         return context.statistics.withSel(sel)

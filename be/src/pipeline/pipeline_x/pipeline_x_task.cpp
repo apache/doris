@@ -77,7 +77,10 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::prepare", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task prepare failed");
+        return status;
+    });
     {
         // set sink local state
         LocalSinkStateInfo info {_task_idx,
@@ -131,6 +134,11 @@ Status PipelineXTask::_extract_dependencies() {
             _finish_dependencies.push_back(fin_dep);
         }
     }
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
+        Status status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject pipeline_task _extract_dependencies failed");
+        return status;
+    });
     {
         auto* local_state = _state->get_sink_local_state();
         _write_dependencies = local_state->dependencies();
@@ -195,6 +203,11 @@ Status PipelineXTask::_open() {
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
     _block = doris::vectorized::Block::create_unique();
+
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::open", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task open failed");
+        return status;
+    });
     _opened = true;
     return Status::OK();
 }
@@ -204,7 +217,10 @@ Status PipelineXTask::execute(bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
+        return status;
+    });
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
     Defer defer {[&]() {
@@ -275,7 +291,11 @@ Status PipelineXTask::execute(bool* eos) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
-
+        DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
+            Status status =
+                    Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
+            return status;
+        });
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
@@ -319,7 +339,7 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_N(INFO, 10) << "revoke memory, hight water mark";
+            VLOG_DEBUG << "revoke memory, hight water mark";
             return true;
         }
         return false;
@@ -339,12 +359,11 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
 
-        LOG_EVERY_N(INFO, 10) << "revoke memory, low water mark, revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                              << ", mem_limit_of_op: "
-                              << PrettyPrinter::print_bytes(mem_limit_of_op)
-                              << ", min_revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        VLOG_DEBUG << "revoke memory, low water mark, revocable_mem_bytes: "
+                   << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                   << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                   << ", min_revocable_mem_bytes: "
+                   << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
@@ -399,11 +418,15 @@ std::string PipelineXTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
+    //If thread 1 executes this pipeline task and finds it has been cancelled, it will clear the _blocked_dep.
+    // If at the same time FE cancel this pipeline task and logging debug_string before _blocked_dep is cleared,
+    // it will think _blocked_dep is not nullptr and call _blocked_dep->debug_string().
+    auto* cur_blocked_dep = _blocked_dep;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
                    "= {}s], block dependency = {}, is running = {}\noperators: ",
                    (void*)this, get_state_name(_cur_state), _dry_run, elapsed,
-                   _blocked_dep && !_finished ? _blocked_dep->debug_string() : "NULL",
+                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",

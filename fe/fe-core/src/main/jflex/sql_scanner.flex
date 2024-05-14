@@ -206,6 +206,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("double", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("drop", new Integer(SqlParserSymbols.KW_DROP));
         keywordMap.put("dropp", new Integer(SqlParserSymbols.KW_DROPP));
+        keywordMap.put("dual", new Integer(SqlParserSymbols.KW_DUAL));
         keywordMap.put("duplicate", new Integer(SqlParserSymbols.KW_DUPLICATE));
         keywordMap.put("dynamic", new Integer(SqlParserSymbols.KW_DYNAMIC));
         keywordMap.put("else", new Integer(SqlParserSymbols.KW_ELSE));
@@ -580,7 +581,6 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.BITXOR), "^");
     tokenIdMap.put(new Integer(SqlParserSymbols.NUMERIC_OVERFLOW), "NUMERIC OVERFLOW");
     tokenIdMap.put(new Integer(SqlParserSymbols.PLACEHOLDER), "?");
-
   }
 
   public static boolean isKeyword(Integer tokenId) {

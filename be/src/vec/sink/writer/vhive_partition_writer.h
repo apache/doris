@@ -39,6 +39,7 @@ class VHivePartitionWriter {
 public:
     struct WriteInfo {
         std::string write_path;
+        std::string original_write_path;
         std::string target_path;
         TFileType::type file_type;
     };

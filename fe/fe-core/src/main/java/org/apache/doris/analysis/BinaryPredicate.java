@@ -41,8 +41,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -54,7 +52,6 @@ import java.util.Objects;
  * Most predicates with two operands..
  */
 public class BinaryPredicate extends Predicate implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BinaryPredicate.class);
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
     private boolean isInferred = false;
@@ -294,30 +291,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
-        msg.setVectorOpcode(vectorOpcode);
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        super.vectorizedAnalyze(analyzer);
-        Function match = null;
-
-        //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
-        //        op.toFilterFunctionOp(), true, true, cmpType, cmpType);
-        try {
-            match = getBuiltinFunction(op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } catch (AnalysisException e) {
-            Preconditions.checkState(false);
-        }
-        Preconditions.checkState(match != null);
-        Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
-        //todo(dhc): should add oppCode
-        //this.vectorOpcode = match.opcode;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(debugString() + " opcode: " + vectorOpcode);
-        }
     }
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
@@ -534,11 +508,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         this.checkIncludeBitmap();
-        // Ignore placeholder
-        if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
+        // Ignore placeholder, when it type is invalid.
+        // Invalid type could happen when analyze prepared point query select statement,
+        // since the value is occupied but not assigned
+        if ((getChild(0) instanceof PlaceHolderExpr && getChild(0).type == Type.UNSUPPORTED)
+                || (getChild(1) instanceof PlaceHolderExpr && getChild(1).type == Type.UNSUPPORTED)) {
             return;
         }
-
         for (Expr expr : children) {
             if (expr instanceof Subquery) {
                 Subquery subquery = (Subquery) expr;

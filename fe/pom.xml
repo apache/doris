@@ -228,7 +228,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>2.0.0</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>2.0.1</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -258,7 +258,7 @@ under the License.
         <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <druid.version>1.2.5</druid.version>
+        <hikaricp.version>4.0.3</hikaricp.version>
         <clickhouse.version>0.4.6</clickhouse.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
@@ -1538,9 +1538,9 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <groupId>com.alibaba</groupId>
-                <artifactId>druid</artifactId>
-                <version>${druid.version}</version>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.clickhouse</groupId>

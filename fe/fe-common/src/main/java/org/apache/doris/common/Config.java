@@ -637,6 +637,12 @@ public class Config extends ConfigBase {
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "对于 tablet 数量小于该数目的 DUPLICATE KEY 表，将不会启用 shuffle",
+            "Shuffle won't be enabled for DUPLICATE KEY tables if its tablet num is lower than this number"},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int min_tablets_for_dup_table_shuffle = 64;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
@@ -1956,7 +1962,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2535,10 +2541,12 @@ public class Config extends ConfigBase {
     public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
+            + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
-                    + "and the deleted labels can be reused."
+                    + "and the deleted labels can be reused. "
+                    + "When the value is -1, it indicates no threshold."
     })
     public static int label_num_threshold = 2000;
 
@@ -2651,6 +2659,10 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
+            "Stream_Load When importing, the maximum length of label is limited"})
+    public static int label_regex_length = 128;
 
     //==========================================================================
     //                      end of cloud config

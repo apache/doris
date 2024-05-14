@@ -131,7 +131,7 @@ enum TSchemaTableType {
     SCH_WORKLOAD_GROUPS,
     SCH_USER,
     SCH_PROCS_PRIV,
-    SCH_WORKLOAD_SCHEDULE_POLICY;
+    SCH_WORKLOAD_POLICY;
 }
 
 enum THdfsCompression {

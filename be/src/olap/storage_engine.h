@@ -337,6 +337,8 @@ private:
 
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
+    int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -419,6 +421,7 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;

@@ -129,6 +129,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
+
+    public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -475,8 +477,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
-    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
-
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
@@ -493,6 +493,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
     public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -516,6 +517,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_UNION_REWRITE
             = "enable_materialized_view_union_rewrite";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
+            = "enable_materialized_view_nest_rewrite";
 
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
@@ -889,7 +893,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableNereidsDmlWithPipeline = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
-    public boolean enableStrictConsistencyDml = false;
+    public boolean enableStrictConsistencyDml = true;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
@@ -1326,6 +1330,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
     public long topnOptLimitThreshold = 1024;
 
+    @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
+            "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
+    public boolean enableServeSidePreparedStatement = false;
+
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
@@ -1550,10 +1558,6 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
 
-    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
-            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
-    public boolean fasterFloatConvert = false;
-
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
             description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
                     "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
@@ -1628,6 +1632,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "whether to allow the union of the base table and the materialized view to "
                             + "respond to the query"})
     public boolean enableMaterializedViewUnionRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
+            description = {"是否允许嵌套物化视图改写",
+                    "Whether enable materialized view nest rewrite"})
+    public boolean enableMaterializedViewNestRewrite = false;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -1744,6 +1753,13 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is false."},
             needForward = true, fuzzy = true)
     public boolean enableAggSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = DATA_QUEUE_MAX_BLOCKS,
+            description = {"DataQueue 中每个子队列允许最大的 block 个数",
+                    "Max blocks in DataQueue."},
+            needForward = true, fuzzy = true)
+    public long dataQueueMaxBlocks = 1;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
@@ -2553,6 +2569,10 @@ public class SessionVariable implements Serializable, Writable {
         return runtimeFilterType;
     }
 
+    public boolean allowedRuntimeFilterType(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) != 0;
+    }
+
     public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
         return (runtimeFilterType & type.getValue()) == type.getValue();
     }
@@ -3155,8 +3175,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setFasterFloatConvert(fasterFloatConvert);
-
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
         tResult.setSkipMissingVersion(skipMissingVersion);
@@ -3171,6 +3189,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableSortSpill(enableSortSpill);
         tResult.setEnableAggSpill(enableAggSpill);
         tResult.setMinRevocableMem(minRevocableMem);
+        tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+
         return tResult;
     }
 
@@ -3435,6 +3455,14 @@ public class SessionVariable implements Serializable, Writable {
         this.dumpNereidsMemo = dumpNereidsMemo;
     }
 
+    public boolean isEnableStrictConsistencyDml() {
+        return this.enableStrictConsistencyDml;
+    }
+
+    public void setEnableStrictConsistencyDml(boolean value) {
+        this.enableStrictConsistencyDml = value;
+    }
+
     public void disableStrictConsistencyDmlOnce() throws DdlException {
         if (!enableStrictConsistencyDml) {
             return;
@@ -3640,6 +3668,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewUnionRewrite() {
         return enableMaterializedViewUnionRewrite;
+    }
+
+    public boolean isEnableMaterializedViewNestRewrite() {
+        return enableMaterializedViewNestRewrite;
     }
 
     public int getCreateTablePartitionMaxNum() {

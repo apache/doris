@@ -618,6 +618,14 @@ public class Analyzer {
         return callDepth;
     }
 
+    public void setPrepareStmt(PrepareStmt stmt) {
+        prepareStmt = stmt;
+    }
+
+    public PrepareStmt getPrepareStmt() {
+        return prepareStmt;
+    }
+
     public void setInlineView(boolean inlineView) {
         isInlineView = inlineView;
     }
@@ -628,14 +636,6 @@ public class Analyzer {
 
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
-    }
-
-    public void setPrepareStmt(PrepareStmt stmt) {
-        prepareStmt = stmt;
-    }
-
-    public PrepareStmt getPrepareStmt() {
-        return prepareStmt;
     }
 
     public String getExplicitViewAlias() {

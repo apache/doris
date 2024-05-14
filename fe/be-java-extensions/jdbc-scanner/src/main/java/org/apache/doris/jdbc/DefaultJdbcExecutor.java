@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
 
-import com.alibaba.druid.pool.DruidDataSource;
 import com.clickhouse.data.value.UnsignedByte;
 import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
@@ -36,6 +35,7 @@ import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -92,8 +92,8 @@ public class DefaultJdbcExecutor {
     private int batchSizeNum = 0;
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
-    private DruidDataSource druidDataSource = null;
-    private final byte[] druidDataSourceLock = new byte[0];
+    private HikariDataSource hikariDataSource = null;
+    private final byte[] hikariDataSourceLock = new byte[0];
     private TOdbcTableType tableType;
     private JdbcDataSourceConfig config;
 
@@ -147,10 +147,10 @@ public class DefaultJdbcExecutor {
                 closeResources(resultSet, stmt, conn);
             }
         } finally {
-            if (config.getConnectionPoolMinSize() == 0 && druidDataSource != null) {
-                druidDataSource.close();
+            if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
+                hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                druidDataSource = null;
+                hikariDataSource = null;
             }
         }
     }
@@ -185,10 +185,10 @@ public class DefaultJdbcExecutor {
     }
 
     public void cleanDataSource() {
-        if (druidDataSource != null) {
-            druidDataSource.close();
+        if (hikariDataSource != null) {
+            hikariDataSource.close();
             JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-            druidDataSource = null;
+            hikariDataSource = null;
         }
     }
 
@@ -340,7 +340,8 @@ public class DefaultJdbcExecutor {
     }
 
     private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
-        String druidDataSourceKey = config.createCacheKey();
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+        String hikariDataSourceKey = config.createCacheKey();
         try {
             if (isNebula()) {
                 batchSizeNum = config.getBatchSize();
@@ -351,36 +352,29 @@ public class DefaultJdbcExecutor {
             } else {
                 ClassLoader parent = getClass().getClassLoader();
                 ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
-                druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
-                if (druidDataSource == null) {
-                    synchronized (druidDataSourceLock) {
-                        druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
-                        if (druidDataSource == null) {
+                Thread.currentThread().setContextClassLoader(classLoader);
+                hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+                if (hikariDataSource == null) {
+                    synchronized (hikariDataSourceLock) {
+                        hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+                        if (hikariDataSource == null) {
                             long start = System.currentTimeMillis();
-                            DruidDataSource ds = new DruidDataSource();
-                            ds.setDriverClassLoader(classLoader);
+                            HikariDataSource ds = new HikariDataSource();
                             ds.setDriverClassName(config.getJdbcDriverClass());
-                            ds.setUrl(config.getJdbcUrl());
+                            ds.setJdbcUrl(config.getJdbcUrl());
                             ds.setUsername(config.getJdbcUser());
                             ds.setPassword(config.getJdbcPassword());
-                            ds.setMinIdle(config.getConnectionPoolMinSize()); // default 1
-                            ds.setInitialSize(config.getConnectionPoolMinSize()); // default 1
-                            ds.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
-                            ds.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
-                            ds.setTestWhileIdle(true);
-                            ds.setTestOnBorrow(false);
+                            ds.setMinimumIdle(config.getConnectionPoolMinSize()); // default 1
+                            ds.setMaximumPoolSize(config.getConnectionPoolMaxSize()); // default 10
+                            ds.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
+                            ds.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
+                            ds.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
                             setValidationQuery(ds, config.getTableType());
-                            // default 3 min
-                            ds.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L);
-                            // default 15 min
-                            ds.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L);
-                            // default 30 min
-                            ds.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime());
-                            ds.setKeepAlive(config.isConnectionPoolKeepAlive());
-                            // default 6 min
-                            ds.setKeepAliveBetweenTimeMillis(config.getConnectionPoolMaxLifeTime() / 5L);
-                            druidDataSource = ds;
-                            JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
+                            if (config.isConnectionPoolKeepAlive()) {
+                                ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
+                            }
+                            hikariDataSource = ds;
+                            JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, ds);
                             LOG.info("JdbcClient set"
                                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -394,7 +388,7 @@ public class DefaultJdbcExecutor {
                 }
 
                 long start = System.currentTimeMillis();
-                conn = druidDataSource.getConnection();
+                conn = hikariDataSource.getConnection();
                 LOG.info("get connection [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
                         System.currentTimeMillis() - start)
                         + " ms");
@@ -421,16 +415,18 @@ public class DefaultJdbcExecutor {
             throw new UdfRuntimeException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    private void setValidationQuery(DruidDataSource ds, TOdbcTableType tableType) {
+    private void setValidationQuery(HikariDataSource ds, TOdbcTableType tableType) {
         if (tableType == TOdbcTableType.ORACLE || tableType == TOdbcTableType.OCEANBASE_ORACLE) {
-            ds.setValidationQuery("SELECT 1 FROM dual");
+            ds.setConnectionTestQuery("SELECT 1 FROM dual");
         } else if (tableType == TOdbcTableType.SAP_HANA) {
-            ds.setValidationQuery("SELECT 1 FROM DUMMY");
+            ds.setConnectionTestQuery("SELECT 1 FROM DUMMY");
         } else {
-            ds.setValidationQuery("SELECT 1");
+            ds.setConnectionTestQuery("SELECT 1");
         }
     }
 

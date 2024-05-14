@@ -108,6 +108,7 @@
 #include "olap/utils.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
+#include "tablet.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -821,6 +822,7 @@ void Tablet::delete_expired_stale_rowset() {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
                     // delete rowset
+                    it->second->clear_cache();
                     _engine.add_unused_rowset(it->second);
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
@@ -1462,7 +1464,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     root.AddMember("last base failure time", base_value, root.GetAllocator());
     rapidjson::Value full_value;
     format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
-    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    full_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last full failure time", full_value, root.GetAllocator());
     rapidjson::Value cumu_success_value;
     format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
@@ -1486,18 +1488,37 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
 
+    // last single replica compaction status
+    // "single replica compaction status": {
+    //     "remote peer": "172.100.1.0:10875",
+    //     "last failure status": "",
+    //     "last fetched rowset": "[8-10]"
+    // }
+    rapidjson::Document status;
+    status.SetObject();
     TReplicaInfo replica_info;
     std::string dummp_token;
-    rapidjson::Value fetch_addr;
     if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
-        _engine.get_peer_replica_info(tablet_id(), &replica_info, &dummp_token)) {
+        StorageEngine::instance()->get_peer_replica_info(tablet_id(), &replica_info,
+                                                         &dummp_token)) {
+        // remote peer
+        rapidjson::Value peer_addr;
         std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
-        fetch_addr.SetString(addr.c_str(), addr.length(), root.GetAllocator());
-    } else {
-        // -1 means do compaction locally
-        fetch_addr.SetString("-1", root.GetAllocator());
+        peer_addr.SetString(addr.c_str(), addr.length(), status.GetAllocator());
+        status.AddMember("remote peer", peer_addr, status.GetAllocator());
+        // last failure status
+        rapidjson::Value compaction_status;
+        compaction_status.SetString(_last_single_compaction_failure_status.c_str(),
+                                    _last_single_compaction_failure_status.length(),
+                                    status.GetAllocator());
+        status.AddMember("last failure status", compaction_status, status.GetAllocator());
+        // last fetched rowset
+        rapidjson::Value version;
+        std::string fetched_version = _last_fetched_version.to_string();
+        version.SetString(fetched_version.c_str(), fetched_version.length(), status.GetAllocator());
+        status.AddMember("last fetched rowset", version, status.GetAllocator());
+        root.AddMember("single replica compaction status", status, root.GetAllocator());
     }
-    root.AddMember("fetch from peer", fetch_addr, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -1882,11 +1903,22 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
     Status res = compaction.execute_compact();
     if (!res.ok()) {
         set_last_failure_time(this, compaction, UnixMillis());
-        LOG(WARNING) << "failed to do single replica compaction. res=" << res
-                     << ", tablet=" << tablet_id();
+        set_last_single_compaction_failure_status(res.to_string());
+        if (res.is<CANCELLED>()) {
+            VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
+                          << ", tablet=" << tablet_id();
+        } else {
+            LOG(WARNING) << "failed to do single replica compaction. res=" << res
+                         << ", tablet=" << tablet_id();
+        }
         return;
     }
     set_last_failure_time(this, compaction, 0);
+}
+
+bool Tablet::should_fetch_from_peer() {
+    return tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
+           StorageEngine::instance()->should_fetch_from_peer(tablet_id());
 }
 
 std::vector<Version> Tablet::get_all_local_versions() {
@@ -3701,6 +3733,17 @@ void Tablet::gc_binlogs(int64_t version) {
 
 Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
     return RowsetMetaManager::ingest_binlog_metas(_data_dir->get_meta(), tablet_uid(), metas_pb);
+}
+
+void Tablet::clear_cache() {
+    std::shared_lock rlock(get_header_lock());
+    static auto recycle_segment_cache = [](const auto& rowset_map) {
+        for (auto& [_, rowset] : rowset_map) {
+            rowset->clear_cache();
+        }
+    };
+    recycle_segment_cache(rowset_map());
+    recycle_segment_cache(stale_rowset_map());
 }
 
 Status Tablet::calc_delete_bitmap_between_segments(
