@@ -1304,13 +1304,6 @@ public class Config extends ConfigBase {
     public static boolean cache_enable_sql_mode = true;
 
     /**
-     * If set to true, fe will get data from be cache,
-     * This option is suitable for real-time updating of partial partitions.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean cache_enable_partition_mode = true;
-
-    /**
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */

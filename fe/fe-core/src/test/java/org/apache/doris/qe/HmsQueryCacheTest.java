@@ -82,7 +82,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         FeConstants.runningUnitTest = true;
         Config.enable_query_hive_views = true;
         Config.cache_enable_sql_mode = true;
-        Config.cache_enable_partition_mode = true;
+        // Config.cache_enable_partition_mode = true;
         connectContext.getSessionVariable().setEnableSqlCache(true);
 
         env = Env.getCurrentEnv();

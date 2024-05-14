@@ -142,11 +142,12 @@ public class CacheAnalyzer {
                 enableSqlCache = true;
             }
         }
-        if (Config.cache_enable_partition_mode) {
-            if (context.getSessionVariable().isEnablePartitionCache()) {
-                enablePartitionCache = true;
-            }
-        }
+        enablePartitionCache = false;
+        // if (Config.cache_enable_partition_mode) {
+        //     if (context.getSessionVariable().isEnablePartitionCache()) {
+        //         enablePartitionCache = true;
+        //     }
+        // }
     }
 
     public TUniqueId getQueryId() {
@@ -206,8 +207,9 @@ public class CacheAnalyzer {
     }
 
     public static boolean canUseCache(SessionVariable sessionVariable) {
-        return (sessionVariable.isEnableSqlCache() || sessionVariable.isEnablePartitionCache())
-                && commonCacheCondition(sessionVariable);
+        // return (sessionVariable.isEnableSqlCache() || sessionVariable.isEnablePartitionCache())
+        //         && commonCacheCondition(sessionVariable);
+        return (sessionVariable.isEnableSqlCache()) && commonCacheCondition(sessionVariable);
     }
 
     public static boolean canUseSqlCache(SessionVariable sessionVariable) {
