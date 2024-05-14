@@ -39,7 +39,6 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -481,6 +480,13 @@ public class ComputeSignatureHelper {
     private static List<DataType> extractArgumentType(Class<? extends DataType> targetType,
             DataType signatureType, DataType argumentType) {
         if (targetType.isAssignableFrom(signatureType.getClass())) {
+            // do not do precision merge, when not use wildcard decimalV3 in signature
+            if (signatureType instanceof DecimalV3Type) {
+                if (((DecimalV3Type) signatureType).getPrecision() < 0
+                        && ((DecimalV3Type) signatureType).getScale() < 0) {
+                    return Lists.newArrayList();
+                }
+            }
             return Lists.newArrayList(argumentType);
         } else if (signatureType instanceof ArrayType) {
             if (argumentType instanceof NullType) {

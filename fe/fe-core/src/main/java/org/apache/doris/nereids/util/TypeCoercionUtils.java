@@ -349,6 +349,12 @@ public class TypeCoercionUtils {
                     .collect(ImmutableList.toImmutableList());
             return new StructType(newFields);
         } else if (specifiedType.isAssignableFrom(dataType.getClass())) {
+            if (dataType instanceof DecimalV3Type) {
+                // do not do precision merge, when not use wildcard decimalV3 in signature
+                if (((DecimalV3Type) dataType).getPrecision() >= 0 && ((DecimalV3Type) dataType).getScale() >= 0) {
+                    return dataType;
+                }
+            }
             return newType;
         } else {
             return dataType;
