@@ -486,7 +486,7 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void PipelineTask::wake_up(DependencyType& type) {
+void PipelineTask::wake_up(const DependencyType& type) {
     switch (type) {
     case DependencyType::BEFORE_EXECUTION:
         if (_wait_to_start()) {
