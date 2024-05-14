@@ -79,7 +79,7 @@ size_t LocalFileWriter::bytes_appended() const {
 }
 
 LocalFileWriter::~LocalFileWriter() {
-    if (_close_state == FileWriterState::OPEN) {
+    if (_state == State::OPENED) {
         _abort();
     }
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
@@ -88,23 +88,23 @@ LocalFileWriter::~LocalFileWriter() {
 }
 
 Status LocalFileWriter::close(bool non_block) {
-    if (_close_state == FileWriterState::CLOSED) {
+    if (_state == State::CLOSED) {
         return Status::InternalError("LocalFileWriter already closed, file path {}",
                                      _path.native());
     }
-    if (_close_state == FileWriterState::ASYNC_CLOSING) {
+    if (_state == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
         // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
         // error status then the code would never call the second close(true)
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
         return Status::OK();
     }
     if (non_block) {
-        _close_state = FileWriterState::ASYNC_CLOSING;
+        _state = State::ASYNC_CLOSING;
     } else {
-        _close_state = FileWriterState::CLOSED;
+        _state = State::CLOSED;
     }
     return _close(_sync_data);
 }
@@ -123,7 +123,7 @@ void LocalFileWriter::_abort() {
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
                                       Status::IOError("inject io error"));
-    if (_close_state != FileWriterState::OPEN) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
     _dirty = true;
@@ -182,7 +182,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
 Status LocalFileWriter::_finalize() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
                                       Status::IOError("inject io error"));
-    if (_close_state == FileWriterState::OPEN) [[unlikely]] {
+    if (_state == State::OPENED) [[unlikely]] {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
 
