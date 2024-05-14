@@ -70,7 +70,7 @@ Status WalReader::read_block(PBlock& block) {
     _offset += WalWriter::LENGTH_SIZE;
     size_t block_len = decode_fixed64_le(row_len_buf);
     if (block_len == 0) {
-        return Status::InternalError("fail to read wal {} ,block is empty", _file_name);
+        return Status::DataQualityError("fail to read wal {} ,block is empty", _file_name);
     }
     // read block
     std::string block_buf;
