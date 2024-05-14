@@ -22,6 +22,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
@@ -55,6 +56,14 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
     });
+    if ((*result_column_id) >= 0) {
+        auto& data = block->get_by_position(*result_column_id);
+        if (!data.type->equals(*(root()->data_type()))) {
+            return Status::InternalError(
+                    "expr data type : {} can not match block column data type : {}",
+                    root()->data_type()->get_name(), data.type->get_name());
+        }
+    }
     return st;
 }
 
