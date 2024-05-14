@@ -402,23 +402,12 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
 
         if (!_parent) {
+            // set push down topn filter
             _tablet_reader_params.topn_filter_source_node_ids =
                     ((pipeline::OlapScanLocalState*)_local_state)
                             ->get_topn_filter_source_node_ids(_state, true);
-        }
-
-        if (_tablet_reader_params.topn_filter_source_node_ids.empty()) {
-            // old topn logic
-            _tablet_reader_params.use_topn_opt = olap_scan_node.use_topn_opt;
-            if (_tablet_reader_params.use_topn_opt) {
-                if (olap_scan_node.__isset.topn_filter_source_node_ids) {
-                    _tablet_reader_params.topn_filter_source_node_ids =
-                            olap_scan_node.topn_filter_source_node_ids;
-
-                } else {
-                    _tablet_reader_params.topn_filter_source_node_ids = {0};
-                }
-            }
+            _tablet_reader_params.use_topn_opt =
+                    !_tablet_reader_params.topn_filter_source_node_ids.empty();
         }
     }
 
