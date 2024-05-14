@@ -2292,6 +2292,11 @@ public class SchemaChangeHandler extends AlterHandler {
             enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
         }
 
+        if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
+            throw new UserException(
+                    "enable_single_replica_compaction property is not supported for merge-on-write table");
+        }
+
         String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
         int disableAutoCompaction = -1; // < 0 means don't update
         if (disableAutoCompactionBoolean != null) {

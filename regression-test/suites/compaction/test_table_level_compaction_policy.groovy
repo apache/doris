@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_table_level_compaction_policy") {
+suite("test_table_level_compaction_policy", "nonConcurrent") {
     def tableName = "test_table_level_compaction_policy"
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -239,6 +239,30 @@ suite("test_table_level_compaction_policy") {
             alter table  ${tableName} set ("compaction_policy" = "ok")
             """
         exception "Table compaction policy only support for time_series or size_based"
+    }
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
+
+    sql """
+        CREATE TABLE ${tableName} (
+                `c_custkey` int(11) NOT NULL COMMENT "",
+                `c_name` varchar(26) NOT NULL COMMENT "",
+                `c_address` varchar(41) NOT NULL COMMENT "",
+                `c_city` varchar(11) NOT NULL COMMENT ""
+        )
+        UNIQUE KEY (`c_custkey`)
+        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+        PROPERTIES (
+                "replication_num" = "1"
+            );
+    """
+    sql """sync"""
+    
+    test {
+        sql """
+            alter table  ${tableName} set ("enable_single_replica_compaction" = "true")
+            """
+        exception "enable_single_replica_compaction property is not supported for merge-on-write table"
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""
