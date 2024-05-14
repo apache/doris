@@ -94,6 +94,19 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
+        // If the destination path contains a schema, use the schema directly.
+        // If not, use defaultFS.
+        // Otherwise a write error will occur.
+        // example:
+        //    hdfs://host:port/path1/path2  --> hdfs://host:port
+        //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
+        string::size_type idx = path.find("://");
+        if (idx != string::npos) {
+            idx = path.find("/", idx + 3);
+            if (idx != string::npos) {
+                hdfs_params.fs_name = path.substr(0, idx);
+            }
+        }
         RETURN_IF_ERROR(
                 io::HdfsFileSystem::create(hdfs_params, "", hdfs_params.fs_name, nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer, opts));
