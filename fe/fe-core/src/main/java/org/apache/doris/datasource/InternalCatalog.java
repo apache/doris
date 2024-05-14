@@ -2622,6 +2622,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Duplicate table without keys do not support add rollup!");
             }
             AddRollupClause addRollupClause = (AddRollupClause) alterClause;
+            addRollupClause.checkValid();
 
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
