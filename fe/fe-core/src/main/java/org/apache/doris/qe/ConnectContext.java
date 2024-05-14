@@ -1129,7 +1129,7 @@ public class ConnectContext {
                 sb.append("cluster ").append(clusterName)
                     .append(" is shutdown manually, please start it first");
             } else {
-                sb.append("or you may not have permission to access the current cluster = ").append(clusterName);
+                sb.append(hits).append(clusterName);
             }
         }
         return sb.toString();
