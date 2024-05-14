@@ -299,6 +299,15 @@ std::string AggFnEvaluator::debug_string() const {
 Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
+
+    /// `_input_exprs_ctxs` may contain order by expr,
+    /// so it's count should be large than or equal with `_real_argument_types` count.
+    if (!_real_argument_types.empty() && _real_argument_types.size() > _input_exprs_ctxs.size()) {
+        return Status::InternalError("Agg function({})'s arguments count should be: {}, not {}",
+                                     _fn.name.function_name, _real_argument_types.size(),
+                                     _input_exprs_ctxs.size());
+    }
+
     std::vector<int> column_ids(_input_exprs_ctxs.size());
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         int column_id = -1;
