@@ -69,25 +69,30 @@ import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
     private enum SplitReadType {
-        INVALID,
         JNI,
         NATIVE,
     }
 
     private class SplitStat {
-        SplitReadType type = SplitReadType.INVALID;
+        SplitReadType type = SplitReadType.JNI;
         private long rowCount = 0;
         private boolean rawFileConvertable = false;
         private boolean hasDeletionVector = false;
 
-        public SplitStat(long rowCount, boolean rawFileConvertable, boolean hasDeletionVector) {
-            this.rowCount = rowCount;
-            this.rawFileConvertable = rawFileConvertable;
-            this.hasDeletionVector = hasDeletionVector;
-        }
-
         public void setType(SplitReadType type) {
             this.type = type;
+        }
+
+        public void setRowCount(long rowCount) {
+            this.rowCount = rowCount;
+        }
+
+        public void setRawFileConvertable(boolean rawFileConvertable) {
+            this.rawFileConvertable = rawFileConvertable;
+        }
+
+        public void setHasDeletionVector(boolean hasDeletionVector) {
+            this.hasDeletionVector = hasDeletionVector;
         }
 
         @Override
@@ -193,8 +198,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
-            SplitStat splitStat = new SplitStat(split.rowCount(), split.convertToRawFiles().isPresent(),
-                    split.deletionFiles().isPresent());
+            SplitStat splitStat = new SplitStat();
+            splitStat.setRowCount(split.rowCount());
             if (!forceJniScanner && supportNative && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
                 BinaryRow partitionValue = dataSplit.partition();
@@ -203,6 +208,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
                 if (optRawFiles.isPresent()) {
                     splitStat.setType(SplitReadType.NATIVE);
+                    splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
                     if (optDeletionFiles.isPresent()) {
                         List<DeletionFile> deletionFiles = optDeletionFiles.get();
@@ -225,6 +231,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 for (Split dorisSplit : dorisSplits) {
                                     // the element in DeletionFiles might be null
                                     if (deletionFile != null) {
+                                        splitStat.setHasDeletionVector(true);
                                         ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
                                     }
                                     splits.add(dorisSplit);
@@ -256,9 +263,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                             }
                         }
                     }
+                } else {
+                    splits.add(new PaimonSplit(split));
+                    ++paimonSplitNum;
                 }
             } else {
-                splitStat.setType(SplitReadType.JNI);
                 splits.add(new PaimonSplit(split));
                 ++paimonSplitNum;
             }
