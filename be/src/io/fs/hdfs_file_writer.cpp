@@ -146,7 +146,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
 HdfsFileWriter::~HdfsFileWriter() {
     if (_async_close_pack != nullptr) {
         // For thread safety
-        std::ignore = _async_close_pack->promise.get_future();
+        std::ignore = _async_close_pack->future.get();
         _async_close_pack = nullptr;
     }
     if (_hdfs_file) {

@@ -105,7 +105,7 @@ S3FileWriter::S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::strin
 S3FileWriter::~S3FileWriter() {
     if (_async_close_pack != nullptr) {
         // For thread safety
-        std::ignore = _async_close_pack->promise.get_future();
+        std::ignore = _async_close_pack->future.get();
         _async_close_pack = nullptr;
     }
     // We won't do S3 abort operation in BE, we let s3 service do it own.

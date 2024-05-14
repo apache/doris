@@ -209,12 +209,13 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
     // The start_be.sh would set JAVA_OPTS
-    std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
     std::string opt;
     while (iss >> opt) {
         if (opt.find("-Xmx") == 0) {
             std::string xmxValue = opt.substr(4);
+            LOG_INFO("The max heap vaule is {}", xmxValue);
             char unit = xmxValue.back();
             xmxValue.pop_back();
             long long value = std::stoll(xmxValue);
@@ -247,6 +248,9 @@ size_t JniUtil::get_max_jni_heap_memory_size() {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
     return std::numeric_limits<size_t>::max();
 #else
+    static std::once_flag parse_max_heap_memory_size_from_jvm_flag;
+    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm,
+                   tls_env_);
     return max_jvm_heap_memory_size_;
 #endif
 }
@@ -267,9 +271,6 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     // the hadoop libhdfs will do all the stuff
     SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
-    if (nullptr != tls_env_) {
-        parse_max_heap_memory_size_from_jvm(tls_env_);
-    }
 #endif
     *env = tls_env_;
     return Status::OK();
