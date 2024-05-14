@@ -1043,7 +1043,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     // Save versions
-    int64_t version_update_time = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    int64_t version_update_time =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     response->set_version_update_time(version_update_time);
     for (auto& i : new_versions) {
         std::string ver_val;
