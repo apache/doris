@@ -1477,11 +1477,11 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        lock();
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
         }
+        lock();
         try {
             if (!queryStatus.ok()) {
                 // Print an error stack here to know why send cancel again.
