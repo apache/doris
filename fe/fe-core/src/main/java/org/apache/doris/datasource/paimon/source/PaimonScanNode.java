@@ -171,37 +171,58 @@ public class PaimonScanNode extends FileQueryScanNode {
                 Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
                 if (optRawFiles.isPresent()) {
                     List<RawFile> rawFiles = optRawFiles.get();
-                    // TODO: refact code, remove branch
-                    int i = 0;
-                    for (RawFile file : rawFiles) {
-                        LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
-                        Path finalDataFilePath = locationPath.toStorageLocation();
-                        try {
-                            Split dorisSplit = splitFile(
-                                    finalDataFilePath,
-                                    0,
-                                    null,
-                                    file.length(),
-                                    -1,
-                                    true,
-                                    null,
-                                    PaimonSplit.PaimonSplitCreator.DEFAULT).get(0);
-                            if (optDeletionFiles.isPresent()) {
-                                DeletionFile deletionFile = optDeletionFiles.get().get(i++);
-                                // the element in DeletionFiles might be null
-                                if (deletionFile != null) {
-                                    ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                    if (optDeletionFiles.isPresent()) {
+                        List<DeletionFile> deletionFiles = optDeletionFiles.get();
+                        for (int i = 0; i < rawFiles.size(); i++) {
+                            RawFile file = rawFiles.get(i);
+                            DeletionFile deletionFile = deletionFiles.get(i);
+                            LocationPath locationPath = new LocationPath(file.path(),
+                                    source.getCatalog().getProperties());
+                            Path finalDataFilePath = locationPath.toStorageLocation();
+                            try {
+                                List<Split> dorisSplits = splitFile(
+                                        finalDataFilePath,
+                                        0,
+                                        null,
+                                        file.length(),
+                                        -1,
+                                        true,
+                                        null,
+                                        PaimonSplit.PaimonSplitCreator.DEFAULT);
+                                for (Split dorisSplit : dorisSplits) {
+                                    // the element in DeletionFiles might be null
+                                    if (deletionFile != null) {
+                                        ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                                    }
+                                    splits.add(dorisSplit);
                                 }
+                                ++rawFileSplitNum;
+                            } catch (IOException e) {
+                                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                             }
-                            splits.add(dorisSplit);
-                            ++rawFileSplitNum;
-                        } catch (IOException e) {
-                            throw new UserException("Paimon error to split file: " + e.getMessage(), e);
+                        }
+                    } else {
+                        for (RawFile file : rawFiles) {
+                            LocationPath locationPath = new LocationPath(file.path(),
+                                    source.getCatalog().getProperties());
+                            Path finalDataFilePath = locationPath.toStorageLocation();
+                            try {
+                                splits.addAll(
+                                        splitFile(
+                                                finalDataFilePath,
+                                                0,
+                                                null,
+                                                file.length(),
+                                                -1,
+                                                true,
+                                                null,
+                                                PaimonSplit.PaimonSplitCreator.DEFAULT));
+                                ++rawFileSplitNum;
+                            } catch (IOException e) {
+                                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
+                            }
                         }
                     }
-                } else {
-                    splits.add(new PaimonSplit(split));
-                    ++paimonSplitNum;
                 }
             } else {
                 splits.add(new PaimonSplit(split));
