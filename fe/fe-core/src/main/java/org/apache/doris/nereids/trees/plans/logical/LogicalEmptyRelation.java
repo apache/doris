@@ -82,6 +82,11 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
+    public LogicalEmptyRelation withRelationId(RelationId relationId) {
+        return new LogicalEmptyRelation(relationId, projects, Optional.empty(), Optional.empty());
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)

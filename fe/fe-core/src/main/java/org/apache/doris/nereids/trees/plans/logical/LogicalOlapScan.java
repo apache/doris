@@ -312,6 +312,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     @Override
+    public LogicalOlapScan withRelationId(RelationId relationId) {
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.empty(),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
     }

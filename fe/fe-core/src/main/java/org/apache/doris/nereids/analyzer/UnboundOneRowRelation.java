@@ -87,6 +87,11 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
     }
 
     @Override
+    public UnboundOneRowRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call UnboundOneRowRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
     }
