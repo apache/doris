@@ -34,7 +34,7 @@
 
 namespace doris::vectorized {
 TEST(function_money_format_test, money_format_with_decimalV2) {
-    // why not using 
+    // why not using
     std::multimap<std::string, std::string> input_dec_str_and_expected_str = {
             {std::string("123.12"), std::string("123.12")},
             {std::string("-123.12"), std::string("-123.12")},
