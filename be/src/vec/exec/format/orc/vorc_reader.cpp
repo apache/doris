@@ -1740,7 +1740,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             }
             _execute_filter_position_delete_rowids(result_filter);
             {
-                SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
             }
@@ -1757,13 +1757,13 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         } else {
             if (_delete_rows_filter_ptr) {
                 _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
-                SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter,
                                                                        (*_delete_rows_filter_ptr)));
             } else {
                 std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                 _execute_filter_position_delete_rowids(*filter);
-                SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
