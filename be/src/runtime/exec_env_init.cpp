@@ -228,6 +228,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
+    RETURN_IF_ERROR(_routine_load_task_executor->init());
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
