@@ -90,6 +90,11 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
+    public LogicalOneRowRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)

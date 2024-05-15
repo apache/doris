@@ -143,6 +143,11 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
     }
 
     @Override
+    public LogicalCTEConsumer withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalCTEConsumer's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return ImmutableList.copyOf(producerToConsumerOutputMap.values());
     }
