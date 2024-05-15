@@ -610,7 +610,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        if (_runtime_state->enable_profile()) {
+        if (_runtime_state->enable_profile() || _query_ctx->is_coord_addr_invalid()) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:
@@ -630,6 +630,7 @@ void PlanFragmentExecutor::close() {
                                              collect_realtime_query_profile(),
                                              collect_realtime_load_channel_profile());
         }
+        DCHECK_EQ(_query_ctx->is_coord_addr_invalid(), false);
     }
 
     _closed = true;

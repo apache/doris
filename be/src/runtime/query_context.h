@@ -291,6 +291,9 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    // NOTE(wb) log profile when find invalid fe host to debug problem
+    bool is_coord_addr_invalid() { return coord_addr.hostname.empty() || coord_addr.port == 0; }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;

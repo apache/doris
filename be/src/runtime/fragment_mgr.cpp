@@ -660,7 +660,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
                   << " coord_addr " << query_ctx->coord_addr
                   << " total fragment num on current host: " << params.fragment_num_on_host
-                  << " fe process uuid: " << params.query_options.fe_process_uuid;
+                  << " fe process uuid: " << params.query_options.fe_process_uuid
+                  << " params coord addr:" << params.coord;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
