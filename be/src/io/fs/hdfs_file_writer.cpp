@@ -272,6 +272,7 @@ Status HdfsFileWriter::_close_impl() {
         _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
+    inflight_hdfs_file_writer << -1;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
@@ -282,7 +283,6 @@ Status HdfsFileWriter::_close_impl() {
         return _st;
     }
     hdfs_file_created_total << 1;
-    inflight_hdfs_file_writer << -1;
     return Status::OK();
 }
 
