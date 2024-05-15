@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
+import com.dmetasoul.lakesoul.meta.DataFileInfo;
+import com.dmetasoul.lakesoul.meta.DataOperation;
+import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
+import com.google.common.collect.Lists;
+import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
+import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -37,10 +43,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
@@ -135,7 +138,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             }
         }
         List<String> pkKeys = null;
-        if(!table.getPartitions().equals(";")){
+        if (!table.getPartitions().equals(";")) {
             pkKeys = Lists.newArrayList(table.getPartitions().split(";")[1].split(","));
         }
 
@@ -160,7 +163,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
                 lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
                 splits.add(lakeSoulSplit);
             }
-        return splits;
+            return splits;
+        }
     }
 
 }

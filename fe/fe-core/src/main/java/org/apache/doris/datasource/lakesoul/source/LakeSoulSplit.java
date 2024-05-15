@@ -19,7 +19,6 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import org.apache.doris.datasource.FileSplit;
 
-import com.dmetasoul.lakesoul.meta.jnr.SplitDesc;
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
@@ -37,15 +36,6 @@ public class LakeSoulSplit extends FileSplit {
 
     private final String tableSchema;
 
-    public LakeSoulSplit(SplitDesc splitDesc, long start, long length, long fileLength, String[] hosts,
-                         List<String> partitionValues) {
-        super(new Path(splitDesc.getFilePaths().get(0)), start, length, fileLength, hosts, partitionValues);
-        this.paths = splitDesc.getFilePaths();
-        this.primaryKeys = splitDesc.getPrimaryKeys();
-        this.partitionDesc = splitDesc.getPartitionDesc();
-        this.tableSchema = splitDesc.getTableSchema();
-
-    }
 
     public LakeSoulSplit(List<String> paths,
                          List<String> primaryKeys,
