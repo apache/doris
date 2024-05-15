@@ -23,8 +23,8 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
-#include <random>
 #include <new>
+#include <random>
 #include <thread>
 
 // Allocator is used by too many files. For compilation speed, put dependencies in `.cpp` as much as possible.
