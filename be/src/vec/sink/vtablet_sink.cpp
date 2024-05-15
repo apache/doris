@@ -834,6 +834,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
+    // if not inited, _stub will be nullptr, skip sending cancel rpc
+    if (_stub == nullptr) {
+        return;
+    }
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
