@@ -255,6 +255,8 @@ struct TQueryOptions {
   89: optional i32 inverted_index_skip_threshold = 50;
 
   90: optional bool enable_inverted_index_compound_inlist = false;
+  // For emergency use, skip missing version when reading rowsets
+  91: optional bool skip_missing_version = false;
 }
 
 
