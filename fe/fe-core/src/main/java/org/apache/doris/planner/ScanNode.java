@@ -49,11 +49,13 @@ import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -98,6 +100,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
+
+    // support multi topn filter
+    protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -812,4 +817,28 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             scanNode.updateScanRangeVersions(visibleVersionMap);
         }
     }
+
+    protected void toThrift(TPlanNode msg) {
+        // topn filter
+        if (useTopnFilter() && SessionVariable.enablePipelineEngineX()) {
+            List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
+                    .stream()
+                    .map(sortNode -> sortNode.getId().asInt())
+                    .collect(Collectors.toList());
+            msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        }
+    }
+
+    public void addTopnFilterSortNode(SortNode sortNode) {
+        topnFilterSortNodes.add(sortNode);
+    }
+
+    public List<SortNode> getTopnFilterSortNodes() {
+        return topnFilterSortNodes;
+    }
+
+    public boolean useTopnFilter() {
+        return !topnFilterSortNodes.isEmpty();
+    }
+
 }
