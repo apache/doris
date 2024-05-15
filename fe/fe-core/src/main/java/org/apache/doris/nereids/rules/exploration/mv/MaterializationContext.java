@@ -129,7 +129,8 @@ public abstract class MaterializationContext {
      * Try to generate scan plan for materialization
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
      * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
-     * should be different
+     * should be different.
+     * This method should be called when query rewrite successfully
      */
     public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
         this.mvScanPlan = doGenerateMvPlan(cascadesContext);

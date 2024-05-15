@@ -63,7 +63,8 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         Plan rewritePlan = cascadesContext.getRewritePlan();
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
-        // Keep use one connection context when in query, if new the ConnectionContext.get() will change
+        // Keep use one connection context when in query, if new connect context,
+        // the ConnectionContext.get() will change
         collectorContext.setConnectContext(cascadesContext.getConnectContext());
         rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
