@@ -65,11 +65,11 @@ public interface MTMVRelatedTableIf extends TableIf {
     /**
      * getPartitionSnapshot
      *
-     * @param partitionId
+     * @param partitionName
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException;
+    MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException;
 
     /**
      * getTableSnapshot

@@ -1103,6 +1103,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return partition;
     }
 
+    public PartitionItem getPartitionItemOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = nameToPartition.get(partitionName);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionName);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partitionInfo.getItem(partition.getId());
+    }
+
     public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
@@ -2796,8 +2807,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long visibleVersion = getPartitionOrAnalysisException(partitionName).getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion);
     }
 
