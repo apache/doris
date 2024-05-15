@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
@@ -624,6 +625,70 @@ Status BetaRowset::add_to_binlog() {
                 linked_success_files.push_back(binlog_index_file);
             }
         }
+    }
+
+    return Status::OK();
+}
+
+Status BetaRowset::clac_local_file_crc(uint32_t* crc_value) {
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+
+    if (num_segments() < 1) {
+        *crc_value = 0x92a8fc17; // magic code from crc32c table
+        return Status::OK();
+    }
+
+    // 1. pick up all the files including dat and idx
+    std::vector<io::Path> local_paths;
+    for (int i = 0; i < num_segments(); ++i) {
+        auto local_seg_path = segment_file_path(i);
+        local_paths.emplace_back(local_seg_path);
+        if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
+            if (_schema->has_inverted_index()) {
+                std::string local_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(local_seg_path);
+                local_paths.emplace_back(local_inverted_index_file);
+            }
+        } else {
+            for (auto& column : _schema->columns()) {
+                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                if (index_meta) {
+                    std::string local_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(
+                                    local_seg_path, index_meta->index_id(),
+                                    index_meta->get_index_suffix());
+                    local_paths.emplace_back(local_inverted_index_file);
+                }
+            }
+        }
+    }
+
+    // 2. calculate the md5sum of each file
+    auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+    DCHECK(local_paths.size() > 0);
+    std::vector<std::string> all_file_md5;
+    all_file_md5.reserve(local_paths.size());
+    for (const auto& file_path : local_paths) {
+        std::string file_md5sum;
+        auto status = local_fs->md5sum(file_path, &file_md5sum);
+        if (!status.ok()) {
+            return status;
+        }
+        all_file_md5.emplace_back(std::move(file_md5sum));
+    }
+
+    // 3. calculate the crc_value
+    DCHECK(local_paths.size() == all_file_md5.size());
+    *crc_value = 0;
+    for (int i = 0; i < all_file_md5.size(); i++) {
+        *crc_value = crc32c::Extend(*crc_value, all_file_md5[i].data(), all_file_md5[i].size());
     }
 
     return Status::OK();
