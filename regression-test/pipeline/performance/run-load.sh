@@ -630,6 +630,17 @@ ${clt} -e "set global enable_profile=true;"
         start=$(date +%s%3N)
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%s%3N)
+            echo "first test scale=1; (${end} - ${start})/1000"
+        else
+            echo "ERROR: first failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
+            return 1
+        fi
+        sleep 2
+        ${clt} -e "truncate table ${DB}.hits_insert_into_select;"
+        sleep 3
+        start=$(date +%s%3N)
+        if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
+            end=$(date +%s%3N)
             insert_into_select_time=$(echo "scale=1; (${end} - ${start})/1000" | bc)
         else
             echo "ERROR: failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
