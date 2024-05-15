@@ -34,6 +34,8 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -46,11 +48,13 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -59,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
@@ -328,6 +333,49 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return hiveViewPlan;
     }
 
+    /**
+     * Support get column from hive view with column name like '_c0', '_c1' etc for hive.
+     */
+    public void addHiveViewDerivedColumn(Plan hiveViewPlan) {
+        if (hiveViewPlan instanceof LogicalProject) {
+            List<NamedExpression> projects = ((LogicalProject) hiveViewPlan).getProjects();
+            int counter = -1;
+            for (NamedExpression project : projects) {
+                counter++;
+                // only set inner name for derived column
+                if (project instanceof UnboundAlias) {
+                    UnboundAlias aliasProject = (UnboundAlias) project;
+                    if (aliasProject.getAlias().isPresent()) {
+                        continue;
+                    }
+                    if (aliasProject.child() instanceof UnboundFunction) {
+                        aliasProject.setAlias(Optional.of("_c" + counter));
+                    }
+                }
+            }
+        }
+
+        if (hiveViewPlan instanceof LogicalAggregate) {
+            int counter = -1;
+            List<NamedExpression> expressions = ((LogicalAggregate) hiveViewPlan).getOutputExpressions();
+            for (NamedExpression expression : expressions) {
+                counter++;
+                if (expression instanceof UnboundAlias) {
+                    UnboundAlias aliasProject = (UnboundAlias) expression;
+                    if (aliasProject.getAlias().isPresent()) {
+                        continue;
+                    }
+                    aliasProject.setAlias(Optional.of("_c" + counter));
+                }
+            }
+        }
+
+        // Recursively init subquery
+        for (Plan subPlan : hiveViewPlan.children()) {
+            addHiveViewDerivedColumn(subPlan);
+        }
+    }
+
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
         Optional<SqlCacheContext> sqlCacheContext = parentContext.getStatementContext().getSqlCacheContext();
@@ -335,6 +383,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             sqlCacheContext.get().addUsedView(view, ddlSql);
         }
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(ddlSql);
+        addHiveViewDerivedColumn(parsedViewPlan);
         // TODO: use a good to do this, such as eliminate UnboundResultSink
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
