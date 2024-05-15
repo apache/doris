@@ -1208,6 +1208,9 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 /** Hive sink configurations **/
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
+/** Iceberg sink configurations **/
+DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
+
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 DEFINE_mBool(ignore_schema_change_check, "false");

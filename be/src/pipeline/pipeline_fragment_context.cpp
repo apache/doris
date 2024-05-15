@@ -60,6 +60,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
+#include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/mysql_scan_operator.h" // IWYU pragma: keep
@@ -848,6 +849,11 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     case TDataSinkType::HIVE_TABLE_SINK: {
         sink_ = std::make_shared<HiveTableSinkOperatorBuilder>(next_operator_builder_id(),
                                                                _sink.get());
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        sink_ = std::make_shared<IcebergTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                  _sink.get());
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK:

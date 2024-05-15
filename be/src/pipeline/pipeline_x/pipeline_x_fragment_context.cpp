@@ -52,6 +52,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
+#include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
@@ -390,6 +391,14 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
         _sink.reset(
                 new HiveTableSinkOperatorX(pool, next_sink_operator_id(), row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing iceberg table sink.");
+        }
+        _sink.reset(new IcebergTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
+                                                  output_exprs));
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {
