@@ -132,8 +132,6 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
-                // TODO: pipeline need to be implemented
-                sql """ set experimental_enable_nereids_dml_with_pipeline = false; """
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
