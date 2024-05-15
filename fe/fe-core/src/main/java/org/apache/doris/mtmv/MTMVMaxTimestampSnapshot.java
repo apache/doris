@@ -28,7 +28,7 @@ public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
     // partitionId corresponding to timestamp
     // The reason why both timestamp and partitionId are stored is to avoid
     // deleting the partition corresponding to timestamp
-    @SerializedName("p")
+    @SerializedName("pn")
     private String partitionName;
     // The maximum modify time in all partitions
     @SerializedName("t")

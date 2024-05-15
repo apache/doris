@@ -923,7 +923,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
-            return new MTMVMaxTimestampSnapshot("", getLastDdlTime());
+            return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
         String partitionName = "";
         long maxVersionTime = 0L;

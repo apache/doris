@@ -317,7 +317,7 @@ public class MTMV extends OlapTable {
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
      *
-     * @return mvPartitionId ==> relationPartitionIds
+     * @return mvPartitionName ==> relationPartitionNames
      * @throws AnalysisException
      */
     public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
