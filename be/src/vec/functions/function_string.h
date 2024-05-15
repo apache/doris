@@ -3006,13 +3006,13 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
     const bool is_negative = int_value < 0 || frac_value < 0;
 
     // do round to frac_part
-    // magic number 2: since we need to truncate frac_part to 2 digits
+    // magic number 2: since we need to round frac_part to 2 digits
     if (scale > 2) {
         DCHECK(scale <= 38);
         // do rounding, so we need to reserve 3 digits.
         auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 3)));
         // do devide first to avoid overflow
-        // after round frac_value will be positive be design.
+        // after round frac_value will be positive by design.
         frac_value = std::abs(frac_value / multiplier) + 5;
         frac_value /= 10;
     } else if (scale < 2) {
