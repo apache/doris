@@ -25,6 +25,7 @@ public enum AuthenticateType {
     LDAP;
 
     public static AuthenticateType getAuthTypeConfig() {
+        // Compatible with previously enabled ldap configuration
         if (LdapConfig.ldap_authentication_enabled) {
             return LDAP;
         }
