@@ -35,8 +35,6 @@
 
 namespace doris::pipeline {
 
-std::filesystem::path log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
-
 void PipelineTracerContext::record(ScheduleRecord record) {
     if (_dump_type == RecordType::None) [[unlikely]] {
         return;
@@ -97,7 +95,7 @@ Status PipelineTracerContext::change_record_params(
 void PipelineTracerContext::_dump_query(TUniqueId query_id) {
     //TODO: when dump, now could append records but can't add new query. try use better grained locks.
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
-    auto path = log_dir / fmt::format("query{}", to_string(query_id));
+    auto path = _log_dir / fmt::format("query{}", to_string(query_id));
     int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                     S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
     if (fd < 0) [[unlikely]] {
@@ -118,7 +116,6 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
         THROW_IF_ERROR(writer.appendv(&text, 1));
     }
 
-    THROW_IF_ERROR(writer.finalize());
     THROW_IF_ERROR(writer.close());
 
     _last_dump_time = MonotonicSeconds();
@@ -134,7 +131,7 @@ void PipelineTracerContext::_dump_timeslice() {
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
 
     //TODO: if long time, per timeslice per file
-    auto path = log_dir /
+    auto path = _log_dir /
                 fmt::format("until{}", std::chrono::steady_clock::now().time_since_epoch().count());
     int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                     S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
@@ -158,7 +155,6 @@ void PipelineTracerContext::_dump_timeslice() {
             THROW_IF_ERROR(writer.appendv(&text, 1));
         }
     }
-    THROW_IF_ERROR(writer.finalize());
     THROW_IF_ERROR(writer.close());
 
     _last_dump_time = MonotonicSeconds();

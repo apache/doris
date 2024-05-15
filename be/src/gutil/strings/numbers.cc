@@ -28,7 +28,7 @@ using std::string;
 #include <fmt/format.h>
 
 #include "common/logging.h"
-#include "dragonbox/dragonbox_to_chars.h"
+
 #include "gutil/gscoped_ptr.h"
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
@@ -1276,21 +1276,13 @@ int FloatToBuffer(float value, int width, char* buffer) {
     return snprintf_result;
 }
 
-int FastDoubleToBuffer(double value, char* buffer, bool faster_float_convert) {
-    if (faster_float_convert) {
-        return jkj::dragonbox::to_chars_n(value, buffer) - buffer;
-    }
-
-    auto* end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
+int FastDoubleToBuffer(double value, char* buffer) {
+    auto end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
     *end = '\0';
     return end - buffer;
 }
 
-int FastFloatToBuffer(float value, char* buffer, bool faster_float_convert) {
-    if (faster_float_convert) {
-        return jkj::dragonbox::to_chars_n(value, buffer) - buffer;
-    }
-
+int FastFloatToBuffer(float value, char* buffer) {
     auto* end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
     *end = '\0';
     return end - buffer;

@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,6 +36,7 @@ public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
 
     private long transactionId;
+    @Getter
     private List<TPartitionVersionInfo> partitionVersionInfos;
 
     /**

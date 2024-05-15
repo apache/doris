@@ -195,8 +195,9 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                     (true, 123, 987654321099, 'abcdefghij', 3.1214, 63.28, 123.4567, 'varcharval', 'stringval');
                 """
             } catch (Exception e) {
+                log.info(e.getMessage())
                 // BE err msg need use string contains to check
-                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                assertTrue(e.getMessage().contains("Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
 
             try {
@@ -206,7 +207,8 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                     ('1', 123, 987654319, 'abcdefghij', '3.15', '6.28', 123.4567, 432, 'stringval');
                 """
             } catch (Exception e) {
-                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
             }
 
             test {

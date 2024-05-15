@@ -201,7 +201,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "    );\n"
                 + "\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
-        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE");
+        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
 
     @Test

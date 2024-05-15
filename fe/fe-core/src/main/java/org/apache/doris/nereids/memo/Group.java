@@ -73,7 +73,7 @@ public class Group {
 
     private PhysicalProperties chosenProperties;
 
-    private int chosenGroupExpressionId = -1;
+    private List<Integer> chosenGroupExpressionId = new ArrayList<>();
 
     private StructInfoMap structInfoMap = new StructInfoMap();
 
@@ -215,13 +215,13 @@ public class Group {
     public Optional<Pair<Cost, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
         chosenProperties = physicalProperties;
         if (physicalProperties == null || lowestCostPlans.isEmpty()) {
-            chosenGroupExpressionId = -1;
+            chosenGroupExpressionId.clear();
             return Optional.empty();
         }
         Optional<Pair<Cost, GroupExpression>> costAndGroupExpression =
                 Optional.ofNullable(lowestCostPlans.get(physicalProperties));
         if (costAndGroupExpression.isPresent()) {
-            chosenGroupExpressionId = costAndGroupExpression.get().second.getId().asInt();
+            chosenGroupExpressionId.add(costAndGroupExpression.get().second.getId().asInt());
         }
         return costAndGroupExpression;
     }
@@ -463,7 +463,7 @@ public class Group {
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
         }
-        if (chosenGroupExpressionId != -1) {
+        if (!chosenGroupExpressionId.isEmpty()) {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
         }

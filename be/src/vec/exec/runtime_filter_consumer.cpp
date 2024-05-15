@@ -84,7 +84,7 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
-                id, node_id, name, _state->get_query_ctx(), runtime_filter);
+                id, node_id, name, runtime_filter);
         _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
         auto filter_timer = std::make_shared<pipeline::RuntimeFilterTimer>(
                 runtime_filter->registration_time(), runtime_filter->wait_time_ms(),

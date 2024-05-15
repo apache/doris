@@ -20,6 +20,7 @@
 #include <arrow/builder.h>
 
 #include "vec/columns/column_const.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
@@ -100,13 +101,37 @@ Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& res
 }
 
 Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col_data = static_cast<ColumnIPv4&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
     auto old_column_size = column.size();
     column.resize(old_column_size + arg.uint32_value_size());
     for (int i = 0; i < arg.uint32_value_size(); ++i) {
         col_data[old_column_size + i] = arg.uint32_value(i);
     }
     return Status::OK();
+}
+
+void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                              arrow::ArrayBuilder* array_builder, int start,
+                                              int end, const cctz::time_zone& ctz) const {
+    const auto& col_data = assert_cast<const ColumnIPv4&>(column).get_data();
+    auto& int32_builder = assert_cast<arrow::Int32Builder&>(*array_builder);
+    auto arrow_null_map = revert_null_map(null_map, start, end);
+    auto* arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
+    checkArrowStatus(int32_builder.AppendValues(
+                             reinterpret_cast<const Int32*>(col_data.data()) + start, end - start,
+                             reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                     column.get_name(), array_builder->type()->name());
+}
+
+void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                               int start, int end,
+                                               const cctz::time_zone& ctz) const {
+    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
+    int row_count = end - start;
+    /// buffers[0] is a null bitmap and buffers[1] are actual values
+    std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
+    const auto* raw_data = reinterpret_cast<const UInt32*>(buffer->data()) + start;
+    col_data.insert(raw_data, raw_data + row_count);
 }
 } // namespace vectorized
 } // namespace doris

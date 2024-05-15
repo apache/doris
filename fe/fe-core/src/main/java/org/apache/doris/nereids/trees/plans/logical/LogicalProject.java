@@ -102,16 +102,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return excepts;
     }
 
-    /** isAllSlots */
-    public boolean isAllSlots() {
-        for (NamedExpression project : projects) {
-            if (!project.isSlot()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     @Override
     public List<Slot> computeOutput() {
         Builder<Slot> slots = ImmutableList.builderWithExpectedSize(projects.size());
@@ -281,5 +271,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             }
         }
         fdBuilder.pruneSlots(getOutputSet());
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 }

@@ -64,12 +64,14 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -141,6 +143,8 @@ import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFetchSplitBatchRequest;
+import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -211,6 +215,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
@@ -593,14 +598,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 try {
                     List<TableIf> tables;
                     if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                        tables = db.getTablesOrEmpty();
+                        tables = db.getTablesIgnoreException();
                     } else {
                         switch (params.getType()) {
                             case "VIEW":
                                 tables = db.getViewsOrEmpty();
                                 break;
                             default:
-                                tables = db.getTablesOrEmpty();
+                                tables = db.getTablesIgnoreException();
                         }
                     }
                     for (TableIf table : tables) {
@@ -964,6 +969,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TFetchSplitBatchResult fetchSplitBatch(TFetchSplitBatchRequest request) throws TException {
+        TFetchSplitBatchResult result = new TFetchSplitBatchResult();
+        SplitSource splitSource =
+                Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
+        if (splitSource == null) {
+            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+        }
+        try {
+            List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
+            result.setSplits(locations);
+            return result;
+        } catch (Exception e) {
+            throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
+        }
     }
 
     @Override
@@ -2152,15 +2174,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
-        if (!request.isSetSchemaTableName()) {
-            return MetadataGenerator.errorResult("Fetch schema table name is not set");
-        }
-        // tvf queries
-        if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
-            return MetadataGenerator.getMetadataTable(request);
-        } else {
-            // database information_schema's tables
-            return MetadataGenerator.getSchemaTableData(request);
+        try {
+            if (!request.isSetSchemaTableName()) {
+                return MetadataGenerator.errorResult("Fetch schema table name is not set");
+            }
+            // tvf queries
+            if (request.getSchemaTableName() == TSchemaTableName.METADATA_TABLE) {
+                return MetadataGenerator.getMetadataTable(request);
+            } else {
+                // database information_schema's tables
+                return MetadataGenerator.getSchemaTableData(request);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to fetchSchemaTableData", e);
+            return MetadataGenerator.errorResult(e.getMessage());
         }
     }
 
@@ -2532,6 +2559,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
         for (Long tabletId : tabletIds) {
+            if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
+                LOG.info("enable getTabletReplicaInfos.returnEmpty");
+                continue;
+            }
             List<TReplicaInfo> replicaInfos = Lists.newArrayList();
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);

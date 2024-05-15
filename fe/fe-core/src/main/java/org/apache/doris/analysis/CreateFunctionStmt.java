@@ -27,6 +27,7 @@ import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -640,6 +641,9 @@ public class CreateFunctionStmt extends DdlStmt {
         } else if (expType instanceof MapType) {
             MapType mapType = (MapType) expType;
             javaTypes = Type.PrimitiveTypeToJavaClassType.get(mapType.getPrimitiveType());
+        } else if (expType instanceof StructType) {
+            StructType structType = (StructType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(structType.getPrimitiveType());
         } else {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",

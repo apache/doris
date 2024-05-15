@@ -330,4 +330,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
         fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
     }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    }
 }

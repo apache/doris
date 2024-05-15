@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.proto.Types;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import java.util.List;
@@ -28,7 +28,7 @@ public interface CoordInterface {
 
     public RowBatch getNext() throws Exception;
 
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason);
+    public void cancel(Status cancelReason);
 
     // When call exec or get next data finished, should call this method to release
     // some resource.

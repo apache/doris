@@ -1328,6 +1328,12 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+#ifdef BE_TEST
+    if (tablet_id % 2 == 0) {
+        return true;
+    }
+    return false;
+#endif
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;

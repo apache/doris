@@ -32,6 +32,7 @@ suite("query61") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql 'set enable_bucket_shuffle_downgrade=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     def ds = """select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
 from
   (select sum(ss_ext_sales_price) promotions

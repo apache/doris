@@ -81,11 +81,6 @@ private:
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
-
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
     std::unique_ptr<PartitionerType> _partitioner;
@@ -177,8 +172,6 @@ public:
     }
 
     size_t revocable_mem_size(RuntimeState* state) const override;
-
-    bool need_data_from_children(RuntimeState* state) const override;
 
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
