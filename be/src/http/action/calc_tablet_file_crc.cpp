@@ -22,16 +22,12 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
-#include "util/crc32c.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -60,24 +56,10 @@ Status CalcTabletFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
-    std::vector<RowsetSharedPtr> rowsets;
-    tablet->traverse_rowsets([&rowsets](const auto& rs) {
-        // get all local rowsets
-        if (rs->is_local()) {
-            rowsets.emplace_back(rs);
-        }
-    });
 
-    *crc_value = 0;
-    for (const auto& rs : rowsets) {
-        uint32_t rs_crc_value;
-        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
-        auto st = rowset->clac_local_file_crc(&rs_crc_value);
-        if (!st.ok()) {
-            return st;
-        }
-        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
-                                    sizeof(rs_crc_value));
+    auto st = tablet->clac_local_file_crc(crc_value);
+    if (!st.ok()) {
+        return st;
     }
     return Status::OK();
 }
@@ -100,7 +82,7 @@ void CalcTabletFileCrcAction::handle(HttpRequest* req) {
         writer.StartObject();
         writer.Key("crc_value");
         writer.String(std::to_string(crc_value).data());
-        writer.Key("use_time_ms");
+        writer.Key("used_time_ms");
         writer.String(std::to_string(timer.elapsed_time() / 1000000).data());
         writer.EndObject();
         HttpChannel::send_reply(req, HttpStatus::OK, s.GetString());

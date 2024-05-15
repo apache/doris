@@ -645,7 +645,7 @@ Status BetaRowset::clac_local_file_crc(uint32_t* crc_value) {
         return Status::OK();
     }
 
-    // 1. pick up all the files including dat and idx
+    // 1. pick up all the files including dat file and idx file
     std::vector<io::Path> local_paths;
     for (int i = 0; i < num_segments(); ++i) {
         auto local_seg_path = segment_file_path(i);
@@ -676,15 +676,20 @@ Status BetaRowset::clac_local_file_crc(uint32_t* crc_value) {
     std::vector<std::string> all_file_md5;
     all_file_md5.reserve(local_paths.size());
     for (const auto& file_path : local_paths) {
+        DBUG_EXECUTE_IF("fault_inject::BetaRowset::clac_local_file_crc", {
+            return Status::Error<OS_ERROR>("fault_inject clac_local_file_crc error");
+        });
         std::string file_md5sum;
         auto status = local_fs->md5sum(file_path, &file_md5sum);
         if (!status.ok()) {
             return status;
         }
+        VLOG_CRITICAL << fmt::format("calc file_md5sum finished. file_path={}, md5sum={}",
+                                     file_path.string(), file_md5sum);
         all_file_md5.emplace_back(std::move(file_md5sum));
     }
 
-    // 3. calculate the crc_value
+    // 3. calculate the crc_value based on all_file_md5
     DCHECK(local_paths.size() == all_file_md5.size());
     *crc_value = 0;
     for (int i = 0; i < all_file_md5.size(); i++) {
