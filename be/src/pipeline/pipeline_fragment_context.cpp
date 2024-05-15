@@ -291,10 +291,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                     local_params.runtime_filter_params);
         }
-        if (local_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
+        if (local_params.__isset.topn_filter_descs) {
+            _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
         }
 
         _need_local_merge = request.__isset.parallel_instances;
