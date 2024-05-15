@@ -144,6 +144,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
+        _shared_state->agg_data_created_without_key = true;
     }
     return Status::OK();
 }
