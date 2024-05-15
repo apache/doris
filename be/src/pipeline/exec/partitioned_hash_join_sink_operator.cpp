@@ -336,8 +336,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
             partitioned_blocks[i] =
                     vectorized::MutableBlock::create_unique(in_block->clone_empty());
         }
-        partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
-                                        partition_indexes[i].data() + count);
+        RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
+                                                        partition_indexes[i].data() + count));
     }
 
     return Status::OK();
