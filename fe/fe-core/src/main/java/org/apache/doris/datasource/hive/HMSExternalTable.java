@@ -878,12 +878,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        return hivePartitionValues.getIdToPartitionItem();
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            try {
+                res.put(getPartitionName(entry.getKey()), entry.getValue());
+            } catch (AnalysisException e) {
+                LOG.info("can not get partitionName by: " + entry.getKey());
+            }
+
+        }
+        return res;
     }
 
     @Override

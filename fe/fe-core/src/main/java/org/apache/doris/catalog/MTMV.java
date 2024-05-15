@@ -320,13 +320,13 @@ public class MTMV extends OlapTable {
      * @return mvPartitionId ==> relationPartitionIds
      * @throws AnalysisException
      */
-    public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
-        Map<Long, Set<Long>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = MTMVPartitionUtil
+        Map<String, Set<String>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
         Map<Long, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
