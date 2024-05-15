@@ -206,7 +206,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                     .filter(index -> !indexHasAggregate(index, scan)).filter(index -> containAllRequiredColumns(index,
                             scan, requiredScanOutputSupplier.get(), requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());
-            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get(), requiredExpr.get());
             // this is fail-safe for select mv
             // select baseIndex if bestIndex's slots' data types are different from baseIndex
             bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
@@ -237,7 +237,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // `candidates` only have base index.
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             } else {
-                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get(), requiredExpr.get());
                 // this is fail-safe for select mv
                 // select baseIndex if bestIndex's slots' data types are different from baseIndex
                 bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
