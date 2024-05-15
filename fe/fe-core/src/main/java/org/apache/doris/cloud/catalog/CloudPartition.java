@@ -335,8 +335,8 @@ public class CloudPartition extends Partition {
 
     private static boolean isEmptyPartitionPruneDisabled() {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().getDisableNereidsRules().get(RuleType.valueOf(
-                "PRUNE_EMPTY_PARTITION").type())) {
+        if (ctx != null && (ctx.getSessionVariable().getDisableNereidsRules().get(RuleType.valueOf(
+                "PRUNE_EMPTY_PARTITION").type()) || ctx.getSessionVariable().getDisableEmptyPartitionPrune())) {
             return true;
         }
         return false;

@@ -570,7 +570,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
-
+    public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     // CLOUD_VARIABLES_BEGIN
 
     /**
@@ -1756,6 +1756,8 @@ public class SessionVariable implements Serializable, Writable {
     // CLOUD_VARIABLES_BEGIN
     @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
     public String cloudCluster = "";
+    @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
+    public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
 
     // for spill to disk
@@ -3767,6 +3769,13 @@ public class SessionVariable implements Serializable, Writable {
         return this.cloudCluster = cloudCluster;
     }
 
+    public boolean getDisableEmptyPartitionPrune() {
+        return disableEmptyPartitionPrune;
+    }
+
+    public void setDisableEmptyPartitionPrune(boolean val) {
+        disableEmptyPartitionPrune = val;
+    }
     // CLOUD_VARIABLES_END
 
     public boolean isForceJniScanner() {
