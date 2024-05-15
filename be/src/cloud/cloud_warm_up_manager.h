@@ -36,6 +36,7 @@ enum class DownloadType {
 };
 
 struct JobMeta {
+    JobMeta() = default;
     JobMeta(const TJobMeta& meta);
     DownloadType download_type;
     std::string be_ip;

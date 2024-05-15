@@ -145,9 +145,7 @@ public class TableStatsMeta implements Writable {
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
-            if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.rowCount;
-            }
+            rowCount = analyzedJob.rowCount;
             if (rowCount == 0 && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
                 return;
             }

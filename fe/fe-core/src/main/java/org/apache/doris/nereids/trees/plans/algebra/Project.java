@@ -117,4 +117,14 @@ public interface Project {
                     return expr;
                 });
     }
+
+    /** isAllSlots */
+    default boolean isAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

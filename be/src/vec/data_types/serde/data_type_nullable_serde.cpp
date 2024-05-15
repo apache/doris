@@ -338,14 +338,14 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
                                                      rapidjson::Value& result,
                                                      rapidjson::Document::AllocatorType& allocator,
-                                                     int row_num) const {
+                                                     Arena& mem_pool, int row_num) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     if (col.is_null_at(row_num)) {
         result.SetNull();
     } else {
-        RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num));
+        RETURN_IF_ERROR(nested_serde->write_one_cell_to_json(nested_col, result, allocator,
+                                                             mem_pool, row_num));
     }
     return Status::OK();
 }

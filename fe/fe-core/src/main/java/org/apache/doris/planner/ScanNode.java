@@ -42,18 +42,20 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.SplitGenerator;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -81,8 +83,10 @@ import java.util.stream.IntStream;
 /**
  * Representation of the common elements of all scan nodes.
  */
-public abstract class ScanNode extends PlanNode {
+public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
+    protected static final int NUM_SPLITS_PER_PARTITION = 10;
+    protected static final int NUM_PARTITIONS_PER_LOOP = 100;
     protected final TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -91,10 +95,14 @@ public abstract class ScanNode extends PlanNode {
     protected String sortColumn = null;
     protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
+    protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
+
+    // support multi topn filter
+    protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -127,10 +135,6 @@ public abstract class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
-    }
-
-    protected List<Split> getSplits() throws UserException {
-        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**
@@ -813,4 +817,28 @@ public abstract class ScanNode extends PlanNode {
             scanNode.updateScanRangeVersions(visibleVersionMap);
         }
     }
+
+    protected void toThrift(TPlanNode msg) {
+        // topn filter
+        if (useTopnFilter() && SessionVariable.enablePipelineEngineX()) {
+            List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
+                    .stream()
+                    .map(sortNode -> sortNode.getId().asInt())
+                    .collect(Collectors.toList());
+            msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        }
+    }
+
+    public void addTopnFilterSortNode(SortNode sortNode) {
+        topnFilterSortNodes.add(sortNode);
+    }
+
+    public List<SortNode> getTopnFilterSortNodes() {
+        return topnFilterSortNodes;
+    }
+
+    public boolean useTopnFilter() {
+        return !topnFilterSortNodes.isEmpty();
+    }
+
 }

@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
 class InferJoinTest extends SqlTestBase {
     @Test
     void testInnerInferLeft() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
                 connectContext
@@ -70,7 +70,7 @@ class InferJoinTest extends SqlTestBase {
 
     @Test
     void testInnerInferLeftWithFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
                 connectContext
@@ -103,7 +103,7 @@ class InferJoinTest extends SqlTestBase {
     @Disabled
     @Test
     void testInnerInferLeftWithJoinCond() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join "
                         + "(select T2.id from T2 inner join T3 on T2.id = T3.id) T2 "
@@ -137,12 +137,11 @@ class InferJoinTest extends SqlTestBase {
 
     @Test
     void testLeftOuterJoinWithRightFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 left outer join ( select * from T2 where T2.id = 0) T2 on T1.id = T2.id",
                 connectContext
         );
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
         Plan p1 = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()

@@ -352,6 +352,7 @@ public class ExecutionProfile {
                     profile.setIsDone(true);
                 }
                 pipelineIdx++;
+                profile.sortChildren();
                 fragmentProfiles.get(params.fragment_id).addChild(profile);
             }
             // TODO ygl: is this right? there maybe multi Backends, what does

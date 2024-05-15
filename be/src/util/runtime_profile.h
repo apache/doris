@@ -293,16 +293,6 @@ public:
     /// otherwise appended after other child profiles.
     RuntimeProfile* create_child(const std::string& name, bool indent = true, bool prepend = false);
 
-    // Sorts all children according to a custom comparator. Does not
-    // invalidate pointers to profiles.
-    template <class Compare>
-    void sort_childer(const Compare& cmp) {
-        std::lock_guard<std::mutex> l(_children_lock);
-        std::sort(_children.begin(), _children.end(), cmp);
-    }
-
-    void sort_children_by_total_time();
-
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it
     // weren't for locking.

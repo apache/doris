@@ -169,7 +169,7 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaRoutinesScanner::create_unique();
     case TSchemaTableType::SCH_USER:
         return SchemaUserScanner::create_unique();
-    case TSchemaTableType::SCH_WORKLOAD_SCHEDULE_POLICY:
+    case TSchemaTableType::SCH_WORKLOAD_POLICY:
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_OPTIONS:
         return SchemaTableOptionsScanner::create_unique();

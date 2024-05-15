@@ -224,7 +224,7 @@ triggers
 user_privileges
 views
 workload_groups
-workload_schedule_policy
+workload_policy
 
 -- !dt --
 2023-06-17T10:00	2023-06-17T10:00:01.100	2023-06-17T10:00:02.220	2023-06-17T10:00:03.333	2023-06-17T10:00:04.444400	2023-06-17T10:00:05.555550	2023-06-17T10:00:06.666666

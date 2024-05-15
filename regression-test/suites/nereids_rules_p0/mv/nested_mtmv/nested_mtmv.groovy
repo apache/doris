@@ -279,7 +279,11 @@ suite("nested_mtmv") {
         """
     explain {
         sql("${query_stmt_2}")
-        contains "${mv_level4_name}(${mv_level4_name})"
+        check {result ->
+            // both mv_level4_name and mv_level3_name can be rewritten successfully
+            result.contains("${mv_level4_name}(${mv_level4_name})")
+                    || result.contains("${mv_level3_name}(${mv_level3_name})")
+        }
     }
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 

@@ -130,7 +130,7 @@ public class MetadataGenerator {
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
 
         ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
-        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_schedule_policy").getFullSchema();
+        List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
         for (int i = 0; i < policyColList.size(); i++) {
             policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
         }

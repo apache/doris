@@ -75,12 +75,6 @@ public class AnalysisJob {
         markOneTaskDone();
     }
 
-    public synchronized void rowCountDone(BaseAnalysisTask task) {
-        queryingTask.remove(task);
-        queryFinished.add(task);
-        markOneTaskDone();
-    }
-
     protected void markOneTaskDone() {
         if (queryingTask.isEmpty()) {
             try {

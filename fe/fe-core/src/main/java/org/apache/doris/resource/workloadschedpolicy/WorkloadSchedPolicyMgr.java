@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -59,7 +60,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
+public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadSchedPolicyMgr.class);
 
@@ -68,6 +69,10 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
     private Map<String, WorkloadSchedPolicy> nameToPolicy = Maps.newHashMap();
 
     private PolicyProcNode policyProcNode = new PolicyProcNode();
+
+    public WorkloadSchedPolicyMgr() {
+        super("workload-sched-thread", Config.workload_sched_policy_interval_ms);
+    }
 
     public static final ImmutableList<String> WORKLOAD_SCHED_POLICY_NODE_TITLE_NAMES
             = new ImmutableList.Builder<String>()
@@ -99,60 +104,43 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         }
     };
 
-    private Thread policyExecThread = new Thread() {
+    @Override
+    protected void runAfterCatalogReady() {
+        try {
+            // todo(wb) add more query info source, not only comes from connectionmap
+            // 1 get query info map
+            Map<Integer, ConnectContext> connectMap = ExecuteEnv.getInstance().getScheduler()
+                    .getConnectionMap();
+            List<WorkloadQueryInfo> queryInfoList = new ArrayList<>();
 
-        @Override
-        public void run() {
-            while (true) {
-                try {
-                    // todo(wb) add more query info source, not only comes from connectionmap
-                    // 1 get query info map
-                    Map<Integer, ConnectContext> connectMap = ExecuteEnv.getInstance().getScheduler()
-                            .getConnectionMap();
-                    List<WorkloadQueryInfo> queryInfoList = new ArrayList<>();
+            // a snapshot for connect context
+            Set<Integer> keySet = new HashSet<>();
+            keySet.addAll(connectMap.keySet());
 
-                    // a snapshot for connect context
-                    Set<Integer> keySet = new HashSet<>();
-                    keySet.addAll(connectMap.keySet());
-
-                    for (Integer connectId : keySet) {
-                        ConnectContext cctx = connectMap.get(connectId);
-                        if (cctx == null || cctx.isKilled()) {
-                            continue;
-                        }
-
-                        String username = cctx.getQualifiedUser();
-                        WorkloadQueryInfo policyQueryInfo = new WorkloadQueryInfo();
-                        policyQueryInfo.queryId = cctx.queryId() == null ? null : DebugUtil.printId(cctx.queryId());
-                        policyQueryInfo.tUniqueId = cctx.queryId();
-                        policyQueryInfo.context = cctx;
-                        policyQueryInfo.metricMap = new HashMap<>();
-                        policyQueryInfo.metricMap.put(WorkloadMetricType.USERNAME, username);
-
-                        queryInfoList.add(policyQueryInfo);
-                    }
-
-                    // 2 exec policy
-                    if (queryInfoList.size() > 0) {
-                        execPolicy(queryInfoList);
-                    }
-                } catch (Throwable t) {
-                    LOG.error("[policy thread]error happens when exec policy");
+            for (Integer connectId : keySet) {
+                ConnectContext cctx = connectMap.get(connectId);
+                if (cctx == null || cctx.isKilled()) {
+                    continue;
                 }
 
-                // 3 sleep
-                try {
-                    Thread.sleep(Config.workload_sched_policy_interval_ms);
-                } catch (InterruptedException e) {
-                    LOG.error("error happends when policy exec thread sleep");
-                }
+                String username = cctx.getQualifiedUser();
+                WorkloadQueryInfo policyQueryInfo = new WorkloadQueryInfo();
+                policyQueryInfo.queryId = cctx.queryId() == null ? null : DebugUtil.printId(cctx.queryId());
+                policyQueryInfo.tUniqueId = cctx.queryId();
+                policyQueryInfo.context = cctx;
+                policyQueryInfo.metricMap = new HashMap<>();
+                policyQueryInfo.metricMap.put(WorkloadMetricType.USERNAME, username);
+
+                queryInfoList.add(policyQueryInfo);
             }
-        }
-    };
 
-    public void start() {
-        policyExecThread.setName("workload-auto-scheduler-thread");
-        policyExecThread.start();
+            // 2 exec policy
+            if (queryInfoList.size() > 0) {
+                execPolicy(queryInfoList);
+            }
+        } catch (Throwable t) {
+            LOG.error("[policy thread]error happens when exec policy");
+        }
     }
 
     public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
