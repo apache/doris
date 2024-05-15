@@ -1450,7 +1450,10 @@ int InstanceRecycler::recycle_rowsets() {
         // RecycleRowsetPB created by compacted or dropped rowset has no expiration time, and will be recycled when exceed retention time
         int64_t expiration = rs.expiration() > 0 ? rs.expiration() : rs.creation_time();
         int64_t retention_seconds = config::retention_seconds;
-        if (rs.type() == RecycleRowsetPB::COMPACT || rs.type() == RecycleRowsetPB::DROP) {
+        if (rs.type() == RecycleRowsetPB::COMPACT) {
+            retention_seconds = config::compacted_rowset_retention_seconds;
+        }
+        if (rs.type() == RecycleRowsetPB::DROP) {
             retention_seconds =
                     std::min(config::compacted_rowset_retention_seconds, retention_seconds);
         }
