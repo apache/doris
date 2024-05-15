@@ -1859,10 +1859,14 @@ build_azure() {
     # export BUILD_WINDOWS_UWP=TRUE
     # export CMAKE_UNITY_BUILD=FALSE
     # export DISABLE_AZURE_CORE_OPENTELEMETRY=TRUE
+    # export AZURE_SDK_DISABLE_AUTO_VCPKG=TRUE
+    # export AZURE_SDK_VCPKG_COMMIT=3b3bd424827a1f7f4813216f6b32b6c61e386b2e
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DAZURE_SDK_DISABLE_AUTO_VCPKG=TRUE -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS=/mnt/disk1/yuejing/projects/doris/thirdparty/src/azure-sdk-for-cpp-azure-core_1.10.3/vcpkg-custom-ports -DVCPKG_MANIFEST_DIR=/mnt/disk1/yuejing/projects/doris/thirdparty/src/azure-sdk-for-cpp-azure-core_1.10.3 -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+
+    # unset AZURE_SDK_DISABLE_AUTO_VCPKG
 
     # unset BUILD_PERFORMANCE_TESTS
     # unset BUILD_WINDOWS_UWP
@@ -1873,7 +1877,6 @@ build_azure() {
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc
-        libunixodbc
         openssl
         libevent
         zlib
@@ -1934,7 +1937,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
         streamvbyte
@@ -1942,10 +1944,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
     )
-    if [ "$BUILD_AZURE_SDK" = "true" ]; then
-        echo "build azure C++ sdk"
-        read -r -a packages <<<"${packages[*]} azure"
-    fi
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
