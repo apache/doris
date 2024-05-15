@@ -139,6 +139,9 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
+        // Another thread may call finalize to release all dependencies
+        // And then it will core.
+        std::unique_lock<std::mutex> lc(_release_lock);
         if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
             _blocked_dep->set_ready();
             _blocked_dep = nullptr;
