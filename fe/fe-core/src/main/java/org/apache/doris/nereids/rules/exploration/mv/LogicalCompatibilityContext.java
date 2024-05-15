@@ -92,32 +92,16 @@ public class LogicalCompatibilityContext {
         return queryToViewNodeIDMapping;
     }
 
-    public Expression getQueryJoinExprFromView(Expression viewJoinExpr) {
-        return queryToViewJoinEdgeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
-    }
-
     public Expression getViewJoinExprFromQuery(Expression queryJoinExpr) {
         return queryToViewJoinEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
-    }
-
-    public Expression getQueryFilterExprFromView(Expression viewJoinExpr) {
-        return queryToViewFilterEdgeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
     }
 
     public Expression getViewFilterExprFromQuery(Expression queryJoinExpr) {
         return queryToViewFilterEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public Expression getQueryNodeExpFromView(Expression viewJoinExpr) {
-        return queryToViewNodeExpressionMappingSupplier.get().inverse().get(viewJoinExpr);
-    }
-
     public Expression getViewNodeExprFromQuery(Expression queryJoinExpr) {
         return queryToViewNodeExpressionMappingSupplier.get().get(queryJoinExpr);
-    }
-
-    public ObjectId getPlanNodeId() {
-        return planNodeId;
     }
 
     /**
