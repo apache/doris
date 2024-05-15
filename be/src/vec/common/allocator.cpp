@@ -23,6 +23,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
+#include <random>
 #include <new>
 #include <thread>
 
