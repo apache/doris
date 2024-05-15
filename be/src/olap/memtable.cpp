@@ -68,16 +68,22 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
     _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
-    // TODO: Support ZOrderComparator in the future
-    _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
         _is_partial_update = partial_update_info->is_partial_update;
         if (_is_partial_update) {
             _num_columns = partial_update_info->partial_update_input_columns.size();
+            if (partial_update_info->is_schema_contains_auto_inc_column &&
+                !partial_update_info->is_input_columns_contains_auto_inc_column) {
+                _is_partial_update_and_auto_inc = true;
+                _num_columns += 1;
+            }
         }
     }
+    // TODO: Support ZOrderComparator in the future
+    _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
 }
+
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                                   const TupleDescriptor* tuple_desc) {
     for (auto slot_desc : *slot_descs) {
@@ -88,6 +94,9 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
                 break;
             }
         }
+    }
+    if (_is_partial_update_and_auto_inc) {
+        _column_offset.emplace_back(_column_offset.size());
     }
 }
 

@@ -383,7 +383,8 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone());
+                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
+                               table_schema_param->auto_increment_coulumn());
 }
 
 } // namespace doris
