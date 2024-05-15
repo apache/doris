@@ -854,7 +854,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
             _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
             _context.fs);
-    if (_segcompaction_worker->get_file_writer() != nullptr) {
+    if (auto& seg_writer = _segcompaction_worker->get_file_writer();
+        seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
@@ -921,7 +922,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
-        if (file_writer) {
+        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(file_writer->close());
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
