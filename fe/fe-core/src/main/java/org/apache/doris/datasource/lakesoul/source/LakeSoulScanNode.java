@@ -163,8 +163,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
                 lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
                 splits.add(lakeSoulSplit);
             }
-            return splits;
         }
+        return splits;
+
     }
 
 }
