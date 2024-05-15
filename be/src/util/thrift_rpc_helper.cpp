@@ -75,8 +75,8 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         } catch (apache::thrift::transport::TTransportException& e) {
             std::cerr << "thrift error, reason=" << e.what();
 #ifdef ADDRESS_SANITIZER
-            return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}", ip,
-                                port, e.what());;
+            return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}",
+                                    ip, port, e.what());
 #else
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
