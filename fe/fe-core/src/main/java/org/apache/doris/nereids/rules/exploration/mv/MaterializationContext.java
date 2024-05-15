@@ -132,12 +132,10 @@ public abstract class MaterializationContext {
      * should be different
      */
     public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
-        if (!this.matchedSuccessGroups.isEmpty()) {
-            this.mvScanPlan = doGenerateMvPlan(cascadesContext);
-            // mv output expression shuttle, this will be used to expression rewrite
-            this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
-                    this.mvScanPlan.getExpressions());
-        }
+        this.mvScanPlan = doGenerateMvPlan(cascadesContext);
+        // mv output expression shuttle, this will be used to expression rewrite
+        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
+                this.mvScanPlan.getOutput());
     }
 
     /**
