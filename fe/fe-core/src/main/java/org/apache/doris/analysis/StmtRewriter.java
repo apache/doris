@@ -20,10 +20,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
@@ -1385,19 +1387,14 @@ public class StmtRewriter {
             selectList.addItem(new SelectListItem(slot, column.getName()));
             groupByExprs.add(slot);
             return true;
-        } else {
-            AggregateType aggregateType = column.getAggregationType();
-            if (aggregateType != AggregateType.SUM && aggregateType != AggregateType.MAX
-                    && aggregateType != AggregateType.MIN) {
-                return false;
-            } else {
-                FunctionName funcName = new FunctionName(aggregateType.toString().toLowerCase());
-                List<Expr> arrayList = Lists.newArrayList(slot);
-                FunctionCallExpr func =  new FunctionCallExpr(funcName, new FunctionParams(false, arrayList));
+        } else if (column.isAggregated()) {
+            FunctionCallExpr func = generateAggFunction(slot, column);
+            if (func != null) {
                 selectList.addItem(new SelectListItem(func, column.getName()));
                 return true;
             }
         }
+        return false;
     }
 
     /**
@@ -1537,14 +1534,24 @@ public class StmtRewriter {
                 if (col.isAggregated()) {
                     AggregateType aggType = col.getAggregationType();
                     // agg type not mach
-                    return (aggType == AggregateType.SUM || aggType == AggregateType.MAX
-                            || aggType == AggregateType.MIN)
-                            && functionName.equalsIgnoreCase(aggType.name());
+                    if (aggType == AggregateType.GENERIC) {
+                        return col.getType().isAggStateType();
+                    }
+                    if (aggType == AggregateType.HLL_UNION) {
+                        return functionName.equalsIgnoreCase(FunctionSet.HLL_UNION)
+                                || functionName.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG);
+                    }
+                    if (aggType == AggregateType.BITMAP_UNION) {
+                        return functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION)
+                                || functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)
+                                || functionName.equalsIgnoreCase(FunctionSet.BITMAP_INTERSECT);
+                    }
+                    return functionName.equalsIgnoreCase(aggType.name());
                 }
             }
             return false;
         }
-        List<Expr> children  = expr.getChildren();
+        List<Expr> children = expr.getChildren();
         return children.stream().allMatch(child -> aggTypeMatch(functionName, child));
     }
 
@@ -1563,5 +1570,36 @@ public class StmtRewriter {
         }
         List<Expr> children = expr.getChildren();
         return children.stream().allMatch(StmtRewriter::isKeyOrConstantExpr);
+    }
+
+    /**
+     * generate aggregation function according to the aggType of column
+     *
+     * @param slot slot of column
+     * @return aggFunction generated
+     */
+    private static FunctionCallExpr generateAggFunction(SlotRef slot, Column column) {
+        AggregateType aggregateType = column.getAggregationType();
+        switch (aggregateType) {
+            case SUM:
+            case MAX:
+            case MIN:
+            case HLL_UNION:
+            case BITMAP_UNION:
+            case QUANTILE_UNION:
+                FunctionName funcName = new FunctionName(aggregateType.toString().toLowerCase());
+                return new FunctionCallExpr(funcName, new FunctionParams(false, Lists.newArrayList(slot)));
+            case GENERIC:
+                Type type = column.getType();
+                if (!type.isAggStateType()) {
+                    return null;
+                }
+                AggStateType aggState = (AggStateType) type;
+                // use AGGREGATE_FUNCTION_UNION to aggregate multiple agg_state into one
+                FunctionName functionName = new FunctionName(aggState.getFunctionName() + "_union");
+                return new FunctionCallExpr(functionName, new FunctionParams(false, Lists.newArrayList(slot)));
+            default:
+                return null;
+        }
     }
 }

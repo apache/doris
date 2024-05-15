@@ -19,29 +19,35 @@ suite("select_random_distributed_tbl") {
     def tableName = "random_distributed_tbl_test"
 
     sql "drop table if exists ${tableName};"
+    sql "set enable_agg_state=true;"
+    sql """ admin set frontend config("enable_quantile_state_type"="true"); """
     sql """
     CREATE TABLE ${tableName}
     (
-        `user_id` LARGEINT NOT NULL COMMENT "用户id",
-        `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-        `city` VARCHAR(20) COMMENT "用户所在城市",
-        `age` SMALLINT COMMENT "用户年龄",
-        `sex` TINYINT COMMENT "用户性别",
-        `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
-        `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-        `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
-    )
-    AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
+        `k1` LARGEINT NOT NULL,
+        `k2` VARCHAR(20) NULL,
+        `v_sum` BIGINT SUM NULL DEFAULT "0",
+        `v_max` INT MAX NULL DEFAULT "0",
+        `v_min` INT MIN NULL DEFAULT "99999",
+        `v_generic` AGG_STATE<avg(int NULL)> GENERIC,
+        `v_hll` HLL HLL_UNION NOT NULL,
+        `v_bitmap` BITMAP BITMAP_UNION NOT NULL,
+        `v_quantile_union` QUANTILE_STATE QUANTILE_UNION NOT NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`k1`, `k2`)
+    COMMENT 'OLAP'
     DISTRIBUTED BY RANDOM BUCKETS 10
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );
     """
     
-    sql "insert into ${tableName} values (1,'2024-01-01','beijing',10,1,10,50,200);"
-    sql "insert into ${tableName} values (1,'2024-01-01','beijing',10,1,20,200,80);"
-    sql "insert into ${tableName} values (2,'2024-01-02','shanghai',10,1,5,40,20);"
-    sql "insert into ${tableName} values (2,'2024-01-02','shanghai',10,1,30,90,120);"
+    sql """ insert into ${tableName} values(1,"a",1,1,1,avg_state(1),hll_hash(1),bitmap_hash(1),to_quantile_state(1, 2048)) """
+    sql """ insert into ${tableName} values(1,"a",2,2,2,avg_state(2),hll_hash(2),bitmap_hash(2),to_quantile_state(2, 2048)) """
+    sql """ insert into ${tableName} values(1,"a",3,3,3,avg_state(3),hll_hash(3),bitmap_hash(3),to_quantile_state(3, 2048)) """
+    sql """ insert into ${tableName} values(2,"b",4,4,4,avg_state(4),hll_hash(4),bitmap_hash(4),to_quantile_state(4, 2048)) """
+    sql """ insert into ${tableName} values(2,"b",5,5,5,avg_state(5),hll_hash(5),bitmap_hash(5),to_quantile_state(5, 2048)) """
+    sql """ insert into ${tableName} values(2,"b",6,6,6,avg_state(6),hll_hash(6),bitmap_hash(6),to_quantile_state(6, 2048)) """
 
     for (int i = 0; i < 2; ++i) {
         if (i == 0) {
@@ -56,29 +62,31 @@ suite("select_random_distributed_tbl") {
         for (int j = 0; j < 2; ++j) {
             if (j == 1) {
                 // test with filter
-                whereStr = "where user_id > 0"
+                whereStr = "where k1 > 0"
             }
-            def sql1 = "select * from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            def sql1 = "select * except (v_generic) from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_1 "${sql1}"
             def res1 = sql """ explain ${sql1} """
             assertTrue(res1.toString().contains("VAGGREGATE"))
 
-            def sql2 = "select user_id, date, city, age, sex, cost, max_dwell_time, min_dwell_time from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            def sql2 = "select k1 ,k2 ,v_sum ,v_max ,v_min ,v_hll ,v_bitmap ,v_quantile_union from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_2 "${sql2}"
             def res2 = sql """ explain ${sql2} """
             assertTrue(res2.toString().contains("VAGGREGATE"))
 
-            def sql3 = "select user_id+1, date, city, age, sex, cost from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            def sql3 = "select k1+1, k2, v_sum from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_3 "${sql3}"
             def res3 = sql """ explain ${sql3} """
             assertTrue(res3.toString().contains("VAGGREGATE"))
 
-            def sql4 = "select user_id, date, city, age, sex, cost+1 from ${tableName} ${whereStr} order by user_id, date, city, age, sex;"
+            def sql4 = "select k1, k2, v_sum+1 from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_4 "${sql4}"
             def res4 = sql """ explain ${sql4} """
             assertTrue(res4.toString().contains("VAGGREGATE"))
 
-            def sql5 =  "select user_id, sum(cost), max(max_dwell_time), min(min_dwell_time) from ${tableName} ${whereStr} group by user_id order by user_id;"
+            def sql5 =  """ select k1, sum(v_sum), max(v_max), min(v_min), avg_merge(v_generic), 
+                hll_union_agg(v_hll), bitmap_union_count(v_bitmap), quantile_percent(quantile_union(v_quantile_union),0.5) 
+                from ${tableName} ${whereStr} group by k1 order by k1 """
             qt_sql_5 "${sql5}"
 
             def sql6 = "select count(1) from ${tableName} ${whereStr}"
@@ -87,37 +95,37 @@ suite("select_random_distributed_tbl") {
             def sql7 = "select count(*) from ${tableName} ${whereStr}"
             qt_sql_7 "${sql7}"
 
-            def sql8 = "select max(user_id) from ${tableName} ${whereStr}"
+            def sql8 = "select max(k1) from ${tableName} ${whereStr}"
             qt_sql_8 "${sql8}"
             def res8 = sql """ explain ${sql8} """
             // no pre agg
             assertFalse(res8.toString().contains("sum"))
 
-            def sql9 = "select max(cost) from ${tableName} ${whereStr}"
+            def sql9 = "select max(v_sum) from ${tableName} ${whereStr}"
             qt_sql_9 "${sql9}"
             def res9 = sql """ explain ${sql9} """
             assertTrue(res9.toString().contains("sum"))
 
-            def sql10 = "select sum(max_dwell_time) from ${tableName} ${whereStr}"
+            def sql10 = "select sum(v_max) from ${tableName} ${whereStr}"
             qt_sql_10 "${sql10}"
 
-            def sql11 = "select sum(min_dwell_time) from ${tableName} ${whereStr}"
+            def sql11 = "select sum(v_min) from ${tableName} ${whereStr}"
             qt_sql_11 "${sql11}"
 
             // test group by value
-            def sql12 = "select min_dwell_time, sum(cost) from ${tableName} ${whereStr} group by min_dwell_time order by min_dwell_time"
+            def sql12 = "select v_min, sum(v_sum) from ${tableName} ${whereStr} group by v_min order by v_min"
             qt_sql_12 "${sql12}"
 
-            def sql13 = "select count(user_id) from ${tableName} ${whereStr}"
+            def sql13 = "select count(k1) from ${tableName} ${whereStr}"
             qt_sql_13 "${sql13}"
 
-            def sql14 = "select count(distinct user_id) from ${tableName} ${whereStr}"
+            def sql14 = "select count(distinct k1) from ${tableName} ${whereStr}"
             qt_sql_14 "${sql14}"
 
-            def sql15 = "select count(cost) from ${tableName} ${whereStr}"
+            def sql15 = "select count(v_sum) from ${tableName} ${whereStr}"
             qt_sql_15 "${sql15}"
 
-            def sql16 = "select count(distinct cost) from ${tableName} ${whereStr}"
+            def sql16 = "select count(distinct v_sum) from ${tableName} ${whereStr}"
             qt_sql_16 "${sql16}"
         }
     }
