@@ -189,7 +189,7 @@ public:
 
     bool need_agg() const;
 
-    std::unique_ptr<vectorized::Block> to_block();
+    Status to_block(std::unique_ptr<vectorized::Block>* res);
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 

@@ -505,14 +505,14 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-std::unique_ptr<vectorized::Block> MemTable::to_block() {
+Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
         } else {
             vectorized::Block in_block = _input_mutable_block.to_block();
-            _put_into_output(in_block);
+            RETURN_IF_ERROR(_put_into_output(in_block));
         }
     } else {
         _aggregate<true>();
@@ -525,7 +525,8 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
     _input_mutable_block.clear();
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
-    return vectorized::Block::create_unique(_output_mutable_block.to_block());
+    *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    return Status::OK();
 }
 
 } // namespace doris
