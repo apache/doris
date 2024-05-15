@@ -24,8 +24,15 @@
 
 namespace doris::vectorized {
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
-                           const TFileScanRangeParams& params)
-        : TableFormatReader(std::move(file_format_reader)), _params(params) {}
+                           RuntimeProfile* profile, const TFileScanRangeParams& params)
+        : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
+    static const char* paimon_profile = "PaimonProfile";
+    ADD_TIMER(_profile, paimon_profile);
+    _paimon_profile.num_delete_rows =
+            ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, paimon_profile);
+    _paimon_profile.delete_files_read_time =
+            ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
+}
 
 Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     const auto& table_desc = range.table_format_params.paimon_params;
@@ -63,7 +70,10 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     // TODO: better way to alloc memeory
     std::vector<char> buf(bytes_read);
     Slice result(buf.data(), bytes_read);
-    RETURN_IF_ERROR(delete_file_reader->read_at(deletion_file.offset, result, &bytes_read));
+    {
+        SCOPED_TIMER(_paimon_profile.delete_files_read_time);
+        RETURN_IF_ERROR(delete_file_reader->read_at(deletion_file.offset, result, &bytes_read));
+    }
     if (bytes_read != deletion_file.length + 4) {
         return Status::IOError(
                 "failed to read deletion vector, deletion file path: {}, offset: {}, expect "
@@ -75,9 +85,10 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     if (!deletion_vector.is_empty()) {
         for (auto i = deletion_vector.minimum(); i <= deletion_vector.maximum(); i++) {
             if (deletion_vector.is_delete(i)) {
-                _paimon_delete_rows.push_back(i);
+                _delete_rows.push_back(i);
             }
         }
+        COUNTER_UPDATE(_paimon_profile.num_delete_rows, _delete_rows.size());
         set_delete_rows();
     }
     return Status::OK();

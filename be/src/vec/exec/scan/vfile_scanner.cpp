@@ -861,7 +861,8 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
-                        PaimonParquetReader::create_unique(std::move(parquet_reader), *_params);
+                        PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                           *_params);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -922,7 +923,7 @@ Status VFileScanner::_get_next_reader() {
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonOrcReader> paimon_reader =
-                        PaimonOrcReader::create_unique(std::move(orc_reader), *_params);
+                        PaimonOrcReader::create_unique(std::move(orc_reader), _profile, *_params);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
