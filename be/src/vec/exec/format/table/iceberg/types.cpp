@@ -26,11 +26,12 @@ std::unique_ptr<MapType> MapType::of_optional(int key_id, int value_id,
                                               std::unique_ptr<Type> key_type,
                                               std::unique_ptr<Type> value_type) {
     auto key_field =
-            std::make_unique<NestedField>(false, key_id, "key", std::move(key_type), std::nullopt);
+            std::make_unique<NestedField>(true, key_id, "key", std::move(key_type), std::nullopt);
     auto value_field = std::make_unique<NestedField>(true, value_id, "value", std::move(value_type),
                                                      std::nullopt);
-    return std::make_unique<MapType>(std::move(key_field), std::move(value_field));
+    return std::unique_ptr<MapType>(new MapType(std::move(key_field), std::move(value_field)));
 }
+
 std::unique_ptr<MapType> MapType::of_required(int key_id, int value_id,
                                               std::unique_ptr<Type> key_type,
                                               std::unique_ptr<Type> value_type) {
@@ -38,7 +39,7 @@ std::unique_ptr<MapType> MapType::of_required(int key_id, int value_id,
             std::make_unique<NestedField>(false, key_id, "key", std::move(key_type), std::nullopt);
     auto value_field = std::make_unique<NestedField>(false, value_id, "value",
                                                      std::move(value_type), std::nullopt);
-    return std::make_unique<MapType>(std::move(key_field), std::move(value_field));
+    return std::unique_ptr<MapType>(new MapType(std::move(key_field), std::move(value_field)));
 }
 
 Type* MapType::key_type() const {
@@ -60,20 +61,77 @@ bool MapType::is_value_optional() const {
     return _value_field->is_optional();
 }
 
+Type* MapType::field_type(const std::string& field_name) {
+    if (field_name == "key") {
+        return _key_field->field_type();
+    } else if (field_name == "value") {
+        return _value_field->field_type();
+    }
+    return nullptr;
+}
+const NestedField* MapType::field(int field_id) {
+    if (_key_field->field_id() == field_id) {
+        return _key_field.get();
+    } else if (_value_field->field_id() == field_id) {
+        return _value_field.get();
+    }
+    return nullptr;
+}
+
 std::string MapType::to_string() const {
-    return "map<" + _key_field->field_type()->to_string() + ", " +
-           _value_field->field_type()->to_string() + ">";
+    std::stringstream ss;
+    ss << "map<" << _key_field->field_type()->to_string() << ", "
+       << _value_field->field_type()->to_string() << ">";
+    return ss.str();
 }
 
 std::unique_ptr<ListType> ListType::of_optional(int element_id,
                                                 std::unique_ptr<Type> element_type) {
     NestedField field(true, element_id, "element", std::move(element_type), std::nullopt);
-    return std::make_unique<ListType>(std::move(field));
+    return std::unique_ptr<ListType>(new ListType(std::move(field)));
 }
+
 std::unique_ptr<ListType> ListType::of_required(int element_id,
                                                 std::unique_ptr<Type> element_type) {
     NestedField field(false, element_id, "element", std::move(element_type), std::nullopt);
-    return std::make_unique<ListType>(std::move(field));
+    return std::unique_ptr<ListType>(new ListType(std::move(field)));
+}
+
+Type* ListType::field_type(const std::string& field_name) {
+    if (field_name == "element") {
+        return _element_field.field_type();
+    }
+    return nullptr;
+}
+
+const NestedField* ListType::field(int field_id) {
+    if (_element_field.field_id() == field_id) {
+        return &_element_field;
+    }
+    return nullptr;
+}
+
+std::string ListType::to_string() const {
+    std::stringstream ss;
+    ss << "list<" << _element_field.field_type()->to_string() << ">";
+    return ss.str();
+}
+
+Type* StructType::field_type(const std::string& field_name) {
+    return _fields_by_name[field_name]->field_type();
+}
+
+std::string StructType::to_string() const {
+    std::stringstream ss;
+    ss << "struct<";
+    for (int i = 0; i < _fields.size(); ++i) {
+        ss << _fields[i].field_type()->to_string();
+        if (i < _fields.size() - 1) {
+            ss << ", ";
+        }
+    }
+    ss << ">";
+    return ss.str();
 }
 
 std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& type_string) {
@@ -107,7 +165,7 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
         return std::make_unique<BinaryType>();
     } else {
         std::regex fixed("fixed\\[\\s*(\\d+)\\s*\\]");
-        std::regex decimal("decimal\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\]");
+        std::regex decimal("decimal\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)");
 
         std::smatch match;
         if (std::regex_match(lower_type_string, match, fixed)) {

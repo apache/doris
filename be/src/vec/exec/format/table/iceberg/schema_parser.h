@@ -17,19 +17,14 @@
 
 #pragma once
 
-//#include <rapidjson/document.h>
-//
-//#include <iostream>
-//#include <memory>
-//#include <string>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <vector>
+#include <rapidjson/document.h>
+
+#include <memory>
+#include <unordered_set>
 
 namespace doris {
 namespace iceberg {
 
-// Forward declarations
 class Type;
 class StructType;
 class ListType;

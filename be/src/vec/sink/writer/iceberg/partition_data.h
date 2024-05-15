@@ -16,16 +16,8 @@
 // under the License.
 
 #pragma once
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 
-#include <any>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#include "vec/exec/format/table/iceberg/struct_like.h" // Assuming StructLike is defined in StructLike.h
+#include "vec/exec/format/table/iceberg/struct_like.h"
 
 namespace doris {
 namespace vectorized {
@@ -37,7 +29,7 @@ public:
 
     int size() const override { return _partition_values.size(); }
 
-    std::any get(int pos, iceberg::TypeID type_id) const override {
+    std::any get(int pos) const override {
         if (pos < 0 || pos >= _partition_values.size()) {
             throw std::out_of_range("Index out of range");
         }

@@ -44,7 +44,7 @@ private:
     static const char* NAME;
 
 public:
-    static std::unique_ptr<PartitionSpec> from_json(std::shared_ptr<Schema> schema,
+    static std::unique_ptr<PartitionSpec> from_json(const std::shared_ptr<Schema>& schema,
                                                     const std::string& json);
 
 private:
