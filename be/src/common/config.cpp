@@ -1268,6 +1268,9 @@ DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
 DEFINE_Int64(min_nonblock_close_thread_num, "12");
 // The max thread num for NonBlockCloseThreadPool
 DEFINE_Int64(max_nonblock_close_thread_num, "64");
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 
 // clang-format off
 #ifdef BE_TEST
