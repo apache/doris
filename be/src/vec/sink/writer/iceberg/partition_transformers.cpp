@@ -1,39 +1,115 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "vec/sink/writer/iceberg/partition_transformers.h"
 
-#include <string>
+#include <any>
 
-#include "common/exception.h"
+#include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg/partition_spec.h"
-#include "vec/exec/format/table/iceberg/transforms.h"
 
 namespace doris {
 namespace vectorized {
 
-PartitionColumnTransform::PartitionColumnTransform(
-        doris::iceberg::Type& type, bool preserves_non_null, bool monotonic, bool temporal,
-        const BlockTransformFunctionType& block_transform,
-        const ValueTransformFunctionType& value_transform)
-        : _type(type),
-          _preserves_non_null(preserves_non_null),
-          _monotonic(monotonic),
-          _temporal(temporal),
-          _block_transform(block_transform),
-          _value_transform(value_transform) {}
-
-PartitionColumnTransform PartitionColumnTransform::create(
-        const doris::iceberg::PartitionField& field, doris::iceberg::Type& source_type) {
-    std::string transform = field.transform().to_string();
+std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
+        const doris::iceberg::PartitionField& field) {
+    auto& transform = field.transform();
 
     if (transform == "identity") {
-        return PartitionColumnTransform(
-                source_type, false, true, false, [](IColumn& column) -> IColumn& { return column; },
-                [](IColumn& column, int position) -> std::optional<int64_t> {
-                    return std::nullopt;
-                });
+        return std::make_unique<IdentityPartitionColumnTransform>();
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Unsupported partition transform: {}.", transform);
     }
+}
+
+std::string PartitionColumnTransform::to_human_string(const TypeDescriptor& type,
+                                                      const std::any& value) const {
+    if (value.has_value()) {
+        switch (type.type) {
+        case TYPE_BOOLEAN: {
+            return std::to_string(std::any_cast<bool>(value));
+        }
+        case TYPE_TINYINT: {
+            return std::to_string(std::any_cast<Int8>(value));
+        }
+        case TYPE_SMALLINT: {
+            return std::to_string(std::any_cast<Int16>(value));
+        }
+        case TYPE_INT: {
+            return std::to_string(std::any_cast<Int32>(value));
+        }
+        case TYPE_BIGINT: {
+            return std::to_string(std::any_cast<Int64>(value));
+        }
+        case TYPE_FLOAT: {
+            return std::to_string(std::any_cast<Float32>(value));
+        }
+        case TYPE_DOUBLE: {
+            return std::to_string(std::any_cast<Float64>(value));
+        }
+        case TYPE_VARCHAR:
+        case TYPE_CHAR:
+        case TYPE_STRING: {
+            return std::any_cast<std::string>(value);
+        }
+        case TYPE_DATE: {
+            char buf[64];
+            char* pos = std::any_cast<VecDateTimeValue>(value).to_string(buf);
+            return std::string(buf, pos - buf - 1);
+        }
+        case TYPE_DATETIME: {
+            char buf[64];
+            char* pos = std::any_cast<VecDateTimeValue>(value).to_string(buf);
+            return std::string(buf, pos - buf - 1);
+        }
+        case TYPE_DATEV2: {
+            char buf[64];
+            char* pos = std::any_cast<DateV2Value<DateV2ValueType>>(value).to_string(buf);
+            return std::string(buf, pos - buf - 1);
+        }
+        case TYPE_DATETIMEV2: {
+            char buf[64];
+            char* pos = std::any_cast<DateV2Value<DateTimeV2ValueType>>(value).to_string(
+                    buf, type.scale);
+            return std::string(buf, pos - buf - 1);
+        }
+        case TYPE_DECIMALV2: {
+            return std::any_cast<Decimal128V2>(value).to_string(type.scale);
+        }
+        case TYPE_DECIMAL32: {
+            return std::any_cast<Decimal32>(value).to_string(type.scale);
+        }
+        case TYPE_DECIMAL64: {
+            return std::any_cast<Decimal64>(value).to_string(type.scale);
+        }
+        case TYPE_DECIMAL128I: {
+            return std::any_cast<Decimal128V3>(value).to_string(type.scale);
+        }
+        case TYPE_DECIMAL256: {
+            return std::any_cast<Decimal256>(value).to_string(type.scale);
+        }
+        default: {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Unsupported type for partition {}", type.debug_string());
+        }
+        }
+    }
+    return "null";
 }
 
 } // namespace vectorized

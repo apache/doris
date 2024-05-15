@@ -28,7 +28,7 @@ public:
     virtual ~StructLike() = default;
     virtual int size() const = 0;
 
-    virtual std::any get(int pos, TypeID type_id) const = 0;
+    virtual std::any get(int pos) const = 0;
 
     virtual void set(int pos, const std::any& value) = 0;
 };

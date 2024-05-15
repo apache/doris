@@ -21,6 +21,7 @@
 #include <rapidjson/error/en.h>
 
 #include <optional>
+#include <unordered_set>
 
 #include "vec/exec/format/table/iceberg/schema.h"
 #include "vec/exec/format/table/iceberg/types.h"
@@ -94,7 +95,7 @@ std::unique_ptr<StructType> SchemaParser::_struct_from_json(const rapidjson::Val
 
         bool is_required = field[REQUIRED].GetBool();
 
-        fields.emplace_back(is_required, id, name, std::move(type), doc);
+        fields.emplace_back(!is_required, id, name, std::move(type), doc);
     }
 
     return std::make_unique<StructType>(std::move(fields));
@@ -102,7 +103,7 @@ std::unique_ptr<StructType> SchemaParser::_struct_from_json(const rapidjson::Val
 
 std::unique_ptr<ListType> SchemaParser::_list_from_json(const rapidjson::Value& value) {
     int element_id = value[ELEMENT_ID].GetInt();
-    std::unique_ptr<Type> element_type = _type_from_json(value[ELEMENT_ID]);
+    std::unique_ptr<Type> element_type = _type_from_json(value[ELEMENT]);
     bool is_required = value[ELEMENT_REQUIRED].GetBool();
 
     if (is_required) {
@@ -137,9 +138,7 @@ std::unique_ptr<Schema> SchemaParser::from_json(const std::string& json) {
                                std::string(GetParseError_En(doc.GetParseError())));
     }
     std::unique_ptr<Type> type = _type_from_json(doc);
-    std::vector<NestedField>* nested_fields = const_cast<std::vector<NestedField>*>(
-            type->as_nested_type()->as_struct_type()->fields());
-    return std::make_unique<Schema>(std::move(*nested_fields));
+    return std::make_unique<Schema>(type->as_nested_type()->as_struct_type()->move_fields());
 }
 
 std::unordered_set<int> SchemaParser::_get_integer_set(const char* key,

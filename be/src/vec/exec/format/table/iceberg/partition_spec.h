@@ -17,23 +17,19 @@
 
 #pragma once
 
-//#include <atomic>
-//#include <iostream>
-//#include <map>
-//#include <string>
-//#include <vector>
+#include <atomic>
+#include <memory>
+#include <vector>
 
 namespace doris {
 namespace iceberg {
 
 class StructLike;
-class Transform;
 class Schema;
 
 class PartitionField {
 public:
-    PartitionField(int sourceId, int fieldId, std::string name,
-                   std::unique_ptr<Transform> transform);
+    PartitionField(int sourceId, int fieldId, std::string name, std::string transform);
 
     int source_id() const { return _source_id; }
 
@@ -41,13 +37,13 @@ public:
 
     const std::string& name() const { return _name; }
 
-    const Transform& transform() const { return *_transform; }
+    const std::string& transform() const { return _transform; }
 
 private:
     int _source_id;
     int _field_id;
     std::string _name;
-    std::unique_ptr<Transform> _transform;
+    std::string _transform;
 };
 
 class PartitionSpec {
@@ -60,15 +56,14 @@ public:
 
         Builder& with_spec_id(int new_spec_id);
 
-        Builder& add(int sourceId, int fieldId, const std::string& name,
-                     std::unique_ptr<Transform> transform);
+        Builder& add(int sourceId, int fieldId, std::string name, std::string transform);
 
-        Builder& add(int sourceId, const std::string& name, std::unique_ptr<Transform> transform);
+        Builder& add(int sourceId, std::string name, std::string transform);
 
         std::unique_ptr<PartitionSpec> build();
 
     private:
-        int nextFieldId() { return ++_last_assigned_field_id; }
+        int next_field_id() { return ++_last_assigned_field_id; }
 
     private:
         std::shared_ptr<Schema> _schema;
@@ -86,15 +81,7 @@ public:
 
     const std::vector<PartitionField>& fields() const { return _fields; }
 
-    bool is_partitioned() const;
-
-    bool is_unpartitioned() const;
-
     int last_assigned_field_id() const { return _last_assigned_field_id; }
-
-    std::string partition_to_path(const StructLike& data);
-
-    std::vector<std::string> partition_values(const StructLike& data);
 
 private:
     // IDs for partition fields start at 1000
@@ -103,8 +90,6 @@ private:
     int _spec_id;
     std::vector<PartitionField> _fields;
     int _last_assigned_field_id;
-
-    std::string _escape(const std::string& str);
 };
 
 } // namespace iceberg

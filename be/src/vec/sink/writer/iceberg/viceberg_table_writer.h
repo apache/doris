@@ -28,6 +28,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/writer/async_result_writer.h"
 #include "vec/sink/writer/iceberg/partition_data.h"
+#include "vec/sink/writer/iceberg/partition_transformers.h"
 
 namespace doris {
 
@@ -61,32 +62,39 @@ private:
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
-                               const iceberg::Type& source_type, int source_idx,
-                               const iceberg::Type& result_type,
-                               const std::function<IColumn&(IColumn&)>& blockTransform)
+                               const TypeDescriptor& source_type, int source_idx,
+                               std::unique_ptr<PartitionColumnTransform> partition_column_transform)
                 : _field(field),
                   _source_type(source_type),
                   _source_idx(source_idx),
-                  _result_type(result_type) {}
-
-    private:
-        const iceberg::PartitionField& _field;
-        const iceberg::Type& _source_type;
-        int _source_idx;
-        const iceberg::Type& _result_type;
+                  _partition_column_transform(std::move(partition_column_transform)) {}
 
     public:
         const iceberg::PartitionField& field() const { return _field; }
 
-        const iceberg::Type& source_type() const { return _source_type; }
-
+        const TypeDescriptor& source_type() const { return _source_type; }
         int source_idx() const { return _source_idx; }
 
-        const iceberg::Type& result_type() const { return _result_type; }
+        const PartitionColumnTransform& partition_column_transform() const {
+            return *_partition_column_transform;
+        }
+
+        PartitionColumnTransform& partition_column_transform() {
+            return *_partition_column_transform;
+        }
+
+    private:
+        const iceberg::PartitionField& _field;
+        TypeDescriptor _source_type;
+        int _source_idx;
+        std::unique_ptr<PartitionColumnTransform> _partition_column_transform;
     };
 
-    std::vector<IcebergPartitionColumn> _to_iceberg_partition_columns(
-            const doris::iceberg::PartitionSpec& partitionSpec);
+    std::vector<IcebergPartitionColumn> _to_iceberg_partition_columns();
+
+    std::string _partition_to_path(const doris::iceberg::StructLike& data);
+    std::string _escape(const std::string& path);
+    std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
             vectorized::Block& block, int position, const std::string* file_name = nullptr,
@@ -108,7 +116,6 @@ private:
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;
 
-    //    std::vector<int> _partition_columns_input_index;
     std::set<size_t> _non_write_columns_indices;
     std::vector<IcebergPartitionColumn> _iceberg_partition_columns;
 

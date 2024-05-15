@@ -17,10 +17,7 @@
 
 #include "viceberg_partition_writer.h"
 
-#include <aws/s3/model/CompletedPart.h>
-
 #include "io/file_factory.h"
-#include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_map.h"
 #include "vec/core/materialize_block.h"

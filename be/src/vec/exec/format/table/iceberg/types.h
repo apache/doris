@@ -19,37 +19,13 @@
 
 #include <iostream>
 #include <map>
+#include <optional>
 #include <regex>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "common/exception.h"
-
-namespace doris {
-namespace iceberg {
-class Type;
-class PrimitiveType;
-class NestedType;
-class MapType;
-class ListType;
-class StructType;
-class NestedField;
-class DecimalType;
-class BinaryType;
-class FixedType;
-class UUIDType;
-class StringType;
-class TimestampType;
-class TimeType;
-class DateType;
-class DoubleType;
-class FloatType;
-class LongType;
-class IntegerType;
-class BooleanType;
-} // namespace iceberg
-} // namespace doris
 
 namespace doris {
 namespace iceberg {
@@ -143,7 +119,7 @@ public:
 
     bool is_nested_type() override { return true; }
     NestedType* as_nested_type() override { return this; }
-    virtual const std::vector<NestedField>* fields() const = 0;
+    virtual int field_count() const = 0;
     virtual Type* field_type(const std::string& field_name) = 0;
     virtual const NestedField* field(int field_id) = 0;
 };
@@ -165,9 +141,6 @@ public:
                                                 std::unique_ptr<Type> key_type,
                                                 std::unique_ptr<Type> value_type);
 
-    MapType(std::unique_ptr<NestedField> key_field, std::unique_ptr<NestedField> value_field)
-            : _key_field(std::move(key_field)), _value_field(std::move(value_field)) {}
-
     Type* key_type() const;
     Type* value_type() const;
     int key_id() const;
@@ -179,30 +152,27 @@ public:
 
     MapType* as_map_type() override { return this; }
 
-    virtual const std::vector<NestedField>* fields() const override { return nullptr; }
-    virtual Type* field_type(const std::string& field_name) override {
-        if (field_name == "key") {
-            return _key_field->field_type();
-        } else if (field_name == "value") {
-            return _value_field->field_type();
-        }
-        return nullptr;
-    }
-    virtual const NestedField* field(int field_id) override {
-        if (_key_field->field_id() == field_id) {
-            return _key_field.get();
-        } else if (_value_field->field_id() == field_id) {
-            return _value_field.get();
-        }
-        return nullptr;
-    }
+    virtual int field_count() const override { return 2; }
+
+    virtual Type* field_type(const std::string& field_name) override;
+
+    virtual const NestedField* field(int field_id) override;
 
     std::string to_string() const override;
 
 private:
+    MapType(std::unique_ptr<NestedField> key_field, std::unique_ptr<NestedField> value_field)
+            : _key_field(std::move(key_field)), _value_field(std::move(value_field)) {}
+    friend std::unique_ptr<MapType> of_optional(int key_id, int value_id,
+                                                std::unique_ptr<Type> key_type,
+                                                std::unique_ptr<Type> value_type);
+    friend std::unique_ptr<MapType> of_required(int key_id, int value_id,
+                                                std::unique_ptr<Type> key_type,
+                                                std::unique_ptr<Type> value_type);
+
     std::unique_ptr<NestedField> _key_field;
     std::unique_ptr<NestedField> _value_field;
-    //    std::vector<NestedField> fields_;
+    std::vector<NestedField*> _fields;
 };
 
 class ListType : public NestedType {
@@ -213,31 +183,28 @@ public:
     static std::unique_ptr<ListType> of_required(int element_id,
                                                  std::unique_ptr<Type> element_type);
 
-    ListType(NestedField element_field) : _element_field(std::move(element_field)) {}
-
     virtual TypeID type_id() const override { return TypeID::LIST; }
 
     bool is_list_type() override { return true; }
 
     ListType* as_list_type() override { return this; }
 
-    virtual std::string to_string() const override { return "list type"; }
+    virtual std::string to_string() const override;
 
-    virtual std::vector<NestedField>* fields() const override { return nullptr; }
-    virtual Type* field_type(const std::string& field_name) override {
-        if (field_name == "element") {
-            return _element_field.field_type();
-        }
-        return nullptr;
-    }
-    virtual const NestedField* field(int field_id) override {
-        if (_element_field.field_id() == field_id) {
-            return &_element_field;
-        }
-        return nullptr;
-    }
+    virtual int field_count() const override { return 1; }
+
+    virtual Type* field_type(const std::string& field_name) override;
+
+    virtual const NestedField* field(int field_id) override;
 
 private:
+    ListType(NestedField element_field) : _element_field(std::move(element_field)) {}
+
+    friend std::unique_ptr<ListType> of_optional(int element_id,
+                                                 std::unique_ptr<Type> element_type);
+    friend std::unique_ptr<ListType> of_required(int element_id,
+                                                 std::unique_ptr<Type> element_type);
+
     NestedField _element_field;
 };
 
@@ -259,16 +226,20 @@ public:
 
     StructType* as_struct_type() override { return this; }
 
-    virtual std::string to_string() const override { return "struct type"; }
+    virtual std::string to_string() const override;
 
-    virtual const std::vector<NestedField>* fields() const override { return &_fields; }
-    virtual Type* field_type(const std::string& field_name) override {
-        return _fields_by_name[field_name]->field_type();
-    }
+    virtual int field_count() const override { return _fields.size(); }
+
+    virtual Type* field_type(const std::string& field_name) override;
+
     virtual const NestedField* field(int field_id) override { return _fields_by_id[field_id]; }
 
+    const std::vector<NestedField>& fields() const { return _fields; }
+
+    std::vector<NestedField>&& move_fields() { return std::move(_fields); }
+
 private:
-    const std::vector<NestedField> _fields;
+    std::vector<NestedField> _fields;
     std::unordered_map<int, const NestedField*> _fields_by_id;
     std::unordered_map<std::string, const NestedField*> _fields_by_name;
 };

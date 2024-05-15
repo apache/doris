@@ -19,6 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/exec/format/table/iceberg/schema.h"
+#include "vec/exec/format/table/iceberg/types.h"
+
 namespace doris {
 namespace iceberg {
 
@@ -28,58 +31,56 @@ public:
     virtual ~PartitionSpecParserTest() = default;
 };
 
-TEST(PartitionSpecParserTest, TestFromJsonWithFieldId) {
+TEST(PartitionSpecParserTest, test_from_json_with_field_id) {
     std::string specString =
             "{\n"
             "  \"spec-id\" : 1,\n"
             "  \"fields\" : [ {\n"
-            "    \"name\" : \"id_bucket\",\n"
-            "    \"transform\" : \"bucket[8]\",\n"
+            "    \"name\" : \"identity1\",\n"
+            "    \"transform\" : \"identity\",\n"
             "    \"source-id\" : 1,\n"
             "    \"field-id\" : 1001\n"
             "  }, {\n"
-            "    \"name\" : \"data_bucket\",\n"
-            "    \"transform\" : \"bucket[16]\",\n"
+            "    \"name\" : \"identity2\",\n"
+            "    \"transform\" : \"identity\",\n"
             "    \"source-id\" : 2,\n"
             "    \"field-id\" : 1000\n"
             "  } ]\n"
             "}";
     std::vector<NestedField> columns;
-    columns.emplace_back(false, 3, "id", std::make_unique<IntegerType>(), nullptr);
-    columns.emplace_back(false, 4, "data", std::make_unique<StringType>(), nullptr);
-    Schema schema(std::move(columns));
-    std::unique_ptr<PartitionSpec> spec =
-            PartitionSpecParser::fromJson(std::move(schema), specString);
+    columns.emplace_back(false, 3, "id", std::make_unique<IntegerType>(), std::nullopt);
+    columns.emplace_back(false, 4, "data", std::make_unique<StringType>(), std::nullopt);
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(std::move(columns));
+    std::unique_ptr<PartitionSpec> spec = PartitionSpecParser::from_json(schema, specString);
 
-    ASSERT_EQ(2, spec->fields().size());
-    ASSERT_EQ(1001, spec->fields()[0].fieldId());
-    ASSERT_EQ(1000, spec->fields()[1].fieldId());
+    EXPECT_EQ(2, spec->fields().size());
+    EXPECT_EQ(1001, spec->fields()[0].field_id());
+    EXPECT_EQ(1000, spec->fields()[1].field_id());
 }
 
-TEST(PartitionSpecParserTest, TestFromJsonWithoutFieldId) {
+TEST(PartitionSpecParserTest, test_from_json_without_field_id) {
     std::string specString =
             "{\n"
             "  \"spec-id\" : 1,\n"
             "  \"fields\" : [ {\n"
-            "    \"name\" : \"id_bucket\",\n"
-            "    \"transform\" : \"bucket[8]\",\n"
+            "    \"name\" : \"identity1\",\n"
+            "    \"transform\" : \"identity\",\n"
             "    \"source-id\" : 1\n"
             "  }, {\n"
-            "    \"name\" : \"data_bucket\",\n"
-            "    \"transform\" : \"bucket[16]\",\n"
+            "    \"name\" : \"identity2\",\n"
+            "    \"transform\" : \"identity\",\n"
             "    \"source-id\" : 2\n"
             "  } ]\n"
             "}";
     std::vector<NestedField> columns;
-    columns.emplace_back(false, 3, "id", std::make_unique<IntegerType>(), nullptr);
-    columns.emplace_back(false, 4, "data", std::make_unique<StringType>(), nullptr);
-    Schema schema(std::move(columns));
-    std::unique_ptr<PartitionSpec> spec =
-            PartitionSpecParser::fromJson(std::move(schema), specString);
+    columns.emplace_back(false, 3, "id", std::make_unique<IntegerType>(), std::nullopt);
+    columns.emplace_back(false, 4, "data", std::make_unique<StringType>(), std::nullopt);
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(std::move(columns));
+    std::unique_ptr<PartitionSpec> spec = PartitionSpecParser::from_json(schema, specString);
 
-    ASSERT_EQ(2, spec->fields().size());
-    ASSERT_EQ(1000, spec->fields()[0].fieldId());
-    ASSERT_EQ(1001, spec->fields()[1].fieldId());
+    EXPECT_EQ(2, spec->fields().size());
+    EXPECT_EQ(1000, spec->fields()[0].field_id());
+    EXPECT_EQ(1001, spec->fields()[1].field_id());
 }
 
 } // namespace iceberg

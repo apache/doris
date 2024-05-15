@@ -17,27 +17,25 @@
 
 #pragma once
 
+#include <vector>
+
 #include "partition_spec.h"
 #include "vec/exec/format/table/iceberg/partition_spec.h"
-#include "vec/exec/format/table/iceberg/transforms.h"
+
 namespace doris {
 namespace iceberg {
 
-class Transform;
-class Transforms;
-
 struct UnboundPartitionField {
-    std::unique_ptr<Transform> transform;
-    int source_id;
-    const int partition_id;
-    std::string name;
+    std::string _transform;
+    int _source_id;
+    const int _partition_id;
+    std::string _name;
 
-    UnboundPartitionField(const std::string& transform_as_string, int source_id, int partition_id,
-                          const std::string& name)
-            : transform(Transforms::from_string(transform_as_string)),
-              source_id(source_id),
-              partition_id(partition_id),
-              name(name) {}
+    UnboundPartitionField(std::string transform, int source_id, int partition_id, std::string name)
+            : _transform(std::move(transform)),
+              _source_id(source_id),
+              _partition_id(partition_id),
+              _name(std::move(name)) {}
 };
 
 class UnboundPartitionSpec {
@@ -61,12 +59,13 @@ public:
 
     UnboundPartitionSpec(int specId, std::vector<UnboundPartitionField> fields);
 
-    std::unique_ptr<PartitionSpec> bind(std::shared_ptr<Schema> schema) const;
+    std::unique_ptr<PartitionSpec> bind(const std::shared_ptr<Schema>& schema) const;
 
     int spec_id() const { return _spec_id; }
 
 private:
-    std::unique_ptr<PartitionSpec::Builder> _copy_to_builder(std::shared_ptr<Schema> schema) const;
+    std::unique_ptr<PartitionSpec::Builder> _copy_to_builder(
+            const std::shared_ptr<Schema>& schema) const;
     int _spec_id;
     std::vector<UnboundPartitionField> _fields;
 };

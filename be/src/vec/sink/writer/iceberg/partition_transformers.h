@@ -17,16 +17,9 @@
 
 #pragma once
 
-//#include <optional>
-//#include <regex>
-//
-//#include "common/exception.h"
-//#include "vec/columns/column.h"
-//#include "vec/exec/format/table/iceberg/partition_spec.h"
-//#include "vec/exec/format/table/iceberg/types.h"
+#include <any>
 
-#include <functional>
-#include <optional>
+#include "runtime/types.h"
 
 namespace doris {
 
@@ -38,38 +31,44 @@ class PartitionField;
 namespace vectorized {
 
 class IColumn;
+class PartitionColumnTransform;
 
-class PartitionColumnTransform {
-    using BlockTransformFunctionType = std::function<IColumn&(IColumn&)>;
-    using ValueTransformFunctionType = std::function<std::optional<int64_t>(IColumn&, int)>;
+class PartitionColumnTransforms {
+private:
+    PartitionColumnTransforms();
 
 public:
-    PartitionColumnTransform(doris::iceberg::Type& type, bool preserves_non_null, bool monotonic,
-                             bool temporal, const BlockTransformFunctionType& block_transform,
-                             const ValueTransformFunctionType& value_transform);
+    static std::unique_ptr<PartitionColumnTransform> create(
+            const doris::iceberg::PartitionField& field);
+};
 
-    static PartitionColumnTransform create(const doris::iceberg::PartitionField& field,
-                                           doris::iceberg::Type& source_type);
+class PartitionColumnTransform {
+public:
+    PartitionColumnTransform() = default;
 
-    iceberg::Type& type() const { return _type; }
+    virtual ~PartitionColumnTransform() = default;
 
-    bool preservesNonNull() const { return _preserves_non_null; }
+    virtual bool preserves_non_null() const { return false; }
 
-    bool monotonic() const { return _monotonic; }
+    virtual bool monotonic() const { return true; }
 
-    bool temporal() const { return _temporal; }
+    virtual bool temporal() const { return false; }
 
-    const BlockTransformFunctionType& block_transform() const { return _block_transform; }
+    virtual const TypeDescriptor get_result_type(const TypeDescriptor& source_type) = 0;
 
-    const ValueTransformFunctionType& value_transform() const { return _value_transform; }
+    virtual bool is_void() const { return false; }
 
-private:
-    doris::iceberg::Type& _type;
-    bool _preserves_non_null;
-    bool _monotonic;
-    bool _temporal;
-    const BlockTransformFunctionType& _block_transform;
-    const ValueTransformFunctionType& _value_transform;
+    virtual void apply(IColumn& column) = 0;
+
+    virtual std::string to_human_string(const TypeDescriptor& type, const std::any& value) const;
+};
+
+class IdentityPartitionColumnTransform : public PartitionColumnTransform {
+    virtual const TypeDescriptor get_result_type(const TypeDescriptor& source_type) {
+        return source_type;
+    }
+
+    virtual void apply(IColumn& column) { return; }
 };
 
 } // namespace vectorized

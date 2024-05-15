@@ -17,9 +17,8 @@
 
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 
-//#include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
-//
+
 #include "common/exception.h"
 
 namespace doris {
@@ -31,7 +30,7 @@ const char* PartitionSpecParser::FIELD_ID = "field-id";
 const char* PartitionSpecParser::TRANSFORM = "transform";
 const char* PartitionSpecParser::NAME = "name";
 
-std::unique_ptr<PartitionSpec> PartitionSpecParser::from_json(std::shared_ptr<Schema> schema,
+std::unique_ptr<PartitionSpec> PartitionSpecParser::from_json(const std::shared_ptr<Schema>& schema,
                                                               const std::string& json) {
     rapidjson::Document doc;
     doc.Parse(json.c_str());

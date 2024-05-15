@@ -50,27 +50,22 @@ std::unique_ptr<UnboundPartitionSpec> UnboundPartitionSpec::Builder::build() {
 UnboundPartitionSpec::UnboundPartitionSpec(int specId, std::vector<UnboundPartitionField> fields)
         : _spec_id(specId), _fields(std::move(fields)) {}
 
-std::unique_ptr<PartitionSpec> UnboundPartitionSpec::bind(std::shared_ptr<Schema> schema) const {
+std::unique_ptr<PartitionSpec> UnboundPartitionSpec::bind(
+        const std::shared_ptr<Schema>& schema) const {
     std::unique_ptr<PartitionSpec::Builder> builder = _copy_to_builder(schema);
     return builder->build();
 }
 
 std::unique_ptr<PartitionSpec::Builder> UnboundPartitionSpec::_copy_to_builder(
-        std::shared_ptr<Schema> schema) const {
+        const std::shared_ptr<Schema>& schema) const {
     std::unique_ptr<PartitionSpec::Builder> builder =
             std::make_unique<PartitionSpec::Builder>(schema);
     for (const auto& field : _fields) {
-        Type* fieldType = schema->find_type(field.source_id);
-        std::unique_ptr<Transform> transform;
-        if (fieldType) {
-            transform = Transforms::from_string(fieldType, field.transform->to_string());
+        if (field._partition_id != -1) {
+            builder->add(field._source_id, field._partition_id, std::move(field._name),
+                         std::move(field._transform));
         } else {
-            transform = Transforms::from_string(field.transform->to_string());
-        }
-        if (field.partition_id != -1) {
-            builder->add(field.source_id, field.partition_id, field.name, std::move(transform));
-        } else {
-            builder->add(field.source_id, field.name, std::move(transform));
+            builder->add(field._source_id, std::move(field._name), std::move(field._transform));
         }
     }
     return builder;
