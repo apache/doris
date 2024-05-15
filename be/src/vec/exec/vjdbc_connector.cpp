@@ -513,7 +513,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DATETIMEV2: {
         if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
             type_str != "java.sql.Date" && type_str != "java.time.LocalDate" &&
-            type_str != "oracle.sql.TIMESTAMP" && type_str != "java.time.OffsetDateTime") {
+            type_str != "oracle.sql.TIMESTAMP" && type_str != "java.time.OffsetDateTime" &&
+            type_str != "java.lang.String") {
             return Status::InternalError(error_msg);
         }
         break;

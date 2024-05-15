@@ -34,6 +34,9 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/DB2JdbcExecutor";
             case SAP_HANA:
                 return "org/apache/doris/jdbc/SapHanaJdbcExecutor";
+            case TRINO:
+            case PRESTO:
+                return "org/apache/doris/jdbc/TrinoJdbcExecutor";
             default:
                 return "org/apache/doris/jdbc/DefaultJdbcExecutor";
         }
