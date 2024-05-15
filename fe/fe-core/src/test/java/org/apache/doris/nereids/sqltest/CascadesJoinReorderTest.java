@@ -56,6 +56,26 @@ class CascadesJoinReorderTest extends SqlTestBase {
     }
 
     @Test
+    void testStartThreeJoinBushy() {
+        // Three join
+        // (n-1)! * 2^(n-1) = 8
+        String sql = "SELECT * FROM T1 "
+                + "JOIN T2 ON T1.id = T2.id "
+                + "JOIN T3 ON T1.id = T3.id";
+
+        int plansNumber = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .plansNumber();
+
+        Assertions.assertEquals(8, plansNumber);
+    }
+
+    @Test
     void testStarFourJoinZigzag() {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join

@@ -19,15 +19,16 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,14 +41,16 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin()), group())
+                logicalProject(logicalJoin(logicalProject(logicalJoin()), group())
                         .when(topJoin -> (topJoin.left().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
                         .whenNot(topJoin -> topJoin.hasDistributeHint()
                                 || topJoin.left().child().hasDistributeHint())
-                        .when(join -> join.left().isAllSlots())
-                        .then(topJoin -> {
+                        .when(join -> join.left().isAllSlots()))
+                        .then(topProject -> {
+                            LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                                    = topProject.child();
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                             if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
                                 return null;
@@ -58,19 +61,22 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
 
                             // Discard this project, because it is useless.
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b, null);
-                            return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
-                                    newTopJoin);
+                            Plan left = new LogicalProject<>(new ArrayList<>(newBottomJoin.getOutput()), newBottomJoin);
+
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(left, b, null);
+                            return topProject.withChildren(newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT_PROJECT),
 
-                logicalJoin(group(), logicalProject(logicalJoin()))
+                logicalProject(logicalJoin(group(), logicalProject(logicalJoin()))
                         .when(topJoin -> (topJoin.right().child().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
                         .whenNot(topJoin -> topJoin.hasDistributeHint()
                                 || topJoin.right().child().hasDistributeHint())
-                        .when(join -> join.right().isAllSlots())
-                        .then(topJoin -> {
+                        .when(join -> join.right().isAllSlots()))
+                        .then(topProject -> {
+                            LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
+                                    = topProject.child();
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                             if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
                                 return null;
@@ -81,9 +87,9 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
 
                             // Discard this project, because it is useless.
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c, null);
-                            return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
-                                    newTopJoin);
+                            Plan left = new LogicalProject<>(new ArrayList<>(newBottomJoin.getOutput()), newBottomJoin);
+                            Plan newTopJoin = bottomJoin.withChildrenNoContext(left, c, null);
+                            return topProject.withChildren(newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT_PROJECT)
         );
     }

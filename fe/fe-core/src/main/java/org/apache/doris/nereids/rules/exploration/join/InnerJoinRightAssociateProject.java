@@ -26,8 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.HashSet;
 import java.util.List;
@@ -47,11 +46,13 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
-                .when(InnerJoinRightAssociate::checkReorder)
+        return logicalProject(innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
+                .when(topJoin -> checkReorder(topJoin))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots())
-                .then(topJoin -> {
+                .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                            = topProject.child();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
@@ -86,7 +87,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                             newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE_PROJECT);
     }
 

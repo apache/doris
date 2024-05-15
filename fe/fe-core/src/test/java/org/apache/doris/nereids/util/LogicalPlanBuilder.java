@@ -87,6 +87,11 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder projectAll() {
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(new ArrayList<>(this.plan.getOutput()), this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);

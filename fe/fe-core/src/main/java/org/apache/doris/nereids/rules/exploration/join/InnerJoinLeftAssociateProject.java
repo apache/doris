@@ -26,8 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.HashSet;
 import java.util.List;
@@ -49,11 +48,13 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
-                .when(InnerJoinLeftAssociate::checkReorder)
+        return logicalProject(innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
+                .when(topJoin -> checkReorder(topJoin))
                 .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
-                .when(join -> join.right().isAllSlots())
-                .then(topJoin -> {
+                .when(join -> join.right().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
+                            = topProject.child();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                     GroupPlan a = topJoin.left();
                     GroupPlan b = bottomJoin.left();
@@ -89,7 +90,19 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                             newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
+    }
+
+    /** Check JoinReorderContext. */
+    public static boolean checkReorder(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
+        if (topJoin.isLeadingJoin()
+                || JoinExchangeBothProject.isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
+        return !topJoin.getJoinReorderContext().hasCommute()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange();
     }
 }

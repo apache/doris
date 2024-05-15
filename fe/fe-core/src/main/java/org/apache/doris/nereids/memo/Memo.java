@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -173,34 +172,6 @@ public class Memo {
         return null;
     }
 
-    private Plan skipProject(Plan plan, Group targetGroup) {
-        // Some top project can't be eliminated
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
-            }
-        }
-        return plan;
-    }
-
-    private Plan skipProjectGetChild(Plan plan) {
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            Plan child = logicalProject.child();
-            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
-                return skipProjectGetChild(child);
-            }
-        }
-        return plan;
-    }
-
     public int countMaxContinuousJoin() {
         return countGroupJoin(root).second;
     }
@@ -244,7 +215,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, planTable);
+            result = doCopyIn(plan, target, planTable);
         }
         maybeAddStateId(result);
         return result;
@@ -265,7 +236,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, null);
+            result = doCopyIn(plan, target, null);
         }
         maybeAddStateId(result);
         return result;
@@ -477,7 +448,7 @@ public class Memo {
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
-            Plan child = skipProjectGetChild(plan.child(i));
+            Plan child = plan.child(i);
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {

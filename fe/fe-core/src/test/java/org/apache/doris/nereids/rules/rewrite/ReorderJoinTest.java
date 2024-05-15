@@ -98,10 +98,10 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(connectContext, plan2)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalJoin(
+                        logicalProject(logicalJoin(
                             logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
                             logicalOlapScan()
-                        ).whenNot(join -> join.getJoinType().isCrossJoin())
+                        ).whenNot(join -> join.getJoinType().isCrossJoin()))
                 );
     }
 
@@ -129,10 +129,10 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 .applyBottomUp(new SemiJoinCommute())
                 .rewrite()
                 .matchesFromRoot(
-                        innerLogicalJoin(
+                        logicalProject(innerLogicalJoin(
                             leftSemiLogicalJoin(),
                             logicalOlapScan()
-                        )
+                        ))
                 );
 
     }
@@ -192,10 +192,10 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                     .rewrite()
                     .printlnTree()
                     .matchesFromRoot(
-                            logicalJoin(
+                            logicalProject(logicalJoin(
                                 logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
                                 leafPlan()
-                            ).whenNot(join -> join.getJoinType().isCrossJoin())
+                            ).whenNot(join -> join.getJoinType().isCrossJoin()))
                     );
         }
     }

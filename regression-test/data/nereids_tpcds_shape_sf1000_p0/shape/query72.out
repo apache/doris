@@ -15,13 +15,13 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[inventory] apply RFs: RF8 RF9 RF10
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF7 d_week_seq->[d_week_seq]
-----------------------------PhysicalProject
-------------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=() build RFs:RF5 cs_item_sk->[cr_item_sk];RF6 cs_order_number->[cr_order_number]
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF5 RF6
---------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=() build RFs:RF6 cs_item_sk->[cr_item_sk];RF7 cs_order_number->[cr_order_number]
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF6 RF7
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[cs_item_sk]
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -42,7 +42,7 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------filter((d1.d_year = 1998))
-----------------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF7
+----------------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
 ----------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------filter((household_demographics.hd_buy_potential = '1001-5000'))
@@ -57,9 +57,9 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
