@@ -484,7 +484,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir() || fileStatus.size == 0) {
+            if (fileStatus.isIsDir() || fileStatus.size == 0
+                    || (compressionType != TFileCompressType.UNKNOWN && fileStatus.size == 4)) {
                 continue;
             }
             firstFile = fileStatus;
