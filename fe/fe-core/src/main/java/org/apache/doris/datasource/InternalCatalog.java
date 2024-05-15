@@ -2418,7 +2418,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             // Check if user has storage vault usage privilege
-            if (!env.getAuth()
+            if (ctx != null && !env.getAuth()
                     .checkStorageVaultPriv(ctx.getCurrentUserIdentity(), storageVaultName, PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP()
