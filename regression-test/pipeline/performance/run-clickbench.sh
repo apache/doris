@@ -33,7 +33,7 @@ EOF
 
 # shellcheck source=/dev/null
 # check_clickbench_table_rows, stop_doris, set_session_variable, check_clickbench_result
-exit 0
+
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # create_an_issue_comment

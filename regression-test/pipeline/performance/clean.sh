@@ -44,4 +44,4 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-uti
 
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-# stop_doris
+stop_doris
