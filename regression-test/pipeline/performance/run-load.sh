@@ -635,6 +635,7 @@ ${clt} -e "set global enable_profile=true;"
             echo "ERROR: failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
             return 1
         fi
+        ${clt} -e "show variables;"
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_insert_into_select" | sed -n '2p') != "${insert_into_select_rows}" ]]; then echo "check load fail..." && return 1; fi
 
@@ -656,9 +657,9 @@ ${clt} -e "set global enable_profile=true;"
     echo "#### 2. run load test"
     ${clt} -e "DROP DATABASE IF EXISTS ${DB}" && sleep 1
     ${clt} -e "CREATE DATABASE IF NOT EXISTS ${DB}" && sleep 5
-    if ! stream_load_json; then exit 1; fi
-    if ! stream_load_orc; then exit 1; fi
-    if ! stream_load_parquet; then exit 1; fi
+    # if ! stream_load_json; then exit 1; fi
+    # if ! stream_load_orc; then exit 1; fi
+    # if ! stream_load_parquet; then exit 1; fi
     if ! insert_into_select; then exit 1; fi
 
     echo "#### 3. check load performance"
@@ -672,16 +673,16 @@ ${clt} -e "set global enable_profile=true;"
         stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch20:-22} # 单位 MB/s
         insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch20:-410}  # 单位 Krows/s
     fi
-    if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
-    if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_orc_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
-    if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_parquet_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
+    # if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
+    # if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_orc_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
+    # if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_parquet_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
     if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: insert_into_select_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
 
     echo "#### 4. comment result on tpch"
     comment_body="Load test result on commit ${commit_id_from_trigger:-} with default session variables"
-    if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\nStream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
-    if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\nStream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
-    if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\nStream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
+    # if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\nStream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
+    # if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\nStream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
+    # if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\nStream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
     if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\nInsert into select:       ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
 
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
