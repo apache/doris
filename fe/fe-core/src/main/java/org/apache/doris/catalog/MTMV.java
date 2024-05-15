@@ -40,6 +40,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -268,12 +269,15 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVCache getOrGenerateCache() throws AnalysisException {
+    /**
+     * Called when in query, Should use one connection context in query
+     */
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
         if (cache == null) {
             writeMvLock();
             try {
                 if (cache == null) {
-                    this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                    this.cache = MTMVCache.from(this, connectionContext);
                 }
             } finally {
                 writeMvUnlock();
