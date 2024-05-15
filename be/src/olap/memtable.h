@@ -265,6 +265,8 @@ private:
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
+
+    bool _is_partial_update_and_auto_inc = false;
 }; // class MemTable
 
 } // namespace doris
