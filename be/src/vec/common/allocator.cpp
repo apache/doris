@@ -62,9 +62,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             [[maybe_unused]] auto stack_trace_st =
                     doris::Status::Error<doris::ErrorCode::MEM_ALLOC_FAILED, true>(
                             injection_err_msg);
-            #ifndef ENABLE_STACKTRACE
+#ifndef ENABLE_STACKTRACE
             LOG(INFO) << stack_trace_st.to_string();
-            #endif
+#endif
             if (!doris::enable_thread_catch_bad_alloc) {
                 doris::thread_context()->thread_mem_tracker_mgr->cancel_query(injection_err_msg);
             } else {
