@@ -19,17 +19,18 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->[l_partkey]
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
-----------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF2 RF3
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
+--------------------------------------------------PhysicalOlapScan[orders] apply RFs: RF1
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF2 RF3
---------------------------------------------PhysicalProject
-----------------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
-------------------------------------------------PhysicalOlapScan[orders] apply RFs: RF1
-----------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer] apply RFs: RF4
+----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF4
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))

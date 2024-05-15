@@ -31,14 +31,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3
 ------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer] apply RFs: RF2
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((customer_address.ca_state = 'CA'))
-----------------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[customer] apply RFs: RF2
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------filter((customer_address.ca_state = 'CA'))
+------------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]

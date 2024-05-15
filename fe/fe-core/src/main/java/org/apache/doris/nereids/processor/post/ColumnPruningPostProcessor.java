@@ -41,17 +41,17 @@ import java.util.stream.Collectors;
 public class ColumnPruningPostProcessor extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+        project = (PhysicalProject<? extends Plan>) super.visit(project, ctx);
         Plan child = project.child();
-        Plan newChild = child.accept(this, ctx);
         if (project.isAllSlots()) {
             Set<Slot> projects = project.getProjects().stream().map(Slot.class::cast).collect(Collectors.toSet());
-            Set<Slot> outputSet = newChild.getOutputSet();
+            Set<Slot> outputSet = child.getOutputSet();
             if (outputSet.equals(projects)) {
-                return ((AbstractPhysicalPlan) newChild).copyStatsAndGroupIdFrom(project);
+                return child;
             }
         }
-        if (newChild instanceof AbstractPhysicalJoin) {
-            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join = (AbstractPhysicalJoin) newChild;
+        if (child instanceof AbstractPhysicalJoin) {
+            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join = (AbstractPhysicalJoin) child;
             Plan left = join.left();
             Plan right = join.right();
             Set<Slot> leftOutput = left.getOutputSet();
@@ -74,31 +74,38 @@ public class ColumnPruningPostProcessor extends PlanPostProcessor {
 
             Plan newLeft;
             if (left instanceof PhysicalDistribute) {
+                AbstractPhysicalPlan newPlan = new PhysicalProject<>(leftNewProjections,
+                        left.getLogicalProperties(), left.child(0)).copyStatsAndGroupIdFrom(
+                        (AbstractPhysicalPlan) left.child(0));
                 newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
-                        ? left.withChildren(new PhysicalProject<>(leftNewProjections,
-                        left.getLogicalProperties(), left.child(0)))
-                        : left;
+                        ? ((AbstractPhysicalPlan) left.withChildren(newPlan)).copyStatsAndGroupIdFrom(
+                        (AbstractPhysicalPlan) left) : left;
             } else {
+                AbstractPhysicalPlan newPlan = new PhysicalProject<>(leftNewProjections,
+                        left.getLogicalProperties(), left).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) left);
                 newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
-                        ? new PhysicalProject<>(leftNewProjections, left.getLogicalProperties(),
-                        left).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) left)
-                        : left;
+                        ? newPlan : left;
             }
             Plan newRight;
             if (right instanceof PhysicalDistribute) {
+                AbstractPhysicalPlan newPlan = new PhysicalProject<>(rightNewProjections,
+                        right.getLogicalProperties(), right.child(0)).copyStatsAndGroupIdFrom(
+                        (AbstractPhysicalPlan) right.child(0));
                 newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
-                        ? right.withChildren(new PhysicalProject<>(rightNewProjections,
-                        right.getLogicalProperties(), right.child(0)))
-                        : right;
+                        ? ((AbstractPhysicalPlan) right.withChildren(newPlan)).copyStatsAndGroupIdFrom(
+                        (AbstractPhysicalPlan) right) : right;
             } else {
+                AbstractPhysicalPlan newPlan = new PhysicalProject<>(rightNewProjections,
+                        right.getLogicalProperties(), right).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) right);
                 newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
-                        ? new PhysicalProject<>(rightNewProjections, right.getLogicalProperties(),
-                        right).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) right)
-                        : right;
+                        ? newPlan : right;
             }
 
             if (newLeft != left || newRight != right) {
-                return project.withChildren(join.withChildren(newLeft, newRight));
+                AbstractPhysicalJoin oldJoin = join;
+                AbstractPhysicalPlan newJoin = ((AbstractPhysicalJoin) join.withChildren(newLeft,
+                        newRight)).copyStatsAndGroupIdFrom(oldJoin);
+                return ((AbstractPhysicalPlan) project.withChildren(newJoin)).copyStatsAndGroupIdFrom(project);
             } else {
                 return project;
             }
