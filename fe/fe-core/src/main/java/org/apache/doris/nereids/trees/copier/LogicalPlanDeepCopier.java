@@ -177,6 +177,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
             DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(deferMaterializeOlapScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(deferMaterializeOlapScan.getRelationId());
+        }
         LogicalOlapScan newScan = (LogicalOlapScan) visitLogicalOlapScan(
                 deferMaterializeOlapScan.getLogicalOlapScan(), context);
         Set<ExprId> newSlotIds = deferMaterializeOlapScan.getDeferMaterializeSlotIds().stream()
@@ -184,7 +187,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableSet.toImmutableSet());
         SlotReference newRowId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(deferMaterializeOlapScan.getColumnIdSlot(), context);
-        return new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId);
+        LogicalDeferMaterializeOlapScan newMaterializeOlapScan =
+                new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId);
+        context.putRelation(newMaterializeOlapScan.getRelationId(), newMaterializeOlapScan);
+        return newMaterializeOlapScan;
     }
 
     @Override

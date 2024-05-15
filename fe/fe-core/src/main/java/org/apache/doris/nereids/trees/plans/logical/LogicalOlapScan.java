@@ -317,7 +317,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 Optional.empty(), Optional.empty(),
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
-                hints, cacheSlotWithSlotName, tableSample, directMvScan, projectPulledUp);
+                hints, Maps.newHashMap(), tableSample, directMvScan, projectPulledUp);
     }
 
     @Override

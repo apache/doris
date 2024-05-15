@@ -91,7 +91,7 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     @Override
     public LogicalOneRowRelation withRelationId(RelationId relationId) {
-        return new LogicalOneRowRelation(relationId, projects, Optional.empty(), Optional.empty());
+        throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
     }
 
     @Override

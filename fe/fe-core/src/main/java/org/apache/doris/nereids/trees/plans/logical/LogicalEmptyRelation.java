@@ -83,7 +83,7 @@ public class LogicalEmptyRelation extends LogicalRelation
 
     @Override
     public LogicalEmptyRelation withRelationId(RelationId relationId) {
-        return new LogicalEmptyRelation(relationId, projects, Optional.empty(), Optional.empty());
+        throw new RuntimeException("should not call LogicalEmptyRelation's withRelationId method");
     }
 
     @Override
