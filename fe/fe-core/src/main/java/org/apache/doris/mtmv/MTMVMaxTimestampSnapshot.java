@@ -25,8 +25,8 @@ import com.google.gson.annotations.SerializedName;
  * so the update time is used instead of the version
  */
 public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
-    // partitionId corresponding to timestamp
-    // The reason why both timestamp and partitionId are stored is to avoid
+    // partitionName corresponding to timestamp
+    // The reason why both timestamp and partitionName are stored is to avoid
     // deleting the partition corresponding to timestamp
     @SerializedName("pn")
     private String partitionName;
