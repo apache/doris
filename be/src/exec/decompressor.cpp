@@ -557,12 +557,21 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
     // See:
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
     while (remaining_input_size > 0) {
+        if (remaining_input_size < 4) {
+            *more_input_bytes = 4 - remaining_input_size;
+            break;
+        }
         // Read uncompressed size
         uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
         int64_t remaining_output_len = output_max_len - uncompressed_total_len;
         if (remaining_output_len < uncompressed_block_len) {
             // Need more output buffer
             *more_output_bytes = uncompressed_block_len - remaining_output_len;
+            break;
+        }
+
+        if (uncompressed_block_len == 0) {
+            remaining_input_size -= sizeof(uint32_t);
             break;
         }
 
