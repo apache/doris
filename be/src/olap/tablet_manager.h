@@ -176,6 +176,9 @@ public:
     bool update_tablet_partition_id(::doris::TPartitionId partition_id,
                                     ::doris::TTabletId tablet_id);
 
+    Status try_move_to_trash(TTabletId tablet_id, TSchemaHash schema_hash,
+                             const io::Path& tablet_path);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one

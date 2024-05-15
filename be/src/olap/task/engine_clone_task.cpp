@@ -263,6 +263,9 @@ Status EngineCloneTask::_do_clone() {
                                                   &store, _clone_req.partition_id));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
+        auto tablet_manager = _engine.tablet_manager();
+        RETURN_IF_ERROR(tablet_manager->try_move_to_trash(_clone_req.tablet_id,
+                                                          _clone_req.schema_hash, tablet_dir));
 
         Defer remove_useless_dir {[&] {
             if (status.ok()) {
@@ -281,7 +284,6 @@ Status EngineCloneTask::_do_clone() {
 
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
-        auto tablet_manager = _engine.tablet_manager();
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));

@@ -1067,7 +1067,79 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
 }
 
+Status TabletManager::try_move_to_trash(TTabletId tablet_id, TSchemaHash schema_hash,
+                                        const io::Path& tablet_path) {
+    TabletSharedPtr tablet = nullptr;
+    {
+        std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
+        for (auto it = _shutdown_tablets.begin(); it != _shutdown_tablets.end(); it++) {
+            if ((*it)->tablet_id() == tablet_id && (*it)->schema_hash() == schema_hash) {
+                if (it->use_count() > 1) {
+                    // clone failed
+                    LOG(INFO) << "tablet still in use, tablet_id=" << tablet_id
+                              << " schema_hash=" << schema_hash;
+                    return Status::Error<INVALID_TABLET_STATE>(
+                            "cant move shutdown tablet to tablet: {}, hash: {}, path: {}",
+                            tablet_id, schema_hash, tablet_path.string());
+                } else {
+                    tablet = *it;
+                    _shutdown_tablets.remove(*it);
+                }
+                break;
+            }
+        }
+    }
+
+    if (tablet != nullptr) {
+        bool ok = _move_tablet_to_trash(tablet);
+        if (!ok) {
+            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
+            _shutdown_tablets.push_back(tablet);
+        }
+        return Status::OK();
+
+    } else {
+        bool exists = false;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
+        if (!exists_st) {
+            LOG(WARNING) << "cant get tablet_id=" << tablet_id << " path, st=" << exists_st;
+            // clone failed
+            return Status::Error<INVALID_TABLET_STATE>(
+                    "cant get path tablet: {}, hash: {}, path: {}", tablet_id, schema_hash,
+                    tablet_path.string());
+        }
+        if (exists) {
+            for (int i = 0; i < 20; i++) {
+                sleep(1);
+                Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
+                if (!exists_st) {
+                    LOG(WARNING) << "cant get tablet_id=" << tablet_id
+                                 << " path in cycle, st=" << exists_st;
+                    // clone failed
+                    return Status::Error<INVALID_TABLET_STATE>(
+                            "cant get path in cycle tablet: {}, hash: {}, path: {}", tablet_id,
+                            schema_hash, tablet_path.string());
+                }
+                if (!exists) {
+                    return Status::OK();
+                }
+            }
+            // after 20s, path still exist, clone failed, try next
+            return Status::Error<INVALID_TABLET_STATE>(
+                    "cant move shutdown tablet to tablet: {}, hash: {}", tablet_id, schema_hash,
+                    tablet_path.string());
+        }
+        return Status::OK();
+    }
+}
+
 Status TabletManager::start_trash_sweep() {
+    DBUG_EXECUTE_IF("TabletManager.start_trash_sweep.sleep", {
+        auto duration = std::chrono::milliseconds(dp->param("duration", 3600 * 1000));
+        LOG(INFO) << "in debug point TabletManager.start_trash_sweep.sleep "
+                  << std::chrono::duration_cast<std::chrono::seconds>(duration).count() << " s";
+        std::this_thread::sleep_for(duration);
+    });
     std::unique_lock<std::mutex> lock(_gc_tablets_lock, std::defer_lock);
     if (!lock.try_lock()) {
         return Status::OK();
@@ -1076,26 +1148,20 @@ Status TabletManager::start_trash_sweep() {
     for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
                     filter_all_tablets);
 
-    std::list<TabletSharedPtr>::iterator last_it;
-    {
-        std::shared_lock rdlock(_shutdown_tablets_lock);
-        last_it = _shutdown_tablets.begin();
-        if (last_it == _shutdown_tablets.end()) {
-            return Status::OK();
-        }
-    }
+    std::list<TabletSharedPtr> stage_tablets;
 
-    auto get_batch_tablets = [this, &last_it](int limit) {
+    auto get_batch_tablets = [this, &stage_tablets](int limit) {
         std::vector<TabletSharedPtr> batch_tablets;
         std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
-        while (last_it != _shutdown_tablets.end() && batch_tablets.size() < limit) {
+        auto it = _shutdown_tablets.begin();
+        while (it != _shutdown_tablets.end() && batch_tablets.size() < limit) {
             // it means current tablet is referenced by other thread
-            if (last_it->use_count() > 1) {
-                last_it++;
+            if (it->use_count() > 1) {
+                stage_tablets.push_back(*it);
             } else {
-                batch_tablets.push_back(*last_it);
-                last_it = _shutdown_tablets.erase(last_it);
+                batch_tablets.push_back(*it);
             }
+            it = _shutdown_tablets.erase(it);
         }
 
         return batch_tablets;
@@ -1129,6 +1195,11 @@ Status TabletManager::start_trash_sweep() {
 #ifndef BE_TEST
         sleep(1);
 #endif
+    }
+
+    if (!stage_tablets.empty()) {
+        std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
+        _shutdown_tablets.splice(_shutdown_tablets.end(), stage_tablets);
     }
 
     if (!failed_tablets.empty()) {
@@ -1207,6 +1278,14 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             return false;
         }
         if (exists) {
+            if (check_st.is<META_KEY_NOT_FOUND>()) {
+                LOG(INFO) << "could not find tablet meta in rocksdb, so just delete it path "
+                          << "tablet_id=" << tablet->tablet_id()
+                          << ", schema_hash=" << tablet->schema_hash()
+                          << ", delete tablet_path=" << tablet_path;
+                RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(tablet_path));
+                return true;
+            }
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "
                          << "tablet_id=" << tablet->tablet_id()
                          << ", schema_hash=" << tablet->schema_hash();
