@@ -637,19 +637,22 @@ public class Role implements Writable, GsonPostProcessable {
     public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, Map<ColPrivilegeKey, Set<String>> colPrivileges,
             boolean errOnNonExist)
             throws DdlException {
-        PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not exist in role " + roleName);
+        if (!colPrivileges.isEmpty()) {
+            revokeCols(colPrivileges);
+        } else {
+            PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
+            if (existingPriv == null) {
+                if (errOnNonExist) {
+                    throw new DdlException(tblPattern + " does not exist in role " + roleName);
+                }
+                return;
             }
-            return;
+            existingPriv.remove(privs);
+            if (existingPriv.isEmpty()) {
+                tblPatternToPrivs.remove(tblPattern);
+            }
+            revokePrivs(tblPattern, privs);
         }
-        existingPriv.remove(privs);
-        if (existingPriv.isEmpty()) {
-            tblPatternToPrivs.remove(tblPattern);
-        }
-        revokePrivs(tblPattern, privs);
-        revokeCols(colPrivileges);
     }
 
     private void revokeCols(Map<ColPrivilegeKey, Set<String>> colPrivileges) {
@@ -661,6 +664,12 @@ public class Role implements Writable, GsonPostProcessable {
                 colPrivMap.get(entry.getKey()).removeAll(entry.getValue());
                 if (CollectionUtils.isEmpty(colPrivMap.get(entry.getKey()))) {
                     colPrivMap.remove(entry.getKey());
+                    TablePattern tblPattern = new TablePattern(entry.getKey().getCtl(), entry.getKey().getDb(),
+                            entry.getKey().getTbl());
+                    PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
+                    if (existingPriv != null && existingPriv.isEmpty()) {
+                        tblPatternToPrivs.remove(tblPattern);
+                    }
                 }
             }
         }

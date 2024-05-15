@@ -36,6 +36,12 @@ suite("column_authorization") {
 
     sql "drop user if exists ${user1}"
     sql "create user ${user1}"
+
+    sql "grant SELECT_PRIV(id) on ${db}.${baseTable} to '${user1}'@'%';"
+    sql "grant SELECT_PRIV(name) on ${db}.${baseTable} to '${user1}'@'%';"
+    sql "revoke SELECT_PRIV(name) on ${db}.${baseTable} from '${user1}'@'%';"
+    sql "revoke SELECT_PRIV(id) on ${db}.${baseTable} from '${user1}'@'%';"
+
     sql "grant SELECT_PRIV(id) on ${db}.${baseTable} to '${user1}'@'%';"
 
     sql 'sync'
