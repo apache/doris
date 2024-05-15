@@ -198,7 +198,8 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
 
     // for init node, we close waiting(hang on) all close request and let them return together.
-    if (!channel->is_incremental_channel()) {
+    if (request.has_hang_wait() && request.hang_wait()) {
+        DCHECK(!channel->is_incremental_channel());
         VLOG_TRACE << "reciever close waiting!" << request.sender_id();
         int count = 0;
         while (!channel->is_finished()) {

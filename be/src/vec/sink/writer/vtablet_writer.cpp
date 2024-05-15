@@ -928,13 +928,14 @@ void VNodeChannel::_close_check() {
     CHECK(_cur_mutable_block == nullptr) << name();
 }
 
-void VNodeChannel::mark_close() {
+void VNodeChannel::mark_close(bool hang_wait) {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         return;
     }
 
     _cur_add_block_request->set_eos(true);
+    _cur_add_block_request->set_hang_wait(hang_wait);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
@@ -1370,6 +1371,7 @@ Status VTabletWriter::_send_new_partition_batch() {
 }
 
 void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status) {
+    SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
     // must before set _try_close
@@ -1402,7 +1404,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                             if (!status.ok() || ch->is_closed()) {
                                 return;
                             }
-                            ch->mark_close();
+                            ch->mark_close(true);
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
                                         status, ch->get_cancel_msg(), index_channel, ch);

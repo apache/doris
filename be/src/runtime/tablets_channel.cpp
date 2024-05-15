@@ -143,7 +143,20 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _tuple_desc = _schema->tuple_desc();
 
     int max_sender = request.num_senders();
-    // this tablets channel created by inc_open: open times = how many sender instance know this tablets channel.
+    /*
+     * a tablets channel in reciever is related to a bulk of VNodeChannel of sender. each instance one or none.
+     * there are two possibilities:
+     *  1. there's partitions originally broadcasted by FE. so all sender(instance) know it at start. and open() will be 
+     *     called directly, not by incremental_open(). and after _state changes to kOpened. _open_by_incremental will never 
+     *     be true. in this case, _num_remaining_senders will keep same with senders number. when all sender sent close rpc,
+     *     the tablets channel will close. and if for auto partition table, these channel's closing will hang on reciever and
+     *     return together to avoid close-then-incremental-open problem.
+     *  2. this tablets channel is opened by incremental_open of sender's sink node. so only this sender will know this partition
+     *     (this TabletsChannel) at that time. and we are not sure how many sender will know in the end. it depends on data
+     *     distribution. in this situation open() is called by incremental_open() at first time. so _open_by_incremental is true.
+     *     then _num_remaining_senders will not be set here. but inc every time when incremental_open() called. so it's dynamic
+     *     and also need same number of senders' close to close. but will not hang.
+     */
     if (_open_by_incremental) {
         DCHECK(_num_remaining_senders == 0) << _num_remaining_senders;
     } else {
