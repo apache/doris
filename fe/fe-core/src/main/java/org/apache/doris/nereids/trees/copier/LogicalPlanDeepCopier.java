@@ -89,7 +89,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalRelation newRelation =
                 logicalRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
         updateReplaceMapWithOutput(logicalRelation, newRelation, context.exprIdReplaceMap);
-        context.putRelation(newRelation.getRelationId(), newRelation);
+        context.putRelation(logicalRelation.getRelationId(), newRelation);
         return newRelation;
     }
 
@@ -117,7 +117,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         LogicalOneRowRelation newOneRowRelation =
                 new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), newProjects);
-        context.putRelation(newOneRowRelation.getRelationId(), newOneRowRelation);
+        context.putRelation(oneRowRelation.getRelationId(), newOneRowRelation);
         return newOneRowRelation;
     }
 
@@ -177,9 +177,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
             DeepCopierContext context) {
-        if (context.getRelationReplaceMap().containsKey(deferMaterializeOlapScan.getRelationId())) {
-            return context.getRelationReplaceMap().get(deferMaterializeOlapScan.getRelationId());
-        }
         LogicalOlapScan newScan = (LogicalOlapScan) visitLogicalOlapScan(
                 deferMaterializeOlapScan.getLogicalOlapScan(), context);
         Set<ExprId> newSlotIds = deferMaterializeOlapScan.getDeferMaterializeSlotIds().stream()
@@ -189,7 +186,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .deepCopy(deferMaterializeOlapScan.getColumnIdSlot(), context);
         LogicalDeferMaterializeOlapScan newMaterializeOlapScan =
                 new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId);
-        context.putRelation(newMaterializeOlapScan.getRelationId(), newMaterializeOlapScan);
         return newMaterializeOlapScan;
     }
 
