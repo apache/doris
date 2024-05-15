@@ -176,8 +176,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     POpenLoadStreamResponse response;
     // set load_id as connection_group to distinguish different streaming connections
-    const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "single",
-                                                             "streaming");
+    const auto& stub =
+            client_cache->get_new_client_no_cache(host_port, "baidu_std", "single", "streaming");
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
