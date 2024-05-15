@@ -192,4 +192,13 @@ suite("window_function") {
           left join adj_nullable_2 on c1 = c4
         where c6 is not null;
     """
+
+    // distinct with window
+    sql """
+        SELECT
+              DISTINCT dt,
+              count(dt2) over (partition by dt) as num
+              from
+              (select 1 as dt,2 as dt2)t
+        group by dt,dt2"""
 }

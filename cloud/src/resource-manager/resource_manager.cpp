@@ -19,6 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <regex>
 #include <sstream>
 
 #include "common/logging.h"
@@ -142,6 +143,13 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     // check
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
+        return false;
+    }
+
+    const char* cluster_pattern_str = "^[a-zA-Z][a-zA-Z0-9_]*$";
+    std::regex txt_regex(cluster_pattern_str);
+    if (!std::regex_match(cluster.cluster_name(), txt_regex)) {
+        *err = "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it";
         return false;
     }
 

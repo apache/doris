@@ -1314,12 +1314,18 @@ public class Config extends ConfigBase {
      *  Minimum interval between last version when caching results,
      *  This parameter distinguishes between offline and real-time updates
      */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_last_version_interval_second = 30;
+
+    /**
+     *  Expire sql sql in frontend time
+     */
     @ConfField(
             mutable = true,
             masterOnly = false,
             callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
     )
-    public static int cache_last_version_interval_second = 30;
+    public static int expire_sql_cache_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -2611,6 +2617,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
+    // Advance the next id before transferring to the master.
+    @ConfField(description = {
+            "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",
+            "Whether to advance the ID generator after becoming Master to ensure that the id "
+                    + "generator will not be rolled back even when metadata is rolled back."
+    })
+    public static boolean enable_advance_next_id = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2693,6 +2707,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_create_inverted_index_for_array = false;
 
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,

@@ -35,11 +35,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -856,13 +856,6 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
-    private long makePackedDatetime() {
-        long ymd = ((year * 13 + month) << 5) | day;
-        long hms = (hour << 12) | (minute << 6) | second;
-        long packedDatetime = ((ymd << 17) | hms) << 24 + microsecond;
-        return packedDatetime;
-    }
-
     private void fromPackedDatetimeV2(long packedTime) {
         microsecond = (packedTime % (1L << 20));
         long ymdhms = (packedTime >> 20);
@@ -888,37 +881,6 @@ public class DateLiteral extends LiteralExpr {
         year = ym >> 4;
 
         this.type = Type.DATEV2;
-    }
-
-    private long makePackedDatetimeV2() {
-        return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-            | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
-    }
-
-    private long makePackedDateV2() {
-        return ((year << 9) | (month << 5) | day);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        // set flag bit in meta, 0 is DATETIME and 1 is DATE
-        if (this.type.equals(Type.DATETIME)) {
-            out.writeShort(DateLiteralType.DATETIME.value());
-            out.writeLong(makePackedDatetime());
-        } else if (this.type.equals(Type.DATE)) {
-            out.writeShort(DateLiteralType.DATE.value());
-            out.writeLong(makePackedDatetime());
-        } else if (this.type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-            out.writeShort(DateLiteralType.DATETIMEV2.value());
-            out.writeLong(makePackedDatetimeV2());
-            out.writeInt(((ScalarType) this.type).getScalarScale());
-        } else if (this.type.equals(Type.DATEV2)) {
-            out.writeShort(DateLiteralType.DATEV2.value());
-            out.writeLong(makePackedDateV2());
-        } else {
-            throw new IOException("Error date literal type : " + type);
-        }
     }
 
     private void fromPackedDatetime(long packedTime) {
@@ -1226,12 +1188,19 @@ public class DateLiteral extends LiteralExpr {
         return microsecond;
     }
 
+    @SerializedName("y")
     private long year;
+    @SerializedName("m")
     private long month;
+    @SerializedName("d")
     private long day;
+    @SerializedName("h")
     private long hour;
+    @SerializedName("M")
     private long minute;
+    @SerializedName("s")
     private long second;
+    @SerializedName("ms")
     private long microsecond;
 
     @Override

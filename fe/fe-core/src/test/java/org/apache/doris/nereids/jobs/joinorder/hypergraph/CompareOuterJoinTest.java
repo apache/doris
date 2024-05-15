@@ -43,6 +43,7 @@ import java.util.List;
 class CompareOuterJoinTest extends SqlTestBase {
     @Test
     void testStarGraphWithInnerJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         //      t2
         //      |
         //t3-- t1 -- t4
@@ -72,6 +73,7 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testRandomQuery() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         Plan p1 = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
                 .randomBuildPlanWith(3, 3);
         p1 = PlanChecker.from(connectContext, p1)
@@ -91,7 +93,7 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testInnerJoinWithFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
                 connectContext
@@ -118,7 +120,7 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testInnerJoinWithFilter2() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
                 connectContext
@@ -144,12 +146,11 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testLeftOuterJoinWithLeftFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from ( select * from T1 where T1.id = 0) T1 left outer join T2 on T1.id = T2.id",
                 connectContext
         );
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
         Plan p1 = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
@@ -172,12 +173,11 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testLeftOuterJoinWithRightFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 left outer join ( select * from T2 where T2.id = 0) T2 on T1.id = T2.id",
                 connectContext
         );
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
         Plan p1 = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()

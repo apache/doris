@@ -124,7 +124,10 @@ public:
     uint64_t new_id() { return _cache->new_id(); };
 
     // Subclass can override this method to determine whether to do the minor or full gc
-    virtual bool exceed_prune_limit() { return mem_consumption() > CACHE_MIN_FREE_SIZE; }
+    virtual bool exceed_prune_limit() {
+        return _lru_cache_type == LRUCacheType::SIZE ? mem_consumption() > CACHE_MIN_FREE_SIZE
+                                                     : get_usage() > CACHE_MIN_FREE_NUMBER;
+    }
 
     // Try to prune the cache if expired.
     void prune_stale() override {
@@ -142,8 +145,8 @@ public:
                                          curtime);
             };
 
-            LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}",
-                                     type_string(_type), mem_consumption());
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}, usage {}",
+                                     type_string(_type), mem_consumption(), get_usage());
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
             PrunedInfo pruned_info = _cache->prune_if(pred, true);
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
@@ -154,10 +157,19 @@ public:
                     type_string(_type), _freed_entrys_counter->value(),
                     _freed_memory_counter->value(), _prune_stale_number_counter->value());
         } else {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] {} not need prune stale, consumption {} less than "
-                    "CACHE_MIN_FREE_SIZE {}",
-                    type_string(_type), mem_consumption(), CACHE_MIN_FREE_SIZE);
+            if (_lru_cache_type == LRUCacheType::SIZE) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune stale, LRUCacheType::SIZE consumption {} "
+                        "less "
+                        "than CACHE_MIN_FREE_SIZE {}",
+                        type_string(_type), mem_consumption(), CACHE_MIN_FREE_SIZE);
+            } else if (_lru_cache_type == LRUCacheType::NUMBER) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune stale, LRUCacheType::NUMBER usage {} less "
+                        "than "
+                        "CACHE_MIN_FREE_NUMBER {}",
+                        type_string(_type), get_usage(), CACHE_MIN_FREE_NUMBER);
+            }
         }
     }
 
@@ -170,8 +182,8 @@ public:
         if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
-            LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}",
-                                     type_string(_type), mem_consumption());
+            LOG(INFO) << fmt::format("[MemoryGC] {} prune all start, consumption {}, usage {}",
+                                     type_string(_type), mem_consumption(), get_usage());
             PrunedInfo pruned_info = _cache->prune();
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
             COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
@@ -181,10 +193,18 @@ public:
                     type_string(_type), _freed_entrys_counter->value(),
                     _freed_memory_counter->value(), _prune_all_number_counter->value(), force);
         } else {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] {} not need prune all, force is {}, consumption {}, "
-                    "CACHE_MIN_FREE_SIZE {}",
-                    type_string(_type), force, mem_consumption(), CACHE_MIN_FREE_SIZE);
+            if (_lru_cache_type == LRUCacheType::SIZE) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::SIZE "
+                        "consumption {}, "
+                        "CACHE_MIN_FREE_SIZE {}",
+                        type_string(_type), force, mem_consumption(), CACHE_MIN_FREE_SIZE);
+            } else if (_lru_cache_type == LRUCacheType::NUMBER) {
+                LOG(INFO) << fmt::format(
+                        "[MemoryGC] {} not need prune all, force is {}, LRUCacheType::NUMBER "
+                        "usage {}, CACHE_MIN_FREE_NUMBER {}",
+                        type_string(_type), force, get_usage(), CACHE_MIN_FREE_NUMBER);
+            }
         }
     }
 

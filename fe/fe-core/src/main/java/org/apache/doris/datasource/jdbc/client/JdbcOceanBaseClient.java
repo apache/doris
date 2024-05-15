@@ -19,6 +19,7 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
