@@ -52,8 +52,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -258,8 +256,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         join.right().accept(this, context);
         join.left().accept(this, context);
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
+            // do not generate RF on this join
+            return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
@@ -284,19 +282,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 if (equalTo.left().getInputSlots().size() == 1) {
-                    if (DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-                        // skip
-                    } else {
-                        RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
-                                RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
-                                        equalTo.right(), equalTo.left(), ctx, generator, type, join,
-                                        context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
-                        // pushDownContext is not valid, if the target is an agg result.
-                        // Currently, we only apply RF on PhysicalScan. So skip this rf.
-                        // example: (select sum(x) as s from A) T join B on T.s=B.s
-                        if (pushDownContext.isValid()) {
-                            join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
-                        }
+                    RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                            RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
+                                    equalTo.right(), equalTo.left(), ctx, generator, type, join,
+                                    context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
+                    // pushDownContext is not valid, if the target is an agg result.
+                    // Currently, we only apply RF on PhysicalScan. So skip this rf.
+                    // example: (select sum(x) as s from A) T join B on T.s=B.s
+                    if (pushDownContext.isValid()) {
+                        join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
                     }
                 }
             }
@@ -440,10 +434,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // TODO: we need to support all type join
         join.right().accept(this, context);
         join.left().accept(this, context);
-
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
+            // do not generate RF on this join
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
@@ -581,7 +573,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             rf.getSrcExpr(), targetList, targetExpressions, rf.getType(), rf.getExprOrder(),
                             rf.getBuilderNode(), buildSideNdv, rf.isBloomFilterSizeCalculatedByNdv(),
-                            cteNode);
+                            rf.gettMinMaxType(), cteNode);
                     targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
@@ -592,26 +584,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return false;
-    }
-
-    @Override
-    public PhysicalPlan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
-        topN.child().accept(this, context);
-        PhysicalPlan child = (PhysicalPlan) topN.child();
-        for (Slot slot : child.getOutput()) {
-            context.getRuntimeFilterContext().aliasTransferMapRemove(slot);
-        }
-        return topN;
-    }
-
-    @Override
-    public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
-        window.child().accept(this, context);
-        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
-        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
-                slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot)
-        );
-        return window;
     }
 
     /**

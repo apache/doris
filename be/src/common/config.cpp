@@ -244,6 +244,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(remote_split_source_batch_size, "1024");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -1044,7 +1045,7 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
-DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "4"); // 4MB
+DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
 DEFINE_mBool(enable_shrink_memory, "false");
@@ -1053,6 +1054,10 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
+DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
+// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
+DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1252,6 +1257,17 @@ DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
 // The max ratio for ttl cache's size
 DEFINE_mInt64(max_ttl_cache_ratio, "90");
+// The maximum jvm heap usage ratio for hdfs write workload
+DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
+// The sleep milliseconds duration when hdfs write exceeds the maximum usage
+DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
+// The max retry times when hdfs write failed
+DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
+
+// The min thread num for NonBlockCloseThreadPool
+DEFINE_Int64(min_nonblock_close_thread_num, "12");
+// The max thread num for NonBlockCloseThreadPool
+DEFINE_Int64(max_nonblock_close_thread_num, "64");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1722,11 +1738,18 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
+        std::string config_val = it.second;
+        // For compatibility, this PR #32933 change the log dir's config logic,
+        // and deprecate the `sys_log_dir` config.
+        if (it.first == "sys_log_dir" && config_val == "") {
+            config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
+        }
+
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.emplace_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(config_val == "1" ? "true" : "false");
         } else {
-            _config.push_back(it.second);
+            _config.push_back(config_val);
         }
         _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 

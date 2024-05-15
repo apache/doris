@@ -141,6 +141,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.sync.SyncJobManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
 
@@ -161,6 +162,7 @@ public class DdlExecutor {
      * Execute ddl.
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
+        checkDdlStmtSupported(ddlStmt);
         if (ddlStmt instanceof CreateDbStmt) {
             env.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
@@ -525,6 +527,40 @@ public class DdlExecutor {
             } else if (retry > 1000) {
                 currentInterval = 100;
             }
+        }
+    }
+
+    private static void checkDdlStmtSupported(DdlStmt ddlStmt) throws DdlException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (ddlStmt instanceof AdminSetConfigStmt) {
+            if (!ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
+                throw new DdlException("Unsupported operation");
+            }
+        }
+
+        if (ddlStmt instanceof BackupStmt
+                || ddlStmt instanceof RestoreStmt
+                || ddlStmt instanceof CancelBackupStmt
+                || ddlStmt instanceof CreateRepositoryStmt
+                || ddlStmt instanceof DropRepositoryStmt
+                || ddlStmt instanceof AdminRepairTableStmt
+                || ddlStmt instanceof AdminCancelRepairTableStmt
+                || ddlStmt instanceof AdminCompactTableStmt
+                || ddlStmt instanceof AdminCheckTabletsStmt
+                || ddlStmt instanceof AdminSetReplicaStatusStmt
+                || ddlStmt instanceof AdminCleanTrashStmt
+                || ddlStmt instanceof AdminRebalanceDiskStmt
+                || ddlStmt instanceof AdminCancelRebalanceDiskStmt
+                || ddlStmt instanceof AlterResourceStmt
+                || ddlStmt instanceof AlterPolicyStmt
+                || ddlStmt instanceof AlterSystemStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
+            throw new DdlException("Unsupported operation");
         }
     }
 }

@@ -72,7 +72,7 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 // after _close_task, task maybe destructed.
-void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status) {
+void _close_task(PipelineTask* task, Status exec_status) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
@@ -86,12 +86,9 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
     // We have already refactor all source and sink api, the close API does not need waiting
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
-    if (!status.ok() && state != PipelineTaskState::CANCELED) {
-        task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                         std::string(status.msg()));
-        state = PipelineTaskState::CANCELED;
+    if (!status.ok()) {
+        task->fragment_context()->cancel(status);
     }
-    task->set_state(state);
     task->finalize();
     task->set_running(false);
     task->fragment_context()->close_a_pipeline();
@@ -113,25 +110,18 @@ void TaskScheduler::_do_work(size_t index) {
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
 
-        auto state = task->get_state();
         // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
         // has to return false. The task is finished and need to close now.
-        if (state == PipelineTaskState::PENDING_FINISH || canceled) {
+        if (canceled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
 
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-            _close_task(task, canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
-                        exec_status);
+            _close_task(task, fragment_ctx->get_query_ctx()->exec_status());
             continue;
         }
-        DCHECK(state != PipelineTaskState::FINISHED && state != PipelineTaskState::CANCELED)
-                << "task already finish: " << task->debug_string();
-
-        task->set_state(PipelineTaskState::RUNNABLE);
 
         // task exec
         bool eos = false;
@@ -158,10 +148,8 @@ void TaskScheduler::_do_work(size_t index) {
                 status = task->execute(&eos);
 
                 uint64_t end_time = MonotonicMicros();
-                std::string_view state_name = get_state_name(task->get_state());
                 ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                        {query_id, task_name, core_id, thread_id, start_time, end_time,
-                         state_name});
+                        {query_id, task_name, core_id, thread_id, start_time, end_time});
             } else {
                 status = task->execute(&eos);
             }
@@ -171,22 +159,17 @@ void TaskScheduler::_do_work(size_t index) {
 
         task->set_previous_core_id(index);
 
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            // Sink operator finished, just close task now.
-            _close_task(task, PipelineTaskState::FINISHED, Status::OK());
-            continue;
-        } else if (!status.ok()) {
-            LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                        print_id(task->query_context()->query_id()),
-                                        status.to_string());
+        if (!status.ok()) {
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                 std::string(status.to_string_no_stack()));
-            _close_task(task, PipelineTaskState::CANCELED, status);
+            fragment_ctx->cancel(status);
+            LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
+                                        print_id(task->query_context()->query_id()),
+                                        status.to_string());
+            _close_task(task, status);
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
@@ -201,29 +184,15 @@ void TaskScheduler::_do_work(size_t index) {
             // added to running queue when dependency is ready.
             if (task->is_pending_finish()) {
                 // Only meet eos, should set task to PENDING_FINISH state
-                task->set_state(PipelineTaskState::PENDING_FINISH);
                 task->set_running(false);
             } else {
                 Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                _close_task(task, PipelineTaskState::FINISHED, exec_status);
+                _close_task(task, exec_status);
             }
             continue;
         }
 
-        auto pipeline_state = task->get_state();
-        switch (pipeline_state) {
-        case PipelineTaskState::BLOCKED:
-            task->set_running(false);
-            break;
-        case PipelineTaskState::RUNNABLE:
-            task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
-            break;
-        default:
-            DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)
-                          << " task: " << task->debug_string();
-            break;
-        }
+        task->set_running(false);
     }
 }
 

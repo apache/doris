@@ -35,7 +35,7 @@ import java.util.BitSet;
 class EliminateJoinTest extends SqlTestBase {
     @Test
     void testLOJWithGroupBy() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -75,7 +75,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithUK() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -105,7 +105,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithPKFK() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -149,7 +149,7 @@ class EliminateJoinTest extends SqlTestBase {
     @Disabled
     @Test
     void testLOJWithPKFKAndUK1() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext
@@ -182,7 +182,7 @@ class EliminateJoinTest extends SqlTestBase {
 
     @Test
     void testLOJWithPKFKAndUK2() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1",
                 connectContext

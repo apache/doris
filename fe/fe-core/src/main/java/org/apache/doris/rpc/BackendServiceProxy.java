@@ -19,6 +19,7 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanFragmentId;
@@ -245,11 +246,12 @@ public class BackendServiceProxy {
     }
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(TNetworkAddress address,
-            TUniqueId finstId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+            TUniqueId finstId, Status cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest =
                 InternalService.PCancelPlanFragmentRequest.newBuilder()
                         .setFinstId(Types.PUniqueId.newBuilder().setHi(finstId.hi).setLo(finstId.lo).build())
-                        .setCancelReason(cancelReason).build();
+                        .setCancelReason(cancelReason.getPCancelReason())
+                        .setCancelStatus(cancelReason.toPStatus()).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.cancelPlanFragmentAsync(pRequest);
@@ -262,11 +264,12 @@ public class BackendServiceProxy {
 
     public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(
             TNetworkAddress address, PlanFragmentId fragmentId, TUniqueId queryId,
-            Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+            Status cancelReason) throws RpcException {
         final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
                 .newBuilder()
                 .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
-                .setCancelReason(cancelReason)
+                .setCancelReason(cancelReason.getPCancelReason())
+                .setCancelStatus(cancelReason.toPStatus())
                 .setFragmentId(fragmentId.asInt())
                 .setQueryId(Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build()).build();
         try {

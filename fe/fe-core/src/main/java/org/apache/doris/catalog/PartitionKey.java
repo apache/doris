@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
@@ -27,11 +28,13 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
@@ -381,7 +384,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 Text.writeString(out, type.toString());
             } else {
                 out.writeBoolean(false);
-                keys.get(i).write(out);
+                Text.writeString(out, GsonUtils.GSON.toJson(keys.get(i)));
             }
         }
     }
@@ -403,32 +406,36 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (isMax) {
                 literal = MaxLiteral.MAX_VALUE;
             } else {
-                switch (type) {
-                    case TINYINT:
-                    case SMALLINT:
-                    case INT:
-                    case BIGINT:
-                        literal = IntLiteral.read(in);
-                        break;
-                    case LARGEINT:
-                        literal = LargeIntLiteral.read(in);
-                        break;
-                    case DATE:
-                    case DATETIME:
-                    case DATEV2:
-                    case DATETIMEV2:
-                        literal = DateLiteral.read(in);
-                        break;
-                    case CHAR:
-                    case VARCHAR:
-                    case STRING:
-                        literal = StringLiteral.read(in);
-                        break;
-                    case BOOLEAN:
-                        literal = BoolLiteral.read(in);
-                        break;
-                    default:
-                        throw new IOException("type[" + type.name() + "] not supported: ");
+                if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
+                    literal = (LiteralExpr) GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
+                } else {
+                    switch (type) {
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                        case BIGINT:
+                            literal = IntLiteral.read(in);
+                            break;
+                        case LARGEINT:
+                            literal = LargeIntLiteral.read(in);
+                            break;
+                        case DATE:
+                        case DATETIME:
+                        case DATEV2:
+                        case DATETIMEV2:
+                            literal = DateLiteral.read(in);
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING:
+                            literal = StringLiteral.read(in);
+                            break;
+                        case BOOLEAN:
+                            literal = BoolLiteral.read(in);
+                            break;
+                        default:
+                            throw new IOException("type[" + type.name() + "] not supported: ");
+                    }
                 }
             }
             if (type != PrimitiveType.DATETIMEV2) {

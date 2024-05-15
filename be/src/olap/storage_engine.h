@@ -383,6 +383,8 @@ private:
 
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
+    int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -432,6 +434,7 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
+
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 

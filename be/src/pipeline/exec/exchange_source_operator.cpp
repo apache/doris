@@ -72,7 +72,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                            "SHUFFLE_DATA_DEPENDENCY", state->get_query_ctx());
+                                            "SHUFFLE_DATA_DEPENDENCY");
         queues[i]->set_dependency(deps[i]);
         metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);

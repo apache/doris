@@ -27,7 +27,8 @@ suite("q1") {
     sql 'set parallel_pipeline_task_num=8'
     sql 'set be_number_for_test=3'
     sql "set runtime_filter_type=8"
-sql 'set enable_runtime_filter_prune=false'
+    sql 'set enable_runtime_filter_prune=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     
 
     qt_select """

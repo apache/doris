@@ -27,6 +27,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -92,8 +93,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                 .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        PlanChecker.from(connectContext, plan2)
                 .rewrite()
                 .matchesFromRoot(
                         logicalJoin(
@@ -121,7 +123,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 )
                 .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                 .build();
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        PlanChecker.from(connectContext, plan2)
                 .applyBottomUp(new SemiJoinCommute())
                 .rewrite()
                 .matchesFromRoot(
@@ -167,7 +171,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
         );
 
         for (LogicalPlan plan : plans) {
-            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker.from(connectContext, plan)
                     .applyBottomUp(new ReorderJoin())
                     .matchesFromRoot(
                             logicalJoin(
@@ -180,7 +186,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
 
     public void check(List<LogicalPlan> plans) {
         for (LogicalPlan plan : plans) {
-            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker.from(connectContext, plan)
                     .rewrite()
                     .printlnTree()
                     .matchesFromRoot(
@@ -214,8 +222,9 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 .joinEmptyOn(rightJoin, JoinType.CROSS_JOIN)
                 .filter(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)))
                 .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        PlanChecker.from(connectContext, plan)
                 .applyBottomUp(new ReorderJoin())
                 .matchesFromRoot(
                         logicalJoin(

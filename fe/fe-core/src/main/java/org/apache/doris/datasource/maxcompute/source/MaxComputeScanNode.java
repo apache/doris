@@ -116,7 +116,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected List<Split> getSplits() throws UserException {
+    public List<Split> getSplits() throws UserException {
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {

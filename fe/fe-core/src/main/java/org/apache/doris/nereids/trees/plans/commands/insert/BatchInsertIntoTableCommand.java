@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
@@ -105,7 +106,7 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.checkBlockRules();
-            if (ctx.getMysqlChannel() != null) {
+            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 

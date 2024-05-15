@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -227,9 +226,7 @@ public abstract class ExternalCatalog
         initLocalObjects();
         if (!initialized) {
             if (useMetaCache.get()) {
-                if (metaCache != null) {
-                    metaCache.invalidateAll();
-                } else {
+                if (metaCache == null) {
                     metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
                             name,
                             OptionalLong.of(86400L),
@@ -346,7 +343,6 @@ public abstract class ExternalCatalog
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {
@@ -381,13 +377,22 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+        if (useMetaCache.isPresent()) {
+            if (useMetaCache.get() && metaCache != null) {
+                metaCache.invalidateAll();
+            } else if (!useMetaCache.get()) {
+                for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
+                    db.setUnInitialized(invalidCache);
+                }
+            }
+        }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
     }
 
-    public final List<Column> getSchema(String dbName, String tblName) {
+    public final Optional<SchemaCacheValue> getSchema(String dbName, String tblName) {
         makeSureInitialized();
         Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(dbName);
         if (db.isPresent()) {
@@ -396,9 +401,7 @@ public abstract class ExternalCatalog
                 return table.get().initSchemaAndUpdateTime();
             }
         }
-        // return one column with unsupported type.
-        // not return empty to avoid some unexpected issue.
-        return Lists.newArrayList(Column.UNSUPPORTED_COLUMN);
+        return Optional.empty();
     }
 
     @Override
@@ -508,7 +511,7 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObjById(dbId).get();
+            return metaCache.getMetaObjById(dbId).orElse(null);
         } else {
             return idToDb.get(dbId);
         }
@@ -590,7 +593,6 @@ public abstract class ExternalCatalog
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
             Preconditions.checkNotNull(db.get());
-            db.get().setUnInitialized(invalidCacheInInit);
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
         }
