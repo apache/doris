@@ -109,7 +109,7 @@ public:
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
-    int32_t tablet_id = 0;
+    int64_t tablet_id = 0;
     size_t topn_limit = 0;
 };
 

@@ -592,7 +592,7 @@ public:
 
 private:
     rowid_t _current_rowid = 0;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
 };

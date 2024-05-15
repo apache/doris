@@ -120,7 +120,7 @@ public:
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
-    int32_t tablet_id() const { return _tablet_id; }
+    int64_t tablet_id() const { return _tablet_id; }
 
     bool update_profile(RuntimeProfile* profile) override {
         bool updated = false;
@@ -430,7 +430,7 @@ private:
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
 };
 
