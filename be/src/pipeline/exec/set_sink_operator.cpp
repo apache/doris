@@ -119,8 +119,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
     rows = is_all_const ? 1 : rows;
 
     for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
+        int result_col_id = result_locs[i];
 
         if (is_all_const) {
             block.get_by_position(result_col_id).column =
