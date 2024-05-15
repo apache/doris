@@ -23,6 +23,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,8 +42,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -52,6 +56,7 @@ import java.util.stream.Collectors;
  */
 public abstract class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
+    public final Map<RelationMapping, SlotMapping> queryToMvSlotMappingCache = new HashMap<>();
     protected List<Table> baseTables;
     protected List<Table> baseViews;
     // The plan of mv def sql
@@ -138,6 +143,14 @@ public abstract class MaterializationContext {
             this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
                     this.mvScanPlan.getExpressions());
         }
+    }
+
+    public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
+        queryToMvSlotMappingCache.put(relationMapping, slotMapping);
+    }
+
+    public SlotMapping getSlotMappingFromCache(RelationMapping relationMapping) {
+        return queryToMvSlotMappingCache.get(relationMapping);
     }
 
     /**
