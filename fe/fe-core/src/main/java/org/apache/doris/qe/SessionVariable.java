@@ -3794,10 +3794,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableMaterializedViewNestRewrite;
     }
 
-    public int getMaterializedViewJoinMaxCount() {
-        return materializedViewJoinMaxCount;
-    }
-
     public int getMaterializedViewRelationMappingMaxCount() {
         return materializedViewRelationMappingMaxCount;
     }
