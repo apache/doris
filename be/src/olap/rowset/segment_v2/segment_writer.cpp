@@ -735,7 +735,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                             mutable_full_columns[cids_missing[i]].get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*>(
-                                     block->get_columns()[block->columns() - 1].get()))
+                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
+                                             .column.get()))
                                     ->get_element(idx));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
