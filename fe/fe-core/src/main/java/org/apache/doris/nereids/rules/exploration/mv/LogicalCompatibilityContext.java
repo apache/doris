@@ -128,7 +128,7 @@ public class LogicalCompatibilityContext {
      * this make expression mapping between query and view by relation and the slot in relation mapping
      */
     public static LogicalCompatibilityContext from(RelationMapping relationMapping,
-            SlotMapping queryToViewSlotMapping,
+            SlotMapping viewToQuerySlotMapping,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo) {
         // init node mapping
@@ -147,11 +147,8 @@ public class LogicalCompatibilityContext {
                 queryToViewNodeMapping.put(queryStructInfoNode, viewStructInfoNode);
             }
         }
-        // init expression mapping
-        Map<SlotReference, SlotReference> viewToQuerySlotMapping = queryToViewSlotMapping.inverse()
-                .toSlotReferenceMap();
         return new LogicalCompatibilityContext(queryToViewNodeMapping,
-                viewToQuerySlotMapping,
+                viewToQuerySlotMapping.toSlotReferenceMap(),
                 queryStructInfo,
                 viewStructInfo);
     }
