@@ -98,7 +98,7 @@ arrow::Result<int64_t> ParquetOutputStream::Tell() const {
 }
 
 arrow::Status ParquetOutputStream::Close() {
-    if (_is_closed) {
+    if (!_is_closed) {
         Defer defer {[this] { _is_closed = true; }};
         Status st = _file_writer->close();
         if (!st.ok()) {
