@@ -485,7 +485,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             if (fileStatus.isIsDir() || fileStatus.size == 0
-                    || (compressionType != TFileCompressType.UNKNOWN && fileStatus.size == 4)) {
+                    || (compressionType != TFileCompressType.UNKNOWN && fileStatus.size <= 4)) {
                 continue;
             }
             firstFile = fileStatus;
