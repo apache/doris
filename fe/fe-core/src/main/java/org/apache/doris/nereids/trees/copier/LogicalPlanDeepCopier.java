@@ -39,14 +39,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -202,6 +205,51 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
         return newFileScan;
+    }
+
+    @Override
+    public Plan visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(jdbcScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(jdbcScan.getRelationId());
+        }
+        Set<Expression> conjuncts = jdbcScan.getConjuncts().stream()
+                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableSet.toImmutableSet());
+        LogicalJdbcScan newJdbcScan = jdbcScan.withConjuncts(conjuncts)
+                .withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(jdbcScan, newJdbcScan, context.exprIdReplaceMap);
+        context.putRelation(jdbcScan.getRelationId(), newJdbcScan);
+        return newJdbcScan;
+    }
+
+    @Override
+    public Plan visitLogicalOdbcScan(LogicalOdbcScan odbcScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(odbcScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(odbcScan.getRelationId());
+        }
+        Set<Expression> conjuncts = odbcScan.getConjuncts().stream()
+                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableSet.toImmutableSet());
+        LogicalOdbcScan newOdbcScan = odbcScan.withConjuncts(conjuncts)
+                .withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(odbcScan, newOdbcScan, context.exprIdReplaceMap);
+        context.putRelation(odbcScan.getRelationId(), newOdbcScan);
+        return newOdbcScan;
+    }
+
+    @Override
+    public Plan visitLogicalEsScan(LogicalEsScan esScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(esScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(esScan.getRelationId());
+        }
+        Set<Expression> conjuncts = esScan.getConjuncts().stream()
+                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableSet.toImmutableSet());
+        LogicalEsScan newEsScan = esScan.withConjuncts(conjuncts)
+                .withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(esScan, newEsScan, context.exprIdReplaceMap);
+        context.putRelation(esScan.getRelationId(), newEsScan);
+        return newEsScan;
     }
 
     @Override
