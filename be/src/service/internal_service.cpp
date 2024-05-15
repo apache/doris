@@ -571,26 +571,39 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
+        const bool has_cancel_status = request->has_cancel_status();
+        // During upgrade only LIMIT_REACH is used, other reason is changed to internal error
+        Status actual_cancel_status = Status::OK();
+        // Convert PPlanFragmentCancelReason to Status
+        if (has_cancel_status) {
+            // If fe set cancel status, then it is new FE now, should use cancel status.
+            actual_cancel_status = Status::create(request->cancel_status());
+        } else if (has_cancel_reason) {
+            // If fe not set cancel status, but set cancel reason, should convert cancel reason
+            // to cancel status here.
+            if (request->cancel_reason() == PPlanFragmentCancelReason::LIMIT_REACH) {
+                actual_cancel_status = Status::Error<ErrorCode::LIMIT_REACH>("limit reach");
+            } else {
+                // Use cancel reason as error message
+                actual_cancel_status = Status::InternalError(
+                        PPlanFragmentCancelReason_Name(request->cancel_reason()));
+            }
+        } else {
+            actual_cancel_status = Status::InternalError("unknown error");
+        }
+
         if (request->has_fragment_id()) {
             TUniqueId query_id;
             query_id.__set_hi(request->query_id().hi());
             query_id.__set_lo(request->query_id().lo());
-            LOG(INFO) << fmt::format(
-                    "Cancel query {}, reason: {}", print_id(query_id),
-                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                      : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_fragment(
-                    query_id, request->fragment_id(),
-                    has_cancel_reason ? request->cancel_reason()
-                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+                                     actual_cancel_status.to_string());
+            _exec_env->fragment_mgr()->cancel_fragment(query_id, request->fragment_id(),
+                                                       actual_cancel_status);
         } else {
-            LOG(INFO) << fmt::format(
-                    "Cancel instance {}, reason: {}", print_id(tid),
-                    has_cancel_reason ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                      : "INTERNAL_ERROR");
-            _exec_env->fragment_mgr()->cancel_instance(
-                    tid, has_cancel_reason ? request->cancel_reason()
-                                           : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
+                                     actual_cancel_status.to_string());
+            _exec_env->fragment_mgr()->cancel_instance(tid, actual_cancel_status);
         }
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
@@ -1165,7 +1178,23 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
-            if (!kafka_request.partition_id_for_latest_offsets().empty()) {
+            if (!kafka_request.offset_flags().empty()) {
+                std::vector<PIntegerPair> partition_offsets;
+                Status st = _exec_env->routine_load_task_executor()
+                                    ->get_kafka_real_offsets_for_partitions(
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
+                if (st.ok()) {
+                    PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
+                    for (const auto& entry : partition_offsets) {
+                        PIntegerPair* res = part_offsets->add_offset_times();
+                        res->set_key(entry.key());
+                        res->set_val(entry.val());
+                    }
+                }
+                st.to_protobuf(response->mutable_status());
+                return;
+            } else if (!kafka_request.partition_id_for_latest_offsets().empty()) {
                 // get latest offsets for specified partition ids
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()

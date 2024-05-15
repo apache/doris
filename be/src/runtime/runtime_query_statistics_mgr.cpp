@@ -104,7 +104,8 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
         const TUniqueId& query_id,
         const std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
                 fragment_id_to_profile,
-        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profiles) {
+        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profiles,
+        bool is_done) {
     TQueryProfile profile;
     profile.__set_query_id(query_id);
 
@@ -162,6 +163,7 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
     req.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
     // invalid query id to avoid API compatibility during upgrade
     req.__set_query_id(TUniqueId());
+    req.__set_done(is_done);
 
     return req;
 }
@@ -170,7 +172,8 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
         const TUniqueId& query_id,
         const std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>&
                 instance_id_to_profile,
-        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile) {
+        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+        bool is_done) {
     TQueryProfile profile;
     std::vector<TUniqueId> fragment_instance_ids;
     std::vector<TRuntimeProfileTree> instance_profiles;
@@ -202,6 +205,7 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
     // invalid query id to avoid API compatibility during upgrade
     res.__set_query_id(TUniqueId());
     res.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
+    res.__set_done(is_done);
     return res;
 }
 
@@ -378,7 +382,7 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_non_pipeline() {
         }
 
         TReportExecStatusParams req = create_report_exec_status_params_non_pipeline(
-                query_id, instance_id_to_profile, load_channel_profiles);
+                query_id, instance_id_to_profile, load_channel_profiles, /*is_done=*/true);
         TReportExecStatusResult res;
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
 
@@ -431,7 +435,7 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_x() {
         }
 
         TReportExecStatusParams req = create_report_exec_status_params_x(
-                query_id, fragment_profile_map, load_channel_profiles);
+                query_id, fragment_profile_map, load_channel_profiles, /*is_done=*/true);
         TReportExecStatusResult res;
 
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);

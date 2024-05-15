@@ -75,7 +75,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
-    _query_thread_context.init(); // from load stream
+    _query_thread_context.init_unlocked(); // from load stream
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;
@@ -176,7 +176,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     if (file_writer == nullptr) {
         return Status::Corruption("add_segment failed, file writer {} is destroyed", segid);
     }
-    if (!file_writer->closed()) {
+    if (file_writer->state() != io::FileWriter::State::CLOSED) {
         return Status::Corruption("add_segment failed, segment {} is not closed",
                                   file_writer->path().native());
     }
@@ -209,7 +209,7 @@ Status LoadStreamWriter::close() {
     }
 
     for (const auto& writer : _segment_file_writers) {
-        if (!writer->closed()) {
+        if (writer->state() != io::FileWriter::State::CLOSED) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
                                       writer->path().native());
         }

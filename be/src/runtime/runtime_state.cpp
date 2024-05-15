@@ -374,17 +374,6 @@ std::string RuntimeState::cancel_reason() const {
     return _cancel_reason;
 }
 
-Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
-    {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (_process_status.ok()) {
-            _process_status = Status::MemoryLimitExceeded(msg);
-        }
-    }
-    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
-    return _process_status;
-}
-
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
@@ -553,6 +542,30 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
 
 bool RuntimeState::is_nereids() const {
     return _query_ctx->is_nereids();
+}
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
+    std::shared_lock lc(_pipeline_profile_lock);
+    return _pipeline_id_to_profile;
+}
+
+std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profile(
+        std::size_t pipeline_size) {
+    std::unique_lock lc(_pipeline_profile_lock);
+    if (!_pipeline_id_to_profile.empty()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "build_pipeline_profile can only be called once.");
+    }
+    _pipeline_id_to_profile.resize(pipeline_size);
+    {
+        size_t pip_idx = 0;
+        for (auto& pipeline_profile : _pipeline_id_to_profile) {
+            pipeline_profile =
+                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+            pip_idx++;
+        }
+    }
+    return _pipeline_id_to_profile;
 }
 
 } // end namespace doris

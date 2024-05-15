@@ -180,8 +180,8 @@ public class TableBinlog {
 
         long ttlSeconds = tableBinlogConfig.getTtlSeconds();
         long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
-
         if (expiredMs < 0) {
+            LOG.info("skip ttl gc. dbId: {}, tableId: {}, ttlSeconds: {}", dbId, tableId, ttlSeconds);
             return null;
         }
         LOG.info("ttl gc. dbId: {}, tableId: {}, expiredMs: {}", dbId, tableId, expiredMs);

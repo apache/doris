@@ -118,6 +118,7 @@ enum ClusterStatus {
     NORMAL = 1;
     SUSPENDED = 2;
     TO_RESUME = 3;
+    MANUAL_SHUTDOWN = 4;
 }
 
 message ClusterPB {

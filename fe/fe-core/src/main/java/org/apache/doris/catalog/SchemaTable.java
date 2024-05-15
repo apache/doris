@@ -499,8 +499,8 @@ public class SchemaTable extends Table {
                             .column("STATE", ScalarType.createVarchar(64))
                             .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                             .build()))
-            .put("workload_schedule_policy",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_schedule_policy", TableType.SCHEMA,
+            .put("workload_policy",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NAME", ScalarType.createVarchar(256))
                                     .column("CONDITION", ScalarType.createStringType())

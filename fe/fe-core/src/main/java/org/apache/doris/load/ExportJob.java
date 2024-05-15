@@ -270,7 +270,7 @@ public class ExportJob implements Writable {
                 if (exportTable.getType() == TableType.VIEW) {
                     // view table
                     generateViewOrExternalTableOutfile(qualifiedTableName);
-                } else if (exportTable.getType() == TableType.OLAP) {
+                } else if (exportTable.isManagedTable()) {
                     // olap table
                     generateOlapTableOutfile(qualifiedTableName);
                 } else {

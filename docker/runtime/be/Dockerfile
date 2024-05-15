@@ -16,41 +16,38 @@
 # under the License.
 
 # how to use Dockerfile.
-# this is dockerfile for build doris fe image on amd64.
+# this is dockerfile for build doris be image
 # when build youself image.
-# 1. pull binary from official website and decompress into resource directory that the level equals with Dockerfile_be_ubuntu.
-# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version.
-# 3. run commad docker build -t xxx.doris.be:xx -f Dockerfile_be_ubuntu.
+# 1. pull binary from official website and decompress into resource directory that the level equals with this Dockerfile.
+# 2. untar xxxx.tar.gz in resource/{arch} directory, makesure your doris package real version and target arch.
+# 3. run commad docker build -t xxx.doris.be:xx -f Dockerfile --build-arg DORIS_VERSION=2.1.2
 
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
 # choose a base image
-FROM ubuntu:22.04
+FROM selectdb/base:latest
 
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
 
-RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    patchelf gdb binutils binutils-common mysql-client \
-    curl wget less vim htop iproute2 numactl jq iotop sysstat \
-    tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
-    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    net-tools openjdk-8-jdk && \
-    rm -rf /var/lib/apt/lists/*
+
+RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([1-9]([0-9])))|master.*' >>/dev/null ; then \
+        ln -s /usr/lib/jvm/jdk-17 /usr/lib/jvm/java && \
+        rm -rf /usr/lib/jvm/jdk-8; \
+    else \
+        ln -s /usr/lib/jvm/jdk-8 /usr/lib/jvm/java && \
+        rm -rf /usr/lib/jvm/jdk-17; \
+    fi;
 
 # set environment variables
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
-        PATH="/opt/apache-doris/be/bin:${PATH}"
+ENV JAVA_HOME=/usr/lib/jvm/java
+ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/be/bin
 
-# apache-doris/be from doris release xxxx.tar.gz.please update the version in follows x.x.x.
-ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/be /opt/apache-doris/be
+COPY resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/be /opt/apache-doris/be
 
 COPY resource/be_*.sh /opt/apache-doris/
-
-COPY --from=selectdb/doris-debug-ubuntu:latest /doris-debug /opt/apache-doris/
 
 COPY resource/entry_point.sh /usr/local/bin/
 

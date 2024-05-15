@@ -957,7 +957,8 @@ public class StmtRewriter {
      * query block (i.e. is not bound by the given 'tupleIds').
      */
     private static boolean isCorrelatedPredicate(Expr expr, List<TupleId> tupleIds) {
-        return (expr instanceof BinaryPredicate || expr instanceof SlotRef) && !expr.isBoundByTupleIds(tupleIds);
+        return (expr instanceof BinaryPredicate || expr instanceof SlotRef
+                || expr instanceof IsNullPredicate) && !expr.isBoundByTupleIds(tupleIds);
     }
 
     /**

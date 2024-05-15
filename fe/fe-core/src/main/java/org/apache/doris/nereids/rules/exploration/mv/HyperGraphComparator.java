@@ -238,7 +238,7 @@ public class HyperGraphComparator {
         int size = queryExprSetList.size();
         for (int i = 0; i < size; i++) {
             Set<Expression> mappingQueryExprSet = queryExprSetList.get(i).stream()
-                    .map(e -> logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping().get(e))
+                    .map(e -> logicalCompatibilityContext.getQueryToViewAllExpressionMapping().get(e))
                     .collect(Collectors.toSet());
             if (!mappingQueryExprSet.equals(viewExprSetList.get(i))) {
                 return false;
@@ -391,7 +391,7 @@ public class HyperGraphComparator {
     }
 
     private Map<Expression, Expression> getQueryToViewExprMap() {
-        return logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping();
+        return logicalCompatibilityContext.getQueryToViewAllExpressionMapping();
     }
 
     private Map<Integer, Integer> getQueryToViewNodeIdMap() {
@@ -414,7 +414,7 @@ public class HyperGraphComparator {
     }
 
     private Expression getViewExprFromQueryExpr(Expression query) {
-        return logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping().get(query);
+        return logicalCompatibilityContext.getQueryToViewAllExpressionMapping().get(query);
     }
 
     private void refreshViewEdges() {

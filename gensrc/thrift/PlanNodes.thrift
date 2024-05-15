@@ -292,11 +292,14 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    5: optional i32 content;
 }
 
 struct TIcebergFileDesc {
     1: optional i32 format_version;
     // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    // deprecated, a data file can have both position and delete files
     2: optional i32 content;
     // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
@@ -448,6 +451,11 @@ struct TFileRangeDesc {
     12: optional string fs_name
 }
 
+struct TSplitSource {
+    1: optional i64 split_source_id
+    2: optional i32 num_splits
+}
+
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
 //  TFileScanRangeParams: describe how to read and convert file
 //  list<TFileRangeDesc>: file location and range
@@ -458,12 +466,12 @@ struct TFileScanRange {
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
     // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
     2: optional TFileScanRangeParams params
+    3: optional TSplitSource split_source
 }
 
 // Scan range for external datasource, such as file on hdfs, es datanode, etc.
 struct TExternalScanRange {
     1: optional TFileScanRange file_scan_range
-    // TODO: add more scan range type?
 }
 
 enum TDataGenFunctionName {

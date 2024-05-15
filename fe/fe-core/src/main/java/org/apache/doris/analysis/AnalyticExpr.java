@@ -973,4 +973,9 @@ public class AnalyticExpr extends Expr {
         }
         return Joiner.on(", ").join(strings);
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

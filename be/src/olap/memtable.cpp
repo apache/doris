@@ -65,19 +65,25 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
           _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     g_memtable_cnt << 1;
-    _query_thread_context.init();
+    _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
-    // TODO: Support ZOrderComparator in the future
-    _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
         _is_partial_update = partial_update_info->is_partial_update;
         if (_is_partial_update) {
             _num_columns = partial_update_info->partial_update_input_columns.size();
+            if (partial_update_info->is_schema_contains_auto_inc_column &&
+                !partial_update_info->is_input_columns_contains_auto_inc_column) {
+                _is_partial_update_and_auto_inc = true;
+                _num_columns += 1;
+            }
         }
     }
+    // TODO: Support ZOrderComparator in the future
+    _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
 }
+
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                                   const TupleDescriptor* tuple_desc) {
     for (auto slot_desc : *slot_descs) {
@@ -88,6 +94,9 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
                 break;
             }
         }
+    }
+    if (_is_partial_update_and_auto_inc) {
+        _column_offset.emplace_back(_column_offset.size());
     }
 }
 
@@ -169,8 +178,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* input_block, const std::vector<uint32_t>& row_idxs,
-                      bool is_append) {
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<uint32_t>& row_idxs) {
     vectorized::Block target_block = *input_block;
     target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
@@ -201,13 +209,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     auto block_size0 = _input_mutable_block.allocated_bytes();
-    if (is_append) {
-        // Append the block, call insert range from
-        _input_mutable_block.add_rows(&target_block, 0, target_block.rows());
-        num_rows = target_block.rows();
-    } else {
-        _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
-    }
+    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     auto block_size1 = _input_mutable_block.allocated_bytes();
     g_memtable_input_block_allocated_size << block_size1 - block_size0;
     auto input_size = size_t(target_block.bytes() * num_rows / target_block.rows() *

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -175,5 +176,9 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {
         return visitPhysicalRelation(tvfRelation, context);
+    }
+
+    default R visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, C context) {
+        return visitPhysicalRelation(consumer, context);
     }
 }

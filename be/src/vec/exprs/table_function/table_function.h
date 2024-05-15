@@ -53,7 +53,7 @@ public:
         _cur_offset = 0;
     }
 
-    virtual void get_value(MutableColumnPtr& column) = 0;
+    virtual void get_same_many_values(MutableColumnPtr& column, int length = 0) = 0;
     virtual int get_value(MutableColumnPtr& column, int max_step) = 0;
 
     virtual Status close() { return Status::OK(); }

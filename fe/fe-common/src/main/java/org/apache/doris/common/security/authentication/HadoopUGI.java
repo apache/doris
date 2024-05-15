@@ -19,6 +19,7 @@ package org.apache.doris.common.security.authentication;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,7 +43,8 @@ public class HadoopUGI {
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             Configuration hadoopConf = krbConfig.getConf();
-            hadoopConf.set(AuthenticationConfig.HADOOP_KERBEROS_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
             UserGroupInformation.setConfiguration(hadoopConf);
             String principal = krbConfig.getKerberosPrincipal();
             try {
@@ -88,6 +90,10 @@ public class HadoopUGI {
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             try {
+                Configuration hadoopConf = krbConfig.getConf();
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
+                UserGroupInformation.setConfiguration(hadoopConf);
                 /**
                  * Because metastore client is created by using
                  * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}

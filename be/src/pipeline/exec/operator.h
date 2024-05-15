@@ -50,20 +50,6 @@ class AsyncResultWriter;
 
 namespace doris::pipeline {
 
-/**
- * State of source operator.
- *                      |------> MORE_DATA ------|
- *                      |         ^    |         |
- * DEPEND_ON_SOURCE ----|         |----|         |----> FINISHED
- *    ^       |         |------------------------|
- *    |-------|
- */
-enum class SourceState : uint8_t {
-    DEPEND_ON_SOURCE = 0, // Need more data from source.
-    MORE_DATA = 1,        // Has more data to output. (e.g. RepeatNode)
-    FINISHED = 2
-};
-
 class OperatorBase;
 class OperatorXBase;
 class DataSinkOperatorXBase;
@@ -79,10 +65,10 @@ using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
-    const std::vector<TScanRangeParams> scan_ranges;
+    const std::vector<TScanRangeParams>& scan_ranges;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const int task_idx;
 };
 
@@ -92,8 +78,8 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                  std::shared_ptr<Dependency>>>& le_state_map;
     const TDataSink& tsink;
 };
 
@@ -113,22 +99,7 @@ public:
     // Prepare for running. (e.g. resource allocation, etc.)
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual std::string get_name() const = 0;
-
-    /**
-     * Allocate resources needed by this operator.
-     *
-     * This is called when current pipeline is scheduled first time.
-     * e.g. If we got three pipeline and dependencies are A -> B, B-> C, all operators' `open`
-     * method in pipeline C will be called once pipeline A and B finished.
-     *
-     * Now we have only one task per pipeline, so it has no problem，
-     * But if one pipeline have multi task running in parallel, we need to rethink this logic.
-     */
     [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
-
-    /**
-     * Release all resources once this operator done its work.
-     */
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorXPtr child) {
@@ -137,8 +108,6 @@ public:
     }
 
     [[nodiscard]] bool is_closed() const { return _is_closed; }
-
-    [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
     [[nodiscard]] virtual int id() const = 0;
 
@@ -524,12 +493,6 @@ public:
         return result.value()->close(state, exec_status);
     }
 
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Runtime Profile is not owned by operator");
-        return nullptr;
-    }
-
     [[nodiscard]] int id() const override { return node_id(); }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
@@ -669,11 +632,6 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Runtime Profile is not owned by operator");
-        return nullptr;
-    }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
@@ -683,15 +641,13 @@ public:
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
-    [[nodiscard]] virtual bool need_data_from_children(RuntimeState* state) const {
-        return is_source() ? true : _child_x == nullptr || _child_x->need_data_from_children(state);
-    }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
         return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
     }
     [[nodiscard]] bool ignore_data_hash_distribution() const {
         return _child_x ? _child_x->ignore_data_hash_distribution() : _ignore_data_distribution;
     }
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status prepare(RuntimeState* state) override;
@@ -872,16 +828,7 @@ public:
                                       bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
                                       bool eos) const = 0;
-
-    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
-
-    bool need_data_from_children(RuntimeState* state) const override {
-        if (need_more_input_data(state)) {
-            return OperatorX<LocalStateType>::_child_x->need_data_from_children(state);
-        } else {
-            return false;
-        }
-    }
+    bool need_more_input_data(RuntimeState* state) const override { return true; }
 };
 
 template <typename Writer, typename Parent>
@@ -891,9 +838,9 @@ public:
     using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency = std::make_shared<FinishDependency>(
-                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-                state->get_query_ctx());
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

@@ -275,24 +275,26 @@ public:
     }
 
     void to_condition_in_compound(std::vector<TCondition>& filters) {
-        for (const auto& value : _compound_values) {
+        for (const auto& compound_value : _compound_values) {
             TCondition condition;
             condition.__set_column_name(_column_name);
-            if (value.first == FILTER_LARGER) {
+            if (compound_value.first == FILTER_LARGER) {
                 condition.__set_condition_op(">>");
-            } else if (value.first == FILTER_LARGER_OR_EQUAL) {
+            } else if (compound_value.first == FILTER_LARGER_OR_EQUAL) {
                 condition.__set_condition_op(">=");
-            } else if (value.first == FILTER_LESS) {
+            } else if (compound_value.first == FILTER_LESS) {
                 condition.__set_condition_op("<<");
-            } else if (value.first == FILTER_LESS_OR_EQUAL) {
+            } else if (compound_value.first == FILTER_LESS_OR_EQUAL) {
                 condition.__set_condition_op("<=");
-            } else if (value.first == FILTER_IN) {
+            } else if (compound_value.first == FILTER_IN) {
                 condition.__set_condition_op("*=");
-            } else if (value.first == FILTER_NOT_IN) {
+            } else if (compound_value.first == FILTER_NOT_IN) {
                 condition.__set_condition_op("!*=");
             }
-            condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value.second, _scale));
+            for (const auto& value : compound_value.second) {
+                condition.condition_values.push_back(
+                        cast_to_string<primitive_type, CppType>(value, _scale));
+            }
             if (condition.condition_values.size() != 0) {
                 filters.push_back(std::move(condition));
             }
@@ -316,16 +318,6 @@ public:
                 condition.__set_condition_op("match_regexp");
             } else if (value.first == MatchType::MATCH_PHRASE_EDGE) {
                 condition.__set_condition_op("match_phrase_edge");
-            } else if (value.first == MatchType::MATCH_ELEMENT_EQ) {
-                condition.__set_condition_op("match_element_eq");
-            } else if (value.first == MatchType::MATCH_ELEMENT_LT) {
-                condition.__set_condition_op("match_element_lt");
-            } else if (value.first == MatchType::MATCH_ELEMENT_GT) {
-                condition.__set_condition_op("match_element_gt");
-            } else if (value.first == MatchType::MATCH_ELEMENT_LE) {
-                condition.__set_condition_op("match_element_le");
-            } else if (value.first == MatchType::MATCH_ELEMENT_GE) {
-                condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
@@ -446,7 +438,7 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
     // range value except leaf node of and node in compound expr tree
-    std::set<std::pair<SQLFilterOp, CppType>> _compound_values;
+    std::map<SQLFilterOp, std::set<CppType>> _compound_values;
     bool _marked_runtime_filter_predicate = false;
 };
 
@@ -598,8 +590,7 @@ Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
 
 template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppType value) {
-    std::pair<SQLFilterOp, CppType> val_with_op(op, value);
-    _compound_values.insert(val_with_op);
+    _compound_values[op].insert(value);
     _contain_null = false;
 
     _high_value = TYPE_MIN;

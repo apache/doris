@@ -31,17 +31,14 @@
 namespace doris::pipeline {
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       std::string name, QueryContext* ctx) {
-    source_deps.push_back(
-            std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY", ctx));
+                                                       std::string name) {
+    source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name,
-                                                     QueryContext* ctx) {
-    sink_deps.push_back(
-            std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true, ctx));
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
+    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
 }
@@ -73,15 +70,6 @@ void Dependency::set_ready() {
 
 Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load() || _is_cancelled();
-    if (!ready && task) {
-        _add_block_task(task);
-    }
-    return ready ? nullptr : this;
-}
-
-Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
@@ -91,20 +79,18 @@ Dependency* FinishDependency::is_blocked_by(PipelineTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}",
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready, _is_cancelled());
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(
-            debug_string_buffer,
-            "{}{}: id={}, block task = {}, ready={}, _always_ready={}, is cancelled={}, count={}",
-            std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(), _ready,
-            _always_ready, _is_cancelled(), _counter);
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, count={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready, _counter);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -117,7 +103,7 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
 
 Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load() || _is_cancelled();
+    auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
         task->_blocked_dep = this;
@@ -180,28 +166,33 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            [&](auto&& agg_method) {
-                auto& hash_table = *agg_method.hash_table;
-                using HashTableType = std::decay_t<decltype(hash_table)>;
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto& agg_method) {
+                        auto& hash_table = *agg_method.hash_table;
+                        using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                agg_method.reset();
+                        agg_method.reset();
 
-                hash_table.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
+                        hash_table.for_each_mapped([&](auto& mapped) {
+                            if (mapped) {
+                                static_cast<void>(_destroy_agg_status(mapped));
+                                mapped = nullptr;
+                            }
+                        });
 
-                aggregate_data_container.reset(new vectorized::AggregateDataContainer(
-                        sizeof(typename HashTableType::key_type),
-                        ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                         align_aggregate_states) *
-                                align_aggregate_states));
-                agg_method.hash_table.reset(new HashTableType());
-                agg_arena_pool.reset(new vectorized::Arena);
-                return Status::OK();
-            },
+                        aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                                sizeof(typename HashTableType::key_type),
+                                ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                                 align_aggregate_states) *
+                                        align_aggregate_states));
+                        agg_method.hash_table.reset(new HashTableType());
+                        agg_arena_pool.reset(new vectorized::Arena);
+                        return Status::OK();
+                    }},
             agg_data->method_variant);
 }
 

@@ -71,19 +71,19 @@ void VExplodeBitmapTableFunction::forward(int step) {
     TableFunction::forward(step);
 }
 
-void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeBitmapTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
         if (_is_nullable) {
             assert_cast<ColumnInt64*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->insert_value(**_cur_iter);
+                    ->insert_many_vals(**_cur_iter, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                    ->insert_default();
+                    ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
+            assert_cast<ColumnInt64*>(column.get())->insert_many_vals(**_cur_iter, length);
         }
     }
 }

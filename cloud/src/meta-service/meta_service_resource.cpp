@@ -59,6 +59,8 @@ static std::string_view print_cluster_status(const ClusterStatus& status) {
         return "SUSPENDED";
     case ClusterStatus::TO_RESUME:
         return "TO_RESUME";
+    case ClusterStatus::MANUAL_SHUTDOWN:
+        return "MANUAL_SHUTDOWN";
     default:
         return "UNKNOWN";
     }
@@ -388,14 +390,14 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* prefix = hdfs_param.mutable_hdfs_info()->mutable_prefix();
     if (!normalize_hdfs_prefix(*prefix)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid prefix: ", *prefix);
+        msg = fmt::format("invalid prefix: {}", *prefix);
         return -1;
     }
     if (config::enable_distinguish_hdfs_path) {
         auto uuid_suffix = butil::GenerateGUID();
         if (uuid_suffix.empty()) [[unlikely]] {
             code = MetaServiceCode::UNDEFINED_ERR;
-            msg = fmt::format("failed to generate one suffix for hdfs prefix");
+            msg = fmt::format("failed to generate one suffix for hdfs prefix: {}", *prefix);
             return -1;
         }
         *prefix = fmt::format("{}_{}", *prefix, uuid_suffix);
@@ -404,7 +406,7 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
     if (!normalize_hdfs_fs_name(*fs_name)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid fs_name: ", *fs_name);
+        msg = fmt::format("invalid fs_name: {}", *fs_name);
         return -1;
     }
 
@@ -862,7 +864,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
-        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+        LOG_INFO("unset instance's default vault, instance id {}, previous default vault {}, id {}",
                  instance.instance_id(), instance.default_storage_vault_name(),
                  instance.default_storage_vault_id());
         instance.clear_default_storage_vault_id();
@@ -1187,7 +1189,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_OK ? "instance already existed"
                                            : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
                                            : cast_as<ErrCategory::READ>(err);
         msg = ss.str();
@@ -1496,7 +1498,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "instance not existed"
                                                       : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         // TODO(dx): fix CLUSTER_NOT_FOUND，VERSION_NOT_FOUND，TXN_LABEL_NOT_FOUND，etc to NOT_FOUND
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::CLUSTER_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);
@@ -1825,6 +1827,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                                     {ClusterStatus::SUSPENDED, ClusterStatus::TO_RESUME},
                                     {ClusterStatus::TO_RESUME, ClusterStatus::NORMAL},
                                     {ClusterStatus::SUSPENDED, ClusterStatus::NORMAL},
+                                    {ClusterStatus::NORMAL, ClusterStatus::MANUAL_SHUTDOWN},
+                                    {ClusterStatus::MANUAL_SHUTDOWN, ClusterStatus::NORMAL},
                             };
                     auto from = c.cluster_status();
                     auto to = request->cluster().cluster_status();

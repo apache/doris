@@ -279,4 +279,8 @@ private:
 };
 
 } // namespace vectorized
+
+constexpr auto init_partition_hash_method =
+        init_hash_method<vectorized::PartitionedHashMapVariants, vectorized::PartitionDataPtr>;
+
 } // namespace doris

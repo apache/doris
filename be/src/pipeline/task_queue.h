@@ -135,7 +135,6 @@ public:
     void close() override;
 
     // Get the task by core id.
-    // TODO: To think the logic is useful?
     PipelineTask* take(size_t core_id) override;
 
     // TODO combine these methods to `push_back(task, core_id = -1)`

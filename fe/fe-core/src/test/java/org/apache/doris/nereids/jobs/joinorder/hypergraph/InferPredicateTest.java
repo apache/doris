@@ -38,6 +38,7 @@ import java.util.BitSet;
 class InferPredicateTest extends SqlTestBase {
     @Test
     void testPullUpQueryFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 left join T2 on T1.id = T2.id where T1.id = 1",
                 connectContext

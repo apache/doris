@@ -143,6 +143,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                                 kv1 -> kv1.getValue()));
         catalogCreateTime = trinoConnectorOptionParams.remove("create_time");
         trinoConnectorOptionParams.remove("type");
+        trinoConnectorOptionParams.remove("use_meta_cache");
     }
 
     @Override
