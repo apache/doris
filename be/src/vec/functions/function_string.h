@@ -2989,11 +2989,46 @@ constexpr size_t MAX_FORMAT_LEN_DEC128V3() {
     return 2 * (1 + 39 + (39 / 3) + 3);
 }
 
+constexpr size_t MAX_FORMAT_LEN_INT64() {
+    // INT_MIN = -9223372036854775807
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 20 + (20 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_INT128() {
+    // INT128_MIN = -170141183460469231731687303715884105728
+    return 2 * (1 + 39 + (39 / 3) + 3);
+}
+
 template <typename T, size_t N>
-StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T frac_value,
-                          bool do_truncate = true) {
+StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T frac_value) {
     static_assert(std::is_integral<T>::value);
     const bool is_negative = int_value < 0 || frac_value < 0;
+
+    // do round to frac_part
+    // magic number 2: since we need to truncate frac_part to 2 digits
+    if (scale > 2) {
+        DCHECK(scale <= 38);
+        // do rounding, so we need to reserve 3 digits.
+        auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 3)));
+        // do devide first to avoid overflow
+        // after round frac_value will be positive be design.
+        frac_value = std::abs(frac_value / multiplier) + 5;
+        frac_value /= 10;
+    } else if (scale < 2) {
+        DCHECK(frac_value < 100);
+        // since scale <= 2, overflow is impossiable
+        frac_value = frac_value * common::exp10_i32(2 - scale);
+    }
+
+    if (frac_value == 100) {
+        if (is_negative) {
+            int_value -= 1;
+        } else {
+            int_value += 1;
+        }
+        frac_value = 0;
+    }
 
     bool append_sign_manually = false;
     if (is_negative && int_value == 0) {
@@ -3001,21 +3036,6 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
         // for Decimal like -0.1234, this will leads to problem, because negative sign is discarded.
         // this is why we introduce argument append_sing_manually.
         append_sign_manually = true;
-    }
-
-    // for DecimalV2, it has already been truncated, so we need this flag
-    if (do_truncate) {
-        // magic number 2: since we need to truncate frac_part to 2 digits
-        if (scale > 2) {
-            DCHECK(scale <= 38);
-            // do truncate
-            auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 2)));
-            frac_value = std::abs(frac_value / multiplier);
-        } else if (scale < 2) {
-            DCHECK(frac_value < 100);
-            // overflow is impossiable
-            frac_value = frac_value * common::exp10_i32(2 - scale);
-        }
     }
 
     char local[N];
@@ -3075,9 +3095,9 @@ struct MoneyFormatDoubleImpl {
         const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
         // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
-            // truncate to 2 decimal places
+            // round to 2 decimal places
             double value =
-                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, true);
+                    MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
             StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(str.data, str.size);
         }
@@ -3092,7 +3112,9 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringRef str = MoneyFormat::do_money_format<Int64, 26>(context, 0, value, 0, false);
+            StringRef str =
+                    MoneyFormat::do_money_format<Int64, MoneyFormat::MAX_FORMAT_LEN_INT64()>(
+                            context, 0, value, 0);
             result_column->insert_data(str.data, str.size);
         }
     }
@@ -3104,9 +3126,14 @@ struct MoneyFormatInt128Impl {
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
         const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
+        // SELECT money_format(170141183460469231731687303715884105728/*INT128_MAX + 1*/) will
+        // get "170,141,183,460,469,231,731,687,303,715,884,105,727.00" in doris,
+        // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringRef str = MoneyFormat::do_money_format<Int128, 52>(context, 0, value, 0, false);
+            StringRef str =
+                    MoneyFormat::do_money_format<Int128, MoneyFormat::MAX_FORMAT_LEN_INT128()>(
+                            context, 0, value, 0);
             result_column->insert_data(str.data, str.size);
         }
     }
@@ -3123,13 +3150,12 @@ struct MoneyFormatDecimalImpl {
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V2& dec128 = decimalv2_column->get_element(i);
                 DecimalV2Value value = DecimalV2Value(dec128.value);
-                DecimalV2Value rounded(0);
-                value.round(&rounded, 2, TRUNCATE);
+                // unified_frac_value has 3 digits
+                auto unified_frac_value = value.frac_value() / 1000000;
                 StringRef str =
                         MoneyFormat::do_money_format<Int128,
                                                      MoneyFormat::MAX_FORMAT_LEN_DEC128V2()>(
-                                context, 2, rounded.int_value(), rounded.frac_value() / 10000000,
-                                false /*not do truncate*/);
+                                context, 3, value.int_value(), unified_frac_value);
 
                 result_column->insert_data(str.data, str.size);
             }

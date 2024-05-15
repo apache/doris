@@ -33,19 +33,23 @@
 #include "vec/functions/function_string.h"
 
 namespace doris::vectorized {
-
 TEST(function_money_format_test, money_format_with_decimalV2) {
+    // why not using 
     std::multimap<std::string, std::string> input_dec_str_and_expected_str = {
             {std::string("123.12"), std::string("123.12")},
             {std::string("-123.12"), std::string("-123.12")},
             {std::string("-0.12434"), std::string("-0.12")},
+            {std::string("-0.12534"), std::string("-0.13")},
             {std::string("-123456789.12434"), std::string("-123,456,789.12")},
-            {std::string("0.999999999"), std::string("0.99")},
-            {std::string("-0.999999999"), std::string("-0.99")},
-            {std::string("999999999999999999.999999999"),
+            {std::string("-123456789.12534"), std::string("-123,456,789.13")},
+            {std::string("0.999999999"), std::string("1.00")},
+            {std::string("-0.999999999"), std::string("-1.00")},
+            {std::string("999999999999999999.994999999"),
              std::string("999,999,999,999,999,999.99")},
-            {std::string("-999999999999999999.999999999"),
-             std::string("-999,999,999,999,999,999.99")}};
+            {std::string("-999999999999999999.994999999"),
+             std::string("-999,999,999,999,999,999.99")},
+            {std::string("-999999999999999999.995999999"),
+             std::string("-1,000,000,000,000,000,000.00")}};
 
     auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl>::create();
     std::unique_ptr<RuntimeState> runtime_state = std::make_unique<RuntimeState>();
