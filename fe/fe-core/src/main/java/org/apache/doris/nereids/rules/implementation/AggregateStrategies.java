@@ -1734,7 +1734,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                 AggregateFunction nonDistinct = aggregateFunction
                                         .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
                                 AggregateExpression nonDistinctAggExpr = new AggregateExpression(nonDistinct,
-                                        distinctLocalParam, aggregateFunction.child(0));
+                                        distinctLocalParam, aggregateFunction);
                                 return nonDistinctAggExpr;
                             } else {
                                 needUpdateSlot.add(aggregateFunction);
