@@ -15,55 +15,37 @@ wait_timeout	28800	28800	0
 0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
 
 -- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
-
--- !cmd --
-0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER,MIN_MAX	1
-
--- !cmd --
-0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 0
 
 -- !cmd --
-experimental_enable_agg_state	true	false	1
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
 
 -- !cmd --
-experimental_enable_agg_state	false	false	0
+runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
 
 -- !cmd --
 0
 
 -- !cmd --
-experimental_enable_agg_state	false	false	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
-experimental_enable_agg_state	false	false	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 0
@@ -72,6 +54,24 @@ experimental_enable_agg_state	false	false	0
 experimental_enable_agg_state	true	false	1
 
 -- !cmd --
+experimental_enable_agg_state	false	false	0
+
+-- !cmd --
+0
+
+-- !cmd --
+experimental_enable_agg_state	false	false	0
+
+-- !cmd --
+experimental_enable_agg_state	false	false	0
+
+-- !cmd --
+0
+
+-- !cmd --
+experimental_enable_agg_state	true	false	1
+
+-- !cmd --
 experimental_enable_agg_state	true	false	1
 
 -- !cmd --
@@ -87,21 +87,6 @@ experimental_enable_agg_state	false	false	0
 0
 
 -- !cmd --
-deprecated_enable_local_exchange	false	true	1
-
--- !cmd --
-deprecated_enable_local_exchange	true	true	0
-
--- !cmd --
-0
-
--- !cmd --
-deprecated_enable_local_exchange	true	true	0
-
--- !cmd --
-deprecated_enable_local_exchange	true	true	0
-
--- !cmd --
 0
 
 -- !cmd --
@@ -111,19 +96,10 @@ deprecated_enable_local_exchange	true	true	0
 0
 
 -- !cmd --
-0
-
--- !cmd --
-0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 experimental_enable_agg_state	false	false	0
-
--- !cmd --
-deprecated_enable_local_exchange	true	true	0
 
 -- !cmd --
 show_hidden_columns	false	false	0
@@ -141,16 +117,10 @@ show_hidden_columns	false	false	0
 0
 
 -- !cmd --
-0
-
--- !cmd --
-runtime_filter_type	IN_OR_BLOOM_FILTER,MIN_MAX	IN_OR_BLOOM_FILTER,MIN_MAX	0
+runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 experimental_enable_agg_state	false	false	0
-
--- !cmd --
-deprecated_enable_local_exchange	true	true	0
 
 -- !cmd --
 show_hidden_columns	false	false	0
