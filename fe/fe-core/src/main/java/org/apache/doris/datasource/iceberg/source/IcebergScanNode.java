@@ -212,60 +212,73 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
+        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
+        boolean canPushCount = aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0;
+
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
-            combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
-                String dataFilePath = normalizeLocation(splitTask.file().path().toString());
+            for (CombinedScanTask taskGrp : combinedScanTasks) {
+                for (FileScanTask splitTask : taskGrp.files()) {
+                    String dataFilePath = normalizeLocation(splitTask.file().path().toString());
 
-                List<String> partitionValues = new ArrayList<>();
-                if (isPartitionedTable) {
-                    StructLike structLike = splitTask.file().partition();
-                    List<PartitionField> fields = splitTask.spec().fields();
-                    Types.StructType structType = icebergTable.schema().asStruct();
+                    List<String> partitionValues = new ArrayList<>();
+                    if (isPartitionedTable) {
+                        StructLike structLike = splitTask.file().partition();
+                        List<PartitionField> fields = splitTask.spec().fields();
+                        Types.StructType structType = icebergTable.schema().asStruct();
 
-                    // set partitionValue for this IcebergSplit
-                    for (int i = 0; i < structLike.size(); i++) {
-                        Object obj = structLike.get(i, Object.class);
-                        String value = String.valueOf(obj);
-                        PartitionField partitionField = fields.get(i);
-                        if (partitionField.transform().isIdentity()) {
-                            Type type = structType.fieldType(partitionField.name());
-                            if (type != null && type.typeId().equals(Type.TypeID.DATE)) {
-                                // iceberg use integer to store date,
-                                // we need transform it to string
-                                value = DateTimeUtil.daysToIsoDate((Integer) obj);
+                        // set partitionValue for this IcebergSplit
+                        for (int i = 0; i < structLike.size(); i++) {
+                            Object obj = structLike.get(i, Object.class);
+                            String value = String.valueOf(obj);
+                            PartitionField partitionField = fields.get(i);
+                            if (partitionField.transform().isIdentity()) {
+                                Type type = structType.fieldType(partitionField.name());
+                                if (type != null && type.typeId().equals(Type.TypeID.DATE)) {
+                                    // iceberg use integer to store date,
+                                    // we need transform it to string
+                                    value = DateTimeUtil.daysToIsoDate((Integer) obj);
+                                }
                             }
+                            partitionValues.add(value);
                         }
-                        partitionValues.add(value);
-                    }
 
-                    // Counts the number of partitions read
-                    partitionPathSet.add(structLike.toString());
+                        // Counts the number of partitions read
+                        partitionPathSet.add(structLike.toString());
+                    }
+                    LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
+                    Path finalDataFilePath = locationPath.toStorageLocation();
+                    IcebergSplit split = new IcebergSplit(
+                            finalDataFilePath,
+                            splitTask.start(),
+                            splitTask.length(),
+                            splitTask.file().fileSizeInBytes(),
+                            new String[0],
+                            formatVersion,
+                            source.getCatalog().getProperties(),
+                            partitionValues);
+                    if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
+                        split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
+                    }
+                    split.setTableFormatType(TableFormatType.ICEBERG);
+                    splits.add(split);
+
+                    // End loop early as one split is enough if the statement can push down count
+                    if (canPushCount) {
+                        break;
+                    }
                 }
-                LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
-                Path finalDataFilePath = locationPath.toStorageLocation();
-                IcebergSplit split = new IcebergSplit(
-                        finalDataFilePath,
-                        splitTask.start(),
-                        splitTask.length(),
-                        splitTask.file().fileSizeInBytes(),
-                        new String[0],
-                        formatVersion,
-                        source.getCatalog().getProperties(),
-                        partitionValues);
-                if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
-                    split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
+                // End loop early as one split is enough if the statement can push down count
+                if (canPushCount) {
+                    break;
                 }
-                split.setTableFormatType(TableFormatType.ICEBERG);
-                splits.add(split);
-            }));
+            }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
+        if (canPushCount) {
             // we can create a special empty split and skip the plan process
             return Collections.singletonList(splits.get(0));
         }
@@ -426,7 +439,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         Map<String, String> summary = snapshot.summary();
         if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
             return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
-                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
+                    - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
         } else {
             return -1;
         }
