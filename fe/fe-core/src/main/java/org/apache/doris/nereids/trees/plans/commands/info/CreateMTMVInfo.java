@@ -157,7 +157,7 @@ public class CreateMTMVInfo {
         columns.forEach(c -> c.validate(true, keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS));
 
         if (distribution == null) {
-            throw new AnalysisException("Create MTMV should contain distribution desc");
+            throw new AnalysisException("Create async materialized view should contain distribution desc");
         }
 
         if (properties == null) {
