@@ -493,11 +493,6 @@ terminal String
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
     KW_MATCH_PHRASE_EDGE,
-    KW_MATCH_ELEMENT_EQ,
-    KW_MATCH_ELEMENT_LT,
-    KW_MATCH_ELEMENT_GT,
-    KW_MATCH_ELEMENT_LE,
-    KW_MATCH_ELEMENT_GE,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -1019,7 +1014,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH_PHRASE_EDGE, KW_MATCH;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -3051,6 +3046,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
@@ -3146,6 +3149,14 @@ revoke_stmt ::=
     | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
     {:
@@ -3917,6 +3928,18 @@ opt_default_value ::=
     | KW_DEFAULT KW_CURRENT_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
     {:
         RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
+    :}
+    | KW_DEFAULT INTEGER_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
+    | KW_DEFAULT LARGE_INTEGER_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
+    | KW_DEFAULT DECIMAL_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
     :}
     ;
 
@@ -6552,7 +6575,7 @@ with_analysis_properties ::=
     | KW_SQL
     {:
         RESULT = new HashMap<String, String>() {{
-             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+             put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
         }};
     :}
 
@@ -7553,16 +7576,6 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
   | expr:e1 KW_MATCH_PHRASE_EDGE expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_EDGE, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LE, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GE, e1, e2); :}
   ;
 
 // Avoid a reduce/reduce conflict with compound_predicate by explicitly
@@ -7764,7 +7777,15 @@ admin_stmt ::=
     :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs);
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, false);
+    :}
+    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
+    :}
+    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
     :}
     // deprecated
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
@@ -8410,6 +8431,26 @@ keyword ::=
     | KW_BELONG:id
     {: RESULT = id; :}
     | KW_STAGE:id
+    {: RESULT = id; :}
+    | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VARIANT:id
+    {: RESULT = id; :}
+    | KW_IPV4:id
+    {: RESULT = id; :}
+    | KW_IPV6:id
+    {: RESULT = id; :}
+    | KW_MATCH_ANY:id
+    {: RESULT = id; :}
+    | KW_MATCH_ALL:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_PREFIX:id
+    {: RESULT = id; :}
+    | KW_MATCH_REGEXP:id
+    {: RESULT = id; :}
+    | KW_MATCH_PHRASE_EDGE:id
     {: RESULT = id; :}
     ;
 

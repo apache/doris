@@ -55,6 +55,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Base class for External File Scan, including external query and load.
@@ -69,11 +70,17 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
+    protected long fileSplitSize;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
+    }
+
+    @Override
+    public void init() throws UserException {
+        this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
     }
 
     @Override
@@ -87,6 +94,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             fileScanNode.setTableName(desc.getTable().getName());
         }
         planNode.setFileScanNode(fileScanNode);
+        super.toThrift(planNode);
     }
 
     @Override
@@ -161,7 +169,12 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
-
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 
@@ -233,18 +246,17 @@ public abstract class FileScanNode extends ExternalScanNode {
             result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
         }
-        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
-        if (splitSize <= 0) {
-            splitSize = blockSize;
+        if (fileSplitSize <= 0) {
+            fileSplitSize = blockSize;
         }
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
-        splitSize = Math.max(splitSize, DEFAULT_SPLIT_SIZE);
+        fileSplitSize = Math.max(fileSplitSize, DEFAULT_SPLIT_SIZE);
         long bytesRemaining;
-        for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
-                bytesRemaining -= splitSize) {
+        for (bytesRemaining = length; (double) bytesRemaining / (double) fileSplitSize > 1.1D;
+                bytesRemaining -= fileSplitSize) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(splitCreator.create(path, length - bytesRemaining, splitSize,
+            result.add(splitCreator.create(path, length - bytesRemaining, fileSplitSize,
                     length, modificationTime, hosts, partitionValues));
         }
         if (bytesRemaining != 0L) {

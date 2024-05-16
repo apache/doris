@@ -546,17 +546,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : newPartitions) {
             partitionOffsets.add(Pair.of(kafkaPartition, beginOffset));
         }
-        if (isOffsetForTimes()) {
-            try {
+        try {
+            if (isOffsetForTimes()) {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
                         this.topic, convertedCustomProperties, partitionOffsets);
-            } catch (LoadException e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                        .add("partition:timestamp", Joiner.on(",").join(partitionOffsets))
-                        .add("error_msg", "Job failed to fetch current offsets from times with error " + e.getMessage())
-                        .build(), e);
-                throw new UserException(e);
+            } else {
+                partitionOffsets = KafkaUtil.getRealOffsets(this.brokerList,
+                        this.topic, convertedCustomProperties, partitionOffsets);
             }
+        } catch (LoadException e) {
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                    .add("partition:", Joiner.on(",").join(partitionOffsets))
+                    .add("error_msg", "Job failed to fetch current offsets with error " + e.getMessage())
+                    .build(), e);
+            throw new UserException(e);
         }
         return partitionOffsets;
     }
@@ -584,6 +587,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (isForTimes) {
             // the offset is set by date time, we need to get the real offset by time
             kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(kafkaDataSourceProperties.getBrokerList(),
+                    kafkaDataSourceProperties.getTopic(),
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+        } else {
+            kafkaPartitionOffsets = KafkaUtil.getRealOffsets(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
                     convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
         }
@@ -672,9 +679,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException {
         Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        if (null != dataSourceProperties && dataSourceProperties.isOffsetsForTimes()) {
+        if (null != dataSourceProperties) {
             // if the partition offset is set by timestamp, convert it to real offset
-            convertTimestampToOffset(dataSourceProperties);
+            convertOffset(dataSourceProperties);
         }
 
         writeLock();
@@ -693,13 +700,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void convertTimestampToOffset(KafkaDataSourceProperties dataSourceProperties) throws UserException {
+    private void convertOffset(KafkaDataSourceProperties dataSourceProperties) throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         if (partitionOffsets.isEmpty()) {
             return;
         }
-        List<Pair<Integer, Long>> newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic,
-                convertedCustomProperties, partitionOffsets);
+        List<Pair<Integer, Long>> newOffsets;
+        if (dataSourceProperties.isOffsetsForTimes()) {
+            newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic, convertedCustomProperties, partitionOffsets);
+        } else {
+            newOffsets = KafkaUtil.getRealOffsets(brokerList, topic, convertedCustomProperties, partitionOffsets);
+        }
         dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
 

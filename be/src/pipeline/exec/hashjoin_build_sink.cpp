@@ -32,8 +32,7 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
     _finish_dependency = std::make_shared<CountedFinishDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-            state->get_query_ctx());
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY");
 }
 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {

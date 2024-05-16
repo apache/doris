@@ -43,6 +43,7 @@
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/columns_number.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -189,11 +190,6 @@ public:
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
     }
-
-    bool enable_faster_float_convert() const {
-        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
-    }
-
     Status query_status();
 
     // Appends error to the _error_log if there is space
@@ -235,14 +231,6 @@ public:
     int be_number(void) const { return _be_number; }
 
     // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const std::string& err_msg) {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = Status::InternalError(err_msg);
-    }
-
     void set_process_status(const Status& status) {
         if (status.ok()) {
             return;
@@ -253,12 +241,6 @@ public:
         }
         _process_status = status;
     }
-
-    // Sets _process_status to MEM_LIMIT_EXCEEDED.
-    // Subsequent calls to this will be no-ops. Returns _process_status.
-    // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
-    // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -610,15 +592,22 @@ public:
     bool is_nereids() const;
 
     bool enable_join_spill() const {
-        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
     }
 
     bool enable_sort_spill() const {
-        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
     }
 
     bool enable_agg_spill() const {
-        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+    }
+
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
     int64_t min_revocable_mem() const {
@@ -639,6 +628,10 @@ public:
     void set_task_num(int task_num) { _task_num = task_num; }
 
     int task_num() const { return _task_num; }
+
+    vectorized::ColumnInt64* partial_update_auto_inc_column() {
+        return _partial_update_auto_inc_column;
+    };
 
 private:
     Status create_error_log_file();
@@ -769,6 +762,8 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
+
+    vectorized::ColumnInt64* _partial_update_auto_inc_column;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

@@ -38,11 +38,11 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +51,11 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class SlotRef extends Expr {
+    @SerializedName("tn")
     private TableName tblName;
     private TableIf table = null;
     private TupleId tupleId = null;
+    @SerializedName("col")
     private String col;
     // Used in toSql
     private String label;
@@ -569,23 +571,6 @@ public class SlotRef extends Expr {
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // TableName
-        if (tblName == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            tblName.write(out);
-        }
-        Text.writeString(out, col);
     }
 
     public void readFields(DataInput in) throws IOException {

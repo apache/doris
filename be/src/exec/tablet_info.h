@@ -93,6 +93,7 @@ public:
         return _partial_update_input_columns;
     }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
+    int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
     void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     void set_timezone(std::string timezone) { _timezone = timezone; }
@@ -113,6 +114,7 @@ private:
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
+    int32_t _auto_increment_column_unique_id;
     int64_t _timestamp_ms = 0;
     std::string _timezone;
 };

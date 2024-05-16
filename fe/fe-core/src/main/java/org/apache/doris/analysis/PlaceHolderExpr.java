@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TExprNode;
 import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -138,12 +137,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
+        return false;
     }
 
     public void readFields(DataInput in) throws IOException {

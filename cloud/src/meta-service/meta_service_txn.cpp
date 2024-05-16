@@ -385,7 +385,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         TxnIndexPB index_pb;
         if (!index_pb.ParseFromString(index_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "failed to parse txn_inf"
+            ss << "failed to parse txn_info"
                << " txn_id=" << txn_id;
             msg = ss.str();
             return;
@@ -615,12 +615,12 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     err = txn->get(rl_progress_key, &rl_progress_val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;
-        ss << "pregress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
+        ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
         msg = ss.str();
         return;
     } else if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to get pregress info, db_id=" << db_id << " job_id=" << job_id
+        ss << "failed to get progress info, db_id=" << db_id << " job_id=" << job_id
            << " err=" << err;
         msg = ss.str();
         return;
@@ -1901,9 +1901,9 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
             if (err != TxnErrorCode::TXN_OK) {
-                msg = "failed to txn range get";
+                msg = fmt::format("failed to txn range get, err={}", err);
                 code = cast_as<ErrCategory::READ>(err);
-                LOG(WARNING) << msg << " err=" << err << " begin=" << hex(begin_label_key)
+                LOG(WARNING) << msg << " begin=" << hex(begin_label_key)
                              << " end=" << hex(end_label_key);
                 return;
             }
@@ -1922,8 +1922,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                 err = internal_clean_label(txn_kv_, instance_id, db_id, k);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
-                    msg = "failed to clean txn label.";
-                    LOG(WARNING) << msg << " err=" << err << " db_id=" << db_id;
+                    msg = fmt::format("failed to clean txn label. err={}", err);
+                    LOG(WARNING) << msg << " db_id=" << db_id;
                     return;
                 }
             }
@@ -1935,9 +1935,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
         TxnErrorCode err = internal_clean_label(txn_kv_, instance_id, db_id, label_key);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = "failed to clean txn label.";
-            LOG(WARNING) << msg << " err=" << err << " db_id=" << db_id
-                         << " label_key=" << hex(label_key);
+            msg = fmt::format("failed to clean txn label. err={}", err);
+            LOG(WARNING) << msg << " db_id=" << db_id << " label_key=" << hex(label_key);
             return;
         }
     }

@@ -31,6 +31,7 @@ sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=false'   
     sql 'set parallel_pipeline_task_num=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
 
 

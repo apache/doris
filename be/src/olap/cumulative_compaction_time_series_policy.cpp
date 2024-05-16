@@ -73,17 +73,6 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
-    // If there is a continuous set of empty rowsets, prioritize merging.
-    std::vector<RowsetSharedPtr> input_rowsets;
-    std::vector<RowsetSharedPtr> candidate_rowsets =
-            tablet->pick_candidate_rowsets_to_cumulative_compaction();
-    tablet->calc_consecutive_empty_rowsets(
-            &input_rowsets, candidate_rowsets,
-            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
-    if (!input_rowsets.empty()) {
-        return score;
-    }
-
     // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
@@ -128,6 +117,17 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         // If the compaction process has not been successfully executed,
         // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
         tablet->set_last_cumu_compaction_success_time(now);
+    }
+
+    // Condition 5: If there is a continuous set of empty rowsets, prioritize merging.
+    std::vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> candidate_rowsets =
+            tablet->pick_candidate_rowsets_to_cumulative_compaction();
+    tablet->calc_consecutive_empty_rowsets(
+            &input_rowsets, candidate_rowsets,
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!input_rowsets.empty()) {
+        return score;
     }
 
     return 0;
@@ -219,17 +219,6 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return 0;
     }
     input_rowsets->clear();
-
-    // If their are many empty rowsets, maybe should be compacted
-    tablet->calc_consecutive_empty_rowsets(
-            input_rowsets, candidate_rowsets,
-            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
-    if (!input_rowsets->empty()) {
-        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
-                    << ", there are too many consecutive empty rowsets, size is "
-                    << input_rowsets->size();
-        return 0;
-    }
 
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
@@ -340,6 +329,17 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     input_rowsets->clear();
+    // Condition 5: If their are many empty rowsets, maybe should be compacted
+    tablet->calc_consecutive_empty_rowsets(
+            input_rowsets, candidate_rowsets,
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!input_rowsets->empty()) {
+        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
+                    << ", there are too many consecutive empty rowsets, size is "
+                    << input_rowsets->size();
+        return 0;
+    }
+
     *compaction_score = 0;
 
     return 0;

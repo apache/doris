@@ -58,9 +58,9 @@ public:
               current_channel_idx(0),
               only_local_exchange(false),
               _serializer(this) {
-        _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                                          parent->get_name() + "_FINISH_DEPENDENCY",
-                                                          true, state->get_query_ctx());
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
     }
 
     std::vector<Dependency*> dependencies() const override {

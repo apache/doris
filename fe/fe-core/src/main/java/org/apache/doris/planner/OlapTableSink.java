@@ -322,6 +322,7 @@ public class OlapTableSink extends DataSink {
             for (Column col : table.getFullSchema()) {
                 if (col.isAutoInc()) {
                     schemaParam.setAutoIncrementColumn(col.getName());
+                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
         }
@@ -533,10 +534,7 @@ public class OlapTableSink extends DataSink {
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
                                 + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
                         if (Config.isCloudMode()) {
-                            errMsg += ", or you may not have permission to access the current cluster";
-                            if (ConnectContext.get() != null) {
-                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
-                            }
+                            errMsg += ConnectContext.cloudNoBackendsReason();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }

@@ -798,7 +798,8 @@ public class PropertyAnalyzer {
         }
         properties.remove(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
         if (value.equalsIgnoreCase("true")) {
-            return true;
+            throw new AnalysisException("Property " + PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
+                    + " is forbidden now.");
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }

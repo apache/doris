@@ -38,6 +38,7 @@ import java.util.BitSet;
 class PullupExpressionTest extends SqlTestBase {
     @Test
     void testPullUpQueryFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id where T1.id = 1",
                 connectContext
@@ -64,6 +65,7 @@ class PullupExpressionTest extends SqlTestBase {
 
     @Test
     void testPullUpQueryJoinCondition() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id and T1.score = T2.score",
                 connectContext
@@ -90,6 +92,7 @@ class PullupExpressionTest extends SqlTestBase {
 
     @Test
     void testPullUpViewFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id",
                 connectContext
@@ -117,6 +120,7 @@ class PullupExpressionTest extends SqlTestBase {
 
     @Test
     void testPullUpViewJoinCondition() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 join T2 on T1.id = T2.id ",
                 connectContext

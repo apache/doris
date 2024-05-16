@@ -222,6 +222,68 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
 
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= adddate('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add('2024-01-16',1);"""
+        contains "2025-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub('2024-02-16',1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub('2024-01-16',1);"""
+        contains "2023-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= adddate(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add(cast('2024-01-16' as DATE),1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add(cast('2024-01-16' as DATE),1);"""
+        contains "2025-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub(cast('2024-02-16' as DATE),1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub(cast('2024-01-16' as DATE),1);"""
+        contains "2023-01-16"
+    }
+
     // DATE_FORMAT
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
