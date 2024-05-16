@@ -20,8 +20,11 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -69,6 +72,36 @@ public class FuncDeps {
 
     public int size() {
         return items.size();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+
+    /**
+     * Eliminate all deps in slots
+     */
+    public Set<Slot> eliminateDeps(Set<Slot> slots) {
+        Set<Slot> minSlotSet = slots;
+        List<Set<Slot>> reduceSlotSets = new ArrayList<>();
+        reduceSlotSets.add(slots);
+        while (!reduceSlotSets.isEmpty()) {
+            List<Set<Slot>> newReduceSlotSets = new ArrayList<>();
+            for (Set<Slot> slotSet : reduceSlotSets) {
+                for (FuncDepsItem funcDepsItem : items) {
+                    if (slotSet.containsAll(funcDepsItem.dependencies)
+                            && slotSet.containsAll(funcDepsItem.determinants)) {
+                        Set<Slot> newSet = Sets.difference(slotSet, funcDepsItem.dependencies);
+                        if (minSlotSet.size() > newSet.size()) {
+                            minSlotSet = newSet;
+                        }
+                        newReduceSlotSets.add(newSet);
+                    }
+                }
+            }
+            reduceSlotSets = newReduceSlotSets;
+        }
+        return minSlotSet;
     }
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {
