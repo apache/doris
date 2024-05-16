@@ -105,7 +105,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000
     }
     sql "sync"
-    qt_select1_1 "select name, value from ${table1} order by value;"
+    qt_select1_1 "select name, value from ${table1} order by name, value;"
     qt_select1_2 "select id, count(*) from ${table1} group by id having count(*) > 1;"
     check_data_correct(table1)
     sql "drop table if exists ${table1};"
@@ -150,7 +150,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_select2_1 "select name, value from ${table2} order by value;"
+    qt_select2_1 "select name, value from ${table2} order by name, value;"
     qt_select2_2 "select id, count(*) from ${table2} group by id having count(*) > 1;"
     check_data_correct(table2)
 
@@ -171,7 +171,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000
     }
     sql "sync"
-    qt_select2_3 "select name, value from ${table2} order by value;"
+    qt_select2_3 "select name, value from ${table2} order by name, value;"
     qt_select2_4 "select id, count(*) from ${table2} group by id having count(*) > 1;"
     check_data_correct(table2)
     sql "drop table if exists ${table2};"
@@ -206,7 +206,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_select3_1 "select name, value from ${table3} order by value;"
+    qt_select3_1 "select name, value from ${table3} order by name, value;"
     qt_select3_2 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
 
@@ -227,7 +227,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000
     }
     sql "sync"
-    qt_select3_3 "select name, value from ${table3} order by value;"
+    qt_select3_3 "select name, value from ${table3} order by name, value;"
     qt_select3_4 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
     // BBob, 9990
@@ -247,7 +247,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_stream_load") {
         time 10000
     }
     sql "sync"
-    qt_select3_5 "select name, value from ${table3} order by value;"
+    qt_select3_5 "select name, value from ${table3} order by name, value;"
     qt_select3_6 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
     sql "drop table if exists ${table3};"

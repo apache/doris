@@ -82,7 +82,7 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     }
 
     public LogicalJdbcScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(),
             Optional.of(getLogicalProperties()), conjuncts);
     }
 
@@ -90,6 +90,11 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, conjuncts);
+    }
+
+    @Override
+    public LogicalJdbcScan withRelationId(RelationId relationId) {
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), conjuncts);
     }
 
     @Override

@@ -34,7 +34,18 @@ void CloudInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController*
                                                 PAlterVaultSyncResponse* response,
                                                 google::protobuf::Closure* done) {
     LOG(INFO) << "alter be to sync vault info from Meta Service";
-    _engine.sync_storage_vault();
+    // If the vaults containing hdfs vault then it would try to create hdfs connection using jni
+    // which would acuiqre one thread local jniEnv. But bthread context can't guarantee that the brpc
+    // worker thread wouldn't do bthread switch between worker threads.
+    bool ret = _heavy_work_pool.try_offer([&]() {
+        brpc::ClosureGuard closure_guard(done);
+        _engine.sync_storage_vault();
+    });
+    if (!ret) {
+        brpc::ClosureGuard closure_guard(done);
+        LOG(WARNING) << "fail to offer alter_vault_sync request to the work pool, pool="
+                     << _heavy_work_pool.get_info();
+    }
 }
 
 FileCacheType cache_type_to_pb(io::FileCacheType type) {
