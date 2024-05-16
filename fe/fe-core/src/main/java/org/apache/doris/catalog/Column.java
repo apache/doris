@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
@@ -445,7 +446,7 @@ public class Column implements Writable, GsonPostProcessable {
 
     public Expr getDefaultValueExpr() throws AnalysisException {
         StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
-        if (getDataType() == PrimitiveType.VARCHAR) {
+        if (getDataType() == PrimitiveType.VARCHAR && !defaultValue.equalsIgnoreCase(DefaultValue.UUID)) {
             return defaultValueLiteral;
         }
         if (defaultValueExprDef != null) {

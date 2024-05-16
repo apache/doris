@@ -479,6 +479,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("use", new Integer(SqlParserSymbols.KW_USE));
         keywordMap.put("user", new Integer(SqlParserSymbols.KW_USER));
         keywordMap.put("using", new Integer(SqlParserSymbols.KW_USING));
+        keywordMap.put("uuid", new Integer(SqlParserSymbols.KW_UUID));
         keywordMap.put("value", new Integer(SqlParserSymbols.KW_VALUE));
         keywordMap.put("values", new Integer(SqlParserSymbols.KW_VALUES));
         keywordMap.put("varchar", new Integer(SqlParserSymbols.KW_VARCHAR));

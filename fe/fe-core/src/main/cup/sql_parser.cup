@@ -628,6 +628,7 @@ terminal String
     KW_USE,
     KW_USER,
     KW_USING,
+    KW_UUID,
     KW_VALUE,
     KW_VALUES,
     KW_VARCHAR,
@@ -3563,6 +3564,10 @@ opt_default_value ::=
     | KW_DEFAULT KW_NULL
     {:
         RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
+    :}
+    | KW_DEFAULT KW_UUID
+    {:
+        RESULT = ColumnDef.DefaultValue.UUID_DEFAULT_VALUE;
     :}
     | KW_DEFAULT KW_CURRENT_TIMESTAMP
     {:
@@ -7756,6 +7761,8 @@ keyword ::=
     | KW_UNCOMMITTED:id
     {: RESULT = id; :}
     | KW_USER:id
+    {: RESULT = id; :}
+    | KW_UUID:id
     {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
