@@ -17,8 +17,6 @@
 
 suite("test_hive_view", "p0,external,hive,external_docker,external_docker_hive") {
 
-
-
     def run = {
         qt_q00 """
            select * from view_0;
@@ -53,11 +51,11 @@ suite("test_hive_view", "p0,external,hive,external_docker,external_docker_hive")
         """
     }
 
-//    String enabled = context.config.otherConfigs.get("enableHiveTest")
-//    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-//        logger.info("disable Hive test.")
-//        return;
-//    }
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
     
     for (String hivePrefix : ["hive2", "hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
