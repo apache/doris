@@ -117,7 +117,7 @@ public class LakeSoulExternalTable extends ExternalTable {
         } else if (dt instanceof ArrowType.List) {
             List<Field> children = field.getChildren();
             Preconditions.checkArgument(children.size() == 1,
-                "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
+                    "Lists have one child Field. Found: %s", children.isEmpty() ? "none" : children);
             return ArrayType.create(arrowFiledToDorisType(children.get(0)), children.get(0).isNullable());
         } else if (dt instanceof ArrowType.Struct) {
             List<Field> children = field.getChildren();
@@ -138,14 +138,14 @@ public class LakeSoulExternalTable extends ExternalTable {
         tLakeSoulTable.setTableName(name);
         tLakeSoulTable.setProperties(new HashMap<>());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
-            getName(), dbName);
+                getName(), dbName);
         tTableDescriptor.setLakesoulTable(tLakeSoulTable);
         return tTableDescriptor;
 
     }
 
     @Override
-    public Optional<SchemaCacheValue>initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         TableInfo tableInfo = ((LakeSoulExternalCatalog) catalog).getLakeSoulTable(dbName, name);
         String tableSchema = tableInfo.getTableSchema();
         DBUtil.TablePartitionKeys partitionKeys = DBUtil.parseTableInfoPartitions(tableInfo.getPartitions());
@@ -159,15 +159,14 @@ public class LakeSoulExternalTable extends ExternalTable {
 
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.getFields().size());
         for (Field field : schema.getFields()) {
-            boolean
-                isKey =
-                partitionKeys.primaryKeys.contains(field.getName())
+            boolean isKey =
+                    partitionKeys.primaryKeys.contains(field.getName())
                     || partitionKeys.rangeKeys.contains(field.getName());
             tmpSchema.add(new Column(field.getName(), arrowFiledToDorisType(field),
-                isKey,
-                null, field.isNullable(),
-                field.getMetadata().getOrDefault("comment", null),
-                true, schema.getFields().indexOf(field)));
+                    isKey,
+                    null, field.isNullable(),
+                    field.getMetadata().getOrDefault("comment", null),
+                    true, schema.getFields().indexOf(field)));
         }
         return Optional.of(new SchemaCacheValue(tmpSchema));
     }

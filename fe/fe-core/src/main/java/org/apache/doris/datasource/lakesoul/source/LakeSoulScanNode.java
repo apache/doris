@@ -20,6 +20,8 @@ package org.apache.doris.datasource.lakesoul.source;
 import com.dmetasoul.lakesoul.meta.DataFileInfo;
 import com.dmetasoul.lakesoul.meta.DataOperation;
 import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
+import com.dmetasoul.lakesoul.meta.DBUtil;
+import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
@@ -39,11 +41,8 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-
-import com.dmetasoul.lakesoul.meta.DBUtil;
-import com.dmetasoul.lakesoul.meta.entity.TableInfo;
-
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
@@ -99,8 +98,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     public static boolean isExistHashPartition(TableInfo tif) {
         JSONObject tableProperties = JSON.parseObject(tif.getProperties());
-        if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM()) &&
-            tableProperties.getString(LakeSoulOptions.HASH_BUCKET_NUM()).equals("-1")) {
+        if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM()) 
+                && tableProperties.getString(LakeSoulOptions.HASH_BUCKET_NUM()).equals("-1")) {
             return false;
         } else {
             return tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM());
@@ -129,12 +128,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         for (DataFileInfo pif : dfinfos) {
             if (isExistHashPartition(tif) && pif.file_bucket_id() != -1) {
                 splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
-                    .computeIfAbsent(pif.file_bucket_id(), v -> new ArrayList<>())
-                    .add(pif.path());
+                        .computeIfAbsent(pif.file_bucket_id(), v -> new ArrayList<>())
+                        .add(pif.path());
             } else {
                 splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
-                    .computeIfAbsent(-1, v -> new ArrayList<>())
-                    .add(pif.path());
+                        .computeIfAbsent(-1, v -> new ArrayList<>())
+                        .add(pif.path());
             }
         }
         List<String> pkKeys = null;
@@ -154,12 +153,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             }
             for (Map.Entry<Integer, List<String>> split : entry.getValue().entrySet()) {
                 LakeSoulSplit lakeSoulSplit = new LakeSoulSplit(
-                    split.getValue(),
-                    pkKeys,
-                    rangeDesc,
-                    table.getTableSchema(),
-                    0, 0, 0,
-                    new String[0], null);
+                        split.getValue(),
+                        pkKeys,
+                        rangeDesc,
+                        table.getTableSchema(),
+                        0, 0, 0,
+                        new String[0], null);
                 lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);
                 splits.add(lakeSoulSplit);
             }
