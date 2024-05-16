@@ -80,7 +80,7 @@ public class MTMVRewriteUtil {
                     partitionMappings = mtmv.calculatePartitionMappings();
                 }
                 if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getName(),
-                        partitionMappings.get(partition.getId()), mtmvRelation.getBaseTables(),
+                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTables(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }
