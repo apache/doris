@@ -583,7 +583,7 @@ public class LoadStmt extends DdlStmt {
             connection.connect();
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException(e.getMessage());
+            throw new UserException("Incorrect object storage info: " + e.getMessage());
         } finally {
             if (connection != null) {
                 try {
