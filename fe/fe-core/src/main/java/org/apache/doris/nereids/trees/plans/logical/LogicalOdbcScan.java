@@ -78,7 +78,7 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
     }
 
     public LogicalOdbcScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression,
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), conjuncts);
     }
 
@@ -86,6 +86,11 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, conjuncts);
+    }
+
+    @Override
+    public LogicalOdbcScan withRelationId(RelationId relationId) {
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), conjuncts);
     }
 
     @Override
