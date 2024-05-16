@@ -255,8 +255,9 @@ Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
         if (_inverted_index) {
             RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
                                                           read_options.runtime_state, iterator));
+        }
+        return Status::OK();
     }
-    return Status::OK();
 }
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
