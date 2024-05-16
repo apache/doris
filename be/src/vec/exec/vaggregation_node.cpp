@@ -161,8 +161,11 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase);
+Status AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
+    if (!init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase)) {
+        return Status::InternalError("init hash method failed");
+    }
+    return Status::OK();
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
@@ -269,7 +272,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                 std::bind<void>(&AggregationNode::_update_memusage_without_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_without_key, this);
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
 
         std::visit(Overload {[&](std::monostate& arg) {
                                  throw doris::Exception(ErrorCode::INTERNAL_ERROR,
