@@ -1913,8 +1913,9 @@ public class StmtExecutor {
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
                 profile.addExecutionProfile(coord.getExecutionProfile());
-
-                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
+                QeProcessorImpl.QueryInfo queryInfo =
+                            new QeProcessorImpl.QueryInfo(context, this.getOriginStmtInString(), coord);
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), queryInfo);
 
                 coord.exec();
                 int execTimeout = context.getExecTimeout();
