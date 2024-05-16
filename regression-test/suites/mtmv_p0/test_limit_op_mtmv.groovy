@@ -24,6 +24,22 @@ suite("test_limit_op_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
+    def timeout = 60000
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(5000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -231,7 +247,7 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
         Assert.fail();
     }
-
+    wait_for_latest_op_on_table_finish(mvName, timeout)
     // allow drop index
     try {
         sql """
