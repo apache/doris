@@ -27,9 +27,9 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -46,6 +46,7 @@ public class IntLiteral extends NumericLiteralExpr {
     public static final long BIG_INT_MIN = Long.MIN_VALUE; // -2^63 ~ 2^63 - 1
     public static final long BIG_INT_MAX = Long.MAX_VALUE;
 
+    @SerializedName("v")
     private long value;
 
     /**
@@ -354,12 +355,6 @@ public class IntLiteral extends NumericLiteralExpr {
     public void swapSign() throws NotImplementedException {
         // swapping sign does not change the type
         value = -value;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(value);
     }
 
     public void readFields(DataInput in) throws IOException {

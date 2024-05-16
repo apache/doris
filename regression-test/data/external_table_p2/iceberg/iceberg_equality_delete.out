@@ -41,6 +41,18 @@
 19	Customer#000000019	uc,3bHIx84H,wdrmLOjVsiqXCq2tr	18	28-396-526-5053	8914.71	HOUSEHOLD	 nag. furiously careful packages are slyly at the accounts. furiously regular in
 20	Customer#000000020	JrPk8Pqplj4Ne	22	32-957-234-8742	7603.40	FURNITURE	g alongside of the special excuses-- fluffily enticing packages wake 
 
+-- !count1 --
+19
+
+-- !count1_orc --
+19
+
+-- !max1 --
+update-comment-2
+
+-- !max1_orc --
+update-comment-2
+
 -- !one_delete_column --
 1	Customer#000000001	IVhzIApeRb ot,c,E	151	update-phone-1	711.56	BUILDING	update-comment-1
 2	Customer#000000002	XSTf4,NCwDVaWNe6tEgvwfmRchLXak	13	23-768-687-3665	121.65	AUTOMOBILE	l accounts. blithely ironic theodolites integrate boldly: caref
@@ -82,4 +94,16 @@
 18	Customer#000000018	3txGO AiuFux3zT0Z9NYaFRnZt	6	16-155-215-1315	5494.43	BUILDING	s sleep. carefully even instructions nag furiously alongside of t
 19	Customer#000000019	uc,3bHIx84H,wdrmLOjVsiqXCq2tr	18	28-396-526-5053	8914.71	HOUSEHOLD	 nag. furiously careful packages are slyly at the accounts. furiously regular in
 20	Customer#000000020	JrPk8Pqplj4Ne	22	32-957-234-8742	7603.40	FURNITURE	g alongside of the special excuses-- fluffily enticing packages wake 
+
+-- !count3 --
+19
+
+-- !count3_orc --
+19
+
+-- !max3 --
+update-comment-2
+
+-- !max3_orc --
+update-comment-2
 

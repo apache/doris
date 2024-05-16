@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 class BuildStructInfoTest extends SqlTestBase {
     @Test
     void testSimpleSQL() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1, T2, T3, T4 "
                 + "where "
                 + "T1.id = T2.id and "
@@ -47,6 +48,7 @@ class BuildStructInfoTest extends SqlTestBase {
 
     @Test
     void testStructInfoNode() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 inner join "
                 + "(select sum(id) as id from T2 where id = 1) T2 "
                 + "on T1.id = T2.id";
@@ -67,6 +69,7 @@ class BuildStructInfoTest extends SqlTestBase {
 
     @Test
     void testFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 left outer join "
                 + " (select id from T2 where id = 1) T2 "
                 + "on T1.id = T2.id ";

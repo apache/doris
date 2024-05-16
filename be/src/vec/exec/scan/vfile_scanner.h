@@ -64,12 +64,12 @@ public:
     static constexpr const char* NAME = "VFileScanner";
 
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
+                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
 
     VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
+                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -99,8 +99,9 @@ protected:
 
 protected:
     const TFileScanRangeParams* _params = nullptr;
-    const std::vector<TFileRangeDesc>& _ranges;
-    int _next_range;
+    std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
+    bool _first_scan_range = false;
+    TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
@@ -243,7 +244,7 @@ private:
     // Otherwise, the cache miss rate will be high
     bool _shoudl_enable_file_meta_cache() {
         return config::max_external_file_meta_cache_num > 0 &&
-               _ranges.size() < config::max_external_file_meta_cache_num / 3;
+               _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };
 } // namespace doris::vectorized

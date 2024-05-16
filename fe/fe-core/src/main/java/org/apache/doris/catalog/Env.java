@@ -133,6 +133,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
@@ -544,6 +545,8 @@ public class Env {
 
     private final NereidsSqlCacheManager sqlCacheManager;
 
+    private final SplitSourceManager splitSourceManager;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -783,6 +786,7 @@ public class Env {
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
+        this.splitSourceManager = new SplitSourceManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1504,6 +1508,10 @@ public class Env {
         toMasterProgress = "roll editlog";
         editLog.rollEditLog();
 
+        if (Config.enable_advance_next_id) {
+            advanceNextId();
+        }
+
         // Log meta_version
         long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
@@ -1597,6 +1605,27 @@ public class Env {
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
         }
+    }
+
+    /*
+     * Advance the id generator, ensuring it doesn't roll back.
+     *
+     * If we need to support time travel, the next id cannot be rolled back to avoid
+     * errors in the corresponding relationship of the metadata recorded in BE/MS.
+     */
+    void advanceNextId() {
+        long currentId = idGenerator.getBatchEndId();
+        long currentNanos = System.nanoTime();
+        long nextId = currentId + 1;
+        if (nextId < currentNanos) {
+            nextId = currentNanos;
+        }
+
+        // ATTN: Because MetaIdGenerator has guaranteed that each id it returns must have
+        // been persisted, there is no need to perform persistence again here.
+        idGenerator.setId(nextId);
+
+        LOG.info("advance the next id from {} to {}", currentId, nextId);
     }
 
     /*
@@ -1744,7 +1773,7 @@ public class Env {
         workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
-
+        splitSourceManager.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -6141,6 +6170,10 @@ public class Env {
 
     public NereidsSqlCacheManager getSqlCacheManager() {
         return sqlCacheManager;
+    }
+
+    public SplitSourceManager getSplitSourceManager() {
+        return splitSourceManager;
     }
 
     public StatisticsJobAppender getStatisticsJobAppender() {
