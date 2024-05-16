@@ -77,13 +77,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     /**
      * collect commit infos from BEs
      */
-    public abstract void setCollectCommitInfoFunc();
-
-    @Override
-    public void beginTransaction() {
-        txnId = transactionManager.begin();
-        setCollectCommitInfoFunc();
-    }
+    protected abstract void setCollectCommitInfoFunc();
 
     /**
      * At this time, FE has successfully collected all commit information from BEs.
@@ -91,7 +85,16 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
      */
     protected abstract void doBeforeCommit() throws UserException;
 
+    /**
+     * The type of the current transaction
+     */
     protected abstract TransactionType transactionType();
+
+    @Override
+    public void beginTransaction() {
+        txnId = transactionManager.begin();
+        setCollectCommitInfoFunc();
+    }
 
     @Override
     protected void onComplete() throws UserException {

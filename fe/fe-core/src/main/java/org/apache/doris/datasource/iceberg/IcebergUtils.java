@@ -609,9 +609,6 @@ public class IcebergUtils {
         } else if (fileFormat.equalsIgnoreCase("orc")) {
             return properties.getOrDefault(
                     TableProperties.ORC_COMPRESSION, TableProperties.ORC_COMPRESSION_DEFAULT);
-        } else if (fileFormat.equalsIgnoreCase("avro")) {
-            return properties.getOrDefault(
-                    TableProperties.AVRO_COMPRESSION, TableProperties.AVRO_COMPRESSION_DEFAULT);
         }
         throw new NotSupportedException("Unsupported file format: " + fileFormat);
     }

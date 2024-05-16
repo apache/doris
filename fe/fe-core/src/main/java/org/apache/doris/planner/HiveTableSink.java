@@ -55,7 +55,6 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
-            add(TFileFormatType.FORMAT_CSV_PLAIN);
         }};
 
     public HiveTableSink(HMSExternalTable targetTable) {

@@ -39,8 +39,6 @@ import java.util.stream.Collectors;
 
 public class IcebergExternalTable extends ExternalTable {
 
-    Table icebergTable = null;
-
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
     }
@@ -92,15 +90,13 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     public Table getIcebergTable() {
-        if (icebergTable == null) {
-            icebergTable = IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
-        }
-        return icebergTable;
+        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
     }
 
     @Override
     public Set<String> getPartitionNames() {
         getIcebergTable();
-        return icebergTable.spec().fields().stream().map(PartitionField::name).collect(Collectors.toSet());
+        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName())
+                .spec().fields().stream().map(PartitionField::name).collect(Collectors.toSet());
     }
 }
