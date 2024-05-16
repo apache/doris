@@ -647,7 +647,6 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     RETURN_IF_ERROR(std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) -> Status {

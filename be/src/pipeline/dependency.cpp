@@ -168,7 +168,6 @@ Status AggSharedState::reset_hash_table() {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> Status {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return Status::InternalError("Uninited hash table");
                     },
                     [&](auto& agg_method) {
