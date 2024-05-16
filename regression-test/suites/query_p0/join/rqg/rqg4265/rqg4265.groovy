@@ -16,13 +16,13 @@
 // under the License.
 
 suite("rqg4265") {
-    String db = context.config.getDbNameByFile(new File(context.file.parent))
+    String db = context.config.getDbNameByFile(context.file)
     
 	multi_sql """
 	drop database if exists ${db};
 	create database ${db};
 	use ${db};
-create table table_20_undef_partitions2_keys3_properties4_distributed_by5 (
+	create table table_20_undef_partitions2_keys3_properties4_distributed_by5 (
 	col_int_undef_signed2 int    ,
 	col_int_undef_signed int    ,
 	col_int_undef_signed3 int    ,
