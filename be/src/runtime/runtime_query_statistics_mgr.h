@@ -57,8 +57,8 @@ public:
 public:
     std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
     bool _is_query_finished;
-    TNetworkAddress _fe_addr;
-    TQueryType::type _query_type;
+    const TNetworkAddress _fe_addr;
+    const TQueryType::type _query_type;
     int64_t _query_finish_time;
     int64_t _wg_id;
     int64_t _query_start_time;
