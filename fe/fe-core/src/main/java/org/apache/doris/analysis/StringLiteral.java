@@ -266,13 +266,10 @@ public class StringLiteral extends LiteralExpr {
                     break;
             }
         } else if (targetType.isDateType()) {
-            // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
-            // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {
-                // pass;
+                throw new AnalysisException(e.getMessage());
             }
         } else if (targetType.equals(type)) {
             return this;
