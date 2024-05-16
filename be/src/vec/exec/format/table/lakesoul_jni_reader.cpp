@@ -57,9 +57,6 @@ LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
             {"options", _lakesoul_params.options},
             {"table_schema", _lakesoul_params.table_schema},
     };
-
-    LOG_INFO("Create LakeSoulJniReader with params {}", params);
-
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/lakesoul/LakeSoulJniScanner",
                                                     params, required_fields);
 }
