@@ -25,6 +25,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.Set;
 
 class FuncDepsTest {
@@ -32,68 +33,88 @@ class FuncDepsTest {
     Slot s2 = new SlotReference("2", IntegerType.INSTANCE, false);
     Slot s3 = new SlotReference("3", IntegerType.INSTANCE, false);
     Slot s4 = new SlotReference("4", IntegerType.INSTANCE, false);
+    Set<Slot> set1 = Sets.newHashSet(s1);
+    Set<Slot> set2 = Sets.newHashSet(s2);
+    Set<Slot> set3 = Sets.newHashSet(s3);
+    Set<Slot> set4 = Sets.newHashSet(s4);
 
     @Test
     void testOneEliminate() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s1, s3, s4), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set1);
+        expected.add(set3);
+        expected.add(set4);
+        Assertions.assertEquals(expected, slots);
     }
 
     @Test
     void testChainEliminate() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s1), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set1);
+        Assertions.assertEquals(expected, slots);
     }
 
     @Test
     void testTreeEliminate() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s4));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s1), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set1);
+        Assertions.assertEquals(expected, slots);
     }
 
     @Test
     void testCircleEliminate1() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s1));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s2, s3, s4), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set2);
+        expected.add(set3);
+        expected.add(set4);
+        Assertions.assertEquals(expected, slots);
     }
 
     @Test
     void testCircleEliminate2() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
         funcDeps.addFuncItems(Sets.newHashSet(s4), Sets.newHashSet(s1));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s3), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set3);
+        Assertions.assertEquals(expected, slots);
     }
 
     @Test
     void testGraphEliminate1() {
-        Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);
+        Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
-        Set<Slot> slots = funcDeps.eliminateDeps(slotSet);
-        Assertions.assertEquals(Sets.newHashSet(s1), slots);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> expected = new HashSet<>();
+        expected.add(set1);
+        Assertions.assertEquals(expected, slots);
     }
 }

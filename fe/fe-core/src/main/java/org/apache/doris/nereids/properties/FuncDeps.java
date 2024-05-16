@@ -81,17 +81,18 @@ public class FuncDeps {
     /**
      * Eliminate all deps in slots
      */
-    public Set<Slot> eliminateDeps(Set<Slot> slots) {
-        Set<Slot> minSlotSet = slots;
-        List<Set<Slot>> reduceSlotSets = new ArrayList<>();
+    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
+        Set<Set<Slot>> minSlotSet = slots;
+        List<Set<Set<Slot>>> reduceSlotSets = new ArrayList<>();
         reduceSlotSets.add(slots);
         while (!reduceSlotSets.isEmpty()) {
-            List<Set<Slot>> newReduceSlotSets = new ArrayList<>();
-            for (Set<Slot> slotSet : reduceSlotSets) {
+            List<Set<Set<Slot>>> newReduceSlotSets = new ArrayList<>();
+            for (Set<Set<Slot>> slotSet : reduceSlotSets) {
                 for (FuncDepsItem funcDepsItem : items) {
-                    if (slotSet.containsAll(funcDepsItem.dependencies)
-                            && slotSet.containsAll(funcDepsItem.determinants)) {
-                        Set<Slot> newSet = Sets.difference(slotSet, funcDepsItem.dependencies);
+                    if (slotSet.contains(funcDepsItem.dependencies)
+                            && slotSet.contains(funcDepsItem.determinants)) {
+                        Set<Set<Slot>> newSet = Sets.newHashSet(slotSet);
+                        newSet.remove(funcDepsItem.dependencies);
                         if (minSlotSet.size() > newSet.size()) {
                             minSlotSet = newSet;
                         }

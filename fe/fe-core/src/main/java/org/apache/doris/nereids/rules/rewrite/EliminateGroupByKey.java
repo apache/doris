@@ -22,13 +22,19 @@ import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 
@@ -37,30 +43,46 @@ import java.util.Set;
  */
 @DependsRules({EliminateGroupBy.class, ColumnPruning.class})
 public class EliminateGroupByKey extends OneRewriteRuleFactory {
+
     @Override
     public Rule build() {
-        return logicalAggregate().then(agg -> {
-            Set<Slot> groupBySlots = new HashSet<>();
+        return logicalProject(logicalAggregate().when(agg -> !agg.getSourceRepeat().isPresent())).then(proj -> {
+            LogicalAggregate<? extends Plan> agg = proj.child();
+            Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
+            Set<Slot> validSlots = new HashSet<>();
             for (Expression expression : agg.getGroupByExpressions()) {
-                if (expression.isSlot()) {
-                    groupBySlots.add((Slot) expression);
-                }
+                groupBySlots.put(expression, expression.getInputSlots());
+                validSlots.addAll(expression.getInputSlots());
             }
+
             FuncDeps funcDeps = agg.child().getLogicalProperties()
-                    .getFunctionalDependencies().getAllValidFuncDeps(groupBySlots);
+                    .getFunctionalDependencies().getAllValidFuncDeps(validSlots);
             if (funcDeps.isEmpty()) {
                 return null;
             }
 
-            Set<Slot> minGroupBySlots = funcDeps.eliminateDeps(groupBySlots);
-            Set<Slot> eliminatedSlots = Sets.difference(groupBySlots, minGroupBySlots);
-            List<Expression> newGroupBy = new ArrayList<>();
-            for (Expression expression : agg.getGroupByExpressions()) {
-                if (!(expression.isSlot() && eliminatedSlots.contains((Slot) expression))) {
-                    newGroupBy.add(expression);
+            Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()));
+            Set<Expression> removeExpression = new HashSet<>();
+            for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
+                if (!minGroupBySlots.contains(entry.getValue())
+                        && !proj.getInputSlots().containsAll(entry.getValue())) {
+                    removeExpression.add(entry.getKey());
                 }
             }
-            return agg.withGroupByAndOutput(newGroupBy, agg.getOutputs());
+
+            List<Expression> newGroupExpression = new ArrayList<>();
+            for (Expression expression : agg.getGroupByExpressions()) {
+                if (!removeExpression.contains(expression)) {
+                    newGroupExpression.add(expression);
+                }
+            }
+            List<NamedExpression> newOutput = new ArrayList<>();
+            for (NamedExpression expression : agg.getOutputExpressions()) {
+                if (!removeExpression.contains(expression)) {
+                    newOutput.add(expression);
+                }
+            }
+            return proj.withChildren(ImmutableList.of(agg.withGroupByAndOutput(newGroupExpression, newOutput)));
 
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
