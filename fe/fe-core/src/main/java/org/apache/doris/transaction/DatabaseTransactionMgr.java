@@ -1116,10 +1116,6 @@ public class DatabaseTransactionMgr {
                     return;
                 }
             }
-            // Here, we only wait for the EventProcessor to finish processing the event,
-            // but regardless of the success or failure of the result,
-            // it does not affect the logic of transaction
-            produceEvent(transactionState, db);
             boolean txnOperated = false;
             writeLock();
             try {
@@ -1128,6 +1124,10 @@ public class DatabaseTransactionMgr {
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 setTableVersion(transactionState, db);
+                // Here, we only wait for the EventProcessor to finish processing the event,
+                // but regardless of the success or failure of the result,
+                // it does not affect the logic of transaction
+                produceEvent(transactionState, db);
                 unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;
                 // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
