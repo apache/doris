@@ -19,8 +19,8 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import com.dmetasoul.lakesoul.meta.DataFileInfo;
 import com.dmetasoul.lakesoul.meta.DataOperation;
-import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
 import com.dmetasoul.lakesoul.meta.DBUtil;
+import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
