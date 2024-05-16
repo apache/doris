@@ -628,6 +628,7 @@ ${clt} -e "set global enable_profile=true;"
         insert_into_select_time=0
         insert_into_select_rows=10000000
         start=$(date +%s%3N)
+        ${clt} -e "set parallel_pipeline_task_num = 1;"
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%s%3N)
             echo "first test scale=1; (${end} - ${start})/1000"
@@ -639,6 +640,7 @@ ${clt} -e "set global enable_profile=true;"
         ${clt} -e "truncate table ${DB}.hits_insert_into_select;"
         sleep 3
         start=$(date +%s%3N)
+        ${clt} -e "set parallel_pipeline_task_num = 0;"
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%s%3N)
             insert_into_select_time=$(echo "scale=1; (${end} - ${start})/1000" | bc)
@@ -646,7 +648,6 @@ ${clt} -e "set global enable_profile=true;"
             echo "ERROR: failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
             return 1
         fi
-        ${clt} -e "show variables;"
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_insert_into_select" | sed -n '2p') != "${insert_into_select_rows}" ]]; then echo "check load fail..." && return 1; fi
 
@@ -703,7 +704,7 @@ exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
-    stop_doris
+    # stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
