@@ -152,6 +152,9 @@ public class Function implements Writable {
     // If true, this function is table function, mainly used by java-udtf
     @SerializedName("isU")
     protected boolean isUDTFunction = false;
+    // iff true, this udf function is static load, and BE need cache class load.
+    protected boolean isStaticLoad = false;
+    protected long expirationTime = 360; // default 6 hours;
 
     // Only used for serialization
     protected Function() {
@@ -212,6 +215,8 @@ public class Function implements Writable {
         this.checksum = other.checksum;
         this.isGlobal = other.isGlobal;
         this.isUDTFunction = other.isUDTFunction;
+        this.isStaticLoad = other.isStaticLoad;
+        this.expirationTime = other.expirationTime;
     }
 
     public void setNestedFunction(Function nestedFunction) {
@@ -580,6 +585,8 @@ public class Function implements Writable {
         }
         fn.setVectorized(vectorized);
         fn.setIsUdtfFunction(isUDTFunction);
+        fn.setIsStaticLoad(isStaticLoad);
+        fn.setExpirationTime(expirationTime);
         return fn;
     }
 
@@ -708,6 +715,10 @@ public class Function implements Writable {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
             isUDTFunction = input.readBoolean();
         }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_137) {
+            isStaticLoad = input.readBoolean();
+            expirationTime = input.readLong();
+        }
     }
 
     public static Function read(DataInput input) throws IOException {
@@ -788,6 +799,22 @@ public class Function implements Writable {
 
     public boolean isUDTFunction() {
         return this.isUDTFunction;
+    }
+
+    public void setStaticLoad(boolean isStaticLoad) {
+        this.isStaticLoad = isStaticLoad;
+    }
+
+    public boolean isStaticLoad() {
+        return this.isStaticLoad;
+    }
+
+    public void setExpirationTime(long expirationTime) {
+        this.expirationTime = expirationTime;
+    }
+
+    public long getExpirationTime() {
+        return this.expirationTime;
     }
 
     // Try to serialize this function and write to nowhere.

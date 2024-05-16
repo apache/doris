@@ -227,6 +227,7 @@ enum TTaskType {
     GC_BINLOG,
     CLEAN_TRASH,
     UPDATE_VISIBLE_VERSION,
+    CLEAN_UDF_CACHE,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -386,6 +387,8 @@ struct TFunction {
   12: optional string checksum
   13: optional bool vectorized = false
   14: optional bool is_udtf_function = false
+  15: optional bool is_static_load = false
+  16: optional i64 expiration_time //minutes
 }
 
 enum TJdbcOperation {
