@@ -24,10 +24,8 @@
 
 #include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 
-#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
@@ -35,7 +33,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/join/join_op.h"
 #include "vec/exprs/vexpr.h"
@@ -309,9 +306,8 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, Runtim
         return Status::OK();
     }
 
-    vectorized::materialize_block_inplace(block);
     ColumnRawPtrs raw_ptrs(_child_expr_lists[0].size());
-    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs));
+    RETURN_IF_ERROR(extract_build_column(block, raw_ptrs, rows));
     auto st = Status::OK();
     std::visit(
             [&](auto&& arg) {
@@ -411,20 +407,32 @@ bool VSetOperationNode<is_intersect>::is_child_finished(int child_id) const {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
-                                                             ColumnRawPtrs& raw_ptrs) {
-    for (size_t i = 0; i < _child_expr_lists[0].size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_col_id));
+Status VSetOperationNode<is_intersect>::extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs,
+                                                             size_t& rows) {
+    std::vector<int> result_locs(_child_expr_lists[0].size(), -1);
+    bool is_all_const = true;
 
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+    for (size_t i = 0; i < _child_expr_lists[0].size(); ++i) {
+        RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_locs[i]));
+        is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
+    }
+    rows = is_all_const ? 1 : rows;
+
+    for (size_t i = 0; i < result_locs.size(); ++i) {
+        int result_col_id = result_locs[i];
+        if (is_all_const) {
+            block.get_by_position(result_col_id).column =
+                    assert_cast<const ColumnConst&>(*block.get_by_position(result_col_id).column)
+                            .get_data_column_ptr();
+        } else {
+            block.get_by_position(result_col_id).column =
+                    block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        }
         if (_build_not_ignore_null[i]) {
             block.get_by_position(result_col_id).column =
                     make_nullable(block.get_by_position(result_col_id).column);
         }
-        const auto* column = block.get_by_position(result_col_id).column.get();
-        raw_ptrs[i] = column;
+        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
         _build_col_idx.insert({result_col_id, i});
     }
