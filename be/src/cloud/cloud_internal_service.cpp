@@ -34,9 +34,14 @@ void CloudInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController*
     // If the vaults containing hdfs vault then it would try to create hdfs connection using jni
     // which would acuiqre one thread local jniEnv. But bthread context can't guarantee that the brpc
     // worker thread wouldn't do bthread switch between worker threads.
-    bool ret = this->_heavy_work_pool.try_offer([&]() { _engine.sync_storage_vault(); });
+    bool ret = _heavy_work_pool.try_offer([&]() {
+        brpc::ClosureGuard closure_guard(done);
+        _engine.sync_storage_vault();
+    });
     if (!ret) {
-        LOG(WARNING) << "failed to submit sync storage vault task";
+        brpc::ClosureGuard closure_guard(done);
+        LOG(WARNING) << "fail to offer alter_vault_sync request to the work pool, pool="
+                     << _heavy_work_pool.get_info();
     }
 }
 
