@@ -808,6 +808,15 @@ under the License.
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-hadoop-compat</artifactId>
+            <version>2.5.2-hadoop3</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
