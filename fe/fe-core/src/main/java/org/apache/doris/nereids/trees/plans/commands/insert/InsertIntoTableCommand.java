@@ -187,10 +187,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                         Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert);
                 // set hive query options
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
+                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
                 insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                        Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))));
-                // set hive query options
+                        Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))), emptyInsert);
             } else {
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
