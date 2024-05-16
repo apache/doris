@@ -17,7 +17,7 @@
 
 package org.apache.doris.event;
 
-public class TableEvent extends Event {
+public abstract class TableEvent extends Event {
     protected final long ctlId;
     protected final long dbId;
     protected final long tableId;

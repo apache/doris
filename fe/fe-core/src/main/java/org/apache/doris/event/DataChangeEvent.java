@@ -21,9 +21,4 @@ public class DataChangeEvent extends TableEvent {
     public DataChangeEvent(long ctlId, long dbId, long tableId) {
         super(EventType.DATA_CHANGE, ctlId, dbId, tableId);
     }
-
-    @Override
-    public String toString() {
-        return super.toString();
-    }
 }

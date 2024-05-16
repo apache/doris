@@ -1860,13 +1860,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of deleting the partition
+        Env.getCurrentEnv().getEventProcessor().processEvent(
+                new DropPartitionEvent(db.getCatalog().getId(), db.getId(),
+                        olapTable.getId()));
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
                 clause.isForceDrop(), recycleTime, version, versionTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
-        Env.getCurrentEnv().getEventProcessor().processEvent(
-                new DropPartitionEvent(db.getCatalog().getId(), db.getId(),
-                        olapTable.getId()));
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
                 partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, clause.isForceDrop());
     }

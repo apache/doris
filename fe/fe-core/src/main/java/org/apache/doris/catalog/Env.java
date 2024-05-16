@@ -5614,14 +5614,17 @@ public class Env {
         } else {
             version = olapTable.getVisibleVersion();
         }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of replace the partition
+        Env.getCurrentEnv().getEventProcessor().processEvent(
+                new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
+                        olapTable.getId()));
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                         partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime);
         editLog.logReplaceTempPartition(info);
-        Env.getCurrentEnv().getEventProcessor().processEvent(
-                new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
-                        olapTable.getId()));
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
     }

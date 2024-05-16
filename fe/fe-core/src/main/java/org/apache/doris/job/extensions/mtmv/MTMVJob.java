@@ -157,6 +157,15 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
                 runningNum++;
                 // TODO: 2024/5/9 When the scheduling framework supports running only one task simultaneously,
                 //  change to 2 to prevent message loss
+                // Prerequisite: Each refresh will calculate which partitions to refresh
+                //
+                // For example, there is currently a running task that is refreshing partition p1.
+                // If the data of p2 changes at this time and triggers a refresh task t2,
+                // according to the existing logic (>=1), t2 will be lost
+                //
+                // If changed to>=2, t2 will be in a pending state.
+                // If the p3 data changes again and triggers the refresh task t3,
+                // then t3 will be discarded. However, when t2 runs, both p2 and p3 data will be refreshed.
                 if (runningNum >= 1) {
                     LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
                             task);

@@ -21,9 +21,4 @@ public class ReplacePartitionEvent extends TableEvent {
     public ReplacePartitionEvent(long ctlId, long dbId, long tableId) {
         super(EventType.REPLACE_PARTITION, ctlId, dbId, tableId);
     }
-
-    @Override
-    public String toString() {
-        return super.toString();
-    }
 }

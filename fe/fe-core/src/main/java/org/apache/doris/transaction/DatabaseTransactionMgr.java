@@ -1116,6 +1116,10 @@ public class DatabaseTransactionMgr {
                     return;
                 }
             }
+            // Here, we only wait for the EventProcessor to finish processing the event,
+            // but regardless of the success or failure of the result,
+            // it does not affect the logic of transaction
+            produceEvent(transactionState, db);
             boolean txnOperated = false;
             writeLock();
             try {
@@ -1142,7 +1146,6 @@ public class DatabaseTransactionMgr {
                 }
             }
             updateCatalogAfterVisible(transactionState, db, partitionVisibleVersions, backendPartitions);
-            produceEvent(transactionState, db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }

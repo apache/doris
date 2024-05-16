@@ -21,9 +21,4 @@ public class DropPartitionEvent extends TableEvent {
     public DropPartitionEvent(long ctlId, long dbId, long tableId) {
         super(EventType.DROP_PARTITION, ctlId, dbId, tableId);
     }
-
-    @Override
-    public String toString() {
-        return super.toString();
-    }
 }
