@@ -17,14 +17,6 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
-import com.dmetasoul.lakesoul.meta.DataFileInfo;
-import com.dmetasoul.lakesoul.meta.DataOperation;
-import com.dmetasoul.lakesoul.meta.DBUtil;
-import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
-import com.dmetasoul.lakesoul.meta.entity.TableInfo;
-import com.google.common.collect.Lists;
-import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
-import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -41,6 +33,16 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+
+import com.dmetasoul.lakesoul.meta.DBUtil;
+import com.dmetasoul.lakesoul.meta.DataFileInfo;
+import com.dmetasoul.lakesoul.meta.DataOperation;
+import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
+import com.dmetasoul.lakesoul.meta.entity.TableInfo;
+import com.google.common.collect.Lists;
+import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
+import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -101,7 +103,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     public static boolean isExistHashPartition(TableInfo tif) {
         JSONObject tableProperties = JSON.parseObject(tif.getProperties());
-        if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM()) 
+        if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM())
                 && tableProperties.getString(LakeSoulOptions.HASH_BUCKET_NUM()).equals("-1")) {
             return false;
         } else {
