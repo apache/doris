@@ -343,6 +343,7 @@ template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
+    // TODO: convert zero to 1
     auto ans = dv.from_date_str(buf.position(), buf.count());
 
     // only to match the is_all_read() check to prevent return null
@@ -355,6 +356,7 @@ template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
+    // TODO: convert zero to 1
     auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
 
     // only to match the is_all_read() check to prevent return null
@@ -367,6 +369,7 @@ template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
+    // TODO: convert zero to 1
     auto ans = dv.from_date_str(buf.position(), buf.count(), scale);
 
     // only to match the is_all_read() check to prevent return null
@@ -380,6 +383,7 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& lo
                                 UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
+    // TODO: convert zero to 1
     auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, scale);
 
     // only to match the is_all_read() check to prevent return null

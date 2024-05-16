@@ -1976,18 +1976,20 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr);
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone);
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone) {
+                                        const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2189,7 +2191,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         return false;
     }
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
-        return false;
+        if (date_val[0] == 0 && date_val[1] == 0 && date_val[2] == 0 && convert_zero) {
+            date_val[1] = 1;
+            date_val[2] = 1;
+        } else {
+            return false;
+        }
     }
 
     // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
