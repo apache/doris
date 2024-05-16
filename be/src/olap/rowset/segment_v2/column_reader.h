@@ -550,7 +550,7 @@ private:
 class RowIdColumnIterator : public ColumnIterator {
 public:
     RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_first() override {
