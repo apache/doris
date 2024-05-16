@@ -400,15 +400,6 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 }
 
 void inherit_column_attributes(TabletSchemaSPtr& schema) {
-    std::unordered_map<int32_t, TabletIndex> variants_index_meta;
-    // Get all variants tablet index metas if exist
-    for (const auto& col : schema->columns()) {
-        auto index_meta = schema->get_inverted_index(col->unique_id(), "");
-        if (col->is_variant_type() && index_meta != nullptr) {
-            variants_index_meta.emplace(col->unique_id(), *index_meta);
-        }
-    }
-
     // Add index meta if extracted column is missing index meta
     for (size_t i = 0; i < schema->num_columns(); ++i) {
         TabletColumn& col = schema->mutable_column(i);
@@ -419,7 +410,7 @@ void inherit_column_attributes(TabletSchemaSPtr& schema) {
             // parent column is missing, maybe dropped
             continue;
         }
-        inherit_column_attributes(schema->column(col.parent_unique_id()), col, schema);
+        inherit_column_attributes(schema->column_by_uid(col.parent_unique_id()), col, schema);
     }
 }
 

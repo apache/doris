@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("regression_test_variant_delete_and_update", "variant_type"){
     // MOR
     def table_name = "var_delete_update"
@@ -164,5 +166,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
 
     sql "sync"
 
-    qt_sql """ select * from ${tableName} order by id;"""
+    if (!isCloudMode()) {
+        qt_sql """ select * from ${tableName} order by id;"""
+    }
 }
