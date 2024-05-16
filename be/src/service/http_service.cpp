@@ -30,7 +30,7 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
-#include "http/action/calc_tablet_file_crc.h"
+#include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -346,8 +346,8 @@ void HttpService::register_local_handler(StorageEngine& engine) {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
 
-    CalcTabletFileCrcAction* calc_crc_action = _pool.add(new CalcTabletFileCrcAction(
-            _env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
 }
 

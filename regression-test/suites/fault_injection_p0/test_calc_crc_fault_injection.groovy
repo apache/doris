@@ -26,6 +26,15 @@ suite("test_calc_crc") {
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
+    def calc_file_crc_on_tablet_with_start = { ip, port, tablet, start->
+        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s&start_version=%s", ip, port, tablet, start))
+    }
+    def calc_file_crc_on_tablet_with_end = { ip, port, tablet, end->
+        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s&end_version=%s", ip, port, tablet, end))
+    }
+    def calc_file_crc_on_tablet_with_start_end = { ip, port, tablet, start, end->
+        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s&start_version=%s&end_version=%s", ip, port, tablet, start, end))
+    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -66,6 +75,10 @@ suite("test_calc_crc") {
     assertTrue(code_0 == 0)
     assertTrue(out_0.contains("crc_value"))
     assertTrue(out_0.contains("used_time_ms"))
+    assertEquals("0", parseJson(out_0.trim()).start_version)
+    assertEquals("7", parseJson(out_0.trim()).end_version)
+    assertEquals("7", parseJson(out_0.trim()).rowset_count)
+    assertEquals("18", parseJson(out_0.trim()).file_count)
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::clac_local_file_crc")
@@ -76,11 +89,37 @@ suite("test_calc_crc") {
         GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::clac_local_file_crc")
     }
 
-    def (code_2, out_2, err_2) = calc_file_crc_on_tablet(ip, port, tablet_id)
+    def (code_2, out_2, err_2) = calc_file_crc_on_tablet_with_start(ip, port, tablet_id, 0)
     logger.info("Run calc_file_crc_on_tablet: code=" + code_2 + ", out=" + out_2 + ", err=" + err_2)
-    assertTrue(code_0 == 0)
-    assertTrue(out_0.contains("crc_value"))
-    assertTrue(out_0.contains("used_time_ms"))
+    assertTrue(code_2 == 0)
     assertTrue(out_0 == out_2)
+
+    def (code_3, out_3, err_3) = calc_file_crc_on_tablet_with_end(ip, port, tablet_id, 7)
+    logger.info("Run calc_file_crc_on_tablet: code=" + code_3 + ", out=" + out_3 + ", err=" + err_3)
+    assertTrue(code_3 == 0)
+    assertTrue(out_2 == out_3)
+
+    def (code_4, out_4, err_4) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 3, 6)
+    logger.info("Run calc_file_crc_on_tablet: code=" + code_4 + ", out=" + out_3 + ", err=" + err_4)
+    assertTrue(out_4.contains("crc_value"))
+    assertTrue(out_4.contains("used_time_ms"))
+    assertEquals("3", parseJson(out_4.trim()).start_version)
+    assertEquals("6", parseJson(out_4.trim()).end_version)
+    assertEquals("4", parseJson(out_4.trim()).rowset_count)
+    assertEquals("12", parseJson(out_4.trim()).file_count)
+
+    def (code_5, out_5, err_5) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 5, 9)
+    logger.info("Run calc_file_crc_on_tablet: code=" + code_5 + ", out=" + out_5 + ", err=" + err_5)
+    assertTrue(out_5.contains("crc_value"))
+    assertTrue(out_5.contains("used_time_ms"))
+    assertEquals("5", parseJson(out_5.trim()).start_version)
+    assertEquals("7", parseJson(out_5.trim()).end_version)
+    assertEquals("3", parseJson(out_5.trim()).rowset_count)
+    assertEquals("9", parseJson(out_5.trim()).file_count)
+
+    def (code_6, out_6, err_6) = calc_file_crc_on_tablet(ip, port, 123)
+    logger.info("Run calc_file_crc_on_tablet: code=" + code_6 + ", out=" + out_6 + ", err=" + err_6)
+    assertTrue(out_6.contains("Tablet not found."))
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

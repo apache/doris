@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/calc_tablet_file_crc.h"
+#include "http/action/calc_file_crc_action.h"
 
+#include <algorithm>
 #include <exception>
 #include <string>
 
@@ -33,13 +34,14 @@
 namespace doris {
 using namespace ErrorCode;
 
-CalcTabletFileCrcAction::CalcTabletFileCrcAction(ExecEnv* exec_env, StorageEngine& engine,
-                                                 TPrivilegeHier::type hier,
-                                                 TPrivilegeType::type ptype)
+CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, StorageEngine& engine,
+                                     TPrivilegeHier::type hier, TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine) {}
 
-// for viewing the compaction status
-Status CalcTabletFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value) {
+// calculate the crc value of the files in the tablet
+Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value,
+                                           int64_t* start_version, int64_t* end_version,
+                                           int32_t* rowset_count, int64_t* file_count) {
     uint64_t tablet_id = 0;
     const auto& req_tablet_id = req->param(TABLET_ID_KEY);
     if (req_tablet_id.empty()) {
@@ -57,19 +59,47 @@ Status CalcTabletFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
-    auto st = tablet->clac_local_file_crc(crc_value);
+    const auto& req_start_version = req->param(PARAM_START_VERSION);
+    const auto& req_end_version = req->param(PARAM_END_VERSION);
+
+    *start_version = 0;
+    *end_version = tablet->max_version().second;
+
+    if (!req_start_version.empty()) {
+        try {
+            *start_version = std::stoll(req_start_version);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert start version failed, {}", e.what());
+        }
+    }
+    if (!req_end_version.empty()) {
+        try {
+            *end_version =
+                    std::min(*end_version, static_cast<int64_t>(std::stoll(req_end_version)));
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert end version failed, {}", e.what());
+        }
+    }
+
+    auto st = tablet->clac_local_file_crc(crc_value, *start_version, *end_version, rowset_count,
+                                          file_count);
     if (!st.ok()) {
         return st;
     }
     return Status::OK();
 }
 
-void CalcTabletFileCrcAction::handle(HttpRequest* req) {
-    uint32_t crc_value;
+void CalcFileCrcAction::handle(HttpRequest* req) {
+    uint32_t crc_value = 0;
+    int64_t start_version = 0;
+    int64_t end_version = 0;
+    int32_t rowset_count = 0;
+    int64_t file_count = 0;
 
     MonotonicStopWatch timer;
     timer.start();
-    Status st = _handle_calc_crc(req, &crc_value);
+    Status st = _handle_calc_crc(req, &crc_value, &start_version, &end_version, &rowset_count,
+                                 &file_count);
     timer.stop();
     LOG(INFO) << "Calc tablet file crc finished, status = " << st << ", crc_value = " << crc_value
               << ", use time = " << timer.elapsed_time() / 1000000 << "ms";
@@ -84,6 +114,14 @@ void CalcTabletFileCrcAction::handle(HttpRequest* req) {
         writer.String(std::to_string(crc_value).data());
         writer.Key("used_time_ms");
         writer.String(std::to_string(timer.elapsed_time() / 1000000).data());
+        writer.Key("start_version");
+        writer.String(std::to_string(start_version).data());
+        writer.Key("end_version");
+        writer.String(std::to_string(end_version).data());
+        writer.Key("rowset_count");
+        writer.String(std::to_string(rowset_count).data());
+        writer.Key("file_count");
+        writer.String(std::to_string(file_count).data());
         writer.EndObject();
         HttpChannel::send_reply(req, HttpStatus::OK, s.GetString());
     }

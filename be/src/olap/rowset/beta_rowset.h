@@ -99,7 +99,7 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
-    Status clac_local_file_crc(uint32_t* crc_value);
+    Status clac_local_file_crc(uint32_t* crc_value, int64_t* file_count);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

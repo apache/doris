@@ -476,7 +476,8 @@ public:
     }
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
-    Status clac_local_file_crc(uint32_t* crc_value);
+    Status clac_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                               int32_t* rowset_count, int64_t* file_count);
 
 private:
     Status _init_once_action();
