@@ -82,6 +82,11 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
+    public LogicalEmptyRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalEmptyRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)
