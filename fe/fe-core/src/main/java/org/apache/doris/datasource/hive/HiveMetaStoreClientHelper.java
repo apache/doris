@@ -828,10 +828,10 @@ public class HiveMetaStoreClientHelper {
             }
             if (descriptor.getSerdeInfo().isSetParameters()) {
                 output.append("WITH SERDEPROPERTIES (\n")
-                    .append(descriptor.getSerdeInfo().getParameters().entrySet().stream()
+                        .append(descriptor.getSerdeInfo().getParameters().entrySet().stream()
                         .map(entry -> String.format("  '%s' = '%s'", entry.getKey(), entry.getValue()))
                         .collect(Collectors.joining(",\n")))
-                    .append(")\n");
+                        .append(")\n");
             }
             if (descriptor.isSetInputFormat()) {
                 output.append("STORED AS INPUTFORMAT\n")
