@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -163,6 +164,10 @@ public class RestoreStmt extends AbstractBackupStmt {
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
                         "Invalid reserve_replica value: " + copiedProperties.get(PROP_RESERVE_REPLICA));
+            }
+            // force set reserveReplica to false, do not keep the origin allocation
+            if (reserveReplica && !Config.force_olap_table_replication_allocation.isEmpty()) {
+                reserveReplica = false;
             }
             copiedProperties.remove(PROP_RESERVE_REPLICA);
         }

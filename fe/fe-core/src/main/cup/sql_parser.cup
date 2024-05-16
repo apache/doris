@@ -623,6 +623,7 @@ terminal String
     KW_UNION,
     KW_UNIQUE,
     KW_UNLOCK,
+    KW_UNSET,
     KW_UNSIGNED,
     KW_UPDATE,
     KW_USE,
@@ -631,6 +632,7 @@ terminal String
     KW_VALUE,
     KW_VALUES,
     KW_VARCHAR,
+    KW_VARIABLE,
     KW_VARIABLES,
     KW_VERBOSE,
     KW_VERSION,
@@ -675,7 +677,7 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -1105,6 +1107,8 @@ stmt ::=
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
+    | unset_var_stmt:stmt
+    {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
     | kill_analysis_job_stmt: k
@@ -5006,6 +5010,18 @@ set_stmt ::=
     :}
     ;
 
+// Unset variable statement
+unset_var_stmt ::=
+    KW_UNSET opt_var_type:type KW_VARIABLE variable_name:variable
+    {:
+        RESULT = new UnsetVariableStmt(type, variable);
+    :}
+    | KW_UNSET opt_var_type:type KW_VARIABLE KW_ALL
+    {:
+        RESULT = new UnsetVariableStmt(type, true);
+    :}
+    ;
+
 user_property_list ::=
     user_property:property
     {:
@@ -7242,7 +7258,15 @@ admin_stmt ::=
     :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs);
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, false);
+    :}
+    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
+    :}
+    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
     :}
     // deprecated
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
@@ -7749,6 +7773,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_USER:id
     {: RESULT = id; :}
+    | KW_VARIABLE:id
+    {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
     | KW_VALUE:id
@@ -7784,6 +7810,8 @@ keyword ::=
     | KW_MAX:id
     {: RESULT = id; :}
     | KW_FREE:id
+    {: RESULT = id; :}
+    | KW_UNSET:id
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
