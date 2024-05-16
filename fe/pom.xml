@@ -259,7 +259,6 @@ under the License.
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
         <hikaricp.version>4.0.3</hikaricp.version>
-        <clickhouse.version>0.4.6</clickhouse.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
@@ -335,7 +334,6 @@ under the License.
         <project.scm.id>github</project.scm.id>
         <spring.version>2.7.13</spring.version>
         <orc.version>1.8.4</orc.version>
-        <ojdbc8.version>12.2.0.1</ojdbc8.version>
         <zookeeper.version>3.9.1</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
@@ -345,7 +343,6 @@ under the License.
         <jettison.version>1.5.4</jettison.version>
         <jetty.version>9.4.53.v20231009</jetty.version>
         <immutables.version>2.9.3</immutables.version>
-        <vesoft.client.version>3.0.0</vesoft.client.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
@@ -749,11 +746,6 @@ under the License.
                 <groupId>com.googlecode.json-simple</groupId>
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.oracle.database.jdbc</groupId>
-                <artifactId>ojdbc8</artifactId>
-                <version>${ojdbc8.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
             <dependency>
@@ -1550,13 +1542,6 @@ under the License.
                 <artifactId>HikariCP</artifactId>
                 <version>${hikaricp.version}</version>
             </dependency>
-            <dependency>
-                <groupId>com.clickhouse</groupId>
-                <artifactId>clickhouse-jdbc</artifactId>
-                <version>${clickhouse.version}</version>
-                <scope>provided</scope>
-                <classifier>all</classifier>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
             <dependency>
                 <groupId>joda-time</groupId>
@@ -1568,11 +1553,6 @@ under the License.
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
                 <version>${tomcat-embed-core.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.vesoft</groupId>
-                <artifactId>client</artifactId>
-                <version>${vesoft.client.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
