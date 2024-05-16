@@ -32,6 +32,7 @@ class FuncDepsTest {
     Slot s2 = new SlotReference("2", IntegerType.INSTANCE, false);
     Slot s3 = new SlotReference("3", IntegerType.INSTANCE, false);
     Slot s4 = new SlotReference("4", IntegerType.INSTANCE, false);
+
     @Test
     void testOneEliminate() {
         Set<Slot> slotSet = Sets.newHashSet(s1, s2, s3, s4);

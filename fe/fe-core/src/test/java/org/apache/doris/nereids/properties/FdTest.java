@@ -60,7 +60,7 @@ class FdTest extends TestWithFeService {
     @Test
     void testAgg() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select id, id2 from agg group by id, id2")
+                .analyze("select sum(id2), id2 from agg group by id2")
                 .getPlan();
         Set<Slot> output = ImmutableSet.copyOf(plan.getOutputSet());
         System.out.println(plan.getLogicalProperties()
@@ -68,7 +68,7 @@ class FdTest extends TestWithFeService {
         Assertions.assertTrue(
                 plan.getLogicalProperties()
                 .getFunctionalDependencies().getAllValidFuncDeps(output)
-                        .isFuncDeps(output, ImmutableSet.of(plan.getOutput().get(0))));
+                        .isFuncDeps(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(0))));
     }
 
     @Test

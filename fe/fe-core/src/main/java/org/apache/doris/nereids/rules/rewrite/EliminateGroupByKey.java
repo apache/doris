@@ -22,10 +22,7 @@ import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.Sets;
 
@@ -42,15 +39,14 @@ import java.util.Set;
 public class EliminateGroupByKey extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalAggregate()).then(proj -> {
-            LogicalAggregate<? extends Plan> agg = proj.child();
+        return logicalAggregate().then(agg -> {
             Set<Slot> groupBySlots = new HashSet<>();
             for (Expression expression : agg.getGroupByExpressions()) {
-                if (expression.isSlot() && !proj.getInputSlots().contains((Slot) expression)) {
+                if (expression.isSlot()) {
                     groupBySlots.add((Slot) expression);
                 }
             }
-            FuncDeps funcDeps = agg.getLogicalProperties()
+            FuncDeps funcDeps = agg.child().getLogicalProperties()
                     .getFunctionalDependencies().getAllValidFuncDeps(groupBySlots);
             if (funcDeps.isEmpty()) {
                 return null;
@@ -58,19 +54,13 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
 
             Set<Slot> minGroupBySlots = funcDeps.eliminateDeps(groupBySlots);
             Set<Slot> eliminatedSlots = Sets.difference(groupBySlots, minGroupBySlots);
-            List<NamedExpression> newOutputs = new ArrayList<>();
-            for (NamedExpression expression : agg.getOutputExpressions()) {
-                if (!eliminatedSlots.contains(expression.toSlot())) {
-                    newOutputs.add(expression);
-                }
-            }
             List<Expression> newGroupBy = new ArrayList<>();
             for (Expression expression : agg.getGroupByExpressions()) {
                 if (!(expression.isSlot() && eliminatedSlots.contains((Slot) expression))) {
                     newGroupBy.add(expression);
                 }
             }
-            return agg.withGroupByAndOutput(newGroupBy, newOutputs);
+            return agg.withGroupByAndOutput(newGroupBy, agg.getOutputs());
 
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
