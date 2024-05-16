@@ -17,7 +17,9 @@
 
 #include "http/action/calc_file_crc_action.h"
 
+#include <rapidjson/prettywriter.h>
 #include <rapidjson/rapidjson.h>
+#include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
 #include <exception>
