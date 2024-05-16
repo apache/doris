@@ -21,13 +21,13 @@
 
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
-suite("load") {
+suite("load", "nonConcurrent") {
 
     sql """
         CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
+        "fs.defaultFS"="${getHmsHdfsFs()}",
         "path_prefix" = "multi_vault_ssb_hdfs_vault"
         );
     """
@@ -36,7 +36,7 @@ suite("load") {
         CREATE STORAGE VAULT IF NOT EXISTS multi_vault_ssb_flat_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
+        "fs.defaultFS"="${getHmsHdfsFs()}",
         "path_prefix" = "multi_vault_ssb_flat_hdfs_vault"
         );
     """
