@@ -827,24 +827,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                     for (Column column : baseSchema) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+                        final Integer precision = column.getOriginType().getPrecision();
+                        if (precision != null) {
+                            desc.setColumnPrecision(precision);
+                        }
                         final Integer columnLength = column.getOriginType().getColumnSize();
                         if (columnLength != null) {
                             desc.setColumnLength(columnLength);
                         }
-                        if (column.getDataType().isDateV2Type()) {
-                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                            if (decimalDigits != null) {
-                                desc.setDatetimeScale(decimalDigits);
-                            }
-                        } else {
-                            final Integer precision = column.getOriginType().getPrecision();
-                            if (precision != null) {
-                                desc.setColumnPrecision(precision);
-                            }
-                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                            if (decimalDigits != null) {
-                                desc.setColumnScale(decimalDigits);
-                            }
+                        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+                        if (decimalDigits != null) {
+                            desc.setColumnScale(decimalDigits);
                         }
                         desc.setIsAllowNull(column.isAllowNull());
                         final TColumnDef colDef = new TColumnDef(desc);
@@ -932,24 +925,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TColumnDesc getColumnDesc(Column column) {
         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+        final Integer precision = column.getOriginType().getPrecision();
+        if (precision != null) {
+            desc.setColumnPrecision(precision);
+        }
         final Integer columnLength = column.getOriginType().getColumnSize();
         if (columnLength != null) {
             desc.setColumnLength(columnLength);
         }
-        if (column.getDataType().isDateV2Type()) {
-            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-            if (decimalDigits != null) {
-                desc.setDatetimeScale(decimalDigits);
-            }
-        } else {
-            final Integer precision = column.getOriginType().getPrecision();
-            if (precision != null) {
-                desc.setColumnPrecision(precision);
-            }
-            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-            if (decimalDigits != null) {
-                desc.setColumnScale(decimalDigits);
-            }
+        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+        if (decimalDigits != null) {
+            desc.setColumnScale(decimalDigits);
         }
         desc.setIsAllowNull(column.isAllowNull());
         if (column.getChildren().size() > 0) {
