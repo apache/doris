@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.SetVar.SetVarType;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
@@ -649,6 +651,27 @@ public class VariableMgr {
             }
         }
         return ImmutableMap.copyOf(result);
+    }
+
+    public static void setAllVarsToDefaultValue(SessionVariable sessionVariable, SetType setType)
+            throws DdlException {
+        for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+            VarContext varCtx = entry.getValue();
+            SetVar setVar = new SetVar(setType, entry.getKey(),
+                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+            try {
+                checkUpdate(setVar, varCtx.getFlag());
+            } catch (DdlException e) {
+                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+                continue;
+            }
+            setVarInternal(sessionVariable, setVar, varCtx);
+        }
+    }
+
+    public static String getDefaultValue(String key) {
+        VarContext varContext = ctxByDisplayVarName.get(key);
+        return varContext == null ? null : varContext.defaultValue;
     }
 
     // Dump all fields. Used for `show variables`

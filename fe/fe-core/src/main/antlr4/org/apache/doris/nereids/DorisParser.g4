@@ -833,9 +833,11 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNSET
     | USER
     | VALUE
     | VARCHAR
+    | VARIABLE
     | VARIABLES
     | VERBOSE
     | VERSION
