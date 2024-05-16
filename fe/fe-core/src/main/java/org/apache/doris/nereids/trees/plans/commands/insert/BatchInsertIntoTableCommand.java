@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NoForward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
 /**
  * insert into values with in txn model.
  */
-public class BatchInsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
+public class BatchInsertIntoTableCommand extends Command implements NoForward, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(BatchInsertIntoTableCommand.class);
 

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -54,11 +54,14 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
+import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
+import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
@@ -182,15 +185,25 @@ public class InsertUtils {
         txnEntry.setDb(dbObj);
         String label = txnEntry.getLabel();
         try {
-            long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    label, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    sourceType, timeoutSecond);
-            txnConf.setTxnId(txnId);
+            long txnId;
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
+                txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
+                        label, new TransactionState.TxnCoordinator(
+                                TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        sourceType, timeoutSecond);
+            } else {
+                MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
+                TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
+                request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
+                        .setLabel(label).setUser("").setUserIp("").setPasswd("");
+                TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
+                txnId = result.getTxnId();
+            }
+            txnConf.setTxnId(txnId);
             txnConf.setToken(token);
-        } catch (UserException e) {
+        } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
 
