@@ -87,6 +87,11 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <typename T>
+std::string DataTypeDecimal<T>::to_string(const T& value) const {
+    return value.to_string(scale);
+}
+
+template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val {};
