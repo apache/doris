@@ -489,7 +489,10 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (pair.second instanceof HMSExternalTable) {
-            return Pair.of(((HMSExternalDatabase) pair.first), (HMSExternalTable) pair.second);
+            HMSExternalTable table = (HMSExternalTable) pair.second;
+            if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
+                return Pair.of(((HMSExternalDatabase) pair.first), table);
+            }
         }
         throw new AnalysisException("the target table of insert into is not a Hive table");
     }
