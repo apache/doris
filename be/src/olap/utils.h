@@ -296,9 +296,9 @@ struct RowLocation {
 };
 
 struct GlobalRowLoacation {
-    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
             : tablet_id(tid), row_location(rsid, sid, rid) {}
-    uint32_t tablet_id;
+    int64_t tablet_id;
     RowLocation row_location;
 
     bool operator==(const GlobalRowLoacation& rhs) const {

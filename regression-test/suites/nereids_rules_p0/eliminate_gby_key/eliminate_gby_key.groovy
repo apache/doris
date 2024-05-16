@@ -17,8 +17,10 @@
 
 suite("eliminate_gby_key") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+	sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql """DROP TABLE IF EXISTS t1;"""
+
+	sql """DROP TABLE IF EXISTS t1;"""
     sql """DROP TABLE IF EXISTS t2;"""
 
     sql """

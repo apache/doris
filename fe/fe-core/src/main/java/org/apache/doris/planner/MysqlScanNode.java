@@ -43,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Full scan of an MySQL table.
@@ -92,6 +93,12 @@ public class MysqlScanNode extends ExternalScanNode {
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
         return output.toString();
     }
@@ -153,6 +160,7 @@ public class MysqlScanNode extends ExternalScanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.MYSQL_SCAN_NODE;
         msg.mysql_scan_node = new TMySQLScanNode(desc.getId().asInt(), tblName, columns, filters);
+        super.toThrift(msg);
     }
 
     @Override

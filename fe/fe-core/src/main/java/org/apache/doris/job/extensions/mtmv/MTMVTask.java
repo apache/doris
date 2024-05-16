@@ -170,7 +170,7 @@ public class MTMVTask extends AbstractTask {
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
             // refreshHmsTable();
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
             Map<Long, Set<Long>> partitionMappings = mtmv.calculatePartitionMappings();
@@ -225,7 +225,7 @@ public class MTMVTask extends AbstractTask {
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
+                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionIds : Sets.newHashSet(), tableWithPartKey);
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setExecutor(executor);
@@ -400,7 +400,7 @@ public class MTMVTask extends AbstractTask {
 
     private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
         Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             tableWithPartKey
                     .put(mtmv.getMvPartitionInfo().getRelatedTable(), mtmv.getMvPartitionInfo().getRelatedCol());
         }

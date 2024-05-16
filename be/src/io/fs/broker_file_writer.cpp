@@ -28,6 +28,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/fs/file_writer.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -60,12 +61,29 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 }
 #endif
 
-Status BrokerFileWriter::close() {
-    if (_closed) {
+Status BrokerFileWriter::close(bool non_block) {
+    if (_state == State::CLOSED) {
+        return Status::InternalError("BrokerFileWriter already closed, file path {}",
+                                     _path.native());
+    }
+    if (_state == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
+        // error status then the code would never call the second close(true)
+        _state = State::CLOSED;
         return Status::OK();
     }
-    _closed = true;
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+    } else {
+        _state = State::CLOSED;
+    }
+    return _close_impl();
+}
 
+Status BrokerFileWriter::_close_impl() {
     TBrokerCloseWriterRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
     request.__set_fd(_fd);
@@ -117,7 +135,7 @@ Status BrokerFileWriter::close() {
 }
 
 Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_closed) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
@@ -132,10 +150,6 @@ Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
             p += written_bytes;
         }
     }
-    return Status::OK();
-}
-
-Status BrokerFileWriter::finalize() {
     return Status::OK();
 }
 
