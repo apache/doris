@@ -23,8 +23,10 @@ public class JdbcExecutorFactory {
     public static String getExecutorClass(TOdbcTableType type) {
         switch (type) {
             case MYSQL:
+            case OCEANBASE:
                 return "org/apache/doris/jdbc/MySQLJdbcExecutor";
             case ORACLE:
+            case OCEANBASE_ORACLE:
                 return "org/apache/doris/jdbc/OracleJdbcExecutor";
             case POSTGRESQL:
                 return "org/apache/doris/jdbc/PostgreSQLJdbcExecutor";
