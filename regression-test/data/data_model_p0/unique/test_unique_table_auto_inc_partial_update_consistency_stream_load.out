@@ -11,85 +11,85 @@
 9	Nereids	900
 
 -- !select1_1 --
-Bob	123
 Alice	200
-Tom	323
-Test	400
-Carter	523
-Smith	600
 Beata	723
+Bob	123
+Carter	523
 Doris	800
 Nereids	923
+Smith	600
+Test	400
+Tom	323
 
 -- !select1_2 --
 
 -- !select2_1 --
-Bob	100
 Alice	200
-Tom	300
-Test	400
-Carter	500
-Smith	600
 Beata	700
+Bob	100
+Carter	500
 Doris	800
 Nereids	900
+Smith	600
+Test	400
+Tom	300
 
 -- !select2_2 --
 
 -- !select2_3 --
-Bob	100
 Alice	200
-Tom	300
-Test	400
-Carter	500
-Smith	600
 Beata	700
+Bob	100
+Carter	500
 Doris	800
 Nereids	900
+Smith	600
+Test	400
+Tom	300
 
 -- !select2_4 --
 
 -- !select3_1 --
-Bob	100
 Alice	200
-Tom	300
-Test	400
-Carter	500
-Smith	600
 Beata	700
+Bob	100
+Carter	500
 Doris	800
 Nereids	900
+Smith	600
+Test	400
+Tom	300
 
 -- !select3_2 --
 
 -- !select3_3 --
 Alice	200
-Test	400
-Smith	600
-Doris	800
-Bob	9990
-Tom	9992
-Carter	9994
 Beata	9996
+Bob	9990
+Carter	9994
+Doris	800
 Nereids	9998
+Smith	600
+Test	400
+Tom	9992
 
 -- !select3_4 --
 
 -- !select3_5 --
 Alice	200
-Test	400
-Smith	600
-Doris	800
-Bob	9990
+BBeata	9996
 BBob	9990
-TTom	9992
-Tom	9992
+Beata	9996
+Bob	9990
 CCarter	9994
 Carter	9994
-BBeata	9996
-Beata	9996
-Nereids	9998
+Doris	800
 NNereids	9998
+Nereids	9998
+Smith	600
+TTom	9992
+Test	400
+Tom	9992
 
 -- !select3_6 --
 

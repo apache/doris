@@ -368,10 +368,10 @@ public:
     }
     std::string auto_increment_column() const { return _auto_increment_column; }
 
-    void set_table_id(int32_t table_id) { _table_id = table_id; }
-    int32_t table_id() const { return _table_id; }
-    void set_db_id(int32_t db_id) { _db_id = db_id; }
-    int32_t db_id() const { return _db_id; }
+    void set_table_id(int64_t table_id) { _table_id = table_id; }
+    int64_t table_id() const { return _table_id; }
+    void set_db_id(int64_t db_id) { _db_id = db_id; }
+    int64_t db_id() const { return _db_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -488,8 +488,8 @@ private:
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
-    int32_t _table_id = -1;
-    int32_t _db_id = -1;
+    int64_t _table_id = -1;
+    int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;

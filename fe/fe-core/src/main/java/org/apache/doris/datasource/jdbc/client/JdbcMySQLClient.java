@@ -65,6 +65,12 @@ public class JdbcMySQLClient extends JdbcClient {
         }
     }
 
+    protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
+        this.dbType = dbType;
+    }
+
     @Override
     public List<String> getDatabaseNameList() {
         Connection conn = getConnection();

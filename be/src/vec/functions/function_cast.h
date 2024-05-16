@@ -345,13 +345,13 @@ struct ConvertImpl {
                                         vec_from.size());
                             } else if constexpr (IsDataTypeDecimal<FromDataType>) {
                                 convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
-                                        vec_to.data(), vec_from.data(), vec_from.get_scale(),
-                                        min_result, max_result, size);
+                                        vec_to.data(), vec_from.data(), from_precision,
+                                        vec_from.get_scale(), min_result, max_result, size);
                             } else {
                                 convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
-                                                   narrow_integral>(vec_to.data(), vec_from.data(),
-                                                                    from_scale, to_scale,
-                                                                    min_result, max_result, size);
+                                                   narrow_integral>(
+                                        vec_to.data(), vec_from.data(), from_scale, to_precision,
+                                        to_scale, min_result, max_result, size);
                             }
                         },
                         make_bool_variant(multiply_may_overflow),

@@ -79,7 +79,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     // Nereids, 900
     sql "insert into ${table1} (name, value) values ('Bob',100),('Alice',200),('Tom',300),('Test',400),('Carter',500),('Smith',600),('Beata',700),('Doris',800),('Nereids',900)"
 
-    qt_select1_1 "select name, value from ${table1} order by value;"
+    qt_select1_1 "select name, value from ${table1} order by name, value;"
     qt_select1_2 "select id, count(*) from ${table1} group by id having count(*) > 1;"
     check_data_correct(table1)
     
@@ -92,7 +92,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     // 7, 723
     // 9, 923
     sql "insert into ${table1} (id, value) values (1,123),(3,323),(5,523),(7,723),(9,923)"
-    qt_select1_3 "select name, value from ${table1} order by value;"
+    qt_select1_3 "select name, value from ${table1} order by name, value;"
     qt_select1_4 "select id, count(*) from ${table1} group by id having count(*) > 1;"
     check_data_correct(table1)
     sql "drop table if exists ${table1};"
@@ -139,7 +139,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     sql "insert into ${table2} (name, value) values ('Beata',700)"
     sql "insert into ${table2} (name, value) values ('Doris',800)"
     sql "insert into ${table2} (name, value) values ('Nereids',900)"
-    qt_select2_1 "select name, value from ${table2} order by value;"
+    qt_select2_1 "select name, value from ${table2} order by name, value;"
     qt_select2_2 "select id, count(*) from ${table2} group by id having count(*) > 1;"
     check_data_correct(table2)
 
@@ -151,7 +151,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     // Beata, 9996
     // Nereids, 9998
     sql "insert into ${table2} (name, id) values ('Bob',9990),('Tom',9992),('Carter',9994),('Beata',9996),('Nereids',9998)"
-    qt_select2_3 "select name, value from ${table2} order by value;"
+    qt_select2_3 "select name, value from ${table2} order by name, value;"
     qt_select2_4 "select id, count(*) from ${table2} group by id having count(*) > 1;"
     check_data_correct(table2)
     sql "drop table if exists ${table2};"
@@ -188,7 +188,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     // Doris, 800
     // Nereids, 900
     sql "insert into ${table2} (name, value) values ('Bob',100),('Alice',200),('Tom',300),('Test',400),('Carter',500),('Smith',600),('Beata',700),('Doris',800),('Nereids',900)"
-    qt_select3_1 "select name, value from ${table3} order by value;"
+    qt_select3_1 "select name, value from ${table3} order by name, value;"
     qt_select3_2 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
 
@@ -204,7 +204,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     sql "insert into ${table2} (name, value) values ('Carter',9994)"
     sql "insert into ${table2} (name, value) values ('Beata',9996)"
     sql "insert into ${table2} (name, value) values ('Nereids',9998)"
-    qt_select3_3 "select name, value from ${table3} order by value;"
+    qt_select3_3 "select name, value from ${table3} order by name, value;"
     qt_select3_4 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
 
@@ -213,7 +213,7 @@ suite("test_unique_table_auto_inc_partial_update_correct_insert") {
     sql "insert into ${table2} (name, value) values ('CCCCarter',9994)"
     sql "insert into ${table2} (name, value) values ('BBBBeata',9996)"
     sql "insert into ${table2} (name, value) values ('NNNNereids',9998)"
-    qt_select3_5 "select name, value from ${table3} order by value;"
+    qt_select3_5 "select name, value from ${table3} order by name, value;"
     qt_select3_6 "select id, count(*) from ${table3} group by id having count(*) > 1;"
     check_data_correct(table3)
     sql "drop table if exists ${table3};"
