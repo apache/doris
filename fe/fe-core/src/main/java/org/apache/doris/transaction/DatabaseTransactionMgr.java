@@ -1159,9 +1159,12 @@ public class DatabaseTransactionMgr {
     }
 
     private void setTableVersion(TransactionState transactionState, Database db) {
-        List<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().isEmpty()
-                ? transactionState.getSubTxnTableCommitInfos()
-                : Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        Collection<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
+        }
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1176,9 +1179,12 @@ public class DatabaseTransactionMgr {
     }
 
     private void produceEvent(TransactionState transactionState, Database db) {
-        List<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().isEmpty()
-                ? transactionState.getSubTxnTableCommitInfos()
-                : Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
+        Collection<TableCommitInfo> tableCommitInfos;
+        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+            tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
+        } else {
+            tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
+        }
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
