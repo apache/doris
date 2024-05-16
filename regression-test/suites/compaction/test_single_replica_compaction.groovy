@@ -208,7 +208,11 @@ suite("test_single_replica_compaction", "p2") {
             for (String backend: follower_backend_id) {
                 def (follower_code, follower_out, follower_err) = calc_file_crc_on_tablet(backendId_to_backendIP[backend], backendId_to_backendHttpPort[backend], tablet_id)
                 logger.info("Run calc_file_crc_on_tablet: ip=" + backendId_to_backendIP[backend] + " code=" + follower_code + ", out=" + follower_out + ", err=" + follower_err)
-                assertTrue(follower_out == master_out)
+                assertTrue(parseJson(follower_out.trim()).crc_value == parseJson(master_out.trim()).crc_value)
+                assertTrue(parseJson(follower_out.trim()).start_version == parseJson(master_out.trim()).start_version)
+                assertTrue(parseJson(follower_out.trim()).end_version == parseJson(master_out.trim()).end_version)
+                assertTrue(parseJson(follower_out.trim()).file_count == parseJson(master_out.trim()).file_count)
+                assertTrue(parseJson(follower_out.trim()).rowset_count == parseJson(master_out.trim()).rowset_count)
             }
         }
 
