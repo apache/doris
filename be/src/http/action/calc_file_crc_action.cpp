@@ -29,6 +29,7 @@
 #include "http/http_status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include <rapidjson/rapidjson.h>
 #include "util/stopwatch.hpp"
 
 namespace doris {
