@@ -149,13 +149,12 @@ HdfsFileWriter::~HdfsFileWriter() {
         // For thread safety
         std::ignore = _async_close_pack->promise.get_future();
         _async_close_pack = nullptr;
-        inflight_hdfs_file_writer << -1;
     }
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
-        _flush_and_reset_approximate_jni_buffer_size();
         inflight_hdfs_file_writer << -1;
+        _flush_and_reset_approximate_jni_buffer_size();
     }
 }
 
@@ -269,10 +268,10 @@ Status HdfsFileWriter::_close_impl() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
-    inflight_hdfs_file_writer << -1;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
