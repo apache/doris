@@ -24,12 +24,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -73,13 +70,6 @@ import java.util.stream.Collectors;
  */
 @Developing
 public class AdjustPreAggStatus implements RewriteRuleFactory {
-    private static Expression removeCast(Expression expression) {
-        while (expression instanceof Cast) {
-            expression = ((Cast) expression).child();
-        }
-        return expression;
-    }
-
     ///////////////////////////////////////////////////////////////////////////
     // All the patterns
     ///////////////////////////////////////////////////////////////////////////
@@ -410,6 +400,13 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
         return Pair.of(keySlots, valueSlots);
     }
 
+    private static Expression removeCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
     private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc,
             Set<SlotReference> keySlots, Set<SlotReference> valueSlots) {
         Expression child = aggFunc.child(0);
@@ -491,42 +488,6 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
         return agg.getGroupByExpressions().stream()
                 .filter(expr -> !(expr instanceof VirtualSlotReference))
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    /**
-     * eg: select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by t order by t;
-     * +--LogicalAggregate[88] ( groupByExpr=[t#4], outputExpr=[t#4, sum(abs((k2#1 + 1))) AS `sum(abs(k2 + 1))`#5])
-     * +--LogicalProject[87] ( distinct=false, projects=[(abs(k1#0) + 1) AS `t`#4, k2#1])
-     * +--LogicalOlapScan()
-     * t -> abs(k1#0) + 1
-     */
-    private Set<Expression> collectRequireExprWithAggAndProject(
-            List<? extends Expression> aggExpressions, Optional<LogicalProject<?>> project) {
-        List<NamedExpression> projectExpressions =
-                project.isPresent() ? project.get().getProjects() : null;
-        if (projectExpressions == null) {
-            return aggExpressions.stream().collect(ImmutableSet.toImmutableSet());
-        }
-        Optional<Map<Slot, Expression>> slotToProducerOpt =
-                project.map(Project::getAliasToProducer);
-        Map<ExprId, Expression> exprIdToExpression = projectExpressions.stream()
-                .collect(Collectors.toMap(NamedExpression::getExprId, e -> {
-                    if (e instanceof Alias) {
-                        return ((Alias) e).child();
-                    }
-                    return e;
-                }));
-        return aggExpressions.stream().map(e -> {
-            if ((e instanceof NamedExpression)
-                    && exprIdToExpression.containsKey(((NamedExpression) e).getExprId())) {
-                return exprIdToExpression.get(((NamedExpression) e).getExprId());
-            }
-            return e;
-        }).map(e -> {
-            return slotToProducerOpt
-                    .map(slotToExpressions -> ExpressionUtils.replace(e, slotToExpressions))
-                    .orElse(e);
-        }).collect(ImmutableSet.toImmutableSet());
     }
 
     private static class OneValueSlotAggChecker
