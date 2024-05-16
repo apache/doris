@@ -40,20 +40,38 @@ using namespace ut_type;
 
 TEST(VGeoFunctionsTest, function_geo_st_point_test) {
     std::string func_name = "st_point";
+
+    GeoPoint point;
+    auto cur_res = point.from_coord(24.7, 56.7);
+    EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+    std::string buf;
+    point.encode_to(&buf);
+
+    DataSet data_set = {{{(double)24.7, (double)56.7}, buf},
+                        {{Null(), (double)5}, Null()},
+                        {{(double)5, Null()}, Null()}};
     {
         InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
 
-        GeoPoint point;
-        auto cur_res = point.from_coord(24.7, 56.7);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
-        std::string buf;
-        point.encode_to(&buf);
-
-        DataSet data_set = {{{(double)24.7, (double)56.7}, buf},
-                            {{Null(), (double)5}, Null()},
-                            {{(double)5, Null()}, Null()}};
-
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {Consted {TypeIndex::Float64}, TypeIndex::Float64};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::Float64, Consted {TypeIndex::Float64}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
@@ -199,61 +217,96 @@ TEST(VGeoFunctionsTest, function_geo_st_angle) {
 
 TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
     std::string func_name = "st_azimuth";
+    GeoPoint point1;
+    auto cur_res1 = point1.from_coord(0, 0);
+    EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
+    GeoPoint point2;
+    auto cur_res2 = point2.from_coord(1, 0);
+    EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
+
+    std::string buf1;
+    point1.encode_to(&buf1);
+    std::string buf2;
+    point2.encode_to(&buf2);
+
+    DataSet data_set = {{{buf1, buf2}, (double)1.5707963267948966},
+                        {{buf1, Null()}, Null()},
+                        {{Null(), buf2}, Null()}};
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
-        GeoPoint point1;
-        auto cur_res1 = point1.from_coord(0, 0);
-        EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
-        GeoPoint point2;
-        auto cur_res2 = point2.from_coord(1, 0);
-        EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
-
-        std::string buf1;
-        point1.encode_to(&buf1);
-        std::string buf2;
-        point2.encode_to(&buf2);
-
-        DataSet data_set = {{{buf1, buf2}, (double)1.5707963267948966},
-                            {{buf1, Null()}, Null()},
-                            {{Null(), buf2}, Null()}};
-
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset));
+        }
+    }
+    {
+        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_contains) {
     std::string func_name = "st_contains";
+
+    std::string buf1;
+    std::string buf2;
+    std::string buf3;
+    GeoParseStatus status;
+
+    std::string shape1 = std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
+    std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(shape1.data(), shape1.size(), &status));
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(shape != nullptr);
+    shape->encode_to(&buf1);
+
+    GeoPoint point1;
+    status = point1.from_coord(5, 5);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point1.encode_to(&buf2);
+
+    GeoPoint point2;
+    status = point2.from_coord(50, 50);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point2.encode_to(&buf3);
+
+    DataSet data_set = {{{buf1, buf2}, (uint8_t)1},
+                        {{buf1, buf3}, (uint8_t)0},
+                        {{buf1, Null()}, Null()},
+                        {{Null(), buf3}, Null()}};
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
-        std::string buf1;
-        std::string buf2;
-        std::string buf3;
-        GeoParseStatus status;
-
-        std::string shape1 = std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
-        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(shape1.data(), shape1.size(), &status));
-        EXPECT_TRUE(status == GEO_PARSE_OK);
-        EXPECT_TRUE(shape != nullptr);
-        shape->encode_to(&buf1);
-
-        GeoPoint point1;
-        status = point1.from_coord(5, 5);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
-        point1.encode_to(&buf2);
-
-        GeoPoint point2;
-        status = point2.from_coord(50, 50);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
-        point2.encode_to(&buf3);
-
-        DataSet data_set = {{{buf1, buf2}, (uint8_t)1},
-                            {{buf1, buf3}, (uint8_t)0},
-                            {{buf1, Null()}, Null()},
-                            {{Null(), buf3}, Null()}};
-
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
+        }
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
+        }
     }
 }
 
