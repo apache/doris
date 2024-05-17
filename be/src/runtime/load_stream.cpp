@@ -59,7 +59,6 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
           _txn_id(txn_id),
           _load_stream_mgr(load_stream_mgr) {
     load_stream_mgr->create_tokens(_flush_tokens);
-    _failed_st = std::make_shared<Status>();
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -68,7 +67,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
     ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
-         << ", tablet_id=" << tablet_stream._id << ", status=" << *tablet_stream._failed_st;
+         << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._failed_st;
     return ostr;
 }
 
@@ -87,15 +86,15 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
     auto st = _load_stream_writer->init();
     if (!st.ok()) {
-        _failed_st = std::make_shared<Status>(st);
+        _failed_st = st;
         LOG(INFO) << "failed to init rowset builder due to " << *this;
     }
     return st;
 }
 
 Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
-    if (!_failed_st->ok()) {
-        return *_failed_st;
+    if (!_failed_st.ok()) {
+        return _failed_st;
     }
 
     // dispatch add_segment request
@@ -144,8 +143,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
         }
-        if (!st.ok() && _failed_st->ok()) {
-            _failed_st = std::make_shared<Status>(st);
+        if (!st.ok() && _failed_st.ok()) {
+            _failed_st = st;
             LOG(INFO) << "write data failed " << *this;
         }
     };
@@ -209,8 +208,8 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     auto add_segment_func = [this, new_segid, stat, flush_schema]() {
         signal::set_signal_task_id(_load_id);
         auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
-        if (!st.ok() && _failed_st->ok()) {
-            _failed_st = std::make_shared<Status>(st);
+        if (!st.ok() && _failed_st.ok()) {
+            _failed_st = st;
             LOG(INFO) << "add segment failed " << *this;
         }
     };
@@ -220,13 +219,20 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
 
 Status TabletStream::close() {
     SCOPED_TIMER(_close_wait_timer);
+
+    if (!_failed_st.ok()) {
+        return _failed_st;
+    }
+
     bthread::Mutex mu;
     std::unique_lock<bthread::Mutex> lock(mu);
     bthread::ConditionVariable cv;
     auto wait_func = [this, &mu, &cv] {
         signal::set_signal_task_id(_load_id);
         for (auto& token : _flush_tokens) {
-            if (token != nullptr) {
+            if (token == nullptr) {
+                _failed_st = Status::InternalError("Unexpected nullptr in flush tokens");
+            } else {
                 token->wait();
             }
         }
@@ -241,8 +247,8 @@ Status TabletStream::close() {
                 "there is not enough thread resource for close load");
     }
 
-    if (!_failed_st->ok()) {
-        return *_failed_st;
+    if (!_failed_st.ok()) {
+        return _failed_st;
     }
 
     Status st = Status::OK();
