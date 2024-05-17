@@ -296,6 +296,8 @@ public class MysqlSerializer {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case TIMEV2:
+            case DATETIMEV2:
                 return ((ScalarType) type).decimalScale();
             case FLOAT:
             case DOUBLE:

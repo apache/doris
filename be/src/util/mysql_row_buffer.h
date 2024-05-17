@@ -74,13 +74,13 @@ public:
     int push_time(double data);
     int push_timev2(double data, int scale);
     template <typename DateType>
-    int push_datetime(const DateType& data);
+    int push_datetime(const DateType& data, int scale);
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int64_t length);
     int push_null();
 
     template <typename DateType>
-    int push_vec_datetime(DateType& data);
+    int push_vec_datetime(DateType& data, int scale = -1);
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.

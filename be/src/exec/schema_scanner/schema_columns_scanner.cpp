@@ -508,7 +508,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            if (_desc_result.columns[i].columnDesc.__isset.columnPrecision) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (_desc_result.columns[i].columnDesc.__isset.columnPrecision &&
+                data_type != TPrimitiveType::DATETIMEV2) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnPrecision;
                 datas[i] = srcs + i;
             } else {
@@ -521,7 +523,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
+                data_type != TPrimitiveType::DATETIMEV2) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs + i;
             } else {
@@ -531,7 +535,20 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         fill_dest_column_for_range(block, 11, datas);
     }
     // DATETIME_PRECISION
-    { fill_dest_column_for_range(block, 12, null_datas); }
+    {
+        std::vector<int64_t> srcs(columns_num);
+        for (int i = 0; i < columns_num; ++i) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
+                data_type == TPrimitiveType::DATETIMEV2) {
+                srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
+                datas[i] = srcs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
     // CHARACTER_SET_NAME
     { fill_dest_column_for_range(block, 13, null_datas); }
     // COLLATION_NAME
@@ -601,7 +618,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
+                data_type != TPrimitiveType::DATETIMEV2) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs + i;
             } else {

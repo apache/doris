@@ -450,19 +450,26 @@ int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
 }
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
-        return push_datetime(data);
+        return push_datetime(data, scale);
     }
 
     char buf[64];
-    char* pos = data.to_string(buf);
+    char* pos = nullptr;
+    if constexpr (std::is_same_v<DateType, vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
+                  std::is_same_v<DateType,
+                                 vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
+        pos = data.to_string(buf, scale);
+    } else {
+        pos = data.to_string(buf);
+    }
     return push_string(buf, pos - buf - 1);
 }
 
 template <bool is_binary_format>
 template <typename DateType>
-int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
+int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
         char buff[12], *pos;
         size_t length;
@@ -475,18 +482,6 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         pos[4] = (uchar)data.hour();
         pos[5] = (uchar)data.minute();
         pos[6] = (uchar)data.second();
-        if constexpr (std::is_same_v<DateType,
-                                     vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
-                      std::is_same_v<DateType,
-                                     vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
-            int4store(pos + 7, data.microsecond());
-            if (data.microsecond()) {
-                length = 11;
-            }
-        } else {
-            int4store(pos + 7, 0);
-        }
-
         if (data.hour() || data.minute() || data.second()) {
             length = 7;
         } else if (data.year() || data.month() || data.day()) {
@@ -494,6 +489,16 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         } else {
             length = 0;
         }
+        if constexpr (std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
+                      std::is_same_v<DateType,
+                                     vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
+            if (scale > 0 || data.microsecond()) {
+                int4store(pos + 7, data.microsecond());
+                length = 11;
+            }
+        }
+
         buff[0] = (char)length; // Length is stored first
         return append(buff, length + 1);
     }
@@ -601,19 +606,19 @@ template class MysqlRowBuffer<false>;
 
 template int
 MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateV2ValueType>& value, int scale);
 template int
 MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value, int scale);
 template int MysqlRowBuffer<true>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
+        vectorized::VecDateTimeValue& value, int scale);
 template int
 MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateV2ValueType>& value, int scale);
 template int
 MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value, int scale);
 template int MysqlRowBuffer<false>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
+        vectorized::VecDateTimeValue& value, int scale);
 
 } // namespace doris
