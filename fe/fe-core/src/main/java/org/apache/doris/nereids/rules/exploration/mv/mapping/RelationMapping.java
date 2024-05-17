@@ -32,6 +32,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -142,5 +143,22 @@ public class RelationMapping extends Mapping {
 
     private static Long getTableQualifier(TableIf tableIf) {
         return tableIf.getId();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        RelationMapping that = (RelationMapping) o;
+        return Objects.equals(mappedRelationMap, that.mappedRelationMap);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mappedRelationMap);
     }
 }

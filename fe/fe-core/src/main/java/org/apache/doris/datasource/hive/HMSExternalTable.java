@@ -878,12 +878,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        return hivePartitionValues.getIdToPartitionItem();
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            try {
+                res.put(getPartitionName(entry.getKey()), entry.getValue());
+            } catch (AnalysisException e) {
+                LOG.info("can not get partitionName by: " + entry.getKey());
+            }
+
+        }
+        return res;
     }
 
     @Override
@@ -905,35 +915,35 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(partitionId);
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
-            return new MTMVMaxTimestampSnapshot(-1L, getLastDdlTime());
+            return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        long partitionId = 0L;
+        String partitionName = "";
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
+        for (Entry<String, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
             visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
-                partitionId = entry.getKey();
+                partitionName = entry.getKey();
             }
         }
-        return new MTMVMaxTimestampSnapshot(partitionId, maxVersionTime);
+        return new MTMVMaxTimestampSnapshot(partitionName, maxVersionTime);
     }
 
-    private long getPartitionLastModifyTime(long partitionId) throws AnalysisException {
-        return getPartitionById(partitionId).getLastModifiedTime();
+    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
+        return getPartitionByName(partitionName).getLastModifiedTime();
     }
 
-    private HivePartition getPartitionById(long partitionId) throws AnalysisException {
-        PartitionItem item = getAndCopyPartitionItems().get(partitionId);
+    private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
+        PartitionItem item = getAndCopyPartitionItems().get(partitionName);
         List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
         List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
         if (partitions.size() != 1) {
@@ -958,7 +968,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean needAutoRefresh() {
-        return false;
+        return true;
     }
 
     @Override

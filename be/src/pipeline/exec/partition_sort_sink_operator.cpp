@@ -46,7 +46,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
             p._top_n_algorithm, p._topn_phase);
-    _init_hash_method();
+    RETURN_IF_ERROR(_init_hash_method());
     return Status::OK();
 }
 
@@ -223,8 +223,10 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
             local_state._partitioned_data->method_variant);
 }
 
-void PartitionSortSinkLocalState::_init_hash_method() {
-    init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true);
+Status PartitionSortSinkLocalState::_init_hash_method() {
+    RETURN_IF_ERROR(
+            init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true));
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

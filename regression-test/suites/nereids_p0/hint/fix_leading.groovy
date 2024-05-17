@@ -79,6 +79,24 @@ suite("fix_leading") {
         time 10000
     }
 
+    streamLoad {
+        table "t5"
+        db "fix_leading"
+        set 'column_separator', '|'
+        set 'format', 'csv'
+        file 't5.csv'
+        time 10000
+    }
+
+    streamLoad {
+        table "t6"
+        db "fix_leading"
+        set 'column_separator', '|'
+        set 'format', 'csv'
+        file 't6.csv'
+        time 10000
+    }
+
     // bug fix 1: {t1 t2}{t3 t4} miss levels
     qt_select1 """explain shape plan select /*+ leading({t1 t2}{t3 t4}) */ * from t1 join t2 on c2 = c2 join t3 on c1 = c3 join t4 on c1 = c4;"""
 
@@ -221,5 +239,32 @@ suite("fix_leading") {
             LIMIT
                 5;"""
         contains("Used: leading({ tbl2 tbl3 } tbl1 )")
+    }
+
+    // check cte as input in alias leading query
+    explain {
+        sql """shape plan WITH tbl1 AS (
+            SELECT
+                tbl1.c1 AS c111,
+                tbl2.c2 as c222
+            FROM
+                t1 AS tbl1
+                RIGHT JOIN t2 AS tbl2 ON tbl1.c1 = tbl2.c2
+            )
+            SELECT
+                tbl3.c3,
+                tbl2.c2
+            FROM
+            (
+                SELECT
+                    /*+   leading( tbl2 tbl1 ) */
+                    tbl1.c111 AS c1,
+                    tbl2.c2 AS c2
+                FROM
+                    t2 AS tbl2
+                    JOIN tbl1 ON tbl2.c2 = tbl1.c111
+            ) AS tbl2
+            RIGHT JOIN t3 AS tbl3 ON tbl2.c2 = tbl3.c3;"""
+        contains("Used: leading(tbl2 tbl1 )")
     }
 }

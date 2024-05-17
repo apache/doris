@@ -2418,7 +2418,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             // Check if user has storage vault usage privilege
-            if (!env.getAuth()
+            if (ctx != null && !env.getAuth()
                     .checkStorageVaultPriv(ctx.getCurrentUserIdentity(), storageVaultName, PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP()
@@ -3204,7 +3204,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrDdlException(dbTbl.getDb());
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
-        long rowsToTruncate = 0;
+        HashMap<Long, Long> updateRecords = new HashMap<>();
 
         BinlogConfig binlogConfig;
         olapTable.readLock();
@@ -3223,7 +3223,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partName, partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
-                    rowsToTruncate += partition.getBaseIndex().getRowCount();
+                    updateRecords.put(partition.getId(), partition.getBaseIndex().getRowCount());
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -3234,7 +3234,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
-                    rowsToTruncate += partition.getBaseIndex().getRowCount();
+                    updateRecords.put(partition.getId(), partition.getBaseIndex().getRowCount());
                 }
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
@@ -3390,13 +3390,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         erasePartitionDropBackendReplicas(oldPartitions);
 
-        HashMap<Long, Long> updateRecords = new HashMap<>();
-        updateRecords.put(olapTable.getId(), rowsToTruncate);
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
             Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
         }
-        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords);
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId());
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 

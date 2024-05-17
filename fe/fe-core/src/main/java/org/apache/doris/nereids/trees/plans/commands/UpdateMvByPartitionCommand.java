@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -56,6 +57,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
@@ -79,16 +81,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * Construct command
      *
      * @param mv materialize view
-     * @param partitionIds update partitions in mv and tables
+     * @param partitionNames update partitions in mv and tables
      * @param tableWithPartKey the partitions key for different table
      * @return command
      */
-    public static UpdateMvByPartitionCommand from(MTMV mv, Set<Long> partitionIds,
+    public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
             Map<TableIf, String> tableWithPartKey) throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
-                constructTableWithPredicates(mv, partitionIds, tableWithPartKey);
-        List<String> parts = constructPartsForMv(mv, partitionIds);
+                constructTableWithPredicates(mv, partitionNames, tableWithPartKey);
+        List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         plan = plan.accept(new PredicateAdder(), predicates);
         if (plan instanceof Sink) {
@@ -99,17 +101,17 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return new UpdateMvByPartitionCommand(sink);
     }
 
-    private static List<String> constructPartsForMv(MTMV mv, Set<Long> partitionIds) {
-        return partitionIds.stream()
-                .map(id -> mv.getPartition(id).getName())
-                .collect(ImmutableList.toImmutableList());
+    private static List<String> constructPartsForMv(Set<String> partitionNames) {
+        return Lists.newArrayList(partitionNames);
     }
 
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
-            Set<Long> partitionIds, Map<TableIf, String> tableWithPartKey) {
-        Set<PartitionItem> items = partitionIds.stream()
-                .map(id -> mv.getPartitionInfo().getItem(id))
-                .collect(ImmutableSet.toImmutableSet());
+            Set<String> partitionNames, Map<TableIf, String> tableWithPartKey) throws AnalysisException {
+        Set<PartitionItem> items = Sets.newHashSet();
+        for (String partitionName : partitionNames) {
+            PartitionItem partitionItem = mv.getPartitionItemOrAnalysisException(partitionName);
+            items.add(partitionItem);
+        }
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
         tableWithPartKey.forEach((table, colName) ->
                 builder.put(table, constructPredicates(items, colName))

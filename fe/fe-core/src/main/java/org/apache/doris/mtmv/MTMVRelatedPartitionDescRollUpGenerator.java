@@ -69,27 +69,27 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @return
      * @throws AnalysisException
      */
-    public Map<PartitionKeyDesc, Set<Long>> rollUpList(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
+    public Map<PartitionKeyDesc, Set<String>> rollUpList(Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs,
             MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         Map<String, Set<String>> identityToValues = Maps.newHashMap();
-        Map<String, Set<Long>> identityToPartitionIds = Maps.newHashMap();
+        Map<String, Set<String>> identityToPartitionNames = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
 
-        for (Entry<PartitionKeyDesc, Set<Long>> entry : relatedPartitionDescs.entrySet()) {
+        for (Entry<PartitionKeyDesc, Set<String>> entry : relatedPartitionDescs.entrySet()) {
             String rollUpIdentity = exprSerice.getRollUpIdentity(entry.getKey(), mvProperties);
             Preconditions.checkNotNull(rollUpIdentity);
             if (identityToValues.containsKey(rollUpIdentity)) {
                 identityToValues.get(rollUpIdentity).addAll(getStringValues(entry.getKey()));
-                identityToPartitionIds.get(rollUpIdentity).addAll(entry.getValue());
+                identityToPartitionNames.get(rollUpIdentity).addAll(entry.getValue());
             } else {
                 identityToValues.put(rollUpIdentity, getStringValues(entry.getKey()));
-                identityToPartitionIds.put(rollUpIdentity, entry.getValue());
+                identityToPartitionNames.put(rollUpIdentity, entry.getValue());
             }
         }
-        Map<PartitionKeyDesc, Set<Long>> result = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> result = Maps.newHashMap();
         for (Entry<String, Set<String>> entry : identityToValues.entrySet()) {
             result.put(PartitionKeyDesc.createIn(getPartitionValues(entry.getValue())),
-                    identityToPartitionIds.get(entry.getKey()));
+                    identityToPartitionNames.get(entry.getKey()));
         }
         return result;
     }
@@ -125,11 +125,11 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @return
      * @throws AnalysisException
      */
-    public Map<PartitionKeyDesc, Set<Long>> rollUpRange(Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs,
+    public Map<PartitionKeyDesc, Set<String>> rollUpRange(Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs,
             MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
-        Map<PartitionKeyDesc, Set<Long>> result = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> result = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
-        for (Entry<PartitionKeyDesc, Set<Long>> entry : relatedPartitionDescs.entrySet()) {
+        for (Entry<PartitionKeyDesc, Set<String>> entry : relatedPartitionDescs.entrySet()) {
             PartitionKeyDesc rollUpDesc = exprSerice.generateRollUpPartitionKeyDesc(entry.getKey(), mvPartitionInfo);
             if (result.containsKey(rollUpDesc)) {
                 result.get(rollUpDesc).addAll(entry.getValue());

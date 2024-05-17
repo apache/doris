@@ -34,4 +34,5 @@ public abstract class IdGenerator<IdType extends Id<IdType>> {
     }
 
     public abstract IdType getNextId();
+
 }

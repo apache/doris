@@ -67,7 +67,6 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           _query_options(query_options) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
-    this->coord_addr = coord_addr;
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
@@ -76,6 +75,18 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
     _timeout_second = query_options.execution_timeout;
+
+    bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
+                               query_options.query_type == TQueryType::LOAD ||
+                               query_options.query_type == TQueryType::EXTERNAL;
+    DCHECK_EQ(is_query_type_valid, true);
+
+    this->coord_addr = coord_addr;
+    // external query has no coord_addr
+    if (query_options.query_type != TQueryType::EXTERNAL) {
+        bool is_coord_addr_valid = !this->coord_addr.hostname.empty() && this->coord_addr.port != 0;
+        DCHECK_EQ(is_coord_addr_valid, true);
+    }
 
     register_memory_statistics();
     register_cpu_statistics();
@@ -266,8 +277,8 @@ void QueryContext::set_pipeline_context(
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
-    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(_query_id), qs,
-                                                                         coord_addr);
+    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+            print_id(_query_id), qs, coord_addr, _query_options.query_type);
 }
 
 std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
@@ -280,8 +291,8 @@ void QueryContext::register_memory_statistics() {
         std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
         std::string query_id = print_id(_query_id);
         if (qs) {
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
-                                                                                 coord_addr);
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                    query_id, qs, coord_addr, _query_options.query_type);
         } else {
             LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
         }
@@ -292,7 +303,7 @@ void QueryContext::register_cpu_statistics() {
     if (!_cpu_statistics) {
         _cpu_statistics = std::make_shared<QueryStatistics>();
         _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), _cpu_statistics, coord_addr);
+                print_id(_query_id), _cpu_statistics, coord_addr, _query_options.query_type);
     }
 }
 

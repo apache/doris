@@ -66,6 +66,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -82,6 +84,8 @@ import java.util.stream.Collectors;
  * The abstract class for all materialized view rules
  */
 public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
+
+    public static final Logger LOG = LogManager.getLogger(AbstractMaterializedViewRule.class);
     public static final Set<JoinType> SUPPORTED_JOIN_TYPE_SET = ImmutableSet.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
@@ -142,7 +146,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
                 materializedViewTableSet);
         uncheckedStructInfos.forEach(queryStructInfo -> {
-            boolean valid = checkPattern(queryStructInfo) && queryStructInfo.isValid();
+            boolean valid = checkPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
                         ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
@@ -178,8 +182,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     "Query to view table mapping is null", () -> "");
             return rewriteResults;
         }
+        int materializedViewRelationMappingMaxCount = cascadesContext.getConnectContext().getSessionVariable()
+                .getMaterializedViewRelationMappingMaxCount();
+        if (queryToViewTableMappings.size() > materializedViewRelationMappingMaxCount) {
+            LOG.warn("queryToViewTableMappings is over limit and be intercepted");
+            queryToViewTableMappings = queryToViewTableMappings.subList(0, materializedViewRelationMappingMaxCount);
+        }
+
         for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
-            SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
+            SlotMapping queryToViewSlotMapping =
+                    materializationContext.getSlotMappingFromCache(queryToViewTableMapping);
+            if (queryToViewSlotMapping == null) {
+                queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
+                materializationContext.addSlotMappingToCache(queryToViewTableMapping, queryToViewSlotMapping);
+            }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
                         "Query to view slot mapping is null", () -> "");
@@ -187,7 +203,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
             LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
-                    queryToViewTableMapping, queryToViewSlotMapping, queryStructInfo, viewStructInfo);
+                    queryToViewTableMapping, viewToQuerySlotMapping, queryStructInfo, viewStructInfo);
             ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                     compatibilityContext);
             if (comparisonResult.isInvalid()) {
@@ -318,9 +334,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
+            rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateMvScanPlan(cascadesContext);
-            rewriteResults.add(rewrittenPlan);
         }
         return rewriteResults;
     }
@@ -645,7 +661,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     /**
      * Check the pattern of query or materializedView is supported or not.
      */
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         if (structInfo.getRelations().isEmpty()) {
             return false;
         }
@@ -671,7 +687,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 materializationId);
         if (cachedCheckResult == null) {
             // need check in real time
-            boolean checkResult = checkPattern(context.getStructInfo());
+            boolean checkResult = checkPattern(context.getStructInfo(), cascadesContext);
             if (!checkResult) {
                 context.recordFailReason(context.getStructInfo(),
                         "View struct info is invalid", () -> String.format("view plan is %s",

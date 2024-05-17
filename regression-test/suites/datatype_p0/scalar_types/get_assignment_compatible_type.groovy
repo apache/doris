@@ -48,5 +48,5 @@ suite("get_assignment_compatible_type") {
         "replication_allocation" = "tag.location.default: 1"
         ); """
     sql "insert into test_decimal_boolean_union values(1,true,0.0),(1,false,0.0)"
-    qt_test_union "select c1 from test_decimal_boolean_union union select c2 from test_decimal_boolean_union order by 1"
+    qt_test_union "select * from (select c1 from test_decimal_boolean_union union select c2 from test_decimal_boolean_union) a order by 1"
 }
