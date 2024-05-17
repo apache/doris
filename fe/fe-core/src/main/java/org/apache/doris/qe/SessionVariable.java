@@ -539,6 +539,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
+    public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
+            = "materialized_view_relation_mapping_max_count";
+
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
 
@@ -1680,6 +1683,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
+            description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
+                    "During transparent rewriting, relation mapping specifies the maximum allowed number. "
+                            + "If the number exceeds the allowed number, the number is intercepted"})
+    public int materializedViewRelationMappingMaxCount = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_UNION_REWRITE, needForward = true,
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
@@ -3780,6 +3789,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public int getMaterializedViewRelationMappingMaxCount() {
+        return materializedViewRelationMappingMaxCount;
     }
 
     public int getCreateTablePartitionMaxNum() {
