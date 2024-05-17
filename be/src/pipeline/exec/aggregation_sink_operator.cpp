@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
@@ -100,7 +101,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             _executor = std::make_unique<Executor<true, false>>();
         }
     } else {
-        _init_hash_method(Base::_shared_state->probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
 
         std::visit(vectorized::Overload {
                            [&](std::monostate& arg) {
@@ -144,6 +145,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
+        _shared_state->agg_data_created_without_key = true;
     }
     return Status::OK();
 }
@@ -564,9 +566,12 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
                _agg_data->method_variant);
 }
 
-void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    init_agg_hash_method(_agg_data, probe_exprs,
-                         Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase);
+Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
+    if (!init_agg_hash_method(_agg_data, probe_exprs,
+                              Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase)) {
+        return Status::InternalError("init hash method failed");
+    }
+    return Status::OK();
 }
 
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,

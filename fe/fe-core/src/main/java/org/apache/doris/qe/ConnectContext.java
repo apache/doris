@@ -222,7 +222,7 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
-    private Map<String, String> resultAttachedInfo;
+    private Map<String, String> resultAttachedInfo = Maps.newHashMap();
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();

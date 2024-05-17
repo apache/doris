@@ -550,7 +550,7 @@ public class OriginalPlanner extends Planner {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);
-                        scanNode.setUseTopnOpt(true);
+                        // scanNode.setUseTopnOpt(true);
                     }
                 }
             }

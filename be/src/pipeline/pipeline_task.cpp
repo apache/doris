@@ -442,12 +442,12 @@ std::string PipelineTask::debug_string() {
 
     auto* cur_blocked_dep = _blocked_dep;
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, dry run = {}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, _dry_run, elapsed,
-                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+    fmt::format_to(
+            debug_string_buffer,
+            "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
+            "= {}s], block dependency = {}, is running = {}\noperators: ",
+            (void*)this, _opened, _eos, _finished, _dry_run, elapsed,
+            cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finished ? _operators[i]->debug_string(_state, i)

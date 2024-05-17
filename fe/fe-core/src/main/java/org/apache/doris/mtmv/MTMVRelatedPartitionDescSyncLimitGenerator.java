@@ -132,7 +132,8 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
                 result = DateTimeArithmetic.monthsSub(date, integerLiteral);
                 break;
             default:
-                throw new AnalysisException("MTMV partition limit not support timeUnit: " + timeUnit.name());
+                throw new AnalysisException(
+                        "async materialized view partition limit not support timeUnit: " + timeUnit.name());
         }
         if (!(result instanceof DateTimeLiteral)) {
             throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);

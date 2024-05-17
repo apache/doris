@@ -451,6 +451,11 @@ struct TFileRangeDesc {
     12: optional string fs_name
 }
 
+struct TSplitSource {
+    1: optional i64 split_source_id
+    2: optional i32 num_splits
+}
+
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
 //  TFileScanRangeParams: describe how to read and convert file
 //  list<TFileRangeDesc>: file location and range
@@ -461,12 +466,12 @@ struct TFileScanRange {
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
     // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
     2: optional TFileScanRangeParams params
+    3: optional TSplitSource split_source
 }
 
 // Scan range for external datasource, such as file on hdfs, es datanode, etc.
 struct TExternalScanRange {
     1: optional TFileScanRange file_scan_range
-    // TODO: add more scan range type?
 }
 
 enum TDataGenFunctionName {

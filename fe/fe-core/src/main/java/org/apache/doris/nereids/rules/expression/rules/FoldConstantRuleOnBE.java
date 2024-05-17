@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -140,6 +141,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         if (root instanceof Alias) {
             rootWithoutAlias = ((Alias) root).child();
         }
+
         collectConst(rootWithoutAlias, constMap, staleConstTExprMap, idGenerator);
         if (constMap.isEmpty()) {
             return root;
@@ -181,7 +183,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 if (((Cast) expr).child().isNullLiteral()) {
                     return;
                 }
-                if (skipSleepFunction(((Cast) expr).child())) {
+                if (shouldSkipFold(((Cast) expr).child())) {
                     return;
                 }
             }
@@ -202,7 +204,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             // and ArrayItemReference translate, can't findColumnRef
             // Match need give more info rather then as left child a NULL, in
             // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
-            if (skipSleepFunction(expr) || (expr instanceof TableGeneratingFunction)
+            if (shouldSkipFold(expr) || (expr instanceof TableGeneratingFunction)
                     || (expr instanceof ArrayItemReference) || (expr instanceof Match)) {
                 return;
             }
@@ -230,7 +232,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     }
 
     // if sleep(5) will cause rpc timeout
-    private static boolean skipSleepFunction(Expression expr) {
+    private static boolean shouldSkipFold(Expression expr) {
         if (expr instanceof Sleep) {
             Expression param = expr.child(0);
             if (param instanceof Cast) {
@@ -239,6 +241,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             if (param instanceof NumericLiteral) {
                 return ((NumericLiteral) param).getDouble() >= 5.0;
             }
+        } else if (expr instanceof BoundFunction
+                && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
+            // FIXME: remove this when we fixed serde of Geo types
+            LOG.warn("GeoFunction {} now don't support constant fold on BE",
+                    ((BoundFunction) expr).getName());
+            return true;
         }
         return false;
     }

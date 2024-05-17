@@ -24,7 +24,8 @@ namespace doris {
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
               const std::set<string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, const std::string& timezone) {
+              int64_t timestamp_ms, const std::string& timezone,
+              const std::string& auto_increment_column) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
         this->timestamp_ms = timestamp_ms;
@@ -42,8 +43,13 @@ struct PartialUpdateInfo {
             } else {
                 update_cids.emplace_back(i);
             }
+            if (auto_increment_column == tablet_column.name()) {
+                is_schema_contains_auto_inc_column = true;
+            }
         }
         this->is_strict_mode = is_strict_mode;
+        is_input_columns_contains_auto_inc_column =
+                is_partial_update && partial_update_input_columns.contains(auto_increment_column);
     }
 
     bool is_partial_update {false};
@@ -56,5 +62,7 @@ struct PartialUpdateInfo {
     bool is_strict_mode {false};
     int64_t timestamp_ms {0};
     std::string timezone;
+    bool is_input_columns_contains_auto_inc_column = false;
+    bool is_schema_contains_auto_inc_column = false;
 };
 } // namespace doris

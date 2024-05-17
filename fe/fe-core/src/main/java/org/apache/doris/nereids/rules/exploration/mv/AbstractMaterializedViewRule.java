@@ -179,7 +179,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return rewriteResults;
         }
         for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
-            SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
+            SlotMapping queryToViewSlotMapping =
+                    materializationContext.getSlotMappingFromCache(queryToViewTableMapping);
+            if (queryToViewSlotMapping == null) {
+                queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
+                materializationContext.addSlotMappingToCache(queryToViewTableMapping, queryToViewSlotMapping);
+            }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
                         "Query to view slot mapping is null", () -> "");
@@ -187,7 +192,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
             LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
-                    queryToViewTableMapping, queryToViewSlotMapping, queryStructInfo, viewStructInfo);
+                    queryToViewTableMapping, viewToQuerySlotMapping, queryStructInfo, viewStructInfo);
             ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                     compatibilityContext);
             if (comparisonResult.isInvalid()) {
@@ -318,9 +323,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
+            rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateMvScanPlan(cascadesContext);
-            rewriteResults.add(rewrittenPlan);
         }
         return rewriteResults;
     }

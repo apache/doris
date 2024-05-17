@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
@@ -146,7 +147,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.setPlanner(planner);
             executor.checkBlockRules();
-            if (ctx.getMysqlChannel() != null) {
+            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
