@@ -316,6 +316,7 @@ public enum RuleType {
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
 
     // exploration rules
+    REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
     OR_EXPANSION(RuleTypeClass.EXPLORATION),
     LOGICAL_JOIN_COMMUTE(RuleTypeClass.EXPLORATION),

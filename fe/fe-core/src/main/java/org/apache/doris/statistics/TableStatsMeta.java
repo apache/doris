@@ -79,6 +79,9 @@ public class TableStatsMeta implements Writable {
     @SerializedName("userInjected")
     public boolean userInjected;
 
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+
     @VisibleForTesting
     public TableStatsMeta() {
         tblId = 0;
@@ -145,9 +148,7 @@ public class TableStatsMeta implements Writable {
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
-            if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.rowCount;
-            }
+            rowCount = analyzedJob.rowCount;
             if (rowCount == 0 && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
                 return;
             }

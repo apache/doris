@@ -38,7 +38,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadSchedulePolicyScanner::_s_t
 };
 
 SchemaWorkloadSchedulePolicyScanner::SchemaWorkloadSchedulePolicyScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_SCHEDULE_POLICY) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_WORKLOAD_POLICY) {}
 
 SchemaWorkloadSchedulePolicyScanner::~SchemaWorkloadSchedulePolicyScanner() {}
 

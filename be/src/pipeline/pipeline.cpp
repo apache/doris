@@ -40,7 +40,6 @@ Status Pipeline::add_operator(OperatorXPtr& op) {
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    // TODO
     RETURN_IF_ERROR(operatorXs.back()->prepare(state));
     RETURN_IF_ERROR(operatorXs.back()->open(state));
     RETURN_IF_ERROR(_sink_x->prepare(state));

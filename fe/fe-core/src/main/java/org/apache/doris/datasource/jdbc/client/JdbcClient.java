@@ -25,11 +25,11 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.zaxxer.hikari.HikariDataSource;
-import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,7 +39,9 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
@@ -73,7 +75,8 @@ public abstract class JdbcClient {
             case JdbcResource.MYSQL:
                 return new JdbcMySQLClient(jdbcClientConfig);
             case JdbcResource.OCEANBASE:
-                return new JdbcOceanBaseClient(jdbcClientConfig);
+                JdbcOceanBaseClient jdbcOceanBaseClient = new JdbcOceanBaseClient(jdbcClientConfig);
+                return jdbcOceanBaseClient.createClient(jdbcClientConfig);
             case JdbcResource.POSTGRESQL:
                 return new JdbcPostgreSQLClient(jdbcClientConfig);
             case JdbcResource.ORACLE:
@@ -214,6 +217,51 @@ public abstract class JdbcClient {
         }
     }
 
+    /**
+     * Execute query via jdbc
+     *
+     * @param query, the query string
+     * @return List<Column>
+     */
+    public List<Column> getColumnsFromQuery(String query) {
+        Connection conn = getConnection();
+        List<Column> columns = Lists.newArrayList();
+        try {
+            PreparedStatement pstmt = conn.prepareStatement(query);
+            ResultSetMetaData metaData = pstmt.getMetaData();
+            if (metaData == null) {
+                throw new JdbcClientException("Query not supported: Failed to get ResultSetMetaData from query: %s",
+                        query);
+            } else {
+                List<JdbcFieldSchema> schemas = getSchemaFromResultSetMetaData(metaData);
+                for (JdbcFieldSchema schema : schemas) {
+                    columns.add(new Column(schema.getColumnName(), jdbcTypeToDoris(schema), true, null, true, null,
+                            true, -1));
+                }
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to get columns from query: %s", e, query);
+        } finally {
+            close(conn);
+        }
+        return columns;
+    }
+
+
+    /**
+     * Get schema from ResultSetMetaData
+     *
+     * @param metaData, the ResultSetMetaData
+     * @return List<JdbcFieldSchema>
+     */
+    public List<JdbcFieldSchema> getSchemaFromResultSetMetaData(ResultSetMetaData metaData) throws SQLException {
+        List<JdbcFieldSchema> schemas = Lists.newArrayList();
+        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+            schemas.add(new JdbcFieldSchema(metaData, i));
+        }
+        return schemas;
+    }
+
     // This part used to process meta-information of database, table and column.
 
     /**
@@ -294,27 +342,7 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
-                field.setDataType(rs.getInt("DATA_TYPE"));
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                /*
-                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
-                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
-                */
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                tableSchema.add(field);
+                tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
@@ -423,28 +451,6 @@ public abstract class JdbcClient {
 
     protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
         return jdbcLowerCaseMetaMatching.setColumnNameMapping(remoteDbName, remoteTableName, remoteColumns);
-    }
-
-    @Data
-    protected static class JdbcFieldSchema {
-        protected String columnName;
-        // The SQL type of the corresponding java.sql.types (Type ID)
-        protected int dataType;
-        // The SQL type of the corresponding java.sql.types (Type Name)
-        protected String dataTypeName;
-        // For CHAR/DATA, columnSize means the maximum number of chars.
-        // For NUMERIC/DECIMAL, columnSize means precision.
-        protected int columnSize;
-        protected int decimalDigits;
-        // Base number (usually 10 or 2)
-        protected int numPrecRadix;
-        // column description
-        protected String remarks;
-        // This length is the maximum number of bytes for CHAR type
-        // for utf8 encoding, if columnSize=10, then charOctetLength=30
-        // because for utf8 encoding, a Chinese character takes up 3 bytes
-        protected int charOctetLength;
-        protected boolean isAllowNull;
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);

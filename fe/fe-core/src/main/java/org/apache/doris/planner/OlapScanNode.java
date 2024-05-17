@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -177,12 +178,6 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
-    // useTopnOpt is equivalent to !topnFilterSortNodes.isEmpty().
-    // keep this flag for compatibility.
-    private boolean useTopnOpt = false;
-    // support multi topn filter
-    private final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
-
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -213,6 +208,7 @@ public class OlapScanNode extends ScanNode {
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
+    PrepareStmt preparedStatment = null;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -315,14 +311,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
-    }
-
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
-    }
-
-    public void setUseTopnOpt(boolean useTopnOpt) {
-        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -559,9 +547,9 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // lazy evaluation, since stmt is a prepared statment
-        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
-        if (!isFromPrepareStmt) {
+        // point query could do lazy evaluation, since stmt is a prepared statment
+        preparedStatment = analyzer.getPrepareStmt();
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 partitionsInfo = olapTable.getPartitionInfo();
                 analyzerPartitionExpr(analyzer, partitionsInfo);
@@ -627,7 +615,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         // prepare stmt evaluate lazily in Coordinator execute
-        if (!isFromPrepareStmt) {
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             try {
                 createScanRangeLocations();
             } catch (AnalysisException e) {
@@ -900,10 +888,7 @@ public class OlapScanNode extends ScanNode {
                     String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive";
                     if (Config.isCloudMode()) {
-                        err += ", or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
-                            err += " clusterName=" + ConnectContext.get().getCloudCluster();
-                        }
+                        errs.add(ConnectContext.cloudNoBackendsReason());
                     }
                     errs.add(err);
                     continue;
@@ -1157,7 +1142,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null;
+        return this.pointQueryEqualPredicats != null
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1347,7 +1333,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
-        if (useTopnOpt) {
+        if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
@@ -1524,18 +1510,6 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
-        List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
-                .stream()
-                .map(sortNode -> sortNode.getId().asInt())
-                .collect(Collectors.toList());
-        if (!topnFilterSourceNodeIds.isEmpty()) {
-            if (SessionVariable.enablePipelineEngineX()) {
-                msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
-            } else {
-                msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
-            }
-        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
@@ -1556,6 +1530,7 @@ public class OlapScanNode extends ScanNode {
         if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
+        super.toThrift(msg);
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
@@ -1811,14 +1786,6 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
-    }
-
-    public void addTopnFilterSortNode(SortNode sortNode) {
-        topnFilterSortNodes.add(sortNode);
-    }
-
-    public List<SortNode> getTopnFilterSortNodes() {
-        return topnFilterSortNodes;
     }
 
     @Override

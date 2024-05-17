@@ -56,7 +56,7 @@ private:
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
-    void _init_hash_method();
+    Status _init_hash_method();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {

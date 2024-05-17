@@ -79,30 +79,26 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, std::string name,
-                                         QueryContext* ctx);
+    Dependency* create_source_dependency(int operator_id, int node_id, std::string name);
 
-    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name,
-                                       QueryContext* ctx);
+    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
-    Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+    Dependency(int id, int node_id, std::string name)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(false),
-              _ready(false),
-              _query_ctx(query_ctx) {}
-    Dependency(int id, int node_id, std::string name, bool ready, QueryContext* query_ctx)
+              _ready(false) {}
+    Dependency(int id, int node_id, std::string name, bool ready)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(true),
-              _ready(ready),
-              _query_ctx(query_ctx) {}
+              _ready(ready) {}
     virtual ~Dependency() = default;
 
     bool is_write_dependency() const { return _is_write_dependency; }
@@ -165,14 +161,12 @@ public:
 
 protected:
     void _add_block_task(PipelineTask* task);
-    bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
     const int _node_id;
     const std::string _name;
     const bool _is_write_dependency;
     std::atomic<bool> _ready;
-    const QueryContext* _query_ctx = nullptr;
 
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
@@ -189,29 +183,11 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-struct FakeDependency final : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    FakeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "FakeDependency", query_ctx) {}
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override { return nullptr; }
-};
-
-struct FinishDependency : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
-
-    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task) override;
-};
-
 struct CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
-    CountedFinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
-            : Dependency(id, node_id, name, true, query_ctx) {}
+    CountedFinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -301,9 +277,8 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx,
-                            IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name, query_ctx), _runtime_filter(runtime_filter) {}
+    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
+            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
     Dependency* is_blocked_by(PipelineTask* task) override;
@@ -322,6 +297,8 @@ public:
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
+        } else {
+            _close_without_key();
         }
     }
 
@@ -360,6 +337,7 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
+    bool agg_data_created_without_key = false;
     bool enable_spill = false;
 
 private:
@@ -387,6 +365,15 @@ private:
                    agg_data->method_variant);
     }
 
+    void _close_without_key() {
+        //because prepare maybe failed, and couldn't create agg data.
+        //but finally call close to destory agg data, if agg data has bitmapValue
+        //will be core dump, it's not initialized
+        if (agg_data_created_without_key) {
+            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            agg_data_created_without_key = false;
+        }
+    }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
             aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
@@ -603,8 +590,8 @@ class AsyncWriterDependency final : public Dependency {
 public:
     using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
+    AsyncWriterDependency(int id, int node_id)
+            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
     ~AsyncWriterDependency() override = default;
 };
 
@@ -677,8 +664,18 @@ public:
             }
             return;
         }
+
+        // here need to change type to nullable, because some case eg:
+        // (select 0) intersect (select null) the build side hash table should not
+        // ignore null value.
+        std::vector<DataTypePtr> data_types;
+        for (const auto& ctx : child_exprs_lists[0]) {
+            data_types.emplace_back(build_not_ignore_null[0]
+                                            ? make_nullable(ctx->root()->data_type())
+                                            : ctx->root()->data_type());
+        }
         if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                    *hash_table_variants, child_exprs_lists[0])) {
+                    *hash_table_variants, data_types)) {
             hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
     }
@@ -747,10 +744,10 @@ public:
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
-    void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
+    void create_source_dependencies(int operator_id, int node_id) {
         for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(
-                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY", ctx);
+            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
+                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_deps[i]->set_shared_state(this);
         }
     };

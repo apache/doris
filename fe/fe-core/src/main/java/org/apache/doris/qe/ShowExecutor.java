@@ -116,6 +116,7 @@ import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -298,6 +299,7 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
+        checkStmtSupported();
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
         } else if (stmt instanceof ShowAuthorStmt) {
@@ -411,6 +413,11 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
         } else if (stmt instanceof ShowConfigStmt) {
+            if (Config.isCloudMode() && !ctx.getCurrentUserIdentity()
+                    .getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
@@ -3226,8 +3233,13 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            Auth auth = Env.getCurrentEnv().getAuth();
+            UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                            .map(StorageVault::convertToShowStorageVaultProperties)
+                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                            PrivPredicate.USAGE)
+                    )
+                    .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {
                 StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
@@ -3238,4 +3250,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    private void checkStmtSupported() throws AnalysisException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (stmt instanceof ShowReplicaStatusStmt
+                || stmt instanceof ShowReplicaDistributionStmt
+                || stmt instanceof ShowConfigStmt) {
+            if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
+        }
+
+        if (stmt instanceof ShowTabletStorageFormatStmt
+                || stmt instanceof DiagnoseTabletStmt
+                || stmt instanceof AdminCopyTabletStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+            throw new AnalysisException("Unsupported operation");
+        }
+    }
 }

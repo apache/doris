@@ -441,8 +441,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPSERT_TRANSACTION_STATE:
             case OperationType.OP_DELETE_TRANSACTION_STATE: {
-                data = new TransactionState();
-                ((TransactionState) data).readFields(in);
+                data = TransactionState.read(in);
                 isRead = true;
                 break;
             }

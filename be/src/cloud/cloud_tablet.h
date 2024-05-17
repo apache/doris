@@ -166,8 +166,6 @@ public:
 
     int64_t base_size() const { return _base_size; }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
-
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
@@ -188,7 +186,8 @@ public:
                                              const RowIdConversion& rowid_conversion,
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t initiator,
-                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap,
+                                             bool allow_delete_in_cumu_compaction);
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 

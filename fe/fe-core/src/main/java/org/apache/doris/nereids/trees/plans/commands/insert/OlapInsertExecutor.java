@@ -50,7 +50,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -71,17 +70,17 @@ import java.util.stream.Collectors;
  * Insert executor for olap table
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    private long txnId = INVALID_TXN_ID;
+    protected long txnId = INVALID_TXN_ID;
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
-            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     public long getTxnId() {
@@ -91,22 +90,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     @Override
     public void beginTransaction() {
         try {
-            if (ctx.isTxnModel()) {
-                TransactionEntry txnEntry = ctx.getTxnEntry();
-                // check the same label with begin
-                if (this.labelName != null && !this.labelName.equals(txnEntry.getLabel())) {
-                    throw new AnalysisException("Transaction insert expect label " + txnEntry.getLabel()
-                            + ", but got " + this.labelName);
-                }
-                txnEntry.beginTransaction(database, table);
-                this.txnId = txnEntry.getTransactionId();
-                this.labelName = txnEntry.getLabel();
-            } else {
-                this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                        database.getId(), ImmutableList.of(table.getId()), labelName,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                        LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
-            }
+            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -124,7 +111,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 && physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT;
         try {
             // TODO refactor this to avoid call legacy planner's function
-            int timeout = ctx.getExecTimeout();
+            long timeout = getTimeout();
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
@@ -164,10 +151,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         if (state == null) {
             throw new AnalysisException("txn does not exist: " + txnId);
         }
-        state.addTableIndexes((OlapTable) table);
+        addTableIndexes(state);
         if (physicalOlapTableSink.isPartialUpdate()) {
             state.setSchemaForPartialUpdate((OlapTable) table);
         }
+    }
+
+    protected void addTableIndexes(TransactionState state) {
+        state.addTableIndexes((OlapTable) table);
     }
 
     @Override
@@ -178,12 +169,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
-        if (ctx.isTxnModel()) {
-            TransactionEntry txnEntry = ctx.getTxnEntry();
-            txnEntry.addCommitInfos((Table) table, coordinator.getCommitInfos());
-            return;
-        }
-
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -301,5 +286,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
+    }
+
+    public long getTimeout() {
+        return ctx.getExecTimeout();
     }
 }

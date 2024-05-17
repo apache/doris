@@ -147,11 +147,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("message")
     public String message;
 
-    // True means this task is a table level task for external table.
-    // This kind of task is mainly to collect the number of rows of a table.
-    @SerializedName("externalTableLevelTask")
-    public final boolean externalTableLevelTask;
-
     @SerializedName("partitionOnly")
     public final boolean partitionOnly;
 
@@ -176,8 +171,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("forceFull")
     public final boolean forceFull;
 
-    @SerializedName("usingSqlForPartitionColumn")
-    public final boolean usingSqlForPartitionColumn;
+    @SerializedName("usingSqlForExternalTable")
+    public final boolean usingSqlForExternalTable;
 
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
@@ -211,9 +206,9 @@ public class AnalysisInfo implements Writable {
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
-            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime, long rowCount, boolean userInject,
+            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
             long updateRows, JobPriority priority) {
         this.jobId = jobId;
         this.taskId = taskId;
@@ -238,7 +233,6 @@ public class AnalysisInfo implements Writable {
         this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
-        this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.isAllPartition = isAllPartition;
@@ -248,7 +242,7 @@ public class AnalysisInfo implements Writable {
             this.cronExprStr = cronExpression.getCronExpression();
         }
         this.forceFull = forceFull;
-        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        this.usingSqlForExternalTable = usingSqlForExternalTable;
         this.tblUpdateTime = tblUpdateTime;
         this.rowCount = rowCount;
         this.userInject = userInject;
@@ -294,7 +288,7 @@ public class AnalysisInfo implements Writable {
             sj.add("cronExpr: " + cronExprStr);
         }
         sj.add("forceFull: " + forceFull);
-        sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
+        sj.add("usingSqlForExternalTable: " + usingSqlForExternalTable);
         sj.add("rowCount: " + rowCount);
         sj.add("userInject: " + userInject);
         sj.add("updateRows: " + updateRows);

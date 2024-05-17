@@ -69,6 +69,10 @@ public:
                                                    std::vector<PIntegerPair>* partition_offsets,
                                                    int timeout);
 
+    Status get_kafka_real_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
+
 private:
     // execute the task
     void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,

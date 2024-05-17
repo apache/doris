@@ -89,7 +89,11 @@ void MemInfo::refresh_allocator_mem() {
     // the current epoch number, which might be useful to log as a sanity check.
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
+#ifdef USE_JEMALLOC_HOOK
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
+#else
+    mallctl("epoch", &epoch, &sz, &epoch, sz);
+#endif
 
     // https://jemalloc.net/jemalloc.3.html
     // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md

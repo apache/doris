@@ -531,6 +531,11 @@ wait_coredump_file_ready() {
     done
 }
 
+clear_coredump() {
+    echo -e "INFO: clear coredump files \n$(ls /var/lib/apport/coredump/)"
+    rm -rf /var/lib/apport/coredump/*
+}
+
 archive_doris_coredump() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"

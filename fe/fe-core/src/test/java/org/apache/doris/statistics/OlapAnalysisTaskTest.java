@@ -160,9 +160,9 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`,"
                         + " SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(t1.count) * 4 * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) "
-                        + "as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`"
-                        + "       limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
+                        + "FROM (     SELECT t0.`null` as `column_key`, COUNT(1) "
+                        + "as `count`     FROM     (SELECT `null` FROM `catalogName`.`${dbName}`.`null`"
+                        + "       limit 100) as `t0`     GROUP BY `t0`.`null` ) as `t1` ", sql);
                 return;
             }
         };
@@ -228,16 +228,15 @@ public class OlapAnalysisTaskTest {
 
             @Mock
             public void runQuery(String sql) {
-                Assertions.assertEquals(" "
-                        + "SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
+                Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
                         + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
                         + "-1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, "
-                        + "500 AS `row_count`, ROUND(NDV(`${colName}`) * 5.0) as `ndv`, "
-                        + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * 5.0) "
+                        + "500 AS `row_count`, ROUND(NDV(`null`) * 5.0) as `ndv`, "
+                        + "ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * 5.0) "
                         + "AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(LENGTH(`${colName}`)) * 5.0 AS `data_size`, NOW() "
-                        + "FROM `catalogName`.`${dbName}`.`${tblName}`   limit 100", sql);
+                        + "SUM(LENGTH(`null`)) * 5.0 AS `data_size`, NOW() "
+                        + "FROM `catalogName`.`${dbName}`.`null`   limit 100", sql);
                 return;
             }
         };
@@ -322,7 +321,9 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
                         + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`     FROM     "
-                        + "(SELECT SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024) AS `colValue`          FROM `catalogName`.`${dbName}`.`${tblName}`       limit 100) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
+                        + "(SELECT SUBSTRING(CAST(`null` AS STRING), 1, 1024) AS `colValue`          "
+                        + "FROM `catalogName`.`${dbName}`.`null`       limit 100) as `t0`     "
+                        + "GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }
         };
