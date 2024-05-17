@@ -51,11 +51,18 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
         return ImmutableList.of(
             // join->empty
             logicalJoin(any(), any())
-                .when(this::hasEmptyRelationChild)
-                .when(this::canReplaceJoinByEmptyRelation)
-                .then(join -> new LogicalEmptyRelation(
-                    ConnectContext.get().getStatementContext().getNextRelationId(),
-                    join.getOutput()))
+                // .when(this::hasEmptyRelationChild)
+                // .when(this::canReplaceJoinByEmptyRelation)
+                .then(join -> {
+                            if (hasEmptyRelationChild(join) && canReplaceJoinByEmptyRelation(join)
+                                    || bothChildrenEmpty(join)) {
+                                return new LogicalEmptyRelation(
+                                        ConnectContext.get().getStatementContext().getNextRelationId(),
+                                        join.getOutput());
+                            }
+                            return null;
+                        }
+                )
                 .toRule(RuleType.ELIMINATE_JOIN_ON_EMPTYRELATION),
             logicalFilter(logicalEmptyRelation())
                 .then(filter -> new LogicalEmptyRelation(
@@ -68,7 +75,13 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     ConnectContext.get().getStatementContext().getNextRelationId(),
                     agg.getOutput())
                 ).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
-
+            // proj->empty
+            logicalProject(logicalEmptyRelation())
+                    .then(project ->
+                            new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
+                                    project.getOutputs()
+                            ))
+                    .toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // after BuildAggForUnion rule, union may have more than 2 children.
             logicalUnion(multi()).then(union -> {
                 if (union.children().isEmpty()) {
@@ -116,6 +129,18 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     return null;
                 }
             }).toRule(RuleType.ELIMINATE_UNION_ON_EMPTYRELATION),
+            // topn->empty
+            logicalTopN(logicalEmptyRelation())
+                    .then(topn -> new LogicalEmptyRelation(
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            topn.getOutput()))
+                            .toRule(RuleType.ELIMINATE_TOPN_ON_EMPTYRELATION),
+            // sort->empty
+            logicalSort(logicalEmptyRelation())
+                    .then(sort -> new LogicalEmptyRelation(
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            sort.getOutput()))
+                    .toRule(RuleType.ELIMINATE_SORT_ON_EMPTYRELATION),
             // set intersect
             logicalIntersect(multi()).then(intersect -> {
                 List<Plan> emptyChildren = intersect.children().stream()
@@ -184,6 +209,10 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
 
     private boolean hasEmptyRelationChild(LogicalJoin<?, ?> join) {
         return join.left() instanceof EmptyRelation || join.right() instanceof EmptyRelation;
+    }
+
+    private boolean bothChildrenEmpty(LogicalJoin<?, ?> join) {
+        return join.left() instanceof EmptyRelation && join.right() instanceof EmptyRelation;
     }
 
     private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {
