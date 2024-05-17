@@ -563,7 +563,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    return fmt::format("[{}] {}", code_as_string(), msg());
+    return fmt::format("[{}]{}", code_as_string(), msg());
 }
 
 // some generally useful macros
