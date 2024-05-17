@@ -85,7 +85,7 @@ Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value
         }
     }
 
-    auto st = tablet->clac_local_file_crc(crc_value, *start_version, *end_version, rowset_count,
+    auto st = tablet->calc_local_file_crc(crc_value, *start_version, *end_version, rowset_count,
                                           file_count);
     if (!st.ok()) {
         return st;

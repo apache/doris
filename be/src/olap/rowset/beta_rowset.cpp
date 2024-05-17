@@ -630,7 +630,7 @@ Status BetaRowset::add_to_binlog() {
     return Status::OK();
 }
 
-Status BetaRowset::clac_local_file_crc(uint32_t* crc_value, int64_t* file_count) {
+Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
@@ -676,8 +676,8 @@ Status BetaRowset::clac_local_file_crc(uint32_t* crc_value, int64_t* file_count)
     std::vector<std::string> all_file_md5;
     all_file_md5.reserve(local_paths.size());
     for (const auto& file_path : local_paths) {
-        DBUG_EXECUTE_IF("fault_inject::BetaRowset::clac_local_file_crc", {
-            return Status::Error<OS_ERROR>("fault_inject clac_local_file_crc error");
+        DBUG_EXECUTE_IF("fault_inject::BetaRowset::calc_local_file_crc", {
+            return Status::Error<OS_ERROR>("fault_inject calc_local_file_crc error");
         });
         std::string file_md5sum;
         auto status = local_fs->md5sum(file_path, &file_md5sum);

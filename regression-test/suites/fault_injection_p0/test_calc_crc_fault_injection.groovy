@@ -81,12 +81,12 @@ suite("test_calc_crc") {
     assertEquals("18", parseJson(out_0.trim()).file_count)
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::clac_local_file_crc")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
         def (code_1, out_1, err_1) = calc_file_crc_on_tablet(ip, port, tablet_id)
         logger.info("Run calc_file_crc_on_tablet: code=" + code_1 + ", out=" + out_1 + ", err=" + err_1)
-        assertTrue(out_1.contains("fault_inject clac_local_file_crc error"))
+        assertTrue(out_1.contains("fault_inject calc_local_file_crc error"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::clac_local_file_crc")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
     }
 
     def (code_2, out_2, err_2) = calc_file_crc_on_tablet_with_start(ip, port, tablet_id, 0)
