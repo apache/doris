@@ -239,7 +239,7 @@ if [[ -n "${JACOCO_COVERAGE_OPT}" ]]; then
     coverage_opt="${JACOCO_COVERAGE_OPT}"
 fi
 
-echo "Start Time: $(date), Node uptime: $(uptime)" >> "${LOG_DIR}/fe.out"
+echo "Start Time: $(date), Node uptime: $(uptime)" >>"${LOG_DIR}/fe.out"
 
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend

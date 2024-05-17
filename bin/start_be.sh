@@ -237,7 +237,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_be"
-echo "Start Time: $(date), Node uptime: $(uptime)" >> "${LOG_DIR}/be.out"
+echo "Start Time: $(date), Node uptime: $(uptime)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
