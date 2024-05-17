@@ -575,7 +575,7 @@ public:
     }
 
     // will copy a new status object to avoid concurrency
-    Status status() const {
+    Status status() {
         std::lock_guard l(mutex_);
         return error_st_;
     }
