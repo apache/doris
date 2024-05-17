@@ -224,9 +224,8 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
 }
 
 Status PartitionSortSinkLocalState::_init_hash_method() {
-    if (!init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true)) {
-        return Status::InternalError("init hash method failed");
-    }
+    RETURN_IF_ERROR(
+            init_partition_hash_method(_partitioned_data.get(), _partition_expr_ctxs, true));
     return Status::OK();
 }
 
