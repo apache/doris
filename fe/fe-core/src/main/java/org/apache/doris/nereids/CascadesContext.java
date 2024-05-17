@@ -20,7 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.IdGenerator;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -52,10 +52,10 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -63,7 +63,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -144,8 +143,7 @@ public class CascadesContext implements ScheduleContext {
     private final boolean isEnableExprTrace;
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<Long, Integer> tableIdMapping = new LinkedHashMap<>();
-    private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
+    private final Map<TableIdentifier, Integer> tableIdMapping = new LinkedHashMap<>();
 
     /**
      * Constructor of OptimizerContext.
@@ -752,31 +750,15 @@ public class CascadesContext implements ScheduleContext {
         return isEnableExprTrace;
     }
 
-    public void putTableId(Long unionId, Integer generatedTableId) {
-        Integer existTableId = this.tableIdMapping.get(unionId);
-        if (existTableId != null) {
-            return;
-        }
-        this.tableIdMapping.put(unionId, generatedTableId);
-    }
-
     /** Get table id with lazy */
     public int getTableId(TableIf tableIf) {
-        return getTableId(Utils.generateTableQualifier(tableIf));
-    }
-
-    /** Get table id with lazy */
-    public int getTableId(Long unionId) {
-        Integer tableId = this.tableIdMapping.get(unionId);
+        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
+        Integer tableId = this.tableIdMapping.get(tableIdentifier);
         if (tableId != null) {
             return tableId;
         }
-        tableId = getNextTableId().asInt();
-        this.tableIdMapping.put(unionId, tableId);
+        tableId = StatementScopeIdGenerator.newTableId().asInt();
+        this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
-    }
-
-    public TableId getNextTableId() {
-        return talbeIdGenerator.getNextId();
     }
 }

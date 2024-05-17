@@ -69,13 +69,14 @@ public class TableIdentifier {
             return false;
         }
         TableIdentifier that = (TableIdentifier) o;
-        return databaseId == that.databaseId
+        return catalogId == that.catalogId
+                && databaseId == that.databaseId
                 && tableId == that.tableId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseId, tableId);
+        return Objects.hash(catalogId, databaseId, tableId);
     }
 
     @Override

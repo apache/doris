@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -100,6 +101,7 @@ public class StatementContext implements Closeable {
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+    private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
@@ -291,6 +293,10 @@ public class StatementContext implements Closeable {
 
     public RelationId getNextRelationId() {
         return relationIdGenerator.getNextId();
+    }
+
+    public TableId getNextTableId() {
+        return talbeIdGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {

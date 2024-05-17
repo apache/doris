@@ -502,7 +502,7 @@ public class NereidsPlanner extends Planner {
                         this.getPhysicalPlan());
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "\n Statistics \n planed with unknown column statistics\n";
+                        plan += "\n\nStatistics\n  planned with unknown column statistics\n";
                     }
                 }
         }
