@@ -17,10 +17,10 @@
 
 import com.mysql.cj.jdbc.StatementImpl
 
-suite("test_insert_partition_url") {
+suite("test_insert_partition_fail_url") {
     def dbName = "regression_test_insert_p0"
-    def srcTableName = "test_insert_partition_url_src"
-    def dstTableName = "test_insert_partition_url_dst"
+    def srcTableName = "test_insert_partition_fail_url_src"
+    def dstTableName = "test_insert_partition_fail_url_dst"
     def srcName = dbName + "." + srcTableName
     def dstName = dbName + "." + dstTableName
 
