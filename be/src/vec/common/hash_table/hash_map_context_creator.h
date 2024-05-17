@@ -104,7 +104,7 @@ bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataType
 }
 
 template <typename DataVariants, typename Data>
-void init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSPtrs& probe_exprs,
+bool init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSPtrs& probe_exprs,
                       bool is_first_phase) {
     using Type = DataVariants::Type;
     Type t(Type::serialized);
@@ -164,5 +164,11 @@ void init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSPtr
             agg_data->init(Type::serialized);
         }
     }
+
+    if (agg_data->method_variant.valueless_by_exception()) {
+        agg_data->method_variant.template emplace<std::monostate>();
+        return false;
+    }
+    return true;
 }
 } // namespace doris

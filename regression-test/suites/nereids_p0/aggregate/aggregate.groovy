@@ -330,6 +330,6 @@ suite("aggregate") {
     sql " set parallel_pipeline_task_num = 1; "
     sql " set enable_pipeline_x_engine = 1; "
     qt_having_with_limit """
-        select k1 as k, avg(k2) as k2  from tempbaseall group by k1 having k2 < -32765 limit 1;
+        select k1 as k, avg(k2) as k2  from tempbaseall group by k1 having k2 < -32765 order by k1 limit 1;
     """
 }

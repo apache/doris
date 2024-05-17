@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
-import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 
 import com.google.common.collect.Lists;
@@ -35,20 +35,20 @@ import java.util.Set;
  * topN runtime filter context
  */
 public class TopnFilterContext {
-    private final Map<TopN, List<OlapScan>> filters = Maps.newHashMap();
+    private final Map<TopN, List<PhysicalRelation>> filters = Maps.newHashMap();
     private final Set<TopN> sources = Sets.newHashSet();
-    private final Set<OlapScan> targets = Sets.newHashSet();
-    private final Map<OlapScan, OlapScanNode> legacyTargetsMap = Maps.newHashMap();
+    private final Set<PhysicalRelation> targets = Sets.newHashSet();
+    private final Map<PhysicalRelation, ScanNode> legacyTargetsMap = Maps.newHashMap();
     private final Map<TopN, SortNode> legacySourceMap = Maps.newHashMap();
 
     /**
      * add topN filter
      */
-    public void addTopnFilter(TopN topn, OlapScan scan) {
+    public void addTopnFilter(TopN topn, PhysicalRelation scan) {
         targets.add(scan);
         sources.add(topn);
 
-        List<OlapScan> targets = filters.get(topn);
+        List<PhysicalRelation> targets = filters.get(topn);
         if (targets == null) {
             filters.put(topn, Lists.newArrayList(scan));
         } else {
@@ -59,14 +59,14 @@ public class TopnFilterContext {
     /**
      * find the corresponding sortNode for topn filter
      */
-    public Optional<OlapScanNode> getLegacyScanNode(OlapScan scan) {
-        return legacyTargetsMap.keySet().contains(scan)
+    public Optional<ScanNode> getLegacyScanNode(PhysicalRelation scan) {
+        return legacyTargetsMap.containsKey(scan)
                 ? Optional.of(legacyTargetsMap.get(scan))
                 : Optional.empty();
     }
 
     public Optional<SortNode> getLegacySortNode(TopN topn) {
-        return legacyTargetsMap.keySet().contains(topn)
+        return legacyTargetsMap.containsKey(topn)
                 ? Optional.of(legacySourceMap.get(topn))
                 : Optional.empty();
     }
@@ -75,19 +75,35 @@ public class TopnFilterContext {
         return sources.contains(topn);
     }
 
-    public boolean isTopnFilterTarget(OlapScan scan) {
-        return targets.contains(scan);
+    public boolean isTopnFilterTarget(PhysicalRelation relation) {
+        return targets.contains(relation);
     }
 
     public void addLegacySource(TopN topn, SortNode sort) {
         legacySourceMap.put(topn, sort);
     }
 
-    public void addLegacyTarget(OlapScan olapScan, OlapScanNode legacy) {
-        legacyTargetsMap.put(olapScan, legacy);
+    public void addLegacyTarget(PhysicalRelation relation, ScanNode legacy) {
+        legacyTargetsMap.put(relation, legacy);
     }
 
-    public List<OlapScan> getTargets(TopN topn) {
+    public List<PhysicalRelation> getTargets(TopN topn) {
         return filters.get(topn);
+    }
+
+    /**
+     * toString
+     */
+    public String toString() {
+        StringBuilder builder = new StringBuilder("TopnFilterContext\n");
+        String indent = "   ";
+        String arrow = " -> ";
+        builder.append("filters:\n");
+        for (TopN topn : filters.keySet()) {
+            builder.append(indent).append(topn.toString()).append("\n");
+            builder.append(indent).append(arrow).append(filters.get(topn)).append("\n");
+        }
+        return builder.toString();
+
     }
 }

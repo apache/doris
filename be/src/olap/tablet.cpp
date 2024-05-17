@@ -1708,6 +1708,9 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
             DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
+            // "CANCELLED" indicates that the peer has not performed compaction,
+            // wait for the peer to perform compaction
+            set_skip_compaction(true, compaction.real_compact_type(), UnixSeconds());
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {

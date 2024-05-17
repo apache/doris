@@ -91,7 +91,7 @@ public class RefreshDbTest extends TestWithFeService {
         }
         long l3 = db1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
-        Assertions.assertTrue(table.isObjectCreated());
+        Assertions.assertFalse(table.isObjectCreated());
         test1.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
         try {

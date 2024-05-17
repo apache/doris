@@ -422,6 +422,8 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -536,6 +538,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
+
+    public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
+            = "materialized_view_relation_mapping_max_count";
 
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
@@ -1461,6 +1466,13 @@ public class SessionVariable implements Serializable, Writable {
     public long fileSplitSize = 0;
 
     @VariableMgr.VarAttr(
+            name = NUM_PARTITIONS_IN_BATCH_MODE,
+            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges",
+                    "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
+            needForward = true)
+    public int numPartitionsInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
@@ -1671,6 +1683,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
+            description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
+                    "During transparent rewriting, relation mapping specifies the maximum allowed number. "
+                            + "If the number exceeds the allowed number, the number is intercepted"})
+    public int materializedViewRelationMappingMaxCount = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_UNION_REWRITE, needForward = true,
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
@@ -1972,10 +1990,8 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
-        /*
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 1) {
-                this.enablePipelineXEngine = true;
                 this.enableJoinSpill = true;
                 this.enableSortSpill = true;
                 this.enableAggSpill = true;
@@ -2001,7 +2017,6 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableAggSpill = false;
             }
         }
-        */
     }
 
     public String printFuzzyVariables() {
@@ -2702,6 +2717,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public int getNumPartitionsInBatchMode() {
+        return numPartitionsInBatchMode;
+    }
+
+    public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
+        this.numPartitionsInBatchMode = numPartitionsInBatchMode;
     }
 
     public boolean isEnableParquetLazyMat() {
@@ -3766,6 +3789,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public int getMaterializedViewRelationMappingMaxCount() {
+        return materializedViewRelationMappingMaxCount;
     }
 
     public int getCreateTablePartitionMaxNum() {

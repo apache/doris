@@ -34,7 +34,7 @@ public:
     Status appendv(const Slice* data, size_t data_cnt) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
-    FileWriterState closed() const override { return _close_state; }
+    State state() const override { return _state; }
 
     FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
@@ -50,7 +50,7 @@ private:
     bool _dirty = false;
     const bool _sync_data = true;
     size_t _bytes_appended = 0;
-    FileWriterState _close_state {FileWriterState::OPEN};
+    State _state {State::OPENED};
 };
 
 } // namespace doris::io

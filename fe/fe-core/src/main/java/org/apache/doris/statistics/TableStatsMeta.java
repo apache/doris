@@ -79,6 +79,9 @@ public class TableStatsMeta implements Writable {
     @SerializedName("userInjected")
     public boolean userInjected;
 
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+
     @VisibleForTesting
     public TableStatsMeta() {
         tblId = 0;
