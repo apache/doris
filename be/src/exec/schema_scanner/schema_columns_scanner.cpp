@@ -618,7 +618,9 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
+            int data_type = _desc_result.columns[i].columnDesc.columnType;
+            if (_desc_result.columns[i].columnDesc.__isset.columnScale &&
+                data_type != TPrimitiveType::DATETIMEV2) {
                 srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
                 datas[i] = srcs + i;
             } else {
