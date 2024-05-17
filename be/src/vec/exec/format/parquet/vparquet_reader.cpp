@@ -87,7 +87,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _io_ctx(io_ctx),
           _state(state),
           _meta_cache(meta_cache),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -100,7 +103,10 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _scan_range(range),
           _io_ctx(io_ctx),
           _state(state),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max) {
     _init_system_properties();
     _init_file_description();
 }
@@ -726,8 +732,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
-        _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+        _lazy_read_ctx.conjuncts.empty() || _colname_to_value_range == nullptr ||
+        _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();
     }
@@ -836,7 +843,8 @@ Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_gr
 
 Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& columns,
                                                   bool* filter_group) {
-    if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || _colname_to_value_range == nullptr ||
+        _colname_to_value_range->empty()) {
         return Status::OK();
     }
     auto& schema_desc = _file_metadata->schema();

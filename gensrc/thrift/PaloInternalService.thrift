@@ -294,6 +294,9 @@ struct TQueryOptions {
   108: optional i64 local_exchange_free_blocks_limit;
 
   109: optional bool enable_force_spill = false;
+
+  110: optional bool enable_parquet_filter_by_min_max = true
+  111: optional bool enable_orc_filter_by_min_max = true
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

@@ -149,6 +149,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _ctz(ctz),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false),
           _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
@@ -169,6 +171,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _file_system(nullptr),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
     _init_system_properties();
     _init_file_description();
@@ -684,7 +687,7 @@ bool static build_search_argument(std::vector<OrcPredicate>& predicates, int ind
 
 bool OrcReader::_init_search_argument(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range->empty()) {
+    if (_enable_filter_by_min_max || colname_to_value_range->empty()) {
         return false;
     }
     std::vector<OrcPredicate> predicates;
