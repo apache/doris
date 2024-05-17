@@ -460,6 +460,13 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
 Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
                                           int column_index, int rows) {
+    _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_hll_string_types.push_back(std::make_shared<DataTypeString>());
+    }
+
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -497,6 +504,13 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
 
 Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block,
                                              int column_index, int rows) {
+    _map_column_idx_to_cast_idx_bitmap[column_index] = _input_bitmap_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_bitmap_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_bitmap_string_types.push_back(std::make_shared<DataTypeString>());
+    }
+
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -535,6 +549,12 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
 // Deprecated, this code is retained only for compatibility with query problems that may be encountered when upgrading the version that maps JSON to JSONB to this version, and will be deleted in subsequent versions.
 Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Block* block,
                                            int column_index, int rows) {
+    _map_column_idx_to_cast_idx_json[column_index] = _input_json_string_types.size();
+    if (slot_desc->is_nullable()) {
+        _input_json_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+    } else {
+        _input_json_string_types.push_back(std::make_shared<DataTypeString>());
+    }
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
