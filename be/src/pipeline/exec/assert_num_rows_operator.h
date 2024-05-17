@@ -43,6 +43,10 @@ public:
         return {ExchangeType::PASSTHROUGH};
     }
 
+    [[nodiscard]] const RowDescriptor& input_row_desc() const override {
+        return OperatorX<AssertNumRowsLocalState>::_child_x->output_row_desc();
+    }
+
 private:
     friend class AssertNumRowsLocalState;
 

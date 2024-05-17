@@ -451,7 +451,6 @@ public:
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
-
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -706,6 +705,7 @@ public:
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
+    [[nodiscard]] virtual const RowDescriptor& row_descriptor() const { return _row_descriptor; }
 
     [[nodiscard]] int id() const override { return node_id(); }
     [[nodiscard]] int operator_id() const { return _operator_id; }
@@ -720,6 +720,12 @@ public:
     [[nodiscard]] const RowDescriptor* output_row_descriptor() {
         return _output_row_descriptor.get();
     }
+
+    [[nodiscard]] virtual const RowDescriptor& input_row_desc() const { return row_descriptor(); }
+
+    [[nodiscard]] const RowDescriptor& output_row_desc() const { return row_desc(); }
+
+    Status check_upstream_row_desc_match();
 
     bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
 
@@ -829,6 +835,9 @@ public:
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
                                       bool eos) const = 0;
     bool need_more_input_data(RuntimeState* state) const override { return true; }
+    [[nodiscard]] const RowDescriptor& input_row_desc() const override {
+        return OperatorX<LocalStateType>::_child_x->output_row_desc();
+    }
 };
 
 template <typename Writer, typename Parent>

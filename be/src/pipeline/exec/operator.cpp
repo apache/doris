@@ -201,8 +201,41 @@ Status OperatorXBase::prepare(RuntimeState* state) {
 
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->prepare(state));
+        RETURN_IF_ERROR(check_upstream_row_desc_match());
     }
 
+    return Status::OK();
+}
+
+Status OperatorXBase::check_upstream_row_desc_match() {
+    DCHECK(_child_x && !is_source());
+    auto cur_name_and_type_and =
+            vectorized::VectorizedUtils::create_name_and_data_types(input_row_desc());
+    auto upstream_name_and_type =
+            vectorized::VectorizedUtils::create_name_and_data_types(_child_x->output_row_desc());
+    // Because the current operator may have multiple inputs, similar to a hash join,
+    // the input of the current operator cannot be smaller than the output of the upstream operator.
+    if (cur_name_and_type_and.size() < upstream_name_and_type.size()) {
+        return Status::InternalError(
+                "upstream operator output columns size : {} not match current operator input "
+                "columns size : {}  ."
+                " \n  upstream operator : {}, \n  current operator : {}",
+                upstream_name_and_type.size(), cur_name_and_type_and.size(),
+                _child_x->debug_string(0), debug_string(0));
+    }
+    const auto type_size = upstream_name_and_type.size();
+    for (int i = 0; i < type_size; i++) {
+        auto&& [cur_name, cur_type] = cur_name_and_type_and[i];
+        auto&& [up_name, up_type] = upstream_name_and_type[i];
+        if (!cur_type->equals(*up_type)) {
+            return Status::InternalError(
+                    "upstream operator output type [{},name:{}]  not match current operator input "
+                    "type [{},name:{}]. "
+                    " \n  upstream operator : {}, \n  current operator : {}",
+                    up_type->get_name(), up_name, cur_type->get_name(), cur_name,
+                    _child_x->debug_string(0), debug_string(0));
+        }
+    }
     return Status::OK();
 }
 

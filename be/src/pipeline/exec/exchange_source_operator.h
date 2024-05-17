@@ -76,7 +76,7 @@ public:
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
 
-    [[nodiscard]] RowDescriptor input_row_desc() const { return _input_row_desc; }
+    [[nodiscard]] const RowDescriptor& input_row_desc() const override { return _input_row_desc; }
 
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
