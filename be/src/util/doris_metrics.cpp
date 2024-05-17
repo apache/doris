@@ -310,6 +310,10 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
     }
 }
 
+void DorisMetrics::init_jvm_metrics(JNIEnv* env) {
+    _jvm_metrics.reset(new JvmMetrics(&_metric_registry, env));
+}
+
 void DorisMetrics::_update() {
     _update_process_thread_num();
     _update_process_fd_num();
