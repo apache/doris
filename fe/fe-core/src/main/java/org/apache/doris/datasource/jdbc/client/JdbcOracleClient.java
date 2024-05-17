@@ -35,6 +35,11 @@ public class JdbcOracleClient extends JdbcClient {
         super(jdbcClientConfig);
     }
 
+    protected JdbcOracleClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        this.dbType = dbType;
+    }
+
     @Override
     protected String getDatabaseQuery() {
         return "SELECT DISTINCT OWNER FROM all_tables";
