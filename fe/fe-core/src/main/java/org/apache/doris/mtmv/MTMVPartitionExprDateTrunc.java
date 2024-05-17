@@ -203,7 +203,8 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                 result = value.plusDays(1L);
                 break;
             default:
-                throw new AnalysisException("MTMV partition roll up not support timeUnit: " + timeUnit);
+                throw new AnalysisException(
+                        "async materialized view partition roll up not support timeUnit: " + timeUnit);
         }
         if (!(result instanceof DateTimeV2Literal)) {
             throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);

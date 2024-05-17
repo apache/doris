@@ -312,6 +312,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     @Override
+    public LogicalOlapScan withRelationId(RelationId relationId) {
+        // we have to set partitionPruned to false, so that mtmv rewrite can prevent deadlock when rewriting union
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.empty(),
+                selectedPartitionIds, false, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, Maps.newHashMap(), tableSample, directMvScan, projectPulledUp);
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
     }

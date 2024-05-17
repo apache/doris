@@ -281,7 +281,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     RETURN_IF_ERROR(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
-    if (_file_writer != nullptr) {
+    if (_file_writer != nullptr && _file_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_file_writer->close());
     }
 

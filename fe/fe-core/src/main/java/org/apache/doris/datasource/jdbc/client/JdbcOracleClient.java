@@ -38,6 +38,11 @@ public class JdbcOracleClient extends JdbcClient {
         super(jdbcClientConfig);
     }
 
+    protected JdbcOracleClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        this.dbType = dbType;
+    }
+
     @Override
     public String getTestQuery() {
         return "SELECT 1 FROM dual";

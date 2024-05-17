@@ -18,12 +18,17 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LdapConfig;
 
 public enum AuthenticateType {
     DEFAULT,
     LDAP;
 
     public static AuthenticateType getAuthTypeConfig() {
+        // Compatible with previously enabled ldap configuration
+        if (LdapConfig.ldap_authentication_enabled) {
+            return LDAP;
+        }
         switch (Config.authentication_type.toLowerCase()) {
             case "default":
                 return DEFAULT;

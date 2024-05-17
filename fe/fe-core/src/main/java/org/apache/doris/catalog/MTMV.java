@@ -40,6 +40,7 @@ import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -267,12 +268,15 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVCache getOrGenerateCache() throws AnalysisException {
+    /**
+     * Called when in query, Should use one connection context in query
+     */
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
         if (cache == null) {
             writeMvLock();
             try {
                 if (cache == null) {
-                    this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                    this.cache = MTMVCache.from(this, connectionContext);
                 }
             } finally {
                 writeMvUnlock();
@@ -301,12 +305,12 @@ public class MTMV extends OlapTable {
     /**
      * generateMvPartitionDescs
      *
-     * @return mvPartitionId ==> mvPartitionKeyDesc
+     * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<Long, PartitionKeyDesc> generateMvPartitionDescs() {
-        Map<Long, PartitionItem> mtmvItems = getAndCopyPartitionItems();
-        Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
-        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
+        Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+        Map<String, PartitionKeyDesc> result = Maps.newHashMap();
+        for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
             result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
         }
         return result;
@@ -317,19 +321,19 @@ public class MTMV extends OlapTable {
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
      *
-     * @return mvPartitionId ==> relationPartitionIds
+     * @return mvPartitionName ==> relationPartitionNames
      * @throws AnalysisException
      */
-    public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
-        Map<Long, Set<Long>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = MTMVPartitionUtil
+        Map<String, Set<String>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<Long, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
-        for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
         }

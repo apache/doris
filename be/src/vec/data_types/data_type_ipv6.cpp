@@ -42,6 +42,10 @@ std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const
     return value.to_string();
 }
 
+std::string DataTypeIPv6::to_string(const IPv6& ipv6_val) const {
+    auto value = IPv6Value(ipv6_val);
+    return value.to_string();
+}
 void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());
