@@ -563,7 +563,7 @@ public:
             return false;
         }
         int16_t expected_error_code = 0;
-        if (error_code_.compare_exchange_strong(expected_error_code, new_status._code,
+        if (error_code_.compare_exchange_strong(expected_error_code, new_status.code(),
                                                 std::memory_order_acq_rel)) {
             // lock here for read status, to avoid core during return error_st_
             std::lock_guard(mutex_);
