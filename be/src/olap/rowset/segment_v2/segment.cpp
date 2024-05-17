@@ -203,8 +203,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
                         ->add_column_predicate(single_column_block_predicate);
             }
-            LOG(INFO) << "column_predicates pruned from " << read_options.column_predicates.size()
-                      << " to " << pruned_predicates.size();
             return iter->get()->init(options_with_pruned_predicates);
         }
     }
