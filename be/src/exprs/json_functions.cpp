@@ -28,8 +28,6 @@
 #include <stdlib.h>
 
 #include <boost/iterator/iterator_facade.hpp>
-#include <boost/token_functions.hpp>
-#include <boost/tokenizer.hpp>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -213,9 +211,40 @@ void JsonFunctions::parse_json_paths(const std::string& path_string,
     //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
     //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
     //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    boost::tokenizer<boost::escaped_list_separator<char>> tok(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
-    std::vector<std::string> paths(tok.begin(), tok.end());
+    //    '$.text.(abc.def).xyz' ->  [$, text, abc.def, xyz]
+    std::string buffer;
+    std::vector<std::string> paths;
+    bool in_quotes = false;
+    bool in_brackets = false;
+
+    for (char ch : path_string) {
+        if (ch == '\"' && !in_brackets) {
+            in_quotes = !in_quotes;
+        } else if (ch == '(' && !in_quotes) {
+            in_brackets = true;
+            if (!buffer.empty()) {
+                paths.push_back(buffer);
+                buffer.clear();
+            }
+        } else if (ch == ')' && !in_quotes) {
+            in_brackets = false;
+            if (!buffer.empty()) {
+                paths.push_back(buffer);
+                buffer.clear();
+            }
+        } else if (ch == '.' && !in_quotes && !in_brackets) {
+            if (!buffer.empty()) {
+                paths.push_back(buffer);
+                buffer.clear();
+            }
+        } else {
+            buffer += ch;
+        }
+    }
+
+    if (!buffer.empty()) {
+        paths.push_back(buffer);
+    }
     get_parsed_paths(paths, parsed_paths);
 }
 

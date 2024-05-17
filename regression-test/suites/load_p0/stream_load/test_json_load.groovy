@@ -827,4 +827,27 @@ suite("test_json_load", "p0") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+        // test a.b key columns
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+        load_json_data.call("${testTable}", "${testTable}_case28_1", 'false', '', 'json', '', '[\"$.tags.(a.b)\",\"$.tags.k2\"]',
+                             '', '', '', 'test_special_key_json.json')
+
+        sql "sync"
+        sleep(1000)
+        qt_select28 "select * from ${testTable}"
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
 }
