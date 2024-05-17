@@ -133,7 +133,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         // location
         LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
-        tSink.setOriginalOutputPath(icebergTable.location());
+        tSink.setOriginalOutputPath(locationPath.toString());
         tSink.setFileType(locationPath.getTFileTypeForBE());
 
         if (insertCtx.isPresent()) {
