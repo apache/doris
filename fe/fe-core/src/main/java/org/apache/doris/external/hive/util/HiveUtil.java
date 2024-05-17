@@ -185,11 +185,11 @@ public final class HiveUtil {
         }
     }
 
-    public static boolean isSplittable(RemoteFileSystem remoteFileSystem, InputFormat<?, ?> inputFormat,
-            String location, JobConf jobConf) throws UserException {
+    public static boolean isSplittable(RemoteFileSystem remoteFileSystem, String inputFormat,
+            String location) throws UserException {
         if (remoteFileSystem instanceof BrokerFileSystem) {
             return ((BrokerFileSystem) remoteFileSystem)
-                    .isSplittable(location, inputFormat.getClass().getCanonicalName());
+                    .isSplittable(location, inputFormat);
         }
 
         return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
