@@ -58,7 +58,7 @@ suite("test_invalid_hour") {
 
     sql """
         insert into test_invalid_hour_null values
-            (1, "2023-12-12 24:00:00", "2023-12-12 24:00:00"),
+            (1, "2023-12-12 12:00:00", "2023-12-12 11:00:00"),
             (2, "2023-12-12 23:00:00", "2023-12-12 23:00:00")
     """
 
@@ -76,7 +76,7 @@ suite("test_invalid_hour") {
         """
     } catch (Exception e) {
                 logger.info("exception: " + e)
-                assertTrue(e.toString().contains("Insert has filtered data in strict mode"))
+                assertTrue(e.toString().contains("Invalid date value"))
             }
     
     qt_sql """

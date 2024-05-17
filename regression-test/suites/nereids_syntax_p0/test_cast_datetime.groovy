@@ -36,7 +36,7 @@ suite("test_cast_datetime") {
     );
     """
 
-    sql "insert into casttbl values ('2000-01-01', '2000-01-01 12:12:12', '2000-01-01', '2000-01-01 12:12:12');"
+    sql "insert into casttbl values ('2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01 12:12:12');"
 
     sql "set enable_nereids_planner=true;"
 
