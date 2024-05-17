@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+
+<rass-policy xmlns="https://www.alibaba.com/schema/securitysdk/policy/1.0.0"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://www.alibaba.com/schema/securitysdk/policy/1.0.0"
+             version="1.2" author="renyi.cry" last-committer="yukai.hyk" comment="xxx">
+
+    <authority>
+
+        <!-- The socket resource -->
+        <socket describe="socket resource">
+
+            <perm-checker name="ssrf_socket_checker" enabled="true" mode="Manual">
+                <intranet-hosts>
+                    <ips>
+                        <ip>100.64.0.0/10</ip>
+                        <ip>20.0.0.0/8</ip>
+                        <ip>21.0.0.0/8</ip>
+                    </ips>
+                    <domains>
+                        <domain pattern="dnslog.cn" />
+                        <domain pattern="*.dnslog.cn" />
+                        <domain pattern="xss.pt" />
+                        <domain pattern="*.xss.pt" />
+                        <domain pattern="xsshs.cn" />
+                        <domain pattern="*.xsshs.cn" />
+                        <domain pattern="xs.sb" />
+                        <domain pattern="*.xs.sb" />
+                        <domain pattern="xssaq.com" />
+                        <domain pattern="*.xssaq.com" />
+                        <domain pattern="burpcollaborator.net" />
+                        <domain pattern="*.burpcollaborator.net" />
+                        <domain pattern="ceye.io" />
+                        <domain pattern="*.ceye.io" />
+                        <domain pattern="webhook.site" />
+                        <domain pattern="*.webhook.site" />
+                        <domain pattern="iplogger.org" />
+                        <domain pattern="*.iplogger.org" />
+                    </domains>
+                </intranet-hosts>
+                <trusted-hosts>
+                    <domains>
+                        <domain matcherType="Wildcard" pattern="oss-*.aliyuncs.com" />
+                    </domains>
+                </trusted-hosts>
+            </perm-checker>
+        </socket>
+
+    </authority>
+</rass-policy>
