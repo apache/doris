@@ -128,10 +128,6 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
-            // This will enable exception handling logic in allocator.h when memory allocate
-            // failed or system memory is not sufficient.
-            doris::enable_thread_catch_bad_alloc++;
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
             //TODO: use a better enclose to abstracting these
             if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
                 TUniqueId query_id = task->query_context()->query_id();

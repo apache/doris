@@ -303,18 +303,12 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
-
         *eos = _eos;
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            try {
-                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
-            } catch (const Exception& e) {
-                return Status::InternalError(e.to_string() +
-                                             " task debug string: " + debug_string());
-            }
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->get_block_after_projects(_state, block, eos));
         } else {
             *eos = true;
             _eos = true;
@@ -323,7 +317,14 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
-            status = _sink->sink(_state, block, *eos);
+            // Define a lambda function to catch sink exception, because sink will check
+            // return error status with EOF, it is special, could not return directly.
+            auto sink_function = [&]() -> Status {
+                Status internal_st;
+                RETURN_IF_CATCH_EXCEPTION(internal_st = _sink->sink(_state, block, *eos));
+                return internal_st;
+            };
+            status = sink_function();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
