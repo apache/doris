@@ -171,6 +171,9 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(0) instanceof JoinNodeBase && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
+                    if (!isMaterializedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(outputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
@@ -191,6 +194,9 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(1) instanceof JoinNodeBase && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
+                    if (!isMaterializedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(outputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
