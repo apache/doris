@@ -162,9 +162,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
-    if (!init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase)) {
-        return Status::InternalError("init hash method failed");
-    }
+    RETURN_IF_ERROR(init_agg_hash_method(_agg_data.get(), probe_exprs, _is_first_phase));
     return Status::OK();
 }
 
