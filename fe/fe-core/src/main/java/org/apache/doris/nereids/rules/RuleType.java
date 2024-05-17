@@ -313,7 +313,10 @@ public enum RuleType {
 
     // topn opts
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
-
+    // pre agg for random distributed table
+    BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_PROJECT_SCAN(RuleTypeClass.REWRITE),
+    BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_FILTER_SCAN(RuleTypeClass.REWRITE),
+    BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_AGG_SCAN(RuleTypeClass.REWRITE),
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
     OR_EXPANSION(RuleTypeClass.EXPLORATION),
