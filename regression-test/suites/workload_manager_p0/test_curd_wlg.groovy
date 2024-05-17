@@ -76,13 +76,6 @@ suite("test_crud_wlg") {
     sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
     sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
-    sql "create workload group if not exists normal " +
-            "properties ( " +
-            "    'cpu_share'='1024', " +
-            "    'memory_limit'='50%', " +
-            "    'enable_memory_overcommit'='true' " +
-            ");"
-
     // reset normal group property
     sql "alter workload group normal properties ( 'cpu_share'='1024' );"
     sql "alter workload group normal properties ( 'memory_limit'='50%' );"
