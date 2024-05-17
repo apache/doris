@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_unique_schema_key_change_modify","p0") {
-     def tbName = "test_unique_schema_key_change_modify"
-     def tbName2 = "test_unique_schema_key_change_modify_1"
+     def tbName = "test_unique_schema_key_change_modify_1"
+     def tbName2 = "test_unique_schema_key_change_modify_2"
      /**
       *  Test the unique model by modify a value type
       */
