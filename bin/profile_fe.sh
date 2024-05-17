@@ -19,7 +19,7 @@
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="$(
-    cd "${curdir}/.."
+    cd "${curdir}/.." || exit 1
     pwd
 )"
 export DORIS_HOME
