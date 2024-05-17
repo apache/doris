@@ -191,8 +191,7 @@ function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
-    if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
-        "${DORIS_HOME}"/be/bin/stop_be.sh; then
+    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
