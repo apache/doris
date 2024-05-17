@@ -366,7 +366,7 @@ public:
     bool get_build_bf_cardinality() const {
         if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
             _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-            _context->bloom_filter_func->get_build_bf_cardinality();
+            return _context->bloom_filter_func->get_build_bf_cardinality();
         }
         return false;
     }
