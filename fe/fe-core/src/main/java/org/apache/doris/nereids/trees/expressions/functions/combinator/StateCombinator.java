@@ -38,7 +38,7 @@ import java.util.Objects;
  * AggState combinator state
  */
 public class StateCombinator extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Combinator {
 
     private final AggregateFunction nested;
     private final AggStateType returnType;
@@ -83,6 +83,7 @@ public class StateCombinator extends ScalarFunction
         return returnType;
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
     }
