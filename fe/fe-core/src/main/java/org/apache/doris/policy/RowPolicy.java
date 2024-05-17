@@ -42,6 +42,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Save policy for filtering data.
@@ -127,9 +128,10 @@ public class RowPolicy extends Policy {
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
-        Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(this.dbId);
+        Optional<Table> table = database.isPresent() ? database.get().getTable(this.tableId) : Optional.empty();
+        return Lists.newArrayList(this.policyName, database.isPresent() ? database.get().getFullName() : "non-existent",
+                table.isPresent() ? table.get().getName() : "non-existent", this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(),
                 this.user == null ? null : this.user.getQualifiedUser(), this.roleName, this.originStmt);
     }
