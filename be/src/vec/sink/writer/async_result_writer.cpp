@@ -55,7 +55,7 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
     // if io task failed, just return error status to
     // end the query
     if (!_writer_status.ok()) {
-        return _writer_status;
+        return _writer_status.status();
     }
 
     if (_dependency && _is_finished()) {
@@ -143,7 +143,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             auto status = write(*block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
-                _writer_status = status;
+                _writer_status.update(status);
                 if (_dependency && _is_finished()) {
                     _dependency->set_ready();
                 }
@@ -172,14 +172,10 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         // Should not call finish in lock because it may hang, and it will lock _m too long.
         // And get_writer_status will also need this lock, it will block pipeline exec thread.
         Status st = finish(state);
-        std::lock_guard l(_m);
-        _writer_status = st;
+        _writer_status.update(st);
     }
     Status st = Status::OK();
-    {
-        std::lock_guard l(_m);
-        st = _writer_status;
-    }
+    { st = _writer_status.status(); }
 
     Status close_st = close(st);
     {
@@ -187,7 +183,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         // the real reason.
         std::lock_guard l(_m);
         if (_writer_status.ok()) {
-            _writer_status = close_st;
+            _writer_status.update(close_st);
         }
         _writer_thread_closed = true;
     }
@@ -215,7 +211,7 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 
 void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
-    _writer_status = s;
+    _writer_status.update(s);
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
     }
