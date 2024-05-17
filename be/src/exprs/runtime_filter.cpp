@@ -1522,15 +1522,21 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
 }
 
+std::string IRuntimeFilter::debug_string() const {
+    return fmt::format(
+            "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
+            "build_bf_cardinality: {}",
+            _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
+            _wrapper->get_build_bf_cardinality());
+}
+
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     auto status = _wrapper->merge(wrapper);
     if (!status) {
-        LOG(WARNING) << "runtime filter merge failed: " << _name
-                     << " ,need_local_merge: " << _need_local_merge
-                     << " ,is_broadcast: " << _is_broadcast_join;
-        DCHECK(false); // rpc response is often ignored, so let it crash directly here
+        return Status::InternalError("runtime filter merge failed: {}, error_msg: {}",
+                                     debug_string(), status.msg());
     }
-    return status;
+    return Status::OK();
 }
 
 template <typename T>
