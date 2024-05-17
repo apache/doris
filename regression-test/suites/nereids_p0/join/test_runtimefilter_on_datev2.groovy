@@ -251,12 +251,12 @@ suite("test_runtimefilter_on_datev2", "nereids_p0") {
     """
     sql """
         insert into dt_rftest_l values
-            ("2001-11-11 11:11:11.123455"),
-            ("2011-11-11 11:11:11.123455"),
-            ("9999-11-11 11:11:11.123456");
+            ("2001-11-11"),
+            ("2011-11-11"),
+            ("9999-11-11");
     """
     sql """
-        insert into dt_rftest_r values("2011-11-11 11:11:11.123456");
+        insert into dt_rftest_r values("2011-11-11");
     """
     qt_datetime_rf_1_p1 """
         select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from dt_rftest_l join dt_rftest_r on k1_date_l = k1_date_r order by 1, 2; 
@@ -325,7 +325,7 @@ suite("test_runtimefilter_on_datev2", "nereids_p0") {
     """
 
     sql """ insert into dt_rftest_l values
-        ("9999-12-31 23:59:59");
+        ("9999-12-31");
     """
     sql """ insert into dt_rftest_r values
         ("9999-12-31 23:59:59.999999");
