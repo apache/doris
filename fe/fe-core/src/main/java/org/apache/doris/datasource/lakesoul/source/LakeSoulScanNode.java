@@ -125,7 +125,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    protected List<Split> getSplits() throws UserException {
+    public List<Split> getSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
         Map<String, Map<Integer, List<String>>> splitByRangeAndHashPartition = new LinkedHashMap<>();
         TableInfo tif = table;
