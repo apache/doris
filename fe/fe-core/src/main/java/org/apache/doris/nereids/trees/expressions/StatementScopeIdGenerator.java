@@ -67,7 +67,6 @@ public class StatementScopeIdGenerator {
     }
 
     public static TableId newTableId() {
-        // this branch is for test only
         if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
             return statementContext.getNextTableId();
         }
