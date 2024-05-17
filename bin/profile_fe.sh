@@ -45,11 +45,11 @@ if [[ ! -x "${JAVA}" ]]; then
 fi
 
 FE_PID=$(jps | grep DorisFE | awk '{print $1}')
-if [[ -z "$FE_PID" ]]; then
+if [[ -z "${FE_PID}" ]]; then
     echo "DorisFe not started"
     exit 1
 fi
-echo "DorisFE pid: $FE_PID"
+echo "DorisFE pid: ${FE_PID}"
 
 mkdir -p "${DORIS_HOME}/log"
 NOW=$(date +'%Y%m%d%H%M%S')
