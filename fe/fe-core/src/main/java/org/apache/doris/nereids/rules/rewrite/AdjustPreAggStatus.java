@@ -81,12 +81,15 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                         .thenApplyNoThrow(ctx -> {
                             LogicalAggregate<LogicalOlapScan> agg = ctx.root;
                             LogicalOlapScan scan = agg.child();
-                            List<AggregateFunction> aggregateFunctions =
-                                    extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                            List<Expression> groupByExpressions = agg.getGroupByExpressions();
-                            Set<Expression> predicates = ImmutableSet.of();
-                            PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                    aggregateFunctions, groupByExpressions);
+                            PreAggStatus preAggStatus = checkKeysType(scan);
+                            if (preAggStatus == PreAggStatus.unset()) {
+                                List<AggregateFunction> aggregateFunctions =
+                                        extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                List<Expression> groupByExpressions = agg.getGroupByExpressions();
+                                Set<Expression> predicates = ImmutableSet.of();
+                                preAggStatus = checkPreAggStatus(scan, predicates,
+                                        aggregateFunctions, groupByExpressions);
+                            }
                             return agg.withChildren(scan.withPreAggStatus(preAggStatus));
                         }).toRule(RuleType.PREAGG_STATUS_AGG_SCAN),
 
@@ -97,13 +100,16 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
                                     LogicalFilter<LogicalOlapScan> filter = agg.child();
                                     LogicalOlapScan scan = filter.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                                    List<Expression> groupByExpressions =
-                                            agg.getGroupByExpressions();
-                                    Set<Expression> predicates = filter.getConjuncts();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                        List<Expression> groupByExpressions =
+                                                agg.getGroupByExpressions();
+                                        Set<Expression> predicates = filter.getConjuncts();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(filter
                                             .withChildren(scan.withPreAggStatus(preAggStatus)));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_FILTER_SCAN),
@@ -116,15 +122,18 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                             ctx.root;
                                     LogicalProject<LogicalOlapScan> project = agg.child();
                                     LogicalOlapScan scan = project.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg,
-                                                    Optional.of(project));
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(agg.getGroupByExpressions(),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = ImmutableSet.of();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg,
+                                                        Optional.of(project));
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(agg.getGroupByExpressions(),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = ImmutableSet.of();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(project
                                             .withChildren(scan.withPreAggStatus(preAggStatus)));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_PROJECT_SCAN),
@@ -137,14 +146,17 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
                                     LogicalFilter<LogicalOlapScan> filter = project.child();
                                     LogicalOlapScan scan = filter.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(agg.getGroupByExpressions(),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = filter.getConjuncts();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(agg.getGroupByExpressions(),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = filter.getConjuncts();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(project.withChildren(filter
                                             .withChildren(scan.withPreAggStatus(preAggStatus))));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_PROJECT_FILTER_SCAN),
@@ -158,15 +170,18 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                             agg.child();
                                     LogicalProject<LogicalOlapScan> project = filter.child();
                                     LogicalOlapScan scan = project.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(agg.getGroupByExpressions(),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = ExpressionUtils.replace(
-                                            filter.getConjuncts(), project.getAliasToProducer());
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(agg.getGroupByExpressions(),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = ExpressionUtils.replace(
+                                                filter.getConjuncts(), project.getAliasToProducer());
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(filter.withChildren(project
                                             .withChildren(scan.withPreAggStatus(preAggStatus))));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_FILTER_PROJECT_SCAN),
@@ -178,12 +193,15 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalAggregate<LogicalRepeat<LogicalOlapScan>> agg = ctx.root;
                                     LogicalRepeat<LogicalOlapScan> repeat = agg.child();
                                     LogicalOlapScan scan = repeat.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                                    List<Expression> groupByExpressions = nonVirtualGroupByExprs(agg);
-                                    Set<Expression> predicates = ImmutableSet.of();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                        List<Expression> groupByExpressions = nonVirtualGroupByExprs(agg);
+                                        Set<Expression> predicates = ImmutableSet.of();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(repeat
                                             .withChildren(scan.withPreAggStatus(preAggStatus)));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_REPEAT_SCAN),
@@ -196,13 +214,16 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalRepeat<LogicalFilter<LogicalOlapScan>> repeat = agg.child();
                                     LogicalFilter<LogicalOlapScan> filter = repeat.child();
                                     LogicalOlapScan scan = filter.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                                    List<Expression> groupByExpressions =
-                                            nonVirtualGroupByExprs(agg);
-                                    Set<Expression> predicates = filter.getConjuncts();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                        List<Expression> groupByExpressions =
+                                                nonVirtualGroupByExprs(agg);
+                                        Set<Expression> predicates = filter.getConjuncts();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(repeat.withChildren(filter
                                             .withChildren(scan.withPreAggStatus(preAggStatus))));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_REPEAT_FILTER_SCAN),
@@ -215,14 +236,17 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalRepeat<LogicalProject<LogicalOlapScan>> repeat = agg.child();
                                     LogicalProject<LogicalOlapScan> project = repeat.child();
                                     LogicalOlapScan scan = project.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = ImmutableSet.of();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = ImmutableSet.of();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(repeat.withChildren(project
                                             .withChildren(scan.withPreAggStatus(preAggStatus))));
                                 }).toRule(RuleType.PREAGG_STATUS_AGG_REPEAT_PROJECT_SCAN),
@@ -237,14 +261,17 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalProject<LogicalFilter<LogicalOlapScan>> project = repeat.child();
                                     LogicalFilter<LogicalOlapScan> filter = project.child();
                                     LogicalOlapScan scan = filter.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.empty());
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = filter.getConjuncts();
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.empty());
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = filter.getConjuncts();
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(repeat
                                             .withChildren(project.withChildren(filter.withChildren(
                                                     scan.withPreAggStatus(preAggStatus)))));
@@ -260,15 +287,18 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalFilter<LogicalProject<LogicalOlapScan>> filter = repeat.child();
                                     LogicalProject<LogicalOlapScan> project = filter.child();
                                     LogicalOlapScan scan = project.child();
-                                    List<AggregateFunction> aggregateFunctions =
-                                            extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
-                                    List<Expression> groupByExpressions =
-                                            ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
-                                                    project.getAliasToProducer());
-                                    Set<Expression> predicates = ExpressionUtils.replace(
-                                            filter.getConjuncts(), project.getAliasToProducer());
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions =
+                                                extractAggFunctionAndReplaceSlot(agg, Optional.of(project));
+                                        List<Expression> groupByExpressions =
+                                                ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
+                                                        project.getAliasToProducer());
+                                        Set<Expression> predicates = ExpressionUtils.replace(
+                                                filter.getConjuncts(), project.getAliasToProducer());
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return agg.withChildren(repeat
                                             .withChildren(filter.withChildren(project.withChildren(
                                                     scan.withPreAggStatus(preAggStatus)))));
@@ -281,12 +311,15 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                                     LogicalFilter<LogicalProject<LogicalOlapScan>> filter = ctx.root;
                                     LogicalProject<LogicalOlapScan> project = filter.child();
                                     LogicalOlapScan scan = project.child();
-                                    List<AggregateFunction> aggregateFunctions = ImmutableList.of();
-                                    List<Expression> groupByExpressions = ImmutableList.of();
-                                    Set<Expression> predicates = ExpressionUtils.replace(
-                                            filter.getConjuncts(), project.getAliasToProducer());
-                                    PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                            aggregateFunctions, groupByExpressions);
+                                    PreAggStatus preAggStatus = checkKeysType(scan);
+                                    if (preAggStatus == PreAggStatus.unset()) {
+                                        List<AggregateFunction> aggregateFunctions = ImmutableList.of();
+                                        List<Expression> groupByExpressions = ImmutableList.of();
+                                        Set<Expression> predicates = ExpressionUtils.replace(
+                                                filter.getConjuncts(), project.getAliasToProducer());
+                                        preAggStatus = checkPreAggStatus(scan, predicates,
+                                                aggregateFunctions, groupByExpressions);
+                                    }
                                     return filter.withChildren(project
                                             .withChildren(scan.withPreAggStatus(preAggStatus)));
                                 }).toRule(RuleType.PREAGG_STATUS_FILTER_PROJECT_SCAN),
@@ -296,11 +329,14 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                         .thenApplyNoThrow(ctx -> {
                             LogicalFilter<LogicalOlapScan> filter = ctx.root;
                             LogicalOlapScan scan = filter.child();
-                            List<AggregateFunction> aggregateFunctions = ImmutableList.of();
-                            List<Expression> groupByExpressions = ImmutableList.of();
-                            Set<Expression> predicates = filter.getConjuncts();
-                            PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                    aggregateFunctions, groupByExpressions);
+                            PreAggStatus preAggStatus = checkKeysType(scan);
+                            if (preAggStatus == PreAggStatus.unset()) {
+                                List<AggregateFunction> aggregateFunctions = ImmutableList.of();
+                                List<Expression> groupByExpressions = ImmutableList.of();
+                                Set<Expression> predicates = filter.getConjuncts();
+                                preAggStatus = checkPreAggStatus(scan, predicates,
+                                        aggregateFunctions, groupByExpressions);
+                            }
                             return filter.withChildren(scan.withPreAggStatus(preAggStatus));
                         }).toRule(RuleType.PREAGG_STATUS_FILTER_SCAN),
 
@@ -308,11 +344,14 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                 logicalOlapScan().when(LogicalOlapScan::isPreAggStatusUnSet)
                         .thenApplyNoThrow(ctx -> {
                             LogicalOlapScan scan = ctx.root;
-                            List<AggregateFunction> aggregateFunctions = ImmutableList.of();
-                            List<Expression> groupByExpressions = ImmutableList.of();
-                            Set<Expression> predicates = ImmutableSet.of();
-                            PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates,
-                                    aggregateFunctions, groupByExpressions);
+                            PreAggStatus preAggStatus = checkKeysType(scan);
+                            if (preAggStatus == PreAggStatus.unset()) {
+                                List<AggregateFunction> aggregateFunctions = ImmutableList.of();
+                                List<Expression> groupByExpressions = ImmutableList.of();
+                                Set<Expression> predicates = ImmutableSet.of();
+                                preAggStatus = checkPreAggStatus(scan, predicates,
+                                        aggregateFunctions, groupByExpressions);
+                            }
                             return scan.withPreAggStatus(preAggStatus);
                         }).toRule(RuleType.PREAGG_STATUS_SCAN));
     }
@@ -354,14 +393,19 @@ public class AdjustPreAggStatus implements RewriteRuleFactory {
                 .collect(Collectors.toList());
     }
 
-    private PreAggStatus checkPreAggStatus(LogicalOlapScan olapScan, Set<Expression> predicates,
-            List<AggregateFunction> aggregateFuncs, List<Expression> groupingExprs) {
+    private PreAggStatus checkKeysType(LogicalOlapScan olapScan) {
         long selectIndexId = olapScan.getSelectedIndexId();
         MaterializedIndexMeta meta = olapScan.getTable().getIndexMetaByIndexId(selectIndexId);
         if (meta.getKeysType() == KeysType.DUP_KEYS || (meta.getKeysType() == KeysType.UNIQUE_KEYS
                 && olapScan.getTable().getEnableUniqueKeyMergeOnWrite())) {
             return PreAggStatus.on();
+        } else {
+            return PreAggStatus.unset();
         }
+    }
+
+    private PreAggStatus checkPreAggStatus(LogicalOlapScan olapScan, Set<Expression> predicates,
+            List<AggregateFunction> aggregateFuncs, List<Expression> groupingExprs) {
         Set<Slot> outputSlots = olapScan.getOutputSet();
         Pair<Set<SlotReference>, Set<SlotReference>> splittedSlots = splitSlots(outputSlots);
         Set<SlotReference> keySlots = splittedSlots.first;
