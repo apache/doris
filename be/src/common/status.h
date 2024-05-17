@@ -555,7 +555,7 @@ class AtomicStatus {
 public:
     AtomicStatus() : error_st_(Status::OK()) {}
 
-    bool ok() { return error_code_.load() == 0; }
+    bool ok() const { return error_code_.load() == 0; }
 
     bool update(const Status& new_status) {
         // If new status is normal, or the old status is abnormal, then not need update
@@ -575,7 +575,7 @@ public:
     }
 
     // will copy a new status object to avoid concurrency
-    Status status() {
+    Status status() const {
         std::lock_guard l(mutex_);
         return error_st_;
     }
