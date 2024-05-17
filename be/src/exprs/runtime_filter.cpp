@@ -364,9 +364,11 @@ public:
     }
 
     bool get_build_bf_cardinality() const {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
-        return _context->bloom_filter_func->get_build_bf_cardinality();
+        if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+            _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            _context->bloom_filter_func->get_build_bf_cardinality();
+        }
+        return false;
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
