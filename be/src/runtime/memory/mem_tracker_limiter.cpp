@@ -115,17 +115,15 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
         // TODO, expect mem tracker equal to 0 at the task end.
-        if (doris::config::enable_memory_orphan_check && _type == Type::QUERY) {
+#ifndef NDEBUG
+        if (_type == Type::QUERY) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-#ifdef NDEBUG
-            LOG(INFO) << err_msg;
-#else
             LOG(INFO) << err_msg << print_address_sanitizers();
-#endif
         }
+#endif
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
         }

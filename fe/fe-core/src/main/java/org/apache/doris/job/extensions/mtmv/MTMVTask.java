@@ -154,7 +154,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        LOG.info("mtmv task run, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
+        }
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         try {
             if (LOG.isDebugEnabled()) {
@@ -170,7 +172,7 @@ public class MTMVTask extends AbstractTask {
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
             // refreshHmsTable();
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
             Map<Long, Set<Long>> partitionMappings = mtmv.calculatePartitionMappings();
@@ -225,7 +227,7 @@ public class MTMVTask extends AbstractTask {
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
+                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionIds : Sets.newHashSet(), tableWithPartKey);
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setExecutor(executor);
@@ -246,7 +248,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public synchronized void onSuccess() throws JobException {
-        LOG.info("mtmv task onSuccess, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
+        }
         super.onSuccess();
         after();
     }
@@ -262,7 +266,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void before() throws JobException {
-        LOG.info("mtmv task before, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task before, taskId: {}", super.getTaskId());
+        }
         super.before();
         try {
             mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
@@ -295,13 +301,19 @@ public class MTMVTask extends AbstractTask {
         LOG.info("mtmv task runTask, taskId: {}", super.getTaskId());
         MTMVJob job = (MTMVJob) getJobOrJobException();
         try {
-            LOG.info("mtmv task get writeLock start, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task get writeLock start, taskId: {}", super.getTaskId());
+            }
             job.writeLock();
-            LOG.info("mtmv task get writeLock end, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task get writeLock end, taskId: {}", super.getTaskId());
+            }
             super.runTask();
         } finally {
             job.writeUnlock();
-            LOG.info("mtmv task release writeLock, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task release writeLock, taskId: {}", super.getTaskId());
+            }
         }
     }
 
@@ -400,7 +412,7 @@ public class MTMVTask extends AbstractTask {
 
     private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
         Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             tableWithPartKey
                     .put(mtmv.getMvPartitionInfo().getRelatedTable(), mtmv.getMvPartitionInfo().getRelatedCol());
         }

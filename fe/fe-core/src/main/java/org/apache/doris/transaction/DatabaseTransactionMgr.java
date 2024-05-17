@@ -2263,23 +2263,8 @@ public class DatabaseTransactionMgr {
             long tableVersionTime = tableCommitInfo.getVersionTime();
             table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
         }
-        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
-        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
-        tableIdToTotalNumDeltaRows
-                        .forEach((tableId, numRows) -> {
-                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                            if (table != null) {
-                                short replicaNum = table.getTableProperty()
-                                        .getReplicaAllocation()
-                                        .getTotalReplicaNum();
-                                tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
-                            }
-                        });
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
-        }
         analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
-        analysisManager.updateUpdatedRows(tableIdToNumDeltaRows);
+        analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(), db.getId());
         return true;
     }
 

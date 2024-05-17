@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,7 +42,8 @@ import java.util.Objects;
  */
 public class CompoundPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(CompoundPredicate.class);
-    private final Operator op;
+    @SerializedName("op")
+    private Operator op;
 
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -50,6 +52,10 @@ public class CompoundPredicate extends Predicate {
                 Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                 Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
+    }
+
+    private CompoundPredicate() {
+        // use for serde only
     }
 
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {

@@ -322,6 +322,7 @@ public class OlapTableSink extends DataSink {
             for (Column col : table.getFullSchema()) {
                 if (col.isAutoInc()) {
                     schemaParam.setAutoIncrementColumn(col.getName());
+                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
         }

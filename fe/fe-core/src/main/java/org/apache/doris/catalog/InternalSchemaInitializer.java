@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -194,10 +195,15 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Math.max(1, Config.min_replication_num_per_tablet)));
-                put("storage_vault_name", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
             }
         };
+
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
+        }
+
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(statsTableName),
@@ -229,9 +235,13 @@ public class InternalSchemaInitializer extends Thread {
                 put("dynamic_partition.enable", "true");
                 put("replication_num", String.valueOf(Math.max(1,
                         Config.min_replication_num_per_tablet)));
-                put("storage_vault_name", FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
             }
         };
+
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
+        }
+
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),

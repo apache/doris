@@ -120,7 +120,7 @@ public class StreamLoadHandler {
 
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-        if (!Strings.isNullOrEmpty(userName)) {
+        if (!request.isSetToken() && !Strings.isNullOrEmpty(userName)) {
             List<UserIdentity> currentUser = Lists.newArrayList();
             try {
                 Env.getCurrentEnv().getAuth().checkPlainPassword(userName,

@@ -23,9 +23,14 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.qe.ConnectContext;
@@ -41,10 +46,9 @@ import java.util.Optional;
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
-
     @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        Optional<OlapScan> scanOpt = findScanForTopnFilter(topN);
+        Optional<PhysicalRelation> scanOpt = findScanForTopnFilter(topN);
         scanOpt.ifPresent(scan -> ctx.getTopnFilterContext().addTopnFilter(topN, scan));
         topN.child().accept(this, ctx);
         return topN;
@@ -53,13 +57,13 @@ public class TopNScanOpt extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
             CascadesContext context) {
-        Optional<OlapScan> scanOpt = findScanForTopnFilter(topN.getPhysicalTopN());
+        Optional<PhysicalRelation> scanOpt = findScanForTopnFilter(topN.getPhysicalTopN());
         scanOpt.ifPresent(scan -> context.getTopnFilterContext().addTopnFilter(topN, scan));
         topN.child().accept(this, context);
         return topN;
     }
 
-    private Optional<OlapScan> findScanForTopnFilter(PhysicalTopN<? extends Plan> topN) {
+    private Optional<PhysicalRelation> findScanForTopnFilter(PhysicalTopN<? extends Plan> topN) {
         if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
             return Optional.empty();
         }
@@ -92,30 +96,23 @@ public class TopNScanOpt extends PlanPostProcessor {
         }
 
         boolean nullsFirst = topN.getOrderKeys().get(0).isNullFirst();
-        OlapScan olapScan = findScanNodeBySlotReference(topN, (SlotReference) firstKey, nullsFirst);
-        if (olapScan != null
-                && olapScan.getTable().isDupKeysOrMergeOnWrite()
-                && olapScan instanceof PhysicalCatalogRelation) {
-            return Optional.of(olapScan);
-        }
-
-        return Optional.empty();
+        return findScanNodeBySlotReference(topN, (SlotReference) firstKey, nullsFirst);
     }
 
-    private OlapScan findScanNodeBySlotReference(Plan root, SlotReference slot, boolean nullsFirst) {
+    private Optional<PhysicalRelation> findScanNodeBySlotReference(Plan root, SlotReference slot, boolean nullsFirst) {
         if (root instanceof PhysicalWindow) {
-            return null;
+            return Optional.empty();
         }
 
-        if (root instanceof OlapScan) {
-            if (root.getOutputSet().contains(slot)) {
-                return (OlapScan) root;
+        if (root instanceof PhysicalRelation) {
+            if (root.getOutputSet().contains(slot) && supportPhysicalRelations((PhysicalRelation) root)) {
+                return Optional.of((PhysicalRelation) root);
             } else {
-                return null;
+                return Optional.empty();
             }
         }
 
-        OlapScan target = null;
+        Optional<PhysicalRelation> target;
         if (root instanceof Join) {
             Join join = (Join) root;
             if (nullsFirst && join.getJoinType().isOuterJoin()) {
@@ -123,7 +120,7 @@ public class TopNScanOpt extends PlanPostProcessor {
                 // and to the right child of rightOuterJoin.
                 // but we have rule to push topn down to the left/right side. and topn-filter
                 // will be generated according to the inferred topn node.
-                return null;
+                return Optional.empty();
             }
             // try to push to both left and right child
             if (root.child(0).getOutputSet().contains(slot)) {
@@ -139,12 +136,12 @@ public class TopNScanOpt extends PlanPostProcessor {
             Plan child = root.child(0);
             if (child.getOutputSet().contains(slot)) {
                 target = findScanNodeBySlotReference(child, slot, nullsFirst);
-                if (target != null) {
+                if (target.isPresent()) {
                     return target;
                 }
             }
         }
-        return target;
+        return Optional.empty();
     }
 
     private long getTopNOptLimitThreshold() {
@@ -152,5 +149,14 @@ public class TopNScanOpt extends PlanPostProcessor {
             return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
         }
         return -1;
+    }
+
+    private boolean supportPhysicalRelations(PhysicalRelation relation) {
+        return relation instanceof PhysicalOlapScan
+                || relation instanceof PhysicalOdbcScan
+                || relation instanceof PhysicalEsScan
+                || relation instanceof PhysicalFileScan
+                || relation instanceof PhysicalJdbcScan
+                || relation instanceof PhysicalDeferMaterializeOlapScan;
     }
 }

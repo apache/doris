@@ -31,11 +31,11 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
@@ -44,11 +44,12 @@ import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
+    @SerializedName("v")
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
 
-    public StringLiteral() {
+    private StringLiteral() {
         super();
         type = Type.VARCHAR;
     }
@@ -314,12 +315,6 @@ public class StringLiteral extends LiteralExpr {
             return new JsonLiteral(value);
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, value);
     }
 
     public void readFields(DataInput in) throws IOException {

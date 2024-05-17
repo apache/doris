@@ -92,7 +92,8 @@ public:
             StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
             std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
             std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
-            std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
+            std::map<TTableId, std::map<TTabletId, int64_t>>*
+                    table_id_to_tablet_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
     Status execute() override;
@@ -109,7 +110,8 @@ private:
     std::set<TTabletId>* _error_tablet_ids = nullptr;
     std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
-    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows = nullptr;
+    std::map<TTableId, std::map<TTabletId, int64_t>>* _table_id_to_tablet_id_to_num_delta_rows =
+            nullptr;
 };
 
 class AsyncTabletPublishTask {

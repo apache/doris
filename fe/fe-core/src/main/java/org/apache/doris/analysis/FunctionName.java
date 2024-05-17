@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TFunctionName;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +44,9 @@ import java.util.Objects;
 public class FunctionName implements Writable {
     private static final Logger LOG = LogManager.getLogger(FunctionName.class);
 
+    @SerializedName("db")
     private String db;
+    @SerializedName("fn")
     private String fn;
 
     private FunctionName() {

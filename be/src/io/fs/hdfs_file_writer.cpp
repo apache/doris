@@ -36,8 +36,10 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_util.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/bvar_helper.h"
 #include "util/jni-util.h"
@@ -47,10 +49,12 @@ namespace doris::io {
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
-bvar::Adder<uint64_t> hdfs_file_being_written("hdfs_file_writer_file_being_written");
+bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
 
 static constexpr size_t MB = 1024 * 1024;
+#ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
+#endif
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
@@ -136,19 +140,22 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
                         BlockFileCache::hash(_path.filename().native()))});
     }
     hdfs_file_writer_total << 1;
-    hdfs_file_being_written << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
 }
 
 HdfsFileWriter::~HdfsFileWriter() {
+    if (_async_close_pack != nullptr) {
+        // For thread safety
+        std::ignore = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+    }
     if (_hdfs_file) {
         SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file);
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
-
-    hdfs_file_being_written << -1;
 }
 
 void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
@@ -195,13 +202,41 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 #endif
 }
 
-Status HdfsFileWriter::close() {
-    if (_closed) {
-        return Status::OK();
+Status HdfsFileWriter::close(bool non_block) {
+    if (state() == State::CLOSED) {
+        return Status::InternalError("HdfsFileWriter already closed, file path {}, fs name {}",
+                                     _path.native(), _fs_name);
     }
-    _closed = true;
+    if (state() == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        CHECK(_async_close_pack != nullptr);
+        _st = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+        // We should wait for all the pre async task to be finished
+        _state = State::CLOSED;
+        // The next time we call close() with no matter non_block true or false, it would always return the
+        // '_st' value because this writer is already closed.
+        return _st;
+    }
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+        _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
+        _async_close_pack->future = _async_close_pack->promise.get_future();
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
+                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+    }
+    _st = _close_impl();
+    _state = State::CLOSED;
+    return _st;
+}
+
+Status HdfsFileWriter::_close_impl() {
     if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_flush_buffer());
+        if (_st = _flush_buffer(); !_st.ok()) {
+            return _st;
+        }
     }
     int ret;
     if (_sync_file_data) {
@@ -220,9 +255,10 @@ Status HdfsFileWriter::close() {
                                                Status::InternalError("failed to sync hdfs file"));
 
         if (ret != 0) {
-            return Status::InternalError(
+            _st = Status::InternalError(
                     "failed to sync hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
                     _path.native(), hdfs_error(), bytes_appended());
+            return _st;
         }
     }
 
@@ -232,16 +268,18 @@ Status HdfsFileWriter::close() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
+        inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
     _hdfs_file = nullptr;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
-        return Status::InternalError(
+        _st = Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
                 BackendOptions::get_localhost(), _fs_name, _path.native(), hdfs_error(),
                 bytes_appended());
+        return _st;
     }
     hdfs_file_created_total << 1;
     return Status::OK();
@@ -368,41 +406,13 @@ Status HdfsFileWriter::_append(std::string_view content) {
 }
 
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    if (_closed) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
         RETURN_IF_ERROR(_append({data[i].get_data(), data[i].get_size()}));
     }
-    return Status::OK();
-}
-
-// Call this method when there is no more data to write.
-Status HdfsFileWriter::finalize() {
-    if (_closed) [[unlikely]] {
-        return Status::InternalError("finalize closed file: {}, file_size={}", _path.native(),
-                                     bytes_appended());
-    }
-    if (_batch_buffer.size() != 0) {
-        RETURN_IF_ERROR(_flush_buffer());
-    }
-
-    // Flush buffered data to HDFS without waiting for HDFS response
-    int ret;
-    {
-        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_flush_latency);
-        ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsFlush(_hdfs_handler->hdfs_fs, _hdfs_file),
-                                           "HdfsFileWriter::finalize::hdfsFlush");
-    }
-    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsFlush",
-                                           Status::InternalError("failed to flush hdfs file"));
-    if (ret != 0) {
-        return Status::InternalError(
-                "failed to flush hdfs file. fs_name={} path={} : {}, file_size={}", _fs_name,
-                _path.native(), hdfs_error(), bytes_appended());
-    }
-
     return Status::OK();
 }
 
@@ -440,6 +450,7 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
         return ResultError(Status::InternalError(ss.str()));
     }
     VLOG_NOTICE << "open file. fs_name:" << fs_name << ", path:" << path;
+    inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
 
