@@ -566,7 +566,7 @@ public:
         if (error_code_.compare_exchange_strong(expected_error_code, new_status.code(),
                                                 std::memory_order_acq_rel)) {
             // lock here for read status, to avoid core during return error_st_
-            std::lock_guard(mutex_);
+            std::lock_guard l(mutex_);
             error_st_ = new_status;
             return true;
         } else {
@@ -576,12 +576,12 @@ public:
 
     // will copy a new status object to avoid concurrency
     Status status() {
-        std::lock_guard(mutex_);
+        std::lock_guard l(mutex_);
         return error_st_;
     }
 
 private:
-    atomic_int16_t error_code_ = 0;
+    std::atomic_int16_t error_code_ = 0;
     Status error_st_;
     std::mutex mutex_;
     DISALLOW_COPY_AND_ASSIGN(AtomicStatus);
