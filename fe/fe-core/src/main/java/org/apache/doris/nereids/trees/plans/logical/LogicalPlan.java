@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -70,19 +71,25 @@ public interface LogicalPlan extends Plan {
         computeFd(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
+
+        List<Set<Slot>> uniqueSlots = fdBuilder.getAllUnique();
+        Set<Slot> uniformSlots = fdBuilder.getAllUniform();
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
             // all slot dependents unique slot
-            for (Set<Slot> uniqueSlot : fdBuilder.getAllUnique()) {
+            for (Set<Slot> uniqueSlot : uniqueSlots) {
                 fdBuilder.addDeps(uniqueSlot, o);
             }
             // uniform slot dependents all unique slot
-            for (Set<Slot> uniformSlot : fdBuilder.getAllUniform()) {
-                fdBuilder.addDeps(o, uniformSlot);
+            for (Slot uniformSlot : uniformSlots) {
+                fdBuilder.addDeps(o, ImmutableSet.of(uniformSlot));
             }
         }
         for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
-            fdBuilder.addDepsByEqualSet(Sets.intersection(getOutputSet(), equalSet));
+            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
+            fdBuilder.addDepsByEqualSet(validEqualSet);
+            fdBuilder.addUniformByEqualSet(validEqualSet);
+            fdBuilder.addUniqueByEqualSet(validEqualSet);
         }
         return fdBuilder.build();
     }

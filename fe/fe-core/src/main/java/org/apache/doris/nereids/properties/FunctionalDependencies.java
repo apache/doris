@@ -32,9 +32,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Record functional dependencies, aka func deps, including
- * 1. unique slot: it means the column that has ndv = row count, can be null
- * 2. uniform slotL it means the column that has ndv = 1, can be null
+ * Records functional dependencies (func deps), which include:
+ * 1. Unique Slot:  Represents a column where the number of distinct values (ndv)
+ *                  equals the row count. This column may include null values.
+ * 2. Uniform Slot: Represents a column where the number of distinct values (ndv) is 1,
+ *                  indicating all values are the same. This column may include null values.
+ * 3. Equal Set:    Denotes a group of slots that have equal values.
+ * 4. fdDg:         Stands for functional dependencies, expressed as 'a -> b',
+ *                   which signifies that if values in column 'a' are identical,
+ *                   then values in column 'b' must also be identical.
  */
 public class FunctionalDependencies {
 
@@ -80,7 +86,7 @@ public class FunctionalDependencies {
 
     public boolean isUniform(Set<Slot> slotSet) {
         return !slotSet.isEmpty()
-                && (uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains));
+                && uniformSet.slots.containsAll(slotSet);
     }
 
     public boolean isUniqueAndNotNull(Slot slot) {
@@ -162,10 +168,6 @@ public class FunctionalDependencies {
             uniformSet.add(functionalDependencies.uniformSet);
         }
 
-        public void addUniformSlot(ImmutableSet<Slot> slotSet) {
-            uniformSet.add(slotSet);
-        }
-
         public void addUniqueSlot(Slot slot) {
             uniqueSet.add(slot);
         }
@@ -215,6 +217,47 @@ public class FunctionalDependencies {
             }
         }
 
+        /**
+         * Extends a unique slot using an equivalence set.
+         * Within slots, if any slot in the equivalence set is unique,
+         * then all slots in the set are considered unique.
+         * For slotSets, if there is an intersection with the equivalence set,
+         * the slotSet can be substituted with the equivalence set.
+         * Example:
+         *          Given an equivalence set {a1, a2, a3} and a uniqueSet {a1, b1, c1},
+         *          the sets {a2, b1, c1} and {a3, b1, c1} are also treated as unique.
+         */
+        public void addUniqueByEqualSet(Set<Slot> equalSet) {
+            if (uniqueSet.isIntersect(equalSet, uniqueSet.slots)) {
+                uniqueSet.slots.addAll(equalSet);
+                return;
+            }
+            for (Set<Slot> slotSet : uniqueSet.slotSets) {
+                Set<Slot> intersection = Sets.intersection(equalSet, uniqueSet.slots);
+                if (intersection.size() > 2) {
+                    uniqueSet.slotSets.remove(slotSet);
+                    slotSet.removeAll(intersection);
+                    for (Slot slot : equalSet) {
+                        ImmutableSet<Slot> uniqueSlotSet = ImmutableSet.<Slot>builder()
+                                .addAll(slotSet)
+                                .add(slot)
+                                .build();
+                        uniqueSet.add(uniqueSlotSet);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Extend uniform slot by an equivalence set.
+         * if there is a uniform slot in the equivalence set, then all slots of an equivalence set are uniform
+         */
+        public void addUniformByEqualSet(Set<Slot> equalSet) {
+            if (uniformSet.isIntersect(uniformSet.slots, equalSet)) {
+                uniformSet.slots.addAll(equalSet);
+            }
+        }
+
         public List<Set<Slot>> calEqualSetList() {
             return equalSetBuilder.calEqualSetList();
         }
@@ -233,12 +276,8 @@ public class FunctionalDependencies {
         /**
          * get all uniform slots
          */
-        public List<Set<Slot>> getAllUniform() {
-            List<Set<Slot>> res = new ArrayList<>(uniformSet.slotSets);
-            for (Slot s : uniformSet.slots) {
-                res.add(ImmutableSet.of(s));
-            }
-            return res;
+        public Set<Slot> getAllUniform() {
+            return uniformSet.slots;
         }
 
         public void addEqualPair(Slot l, Slot r) {
@@ -339,6 +378,20 @@ public class FunctionalDependencies {
         public void add(NestedSet nestedSet) {
             slots.addAll(nestedSet.slots);
             slotSets.addAll(nestedSet.slotSets);
+        }
+
+        public boolean isIntersect(Set<Slot> set1, Set<Slot> set2) {
+            if (set1.size() > set2.size()) {
+                Set<Slot> temp = set1;
+                set1 = set2;
+                set2 = temp;
+            }
+            for (Slot slot : set1) {
+                if (set2.contains(slot)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public boolean isEmpty() {
