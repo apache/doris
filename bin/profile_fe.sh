@@ -44,15 +44,15 @@ if [[ ! -x "${JAVA}" ]]; then
     exit 1
 fi
 
-FE_PID=`jps | grep DorisFE | awk '{print $1}'`
+FE_PID=$(jps | grep DorisFE | awk '{print $1}')
 if [[ -z "$FE_PID" ]]; then
-  echo "DorisFe not started"
-  exit 1
+    echo "DorisFe not started"
+    exit 1
 fi
 echo "DorisFE pid: $FE_PID"
 
 mkdir -p "${DORIS_HOME}/log"
-NOW=`date +'%Y%m%d%H%M%S'`
+NOW=$(date +'%Y%m%d%H%M%S')
 PROFILE_OUTPUT="${DORIS_HOME}/log/profile_${NOW}.html"
 if [[ -z "${PROFILE_SECONDS}" ]]; then
     PROFILE_SECONDS="10"
