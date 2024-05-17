@@ -44,8 +44,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 ->data_queue.set_source_dependency(_shared_state->source_deps.front());
     } else {
         _only_const_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY",
-                state->get_query_ctx());
+                _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);

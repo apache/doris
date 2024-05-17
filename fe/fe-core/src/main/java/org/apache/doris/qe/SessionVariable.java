@@ -422,6 +422,8 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -492,8 +494,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
 
-    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
-
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
@@ -510,6 +510,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
     public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
@@ -537,6 +538,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
+
+    public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
+            = "materialized_view_relation_mapping_max_count";
 
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
@@ -1462,6 +1466,13 @@ public class SessionVariable implements Serializable, Writable {
     public long fileSplitSize = 0;
 
     @VariableMgr.VarAttr(
+            name = NUM_PARTITIONS_IN_BATCH_MODE,
+            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges",
+                    "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
+            needForward = true)
+    public int numPartitionsInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
@@ -1605,10 +1616,6 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
 
-    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
-            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
-    public boolean fasterFloatConvert = false;
-
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
             description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
                     "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
@@ -1676,6 +1683,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
+            description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
+                    "During transparent rewriting, relation mapping specifies the maximum allowed number. "
+                            + "If the number exceeds the allowed number, the number is intercepted"})
+    public int materializedViewRelationMappingMaxCount = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_UNION_REWRITE, needForward = true,
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
@@ -1804,6 +1817,15 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is false."},
             needForward = true, fuzzy = true)
     public boolean enableAggSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_FORCE_SPILL,
+            description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
+                    "Controls whether enable force spill."
+            },
+            needForward = true, fuzzy = true
+    )
+    public boolean enableForceSpill = false;
 
     @VariableMgr.VarAttr(
             name = DATA_QUEUE_MAX_BLOCKS,
@@ -1958,7 +1980,7 @@ public class SessionVariable implements Serializable, Writable {
                     this.batchSize = 4064;
                     this.enableFoldConstantByBe = true;
                 } else {
-                    this.batchSize = 50;
+                    this.batchSize = 1024;
                     this.enableFoldConstantByBe = false;
                 }
             }
@@ -1968,10 +1990,8 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
-        /*
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 1) {
-                this.enablePipelineXEngine = true;
                 this.enableJoinSpill = true;
                 this.enableSortSpill = true;
                 this.enableAggSpill = true;
@@ -1988,7 +2008,7 @@ public class SessionVariable implements Serializable, Writable {
                         this.minRevocableMem = 1024 * 1024;
                         break;
                     default:
-                        this.minRevocableMem = 100 * 1024 * 1024 * 1024;
+                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
                         break;
                 }
             } else {
@@ -1997,7 +2017,6 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableAggSpill = false;
             }
         }
-        */
     }
 
     public String printFuzzyVariables() {
@@ -2700,6 +2719,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
+    public int getNumPartitionsInBatchMode() {
+        return numPartitionsInBatchMode;
+    }
+
+    public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
+        this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
     public boolean isEnableParquetLazyMat() {
         return enableParquetLazyMat;
     }
@@ -3262,8 +3289,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
-        tResult.setFasterFloatConvert(fasterFloatConvert);
-
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
         tResult.setSkipMissingVersion(skipMissingVersion);
@@ -3278,6 +3303,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableJoinSpill(enableJoinSpill);
         tResult.setEnableSortSpill(enableSortSpill);
         tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
@@ -3763,6 +3789,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public int getMaterializedViewRelationMappingMaxCount() {
+        return materializedViewRelationMappingMaxCount;
     }
 
     public int getCreateTablePartitionMaxNum() {

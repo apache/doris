@@ -59,7 +59,7 @@ public class AnalysisInfoBuilder {
     private long partitionCount;
     private CronExpression cronExpression;
     private boolean forceFull;
-    private boolean usingSqlForPartitionColumn;
+    private boolean usingSqlForExternalTable;
     private long tblUpdateTime;
     private long rowCount;
     private boolean userInject;
@@ -99,7 +99,7 @@ public class AnalysisInfoBuilder {
         partitionCount = info.partitionCount;
         cronExpression = info.cronExpression;
         forceFull = info.forceFull;
-        usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
+        usingSqlForExternalTable = info.usingSqlForExternalTable;
         tblUpdateTime = info.tblUpdateTime;
         rowCount = info.rowCount;
         userInject = info.userInject;
@@ -252,8 +252,8 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setUsingSqlForPartitionColumn(boolean usingSqlForPartitionColumn) {
-        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+    public AnalysisInfoBuilder setUsingSqlForExternalTable(boolean usingSqlForExternalTable) {
+        this.usingSqlForExternalTable = usingSqlForExternalTable;
         return this;
     }
 
@@ -287,7 +287,7 @@ public class AnalysisInfoBuilder {
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, rowCount, userInject, updateRows,
+                cronExpression, forceFull, usingSqlForExternalTable, tblUpdateTime, rowCount, userInject, updateRows,
                 priority);
     }
 

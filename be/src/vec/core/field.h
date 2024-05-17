@@ -493,6 +493,11 @@ public:
         return *this;
     }
 
+    bool is_complex_field() const {
+        return which == Types::Array || which == Types::Map || which == Types::Tuple ||
+               which == Types::VariantMap;
+    }
+
     Field& operator=(Field&& rhs) {
         if (this != &rhs) {
             if (which != rhs.which) {

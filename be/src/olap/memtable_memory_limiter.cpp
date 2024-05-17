@@ -222,14 +222,17 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
-    LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
-              << " (without allocator cache: "
-              << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
-              << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-              << ", memtable writers num: " << _writers.size()
-              << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-              << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+    // if not exist load task, this log should not be printed.
+    if (_mem_usage != 0) {
+        LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
+                  << " (without allocator cache: "
+                  << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
+                  << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                  << ", memtable writers num: " << _writers.size()
+                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+    }
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {

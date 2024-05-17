@@ -56,4 +56,6 @@ suite("agg_4_phase") {
         contains ":VAGGREGATE (update serialize)"
     }
     qt_4phase (test_sql)
+
+    sql """select GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl;"""
 }

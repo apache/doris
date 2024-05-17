@@ -116,21 +116,6 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     case MatchType::MATCH_PHRASE_EDGE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
         break;
-    case MatchType::MATCH_ELEMENT_EQ:
-        ret = InvertedIndexQueryType::EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LT:
-        ret = InvertedIndexQueryType::LESS_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GT:
-        ret = InvertedIndexQueryType::GREATER_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LE:
-        ret = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GE:
-        ret = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-        break;
     default:
         DCHECK(false);
     }

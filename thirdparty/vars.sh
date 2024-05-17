@@ -466,12 +466,6 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.1-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.1-for-doris"
 HADOOP_LIBS_MD5SUM="8a4455b07f5df2bb10a2718c957972b8"
 
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
-
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -582,7 +576,6 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
-    'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'

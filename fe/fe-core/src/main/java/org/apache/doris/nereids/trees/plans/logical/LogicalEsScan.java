@@ -84,8 +84,14 @@ public class LogicalEsScan extends LogicalCatalogRelation {
     }
 
     public LogicalEsScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), conjuncts);
+    }
+
+    @Override
+    public LogicalEsScan withRelationId(RelationId relationId) {
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
+                Optional.empty(), conjuncts);
     }
 
     @Override

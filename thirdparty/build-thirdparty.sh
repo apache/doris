@@ -875,6 +875,11 @@ build_rocksdb_jemalloc_with_prefix() {
     cp librocksdb.a "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a"
     cp -r include/rocksdb "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix"
     strip_lib librocksdb_jemalloc_with_prefix.a
+    # for compatibility with previous doris version
+    rm -rf "${TP_LIB_DIR}/librocksdb.a"
+    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
+    cp "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+    cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
 }
 
 # cyrus_sasl
@@ -1745,21 +1750,6 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
-# dragonbox
-build_dragonbox() {
-    check_if_source_exist "${DRAGONBOX_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # AvxToNeon
 build_avx2neon() {
     check_if_source_exist "${AVX2NEON_SOURCE}"
@@ -1881,10 +1871,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
-        jemalloc_doris_with_prefix
-        rocksdb_jemalloc_with_prefix
         jemalloc_doris
         rocksdb
+        jemalloc_doris_with_prefix
+        rocksdb_jemalloc_with_prefix
         krb5 # before cyrus_sasl
         cyrus_sasl
         librdkafka
@@ -1919,7 +1909,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         concurrentqueue
         fast_float
         libunwind
-        dragonbox
         avx2neon
         libdeflate
         streamvbyte

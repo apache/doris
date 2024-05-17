@@ -119,19 +119,20 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
 }
 
 Status PipelineTask::_extract_dependencies() {
+    _read_dependencies.resize(_operators.size());
+    size_t i = 0;
     for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
             return result.error();
         }
         auto* local_state = result.value();
-        const auto& deps = local_state->dependencies();
-        std::copy(deps.begin(), deps.end(),
-                  std::inserter(_read_dependencies, _read_dependencies.end()));
+        _read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
         }
+        i++;
     }
     {
         auto* local_state = _state->get_sink_local_state();
@@ -197,6 +198,55 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+bool PipelineTask::_wait_to_start() {
+    // Before task starting, we should make sure
+    // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
+    // 2. Runtime filter dependencies are ready
+    _blocked_dep = _execution_dep->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        return true;
+    }
+
+    for (auto* op_dep : _filter_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PipelineTask::_is_blocked() {
+    // `_dry_run = true` means we do not need data from source operator.
+    if (!_dry_run) {
+        for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
+            // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
+            for (auto* dep : _read_dependencies[i]) {
+                _blocked_dep = dep->is_blocked_by(this);
+                if (_blocked_dep != nullptr) {
+                    _blocked_dep->start_watcher();
+                    return true;
+                }
+            }
+            // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
+            if (!_operators[i]->need_more_input_data(_state)) {
+                break;
+            }
+        }
+    }
+
+    for (auto* op_dep : _write_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
@@ -221,22 +271,16 @@ Status PipelineTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    if (has_dependency() || _runtime_filter_blocked_dependency() != nullptr) {
+    if (_wait_to_start()) {
         return Status::OK();
     }
     // The status must be runnable
     if (!_opened) {
-        {
-            SCOPED_RAW_TIMER(&time_spent);
-            RETURN_IF_ERROR(_open());
-        }
-        if (!source_can_read() || !sink_can_write()) {
-            return Status::OK();
-        }
+        RETURN_IF_ERROR(_open());
     }
 
     while (!_fragment_context->is_canceled()) {
-        if ((_root->need_data_from_children(_state) && !source_can_read()) || !sink_can_write()) {
+        if (_is_blocked()) {
             return Status::OK();
         }
 
@@ -251,7 +295,6 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -304,12 +347,21 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     }
     const auto min_revocable_mem_bytes = state->min_revocable_mem();
+
+    if (UNLIKELY(state->enable_force_spill())) {
+        if (revocable_mem_bytes >= min_revocable_mem_bytes) {
+            LOG_ONCE(INFO) << "spill force, query: " << print_id(state->query_id());
+            return true;
+        }
+    }
+
     bool is_wg_mem_low_water_mark = false;
     bool is_wg_mem_high_water_mark = false;
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_N(INFO, 10) << "revoke memory, hight water mark";
+            VLOG_DEBUG << "query " << print_id(state->query_id())
+                       << " revoke memory, hight water mark";
             return true;
         }
         return false;
@@ -329,12 +381,12 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
 
-        LOG_EVERY_N(INFO, 10) << "revoke memory, low water mark, revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                              << ", mem_limit_of_op: "
-                              << PrettyPrinter::print_bytes(mem_limit_of_op)
-                              << ", min_revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
+                             << " revoke memory, low water mark, revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                             << ", min_revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
@@ -388,20 +440,20 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
     auto* cur_blocked_dep = _blocked_dep;
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, dry run = {}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, _dry_run, elapsed,
-                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+    auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
+    fmt::format_to(
+            debug_string_buffer,
+            "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
+            "= {}s], block dependency = {}, is running = {}\noperators: ",
+            (void*)this, _opened, _eos, _finished, _dry_run, elapsed,
+            cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finished ? _operators[i]->debug_string(_state, i)
                                              : _operators[i]->debug_string(i));
     }
-    fmt::format_to(debug_string_buffer, "\n{}",
+    fmt::format_to(debug_string_buffer, "\n{}\n",
                    _opened && !_finished ? _sink->debug_string(_state, _operators.size())
                                          : _sink->debug_string(_operators.size()));
     if (_finished) {
@@ -410,8 +462,10 @@ std::string PipelineTask::debug_string() {
 
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {
-        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _read_dependencies[i]->debug_string(i + 1));
+        for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
+            fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                           _read_dependencies[i][j]->debug_string(i + 1));
+        }
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");

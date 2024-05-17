@@ -94,6 +94,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTables(
                 "create table test.t6\n"

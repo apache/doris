@@ -30,10 +30,11 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
-export TP_DIR="${ROOT}/thirdparty"
-export TP_INSTALL_DIR="${TP_DIR:-.}/installed"
-export TP_INCLUDE_DIR="${TP_INSTALL_DIR}/include"
-export TP_LIB_DIR="${TP_INSTALL_DIR}/lib"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
 . "${DORIS_HOME}/env.sh"
 
@@ -358,7 +359,10 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-if [[ -z "${USE_JEMALLOC}" ]]; then
+BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+    USE_JEMALLOC='OFF'
+elif [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
 if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
@@ -368,7 +372,12 @@ if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     fi
 else
     if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        USE_JEMALLOC_HOOK='OFF'
+        if [[ "$(uname -s)" != 'Darwin' ]]; then
+            USE_JEMALLOC_HOOK='OFF'
+        else
+            # compile jemalloc on mac have default prefix `je_`, so default use prefix jemalloc to ensure code uniformity.
+            USE_JEMALLOC_HOOK='ON'
+        fi
     fi
     # update jemalloc prefix
     rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
