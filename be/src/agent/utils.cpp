@@ -91,7 +91,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
             client->finishTask(*result, request);
         } catch (TTransportException& e) {
 #ifdef ADDRESS_SANITIZER
-            return Status::RpcError<false>("Master client finish task failed");
+            return Status::RpcError<false>("Master client finish task failed due to {}", e.what());
 #else
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
@@ -134,7 +134,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             client->report(*result, request);
         } catch (TTransportException& e) {
 #ifdef ADDRESS_SANITIZER
-            return Status::RpcError<false>("Master client report failed");
+            return Status::RpcError<false>("Master client report failed due to {}", e.what());
 #else
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
