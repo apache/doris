@@ -154,7 +154,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        LOG.info("mtmv task run, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
+        }
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         try {
             if (LOG.isDebugEnabled()) {
@@ -246,7 +248,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public synchronized void onSuccess() throws JobException {
-        LOG.info("mtmv task onSuccess, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
+        }
         super.onSuccess();
         after();
     }
@@ -262,7 +266,9 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void before() throws JobException {
-        LOG.info("mtmv task before, taskId: {}", super.getTaskId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task before, taskId: {}", super.getTaskId());
+        }
         super.before();
         try {
             mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
@@ -295,13 +301,19 @@ public class MTMVTask extends AbstractTask {
         LOG.info("mtmv task runTask, taskId: {}", super.getTaskId());
         MTMVJob job = (MTMVJob) getJobOrJobException();
         try {
-            LOG.info("mtmv task get writeLock start, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task get writeLock start, taskId: {}", super.getTaskId());
+            }
             job.writeLock();
-            LOG.info("mtmv task get writeLock end, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task get writeLock end, taskId: {}", super.getTaskId());
+            }
             super.runTask();
         } finally {
             job.writeUnlock();
-            LOG.info("mtmv task release writeLock, taskId: {}", super.getTaskId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("mtmv task release writeLock, taskId: {}", super.getTaskId());
+            }
         }
     }
 
