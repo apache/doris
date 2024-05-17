@@ -103,8 +103,8 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
                 return Status::RpcError("Master client finish task failed");
             }
             client->finishTask(*result, request);
-        }
 #endif
+        }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to finish_task. "
@@ -157,8 +157,8 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
                 LOG(WARNING) << "fail to report to master: " << e.what();
                 return Status::InternalError("Fail to report to master");
             }
-        }
 #endif
+        }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to report to master. "
