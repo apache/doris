@@ -13,13 +13,14 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF2 sm_ship_mode_sk->[cs_ship_mode_sk]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF1 cc_call_center_sk->[cs_call_center_sk]
---------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk]
 ------------------------------PhysicalProject
---------------------------------filter((date_dim.d_month_seq <= 1235) and (date_dim.d_month_seq >= 1224))
-----------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_month_seq <= 1235) and (date_dim.d_month_seq >= 1224))
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[call_center]

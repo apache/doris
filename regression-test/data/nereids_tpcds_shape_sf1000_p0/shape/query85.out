@@ -33,14 +33,15 @@ PhysicalResultSink
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2 RF3 RF8
-------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
-------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
---------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------------PhysicalProject
+--------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------filter((date_dim.d_year = 1998))
---------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
+--------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+----------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------------------PhysicalProject
+--------------------------------------------------------filter((date_dim.d_year = 1998))
+----------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter(((((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Primary')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College'))) OR ((cd1.cd_marital_status = 'U') AND (cd1.cd_education_status = 'Advanced Degree'))))

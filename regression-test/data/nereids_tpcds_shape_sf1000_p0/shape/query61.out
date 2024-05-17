@@ -26,13 +26,14 @@ PhysicalResultSink
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF7 p_promo_sk->[ss_promo_sk]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF6 i_item_sk->[ss_item_sk]
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ss_sold_date_sk]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF7 RF8
-------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ss_sold_date_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
-------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF7 RF8
+--------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
+--------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((item.i_category = 'Home'))

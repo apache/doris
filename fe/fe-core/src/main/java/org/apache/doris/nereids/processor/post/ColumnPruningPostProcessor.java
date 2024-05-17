@@ -19,16 +19,10 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,66 +42,6 @@ public class ColumnPruningPostProcessor extends PlanPostProcessor {
             Set<Slot> outputSet = child.getOutputSet();
             if (outputSet.equals(projects)) {
                 return child;
-            }
-        }
-        if (child instanceof AbstractPhysicalJoin) {
-            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join = (AbstractPhysicalJoin) child;
-            AbstractPhysicalPlan left = (AbstractPhysicalPlan) join.left();
-            AbstractPhysicalPlan right = (AbstractPhysicalPlan) join.right();
-            Set<Slot> leftOutput = left.getOutputSet();
-            Set<Slot> rightOutput = right.getOutputSet();
-
-            Set<Slot> usedSlots = project.getProjects().stream().flatMap(ne -> ne.getInputSlots().stream())
-                    .collect(Collectors.toSet());
-            usedSlots.addAll(join.getConditionSlot());
-
-            List<NamedExpression> leftNewProjections = new ArrayList<>();
-            List<NamedExpression> rightNewProjections = new ArrayList<>();
-
-            for (Slot usedSlot : usedSlots) {
-                if (leftOutput.contains(usedSlot)) {
-                    leftNewProjections.add(usedSlot);
-                } else if (rightOutput.contains(usedSlot)) {
-                    rightNewProjections.add(usedSlot);
-                }
-            }
-
-            AbstractPhysicalPlan newLeft;
-            if (left instanceof PhysicalDistribute) {
-                AbstractPhysicalPlan leftChild = (AbstractPhysicalPlan) left.child(0);
-                AbstractPhysicalPlan newPlan = new PhysicalProject<>(leftNewProjections,
-                        left.getLogicalProperties(), leftChild).copyStatsAndGroupIdFrom(leftChild);
-                newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
-                        ? ((AbstractPhysicalPlan) left.withChildren(newPlan)).copyStatsAndGroupIdFrom(leftChild)
-                        : left;
-            } else {
-                AbstractPhysicalPlan newPlan = new PhysicalProject<>(leftNewProjections,
-                        left.getLogicalProperties(), left).copyStatsAndGroupIdFrom(left);
-                newLeft = leftNewProjections.size() != leftOutput.size() && !leftNewProjections.isEmpty()
-                        ? newPlan : left;
-            }
-            AbstractPhysicalPlan newRight;
-            if (right instanceof PhysicalDistribute) {
-                AbstractPhysicalPlan rightChild = (AbstractPhysicalPlan) right.child(0);
-                AbstractPhysicalPlan newPlan = new PhysicalProject<>(rightNewProjections,
-                        right.getLogicalProperties(), rightChild).copyStatsAndGroupIdFrom(rightChild);
-                newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
-                        ? ((AbstractPhysicalPlan) right.withChildren(newPlan)).copyStatsAndGroupIdFrom(rightChild)
-                        : right;
-            } else {
-                AbstractPhysicalPlan newPlan = new PhysicalProject<>(rightNewProjections,
-                        right.getLogicalProperties(), right).copyStatsAndGroupIdFrom(right);
-                newRight = rightNewProjections.size() != rightOutput.size() && !rightNewProjections.isEmpty()
-                        ? newPlan : right;
-            }
-
-            if (newLeft != left || newRight != right) {
-                AbstractPhysicalJoin oldJoin = join;
-                AbstractPhysicalPlan newJoin = ((AbstractPhysicalJoin) join.withChildren(newLeft,
-                        newRight)).copyStatsAndGroupIdFrom(oldJoin);
-                return ((AbstractPhysicalPlan) project.withChildren(newJoin)).copyStatsAndGroupIdFrom(project);
-            } else {
-                return project;
             }
         }
         return project;

@@ -31,18 +31,18 @@ PhysicalResultSink
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------------------PhysicalProject
---------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=()
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
+------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
 ----------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((date_dim.d_month_seq <= 1224) and (date_dim.d_month_seq >= 1213))
-----------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------------------PhysicalOlapScan[store]
 ------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[store]
+----------------------------------------------------filter((date_dim.d_month_seq <= 1224) and (date_dim.d_month_seq >= 1213))
+------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store]

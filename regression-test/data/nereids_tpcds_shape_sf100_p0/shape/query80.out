@@ -48,11 +48,11 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=() build RFs:RF11 cp_catalog_page_sk->[cs_catalog_page_sk]
+------------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF10 cs_item_sk->[cr_item_sk];RF11 cs_order_number->[cr_order_number]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF9 cs_item_sk->[cr_item_sk];RF10 cs_order_number->[cr_order_number]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF9 RF10
+----------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF10 RF11
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=() build RFs:RF9 cp_catalog_page_sk->[cs_catalog_page_sk]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF8 p_promo_sk->[cs_promo_sk]
 ----------------------------------------PhysicalProject
@@ -60,7 +60,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[cs_sold_date_sk]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF6 RF7 RF8 RF11
+--------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF6 RF7 RF8 RF9
 ------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
@@ -73,9 +73,9 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((promotion.p_channel_tv = 'N'))
 ----------------------------------------------PhysicalOlapScan[promotion]
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_page]
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_page]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]

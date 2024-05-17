@@ -14,47 +14,47 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((store_returns.sr_ticket_number = store_sales.ss_ticket_number) and (store_sales.ss_item_sk = store_returns.sr_item_sk)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
+--------------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((store_returns.sr_ticket_number = store_sales.ss_ticket_number) and (store_sales.ss_item_sk = store_returns.sr_item_sk)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_year = 2000))
-----------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_returns]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_returns]
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_year = 2000))
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((web_returns.wr_order_number = web_sales.ws_order_number) and (web_sales.ws_item_sk = web_returns.wr_item_sk)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
+--------------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((web_returns.wr_order_number = web_sales.ws_order_number) and (web_sales.ws_item_sk = web_returns.wr_item_sk)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_year = 2000))
-----------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_returns]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_returns]
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_year = 2000))
+------------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((catalog_returns.cr_order_number = catalog_sales.cs_order_number) and (catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)) otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
+----------------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((catalog_returns.cr_order_number = catalog_sales.cs_order_number) and (catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)) otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_year = 2000))
-------------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_returns]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_returns]
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------filter((date_dim.d_year = 2000))
+--------------------------------PhysicalOlapScan[date_dim]
 

@@ -17,32 +17,35 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
+------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk) and (y.s_store_id1 = x.s_store_id2)) otherCondition=()
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk) and (y.s_store_id1 = x.s_store_id2)) otherCondition=()
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
---------------------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52))) otherCondition=()
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------PhysicalProject
-------------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
---------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store]
-------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52))) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[store]
+----------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF3 d_week_seq->[d_week_seq]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
+------------------------------PhysicalOlapScan[date_dim]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=()
+----------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------------PhysicalProject
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[store]
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
+------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------filter((d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
---------------------PhysicalOlapScan[date_dim]
+------------------PhysicalOlapScan[store]
 

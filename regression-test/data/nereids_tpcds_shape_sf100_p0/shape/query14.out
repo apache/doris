@@ -113,13 +113,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF13 i_item_sk->[ss_item_sk]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF12 d_date_sk->[ss_sold_date_sk]
-------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF12 RF13
-------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------PhysicalProject
+------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF12 d_date_sk->[ss_sold_date_sk]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF12 RF13
+--------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+--------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[item]
@@ -141,13 +142,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF16 i_item_sk->[cs_item_sk]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->[cs_sold_date_sk]
-------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF15 RF16
-------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------PhysicalProject
+------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->[cs_sold_date_sk]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF15 RF16
+--------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+--------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[item]
@@ -169,13 +171,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF19 i_item_sk->[ws_item_sk]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF18 d_date_sk->[ws_sold_date_sk]
-------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF18 RF19
-------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------PhysicalProject
+------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF18 d_date_sk->[ws_sold_date_sk]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF18 RF19
+--------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
+--------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[item]
