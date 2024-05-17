@@ -184,12 +184,13 @@ public class MaterializedViewUtils {
         LogicalOlapScan mvScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 materializedView,
-                ImmutableList.of(materializedView.getQualifiedDbName()),
+                materializedView.getFullQualifiers(),
+                ImmutableList.of(),
+                materializedView.getBaseIndexId(),
+                PreAggStatus.on(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
-                ImmutableList.of(),
                 Optional.empty());
-        mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
         List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new LogicalProject<Plan>(mvProjects, mvScan);

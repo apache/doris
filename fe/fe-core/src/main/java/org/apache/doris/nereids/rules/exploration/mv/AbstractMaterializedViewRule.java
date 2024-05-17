@@ -323,9 +323,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
+            rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateMvScanPlan(cascadesContext);
-            rewriteResults.add(rewrittenPlan);
         }
         return rewriteResults;
     }
