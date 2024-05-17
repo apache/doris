@@ -1102,7 +1102,7 @@ suite("aggregate_without_roll_up") {
             l_suppkey,
             max(o_shippriority)
             from lineitem
-            left join orders 
+            left join orders
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
             o_orderdate,
@@ -1114,71 +1114,254 @@ suite("aggregate_without_roll_up") {
     order_qt_query22_0_after "${query22_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
 
-
-    def mv22_1 = """
-            select
-            o_orderdate,
-            l_partkey,
-            l_suppkey,
-            sum_union(sum_state(o_shippriority))
-            from lineitem
-            left join orders  t2
-            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
-            group by
-            o_orderdate,
-            l_partkey,
-            l_suppkey;
-    """
-    def query22_1 = """
-            select
-            o_orderdate,
-            l_partkey,
-            l_suppkey,
-            sum(o_shippriority)
-            from lineitem
-            left join orders 
-            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
-            group by
-            o_orderdate,
-            l_partkey,
-            l_suppkey;
-    """
-    order_qt_query22_1_before "${query22_1}"
-    check_mv_rewrite_success(db, mv22_1, query22_1, "mv22_1")
-    order_qt_query22_1_after "${query22_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_1"""
-
-
+   // test combinator aggregate function rewrite
+    sql """set enable_agg_state=true"""
+    // query has no combinator and mv has combinator
+    // mv is union
     def mv23_0 = """
             select
-            o_orderdate,
-            l_partkey,
+            o_orderstatus,
             l_suppkey,
-            avg_union(avg_state(o_shippriority))
+            sum_union(sum_state(o_shippriority)),
+            group_concat_union(group_concat_state(l_shipinstruct)),
+            avg_union(avg_state(l_linenumber)),
+            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            count_union(count_state(l_orderkey)),
+            multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
-            left join orders 
-            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderdate,
-            l_partkey,
+            o_orderstatus,
             l_suppkey;
     """
     def query23_0 = """
             select
-            o_orderdate,
-            l_partkey,
+            o_orderstatus,
             l_suppkey,
-            avg_merge(avg_state(o_shippriority))
+            sum(o_shippriority),
+            group_concat(l_shipinstruct),
+            avg(l_linenumber),
+            max_by(l_shipmode,l_suppkey),
+            count(l_orderkey),
+            multi_distinct_count(l_shipmode)
             from lineitem
-            left join orders  t2
-            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderdate,
-            l_partkey,
+            o_orderstatus,
             l_suppkey;
     """
     order_qt_query23_0_before "${query23_0}"
     check_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0")
     order_qt_query23_0_after "${query23_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv23_0"""
+
+
+    // mv is merge
+    def mv23_1 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_merge(sum_state(o_shippriority)),
+            group_concat_merge(group_concat_state(l_shipinstruct)),
+            avg_merge(avg_state(l_linenumber)),
+            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            count_merge(count_state(l_orderkey)),
+            multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    def query23_1 = """
+             select
+            o_orderstatus,
+            l_suppkey,
+            sum(o_shippriority),
+            group_concat(l_shipinstruct),
+            avg(l_linenumber),
+            max_by(l_shipmode,l_suppkey),
+            count(l_orderkey),
+            multi_distinct_count(l_shipmode)
+            from lineitem
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    order_qt_query23_1_before "${query23_1}"
+    // not supported, this usage is rare
+    check_mv_rewrite_fail(db, mv23_1, query23_1, "mv23_1")
+    order_qt_query23_1_after "${query23_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv23_1"""
+
+
+
+    // both query and mv are combinator
+    // mv is union, query is union
+    def mv24_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_union(sum_state(o_shippriority)),
+            group_concat_union(group_concat_state(l_shipinstruct)),
+            avg_union(avg_state(l_linenumber)),
+            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            count_union(count_state(l_orderkey)),
+            multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    def query24_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_union(sum_state(o_shippriority)),
+            group_concat_union(group_concat_state(l_shipinstruct)),
+            avg_union(avg_state(l_linenumber)),
+            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            count_union(count_state(l_orderkey)),
+            multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    order_qt_query24_0_before "${query24_0}"
+    check_mv_rewrite_success(db, mv24_0, query24_0, "mv24_0")
+    order_qt_query24_0_after "${query24_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv24_0"""
+
+
+    // mv is union, query is merge
+    def mv25_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_union(sum_state(o_shippriority)),
+            group_concat_union(group_concat_state(l_shipinstruct)),
+            avg_union(avg_state(l_linenumber)),
+            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            count_union(count_state(l_orderkey)),
+            multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    def query25_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_merge(sum_state(o_shippriority)),
+            group_concat_merge(group_concat_state(l_shipinstruct)),
+            avg_merge(avg_state(l_linenumber)),
+            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            count_merge(count_state(l_orderkey)),
+            multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    order_qt_query25_0_before "${query25_0}"
+    check_mv_rewrite_success(db, mv25_0, query25_0, "mv25_0")
+    order_qt_query25_0_after "${query25_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_0"""
+
+
+    // mv is merge, query is merge
+    def mv26_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_merge(sum_state(o_shippriority)),
+            group_concat_merge(group_concat_state(l_shipinstruct)),
+            avg_merge(avg_state(l_linenumber)),
+            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            count_merge(count_state(l_orderkey)),
+            multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    def query26_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_merge(sum_state(o_shippriority)),
+            group_concat_merge(group_concat_state(l_shipinstruct)),
+            avg_merge(avg_state(l_linenumber)),
+            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            count_merge(count_state(l_orderkey)),
+            multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    order_qt_query26_0_before "${query26_0}"
+    check_mv_rewrite_success(db, mv26_0, query26_0, "mv26_0")
+    order_qt_query26_0_after "${query26_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv26_0"""
+
+
+    // mv is merge, query is union
+    def mv27_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_merge(sum_state(o_shippriority)),
+            group_concat_merge(group_concat_state(l_shipinstruct)),
+            avg_merge(avg_state(l_linenumber)),
+            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            count_merge(count_state(l_orderkey)),
+            multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders 
+            on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    def query27_0 = """
+            select
+            o_orderstatus,
+            l_suppkey,
+            sum_union(sum_state(o_shippriority)),
+            group_concat_union(group_concat_state(l_shipinstruct)),
+            avg_union(avg_state(l_linenumber)),
+            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            count_union(count_state(l_orderkey)),
+            multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
+            from lineitem
+            left join orders
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderstatus,
+            l_suppkey;
+    """
+    order_qt_query27_0_before "${query27_0}"
+    check_mv_rewrite_fail(db, mv27_0, query27_0, "mv27_0")
+    order_qt_query27_0_after "${query27_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv27_0"""
 }

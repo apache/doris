@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -299,7 +299,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     private static Function rollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
             Map<Expression, Expression> mvExprToMvScanExprQueryBased) {
-        if (!(queryAggregateFunction instanceof CouldRollUp)) {
+        if (!(queryAggregateFunction instanceof RollUpTrait)) {
             return null;
         }
         Expression rollupParam = null;
@@ -337,7 +337,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     functionBuilder.build(combinatorName, rollupParam);
             return (Function) targetExpressionPair.key();
         }
-        return ((CouldRollUp) queryAggregateFunction).constructRollUp(rollupParam);
+        return ((RollUpTrait) queryAggregateFunction).constructRollUp(rollupParam);
     }
 
     private static Function rollup2(AggregateFunction queryAggregateFunction,
@@ -373,7 +373,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         if (rollupExpression instanceof AggregateFunction) {
             AggregateFunction aggregateFunction = (AggregateFunction) rollupExpression;
-            return !aggregateFunction.isDistinct() && aggregateFunction instanceof CouldRollUp;
+            return !aggregateFunction.isDistinct() && aggregateFunction instanceof RollUpTrait;
         }
         return true;
     }

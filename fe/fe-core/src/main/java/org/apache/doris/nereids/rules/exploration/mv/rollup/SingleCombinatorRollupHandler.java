@@ -50,7 +50,7 @@ public class SingleCombinatorRollupHandler extends AggFunctionRollUpHandler {
                 mvExprToMvScanExprQueryBasedPair)) {
             return false;
         }
-        if (queryAggregateFunction instanceof AggregateFunction && !(queryAggregateFunction instanceof Combinator)
+        if (!(queryAggregateFunction instanceof Combinator)
                 && (viewFunction instanceof UnionCombinator || viewFunction instanceof StateCombinator)) {
             Combinator viewCombinator = extractLastExpression(viewFunction, Combinator.class);
             return Objects.equals(queryAggregateFunction,

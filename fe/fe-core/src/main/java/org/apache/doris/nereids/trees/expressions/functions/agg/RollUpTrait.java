@@ -21,14 +21,20 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 
 /**
- * Could roll up trait, it could be rolled up if a function appear in query which can be represented
- * by aggregate function in view.
+ * Roll up trait, which identify an function could be rolled up if a function appear in query
+ * which can be represented by aggregate function in view.
  * Acquire the rolled up function by constructRollUp method.
  */
-public interface CouldRollUp {
+public interface RollUpTrait {
 
     /**
-     * construct the roll up function with custom param
+     * Construct the roll up function with custom param
      */
     Function constructRollUp(Expression param, Expression... varParams);
+
+    /**
+     * identify the function itself can be rolled up
+     * Such as Sum can be rolled up directly, but BitmapUnionCount can not
+     */
+    boolean canRollUp();
 }

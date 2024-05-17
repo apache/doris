@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 
 import java.util.Collection;
 import java.util.List;
@@ -78,6 +78,6 @@ public class MappingRollupHandler extends AggFunctionRollUpHandler {
             Expression queryAggregateFunctionShuttled,
             Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
         Expression rollupParam = mvExprToMvScanExprQueryBasedPair.value();
-        return ((CouldRollUp) queryAggregateFunction).constructRollUp(rollupParam);
+        return ((RollUpTrait) queryAggregateFunction).constructRollUp(rollupParam);
     }
 }

@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
@@ -44,7 +44,7 @@ import java.util.Objects;
  * AggState combinator merge
  */
 public class MergeCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable, Combinator, CouldRollUp {
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable, Combinator, RollUpTrait {
 
     private final AggregateFunction nested;
     private final AggStateType inputType;
@@ -100,5 +100,10 @@ public class MergeCombinator extends AggregateFunction
         Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(getName(),
                 param);
         return (Function) targetExpressionPair.key();
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return false;
     }
 }

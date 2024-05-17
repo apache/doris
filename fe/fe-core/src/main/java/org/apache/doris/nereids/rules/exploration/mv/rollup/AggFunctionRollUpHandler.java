@@ -25,11 +25,11 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
@@ -138,7 +138,7 @@ public abstract class AggFunctionRollUpHandler {
             Expression queryAggregateFunctionShuttled,
             Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
         Expression viewExpression = mvExprToMvScanExprQueryBasedPair.key();
-        if (!(viewExpression instanceof CouldRollUp)) {
+        if (!(viewExpression instanceof RollUpTrait) || !((RollUpTrait) viewExpression).canRollUp()) {
             return false;
         }
         AggregateFunction aggregateFunction = (AggregateFunction) viewExpression;

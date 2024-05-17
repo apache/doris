@@ -21,11 +21,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 
 import java.util.Objects;
 
@@ -47,8 +44,7 @@ public class BothCombinatorRollupHandler extends AggFunctionRollUpHandler {
                 mvExprToMvScanExprQueryBasedPair)) {
             return false;
         }
-        if ((queryAggregateFunction instanceof MergeCombinator || queryAggregateFunction instanceof UnionCombinator)
-                && (viewFunction instanceof UnionCombinator || viewFunction instanceof StateCombinator)) {
+        if (queryAggregateFunction instanceof Combinator && viewFunction instanceof Combinator) {
             Combinator queryCombinator = extractLastExpression(queryAggregateFunction, Combinator.class);
             Combinator viewCombinator = extractLastExpression(viewFunction, Combinator.class);
             // construct actual aggregate function in combinator and compare
@@ -63,6 +59,6 @@ public class BothCombinatorRollupHandler extends AggFunctionRollUpHandler {
             Expression queryAggregateFunctionShuttled,
             Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
         Expression rollupParam = mvExprToMvScanExprQueryBasedPair.value();
-        return ((CouldRollUp) queryAggregateFunction).constructRollUp(rollupParam);
+        return ((RollUpTrait) queryAggregateFunction).constructRollUp(rollupParam);
     }
 }
