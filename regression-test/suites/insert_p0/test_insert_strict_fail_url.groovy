@@ -83,5 +83,5 @@ suite("test_insert_strict_fail_url") {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "[DATA_QUALITY_ERROR] Encountered unqualified data, stop processing. url: ")
+    }, "[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing. url: ")
 }
