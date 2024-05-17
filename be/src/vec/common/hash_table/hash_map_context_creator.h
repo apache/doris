@@ -174,6 +174,10 @@ Status init_hash_method(DataVariants* agg_data, const vectorized::VExprContextSP
     }
 
     CHECK(!agg_data->method_variant.valueless_by_exception());
+
+    if (agg_data->method_variant.index() == 0) { // index is 0 means variant is monostate
+        return Status::InternalError("agg_data->method_variant init failed");
+    }
     return Status::OK();
 }
 } // namespace doris
