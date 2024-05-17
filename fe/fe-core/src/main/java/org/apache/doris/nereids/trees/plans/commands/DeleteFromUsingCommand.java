@@ -75,7 +75,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         // NOTE: delete from using command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,

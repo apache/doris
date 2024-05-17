@@ -85,9 +85,9 @@ public class UpdateStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
-            throw new AnalysisException("Update is forbidden since current session is in debug mode."
+            throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ConnectContext.get().getSessionVariable().printDebugModeVariables());
         }
         analyzeTargetTable(analyzer);
         analyzeSetExprs(analyzer);
