@@ -75,4 +75,40 @@ suite("nereids_scalar_fn_A") {
 	qt_sql_atan_Double_notnull "select atan(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_atan2_Double "select atan2(kdbl, kdbl*kdbl) from fn_test order by kdbl"
 	qt_sql_atan2_Double_notnull "select atan2(kdbl, kdbl*kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_auto_partition_name_list_column_type_mixed "select auto_partition_name('list', kchrs1, kbool) from fn_test_not_nullable where id < 3 order by kchrs1"
+	qt_sql_auto_partition_name_list_column_literal_mixed "select auto_partition_name('list', kstr, 'hello') from fn_test_not_nullable where id < 3 order by kstr"
+	qt_sql_auto_partition_name_list_column "select auto_partition_name('list', kchrs1, kvchrs1) from fn_test_not_nullable where id < 3 order by kchrs1"
+	test{
+		sql """select auto_partition_name("hello");"""
+		exception "Partition type must be range or list"
+	}
+	test{
+		sql """select auto_partition_name('list', kchrs1, kvchrs1) from fn_test_not_nullable;"""
+		exception "The list partition name cannot exceed 50 characters"
+	}
+	test{
+		sql """select auto_partition_name('list', kchrs1, kbool) from fn_test_not_nullable;"""
+		exception "The list partition name cannot exceed 50 characters"
+	}
+	qt_sql_auto_partition_name_list_literal_empty "select auto_partition_name('list', '')"
+	qt_sql_auto_partition_name_list_literal_notnull "select auto_partition_name('list', '你好', 'hello!@#￥%~world  ')"
+	qt_sql_auto_partition_name_list_literal_notnull "select auto_partition_name('list', '你好', true, false)"
+	test{
+		sql """select auto_partition_name('range', 'day', 1);"""
+		exception "The range partition only support DATE/DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'month', true);"""
+		exception "The range partition only support DATE/DATETIME"
+	}
+	test{
+		sql """select auto_partition_name('range', 'year', 'hello');"""
+		exception "The range partition only support DATE/DATETIME"
+	}
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'day', '2022-12-12')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'month', '2022-12-12')"
+	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'year', '2022-12-12')"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'day', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'month', kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_auto_partition_name_range_notnull "select auto_partition_name('range', 'year', kdt) from fn_test_not_nullable order by kdt"
 }

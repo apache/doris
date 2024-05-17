@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <iomanip>
@@ -353,6 +354,180 @@ private:
         for (size_t i = 0; i < size; ++i) {
             res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
         }
+    }
+};
+
+class FunctionAutoPartitionName : public IFunction {
+public:
+    static constexpr auto name = "auto_partition_name";
+    static FunctionPtr create() { return std::make_shared<FunctionAutoPartitionName>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        int argument_size = arguments.size();
+        std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
+
+        for (int i = 0; i < argument_size; ++i) {
+            const auto& [col, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            const auto* col_str = assert_cast<const ColumnString*>(col.get());
+            chars_list[i] = &col_str->get_chars();
+            offsets_list[i] = &col_str->get_offsets();
+        }
+
+        auto res = ColumnString::create();
+        auto& res_data = res->get_chars();
+        auto& res_offset = res->get_offsets();
+        res_offset.resize(input_rows_count);
+        const char* partition_type = chars_list[0]->raw_data();
+        size_t type_size = chars_list[0]->size();
+        if (std::strncmp(partition_type, "list", 4) == 0 && type_size == 4) {
+            std::string res_p = "p";
+            int curr_size = 0;
+            for (int i = 0; i < input_rows_count; i++) {
+                for (int j = 1; j < argument_size; j++) {
+                    const std::string string_to_unicode(chars_list[j]->raw_data(),
+                                                        chars_list[j]->size());
+                    auto unicode_to_string = _string_to_u16string(string_to_unicode);
+                    res_p += _string_to_unicode(unicode_to_string) +
+                             std::to_string(unicode_to_string.size());
+                }
+                int len = res_p.size();
+                if (len > 50) {
+                    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                            "The list partition name cannot exceed 50 characters");
+                }
+                curr_size += len;
+                res_data.resize(curr_size);
+                memcpy(&res_data[res_offset[i - 1]], res_p.c_str(), len);
+                res_offset[i] = res_offset[i - 1] + len;
+            }
+
+            block.get_by_position(result).column = std::move(res);
+            return Status::OK();
+        } else if (std::strncmp(partition_type, "range", 5) == 0 && type_size == 5) {
+            if (argument_size != 3) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "The partition type is range, the argument of size must be 3");
+            }
+
+            const char* range_type = chars_list[1]->raw_data();
+            size_t range_type_size = chars_list[1]->size();
+
+            std::string to_split_s(chars_list[2]->raw_data(), chars_list[2]->size());
+            std::vector<std::string> str_v;
+            // split date with different way [2022-12-12 00:00:00] or [2022-12-12]
+            if (to_split_s.size() == input_rows_count * 19) {
+                for (int i = 0; i < to_split_s.size(); i += 19) {
+                    auto vec_res = split(to_split_s.substr(i, 10), "-");
+                    for (const auto& s : vec_res) {
+                        str_v.emplace_back(s);
+                    }
+                }
+            } else {
+                for (int i = 0; i < to_split_s.size(); i += 10) {
+                    auto vec_res = split(to_split_s.substr(i, 10), "-");
+                    for (const auto& s : vec_res) {
+                        str_v.emplace_back(s);
+                    }
+                }
+            }
+            if (str_v.size() != 3 * input_rows_count) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "The range partition only support DATE/DATETIME");
+            }
+            res_data.resize(15 * input_rows_count);
+            for (int i = 0; i < input_rows_count; i++) {
+                int curr_len = 1;
+
+                res_data[res_offset[i - 1]] = 'p';
+
+                if (std::strncmp(range_type, "day", 3) == 0 && range_type_size == 3) {
+                    for (int j = i * 3; j < i * 3 + 3; j++) {
+                        memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[j].c_str(),
+                               str_v[j].size());
+                        curr_len += str_v[j].size();
+                    }
+                } else if (std::strncmp(range_type, "month", 5) == 0 && range_type_size == 5) {
+                    for (int j = i * 3; j < i * 3 + 2; j++) {
+                        memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[j].c_str(),
+                               str_v[j].size());
+                        curr_len += str_v[j].size();
+                    }
+                    memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
+                    curr_len += 2;
+                } else if (std::strncmp(range_type, "year", 4) == 0 && range_type_size == 4) {
+                    memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[i * 3].c_str(),
+                           str_v[i * 3].size());
+                    curr_len += str_v[i * 3].size();
+                    memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
+                    curr_len += 4;
+                } else {
+                    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                            "The first argument is range, the second argument muse be "
+                            "day, month or year ");
+                }
+                memcpy(&res_data[res_offset[i - 1]] + curr_len, "000000", 6);
+                curr_len += 6;
+                res_offset[i] = res_offset[i - 1] + curr_len;
+            }
+
+            block.get_by_position(result).column = std::move(res);
+            return Status::OK();
+        } else {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "Partition type must be range or list");
+        }
+
+        return Status::OK();
+    }
+
+private:
+    std::u16string _string_to_u16string(const std::string& str) const {
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
+        return convert.from_bytes(str);
+    }
+
+    std::string _string_to_unicode(const std::u16string& s) const {
+        std::string res_s;
+        if (s.length() > 0 && s[0] == '-') {
+            res_s += '_';
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s[i];
+            if (std::isalnum(ch)) {
+                res_s += ch;
+            } else {
+                int unicodeValue = _get_code_foint_at(s, i);
+                char buffer[18];
+                sprintf(buffer, "%x", unicodeValue);
+                res_s += buffer;
+            }
+        }
+        return res_s;
+    }
+
+    int _get_code_foint_at(const std::u16string& str, std::size_t index) const {
+        char16_t first = str[index];
+        // [0xD800,0xDBFF] is the scope of the first code unit
+        if ((first >= 0xD800 && first <= 0xDBFF) && (index + 1 < str.size())) {
+            char16_t second = str[index + 1];
+            // [0xDC00,0xDFFF] is the scope of the second code unit
+            if (second >= 0xDC00 && second <= 0xDFFF) {
+                return ((first - 0xD800) << 10) + (second - 0xDC00) + 0x10000;
+            }
+        }
+
+        return first;
     }
 };
 

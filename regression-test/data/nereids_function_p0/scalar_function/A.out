@@ -463,3 +463,78 @@
 0.73781506012046483
 0.69473827619670314
 
+-- !sql_auto_partition_name_list_column_type_mixed --
+pchar11601
+pchar12601
+pchar13601
+
+-- !sql_auto_partition_name_list_column_literal_mixed --
+pstring17hello5
+pstring27hello5
+pstring37hello5
+
+-- !sql_auto_partition_name_list_column --
+pchar116varchar119
+pchar126varchar129
+pchar136varchar139
+
+-- !sql_auto_partition_name_list_literal_empty --
+p0
+
+-- !sql_auto_partition_name_list_literal_notnull --
+p4f60597d2hello214023ffe5257eworld202018
+
+-- !sql_auto_partition_name_list_literal_notnull --
+p4f60597d21101
+
+-- !sql_auto_partition_name_range_literal_notnull --
+p20221212000000
+
+-- !sql_auto_partition_name_range_literal_notnull --
+p20221201000000
+
+-- !sql_auto_partition_name_range_literal_notnull --
+p20220101000000
+
+-- !sql_auto_partition_name_range_notnull --
+p20120301000000
+p20120302000000
+p20120303000000
+p20120304000000
+p20120305000000
+p20120306000000
+p20120307000000
+p20120308000000
+p20120309000000
+p20120310000000
+p20120311000000
+p20120312000000
+
+-- !sql_auto_partition_name_range_notnull --
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+p20120301000000
+
+-- !sql_auto_partition_name_range_notnull --
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+p20120101000000
+

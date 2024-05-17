@@ -1110,6 +1110,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionQuote>();
+    factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
