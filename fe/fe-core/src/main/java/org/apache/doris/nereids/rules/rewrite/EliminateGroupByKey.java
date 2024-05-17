@@ -40,50 +40,78 @@ import java.util.Set;
 
 /**
  * Eliminate group by key based on fd item information.
+ * such as:
+ *  for a -> b, we can get:
+ *          group by a, b, c  => group by a, c
  */
 @DependsRules({EliminateGroupBy.class, ColumnPruning.class})
-public class EliminateGroupByKey extends OneRewriteRuleFactory {
+public class EliminateGroupByKey implements RewriteRuleFactory {
 
     @Override
-    public Rule build() {
-        return logicalProject(logicalAggregate().when(agg -> !agg.getSourceRepeat().isPresent())).then(proj -> {
-            LogicalAggregate<? extends Plan> agg = proj.child();
-            Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
-            Set<Slot> validSlots = new HashSet<>();
-            for (Expression expression : agg.getGroupByExpressions()) {
-                groupBySlots.put(expression, expression.getInputSlots());
-                validSlots.addAll(expression.getInputSlots());
-            }
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                RuleType.ELIMINATE_GROUP_BY_KEY.build(
+                        logicalProject(logicalAggregate().when(agg -> !agg.getSourceRepeat().isPresent()))
+                                .then(proj -> {
+                                    LogicalAggregate<? extends Plan> agg = proj.child();
+                                    LogicalAggregate<Plan> newAgg = eliminateGroupByKey(agg, proj.getInputSlots());
+                                    if (newAgg == null) {
+                                        return null;
+                                    }
+                                    return proj.withChildren(newAgg);
+                                })),
+                RuleType.ELIMINATE_FILTER_GROUP_BY_KEY.build(
+                        logicalProject(logicalFilter(logicalAggregate()
+                                .when(agg -> !agg.getSourceRepeat().isPresent())))
+                                .then(proj -> {
+                                    LogicalAggregate<? extends Plan> agg = proj.child().child();
+                                    Set<Slot> requireSlots = new HashSet<>(proj.getInputSlots());
+                                    requireSlots.addAll(proj.child(0).getInputSlots());
+                                    LogicalAggregate<Plan> newAgg = eliminateGroupByKey(agg, proj.getOutputSet());
+                                    if (newAgg == null) {
+                                        return null;
+                                    }
+                                    return proj.withChildren(proj.child().withChildren(newAgg));
+                                })
+                )
+        );
+    }
 
-            FuncDeps funcDeps = agg.child().getLogicalProperties()
-                    .getFunctionalDependencies().getAllValidFuncDeps(validSlots);
-            if (funcDeps.isEmpty()) {
-                return null;
-            }
+    LogicalAggregate<Plan> eliminateGroupByKey(LogicalAggregate<? extends Plan> agg, Set<Slot> requireOutput) {
+        Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
+        Set<Slot> validSlots = new HashSet<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            groupBySlots.put(expression, expression.getInputSlots());
+            validSlots.addAll(expression.getInputSlots());
+        }
 
-            Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()));
-            Set<Expression> removeExpression = new HashSet<>();
-            for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
-                if (!minGroupBySlots.contains(entry.getValue())
-                        && !proj.getInputSlots().containsAll(entry.getValue())) {
-                    removeExpression.add(entry.getKey());
-                }
-            }
+        FuncDeps funcDeps = agg.child().getLogicalProperties()
+                .getFunctionalDependencies().getAllValidFuncDeps(validSlots);
+        if (funcDeps.isEmpty()) {
+            return null;
+        }
 
-            List<Expression> newGroupExpression = new ArrayList<>();
-            for (Expression expression : agg.getGroupByExpressions()) {
-                if (!removeExpression.contains(expression)) {
-                    newGroupExpression.add(expression);
-                }
+        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()));
+        Set<Expression> removeExpression = new HashSet<>();
+        for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
+            if (!minGroupBySlots.contains(entry.getValue())
+                    && !requireOutput.containsAll(entry.getValue())) {
+                removeExpression.add(entry.getKey());
             }
-            List<NamedExpression> newOutput = new ArrayList<>();
-            for (NamedExpression expression : agg.getOutputExpressions()) {
-                if (!removeExpression.contains(expression)) {
-                    newOutput.add(expression);
-                }
-            }
-            return proj.withChildren(ImmutableList.of(agg.withGroupByAndOutput(newGroupExpression, newOutput)));
+        }
 
-        }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
+        List<Expression> newGroupExpression = new ArrayList<>();
+        for (Expression expression : agg.getGroupByExpressions()) {
+            if (!removeExpression.contains(expression)) {
+                newGroupExpression.add(expression);
+            }
+        }
+        List<NamedExpression> newOutput = new ArrayList<>();
+        for (NamedExpression expression : agg.getOutputExpressions()) {
+            if (!removeExpression.contains(expression)) {
+                newOutput.add(expression);
+            }
+        }
+        return agg.withGroupByAndOutput(newGroupExpression, newOutput);
     }
 }

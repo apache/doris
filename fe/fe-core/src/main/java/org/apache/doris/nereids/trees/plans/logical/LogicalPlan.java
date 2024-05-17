@@ -26,7 +26,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -72,8 +71,6 @@ public interface LogicalPlan extends Plan {
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
 
-        List<Set<Slot>> uniqueSlots = fdBuilder.getAllUnique();
-        Set<Slot> uniformSlots = fdBuilder.getAllUniform();
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
             // all slots dependent unique slot
