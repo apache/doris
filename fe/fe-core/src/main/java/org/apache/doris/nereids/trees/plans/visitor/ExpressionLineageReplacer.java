@@ -25,10 +25,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -103,26 +99,6 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
                 return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
             }
             return visit(namedExpression, exprIdExpressionMap);
-        }
-
-        @Override
-        public Expression visitForEachCombinator(ForEachCombinator combinator, Map<ExprId, Expression> context) {
-            return combinator.getNestedFunction().withChildren();
-        }
-
-        @Override
-        public Expression visitMergeCombinator(MergeCombinator combinator, Map<ExprId, Expression> context) {
-            return super.visitMergeCombinator(combinator, context);
-        }
-
-        @Override
-        public Expression visitStateCombinator(StateCombinator combinator, Map<ExprId, Expression> context) {
-            return super.visitStateCombinator(combinator, context);
-        }
-
-        @Override
-        public Expression visitUnionCombinator(UnionCombinator combinator, Map<ExprId, Expression> context) {
-            return super.visitUnionCombinator(combinator, context);
         }
 
         @Override
