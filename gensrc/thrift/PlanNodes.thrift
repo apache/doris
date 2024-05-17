@@ -1173,6 +1173,15 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
+struct TTopnFilterDesc {
+  // topn node id
+  1: required i32 source_node_id 
+  2: required bool is_asc
+  3: required bool null_first 
+  // scan node id -> expr on scan node
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> targetNodeId_to_target_expr
+}
+
 // Specification of a runtime filter.
 struct TRuntimeFilterDesc {
   // Filter unique id (within a query)

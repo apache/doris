@@ -698,13 +698,6 @@ struct TExportStatusResult {
     3: optional list<string> files
 }
 
-struct TTopnFilterDesc {
-  1: required i32 source_node_id
-  2: required bool is_asc
-  3: required bool null_first
-  4: required Exprs.TExpr src_expr
-}
-
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
   2: optional bool build_hash_table_for_broadcast_join = false;
