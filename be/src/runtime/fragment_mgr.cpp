@@ -589,7 +589,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute(false);
+    search->second->set_ready_to_execute(Status::OK());
     return Status::OK();
 }
 
