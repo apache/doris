@@ -89,7 +89,7 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    bool try_reserve(int64_t size, bool force_tracker_overcommit);
+    bool try_reserve(int64_t size);
     void release_reserved();
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
@@ -255,7 +255,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = false;
 }
 
-inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool force_tracker_overcommit) {
+inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     DCHECK(_limiter_tracker_raw);
     DCHECK(size >= 0);
     CHECK(init());
@@ -264,7 +264,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool force_tracker_ov
     if (_reserved_mem != 0) { // not expected
         release_reserved();
     }
-    if (!_limiter_tracker_raw->try_consume(size, force_tracker_overcommit)) {
+    if (!_limiter_tracker_raw->try_consume(size)) {
         return false;
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {

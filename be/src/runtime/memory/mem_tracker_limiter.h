@@ -136,13 +136,12 @@ public:
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
-    bool try_consume(int64_t bytes, bool force_tracker_overcommit = false) const {
+    bool try_consume(int64_t bytes) const {
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
         bool st = true;
-        if (force_tracker_overcommit ||
-            (is_overcommit_tracker() && config::enable_query_memory_overcommit)) {
+        if (is_overcommit_tracker() && config::enable_query_memory_overcommit) {
             st = _consumption->try_add(bytes, _limit);
         } else {
             _consumption->add(bytes);

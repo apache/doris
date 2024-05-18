@@ -210,13 +210,13 @@ public:
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
 
-    bool try_reserve_memory(const int64_t size, bool force_tracker_overcommit) const {
+    bool try_reserve_memory(const int64_t size) const {
 #ifdef USE_MEM_TRACKER
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
 #endif
-        return thread_mem_tracker_mgr->try_reserve(size, force_tracker_overcommit);
+        return thread_mem_tracker_mgr->try_reserve(size);
     }
 
     void release_reserved_memory() const {
