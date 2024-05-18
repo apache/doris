@@ -186,17 +186,24 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
     if (_reserved_mem != 0) {
         if (_reserved_mem >= size) {
+            // only need to subtract _reserved_mem, no need to consume MemTracker,
+            // every time _reserved_mem is minus the sum of size >= SYNC_PROC_RESERVED_INTERVAL,
+            // subtract size from process global reserved memory,
+            // because this part of the reserved memory has already been used by BE process.
             _reserved_mem -= size;
             _untracked_mem += size;
             if (_untracked_mem >= SYNC_PROC_RESERVED_INTERVAL) {
-                doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_untracked_mem);
+                doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
                 _untracked_mem = 0;
             }
             return;
         } else {
+            // reserved memory is insufficient, the remaining _reserved_mem is subtracted from this memory consumed,
+            // and reset _reserved_mem to 0, and subtract the remaining _reserved_mem from
+            // process global reserved memory, this means that all reserved memory has been used by BE process.
             size -= _reserved_mem;
-            doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_reserved_mem +
-                                                                     _untracked_mem);
+            doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
+                                                                           _untracked_mem);
             _reserved_mem = 0;
             _untracked_mem = 0;
         }
@@ -260,7 +267,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool force_tracker_ov
     if (!_limiter_tracker_raw->try_consume(size, force_tracker_overcommit)) {
         return false;
     }
-    if (!doris::GlobalMemoryArbitrator::try_reserve_proc_mem(size)) {
+    if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
         _limiter_tracker_raw->release(size);
         return false;
     }
@@ -278,7 +285,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool force_tracker_ov
 inline void ThreadMemTrackerMgr::release_reserved() {
     flush_untracked_mem();
     if (_reserved_mem > 0) {
-        doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_reserved_mem);
+        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem);
         _limiter_tracker_raw->consume(-_reserved_mem);
         if (_count_scope_mem) {
             _scope_mem -= _reserved_mem;

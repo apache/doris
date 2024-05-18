@@ -210,7 +210,7 @@ void Daemon::memory_maintenance_thread() {
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
-        doris::GlobalMemoryArbitrator::refresh_proc_mem_no_allocator_cache();
+        doris::GlobalMemoryArbitrator::refresh_vm_rss_sub_allocator_cache();
 
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
@@ -248,16 +248,16 @@ void Daemon::memory_gc_thread() {
             continue;
         }
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
-        auto proc_mem_corrected = doris::GlobalMemoryArbitrator::proc_mem_corrected();
+        auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
 
         // GC excess memory for resource groups that not enable overcommit
         auto tg_free_mem = doris::MemInfo::tg_disable_overcommit_group_gc();
         sys_mem_available += tg_free_mem;
-        proc_mem_corrected -= tg_free_mem;
+        process_memory_usage -= tg_free_mem;
 
         if (memory_full_gc_sleep_time_ms <= 0 &&
             (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
-             proc_mem_corrected >= doris::MemInfo::mem_limit())) {
+             process_memory_usage >= doris::MemInfo::mem_limit())) {
             // No longer full gc and minor gc during sleep.
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
@@ -271,7 +271,7 @@ void Daemon::memory_gc_thread() {
             }
         } else if (memory_minor_gc_sleep_time_ms <= 0 &&
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
-                    proc_mem_corrected >= doris::MemInfo::soft_mem_limit())) {
+                    process_memory_usage >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format(

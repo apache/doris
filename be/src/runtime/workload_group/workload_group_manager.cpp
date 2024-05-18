@@ -177,7 +177,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
         wgs_mem_info[wg_id] = {wg_total_mem_used};
     }
 
-    // *TODO*, modify to use doris::GlobalMemoryArbitrator::proc_mem_corrected().
+    // *TODO*, modify to use doris::GlobalMemoryArbitrator::process_memory_usage().
     auto proc_vm_rss = PerfCounters::get_vm_rss();
     if (all_queries_mem_used <= 0) {
         return;
@@ -197,7 +197,7 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
                 "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
                 "{}, all quries mem: {}",
                 PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-                PrettyPrinter::print(doris::GlobalMemoryArbitrator::proc_mem_corrected(),
+                PrettyPrinter::print(doris::GlobalMemoryArbitrator::process_memory_usage(),
                                      TUnit::BYTES),
                 doris::MemInfo::sys_mem_available_str(),
                 PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));

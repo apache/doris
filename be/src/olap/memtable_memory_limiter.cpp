@@ -88,7 +88,8 @@ int64_t MemTableMemoryLimiter::_avail_mem_lack() {
 int64_t MemTableMemoryLimiter::_proc_mem_extra() {
     // reserve a small amount of memory so we do not trigger MinorGC
     auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
-    auto proc_mem_extra = GlobalMemoryArbitrator::proc_mem_corrected() - MemInfo::soft_mem_limit();
+    auto proc_mem_extra =
+            GlobalMemoryArbitrator::process_memory_usage() - MemInfo::soft_mem_limit();
     return proc_mem_extra + reserved_mem;
 }
 
@@ -226,7 +227,7 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
     if (_mem_usage != 0) {
         LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
                   << " (without allocator cache: "
-                  << PrettyPrinter::print_bytes(GlobalMemoryArbitrator::proc_mem_corrected())
+                  << PrettyPrinter::print_bytes(GlobalMemoryArbitrator::process_memory_usage())
                   << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
                   << ", memtable writers num: " << _writers.size()
                   << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
