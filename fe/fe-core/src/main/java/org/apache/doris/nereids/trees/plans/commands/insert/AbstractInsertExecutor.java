@@ -62,18 +62,20 @@ public abstract class AbstractInsertExecutor {
 
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
+    protected final boolean emptyInsert;
 
     /**
      * Constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx) {
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
         this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();
         this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
     }
 
     public Coordinator getCoordinator() {
@@ -130,6 +132,7 @@ public abstract class AbstractInsertExecutor {
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {
@@ -208,5 +211,9 @@ public abstract class AbstractInsertExecutor {
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    public boolean isEmptyInsert() {
+        return emptyInsert;
     }
 }

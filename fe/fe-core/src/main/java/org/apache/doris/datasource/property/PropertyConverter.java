@@ -493,7 +493,7 @@ public class PropertyConverter {
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
-        String prefix = "http://oss-";
+        String prefix = "oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {
             suffix = "-internal" + suffix;

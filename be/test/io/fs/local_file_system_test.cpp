@@ -91,8 +91,6 @@ TEST_F(LocalFileSystemTest, WriteRead) {
     Slice slices[2] {abc, bcd};
     st = file_writer->appendv(slices, 2);
     ASSERT_TRUE(st.ok()) << st;
-    st = file_writer->finalize();
-    ASSERT_TRUE(st.ok()) << st;
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(file_writer->bytes_appended(), 115);
@@ -143,8 +141,6 @@ TEST_F(LocalFileSystemTest, Exist) {
     io::FileWriterPtr file_writer;
     auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
     ASSERT_TRUE(st.ok()) << st;
-    st = file_writer->finalize();
-    ASSERT_TRUE(st.ok()) << st;
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(check_exist(fname));
@@ -154,8 +150,6 @@ TEST_F(LocalFileSystemTest, List) {
     io::FileWriterPtr file_writer;
     auto fname = fmt::format("{}/abc", test_dir);
     auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
-    ASSERT_TRUE(st.ok()) << st;
-    st = file_writer->finalize();
     ASSERT_TRUE(st.ok()) << st;
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;

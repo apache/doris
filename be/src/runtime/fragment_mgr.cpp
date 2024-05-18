@@ -644,6 +644,11 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
+                  << ", total fragment num on current host: " << params.fragment_num_on_host
+                  << ", fe process uuid: " << params.query_options.fe_process_uuid
+                  << ", query type: " << params.query_options.query_type;
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
@@ -657,10 +662,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->file_scan_range_params_map = params.file_scan_params;
         }
 
-        LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
-                  << " coord_addr " << query_ctx->coord_addr
-                  << " total fragment num on current host: " << params.fragment_num_on_host
-                  << " fe process uuid: " << params.query_options.fe_process_uuid;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {

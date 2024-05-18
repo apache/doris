@@ -32,7 +32,6 @@ suite("parse_sql_from_sql_cache") {
         }
     }
 
-
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
     combineFutures(
@@ -704,6 +703,43 @@ suite("parse_sql_from_sql_cache") {
             assertHasCache "select * from test_use_plan_cache20 where id=999"
             def result6 = sql "select * from test_use_plan_cache20 where id=999"
             assertTrue(result6.isEmpty())
+        }),
+        extraThread("test_truncate_partition", {
+            sql "drop table if exists test_use_plan_cache21"
+            sql """create table test_use_plan_cache21 (
+                        id int,
+                        dt int
+                       )
+                       partition by range(dt)
+                       (
+                        partition dt1 values [('1'), ('2')),
+                        partition dt2 values [('2'), ('3'))
+                       )
+                       distributed by hash(id)
+                       properties('replication_num'='1')"""
+
+
+
+            sql "insert into test_use_plan_cache21 values('2', '2')"
+            sleep(100)
+            sql "insert into test_use_plan_cache21 values('1', '1')"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            assertNoCache "select * from test_use_plan_cache21"
+            def result1 = sql "select * from test_use_plan_cache21"
+            assertTrue(result1.size() == 2)
+            assertHasCache "select * from test_use_plan_cache21"
+
+            sql "truncate table test_use_plan_cache21 partition dt2"
+            assertNoCache "select * from test_use_plan_cache21"
+            def result2 = sql "select * from test_use_plan_cache21"
+            assertTrue(result2.size() == 1)
         })
     ).get()
 }

@@ -92,7 +92,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         }
         String dbName = validParams.get(DB);
         if (dbName == null) {
-            throw new AnalysisException("Invalid mtmv metadata query");
+            throw new AnalysisException("Invalid async materialized view metadata query");
         }
         this.databaseName = dbName;
         if (LOG.isDebugEnabled()) {

@@ -173,8 +173,6 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    bool need_data_from_children(RuntimeState* state) const override;
-
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
         _inner_sink_operator = sink_operator;

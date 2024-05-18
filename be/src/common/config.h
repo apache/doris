@@ -286,6 +286,8 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
+// number of batch size to fetch the remote split source
+DECLARE_mInt32(remote_split_source_batch_size);
 // max number of remote scanner thread pool size
 // if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
@@ -1336,6 +1338,11 @@ DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
 // The max retry times when hdfs write failed
 DECLARE_mInt64(hdfs_jni_write_max_retry_time);
+
+// The min thread num for NonBlockCloseThreadPool
+DECLARE_Int64(min_nonblock_close_thread_num);
+// The max thread num for NonBlockCloseThreadPool
+DECLARE_Int64(max_nonblock_close_thread_num);
 
 #ifdef BE_TEST
 // test s3

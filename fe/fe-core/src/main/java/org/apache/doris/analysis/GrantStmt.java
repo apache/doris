@@ -181,7 +181,7 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern != null) {
             checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
-            privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
+            PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
             checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
             checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
@@ -299,21 +299,21 @@ public class GrantStmt extends DdlStmt {
             PrivPredicate privPredicate) {
         if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
             return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, privPredicate);
-        } else {
-            if (resourcePattern.isGeneralResource()) {
+        }
+
+        switch (resourcePattern.getResourceType()) {
+            case GENERAL:
+            case STORAGE_VAULT:
                 return Env.getCurrentEnv().getAccessManager()
                         .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
-            } else if (resourcePattern.isClusterResource()) {
+            case CLUSTER:
+            case STAGE:
                 return Env.getCurrentEnv().getAccessManager()
                         .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
-                                ResourceTypeEnum.CLUSTER);
-            } else if (resourcePattern.isStageResource()) {
-                return Env.getCurrentEnv().getAccessManager()
-                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
-                                ResourceTypeEnum.STAGE);
-            }
+                                resourcePattern.getResourceType());
+            default:
+                return true;
         }
-        return true;
     }
 
     public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges,

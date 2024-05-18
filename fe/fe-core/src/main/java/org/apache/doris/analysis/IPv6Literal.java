@@ -23,6 +23,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIPv6Literal;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
@@ -34,6 +36,7 @@ public class IPv6Literal extends LiteralExpr {
     private static final Pattern IPV6_COMPRESS_REGEX =
             Pattern.compile("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
 
+    @SerializedName("v")
     private String value;
 
     /**

@@ -52,9 +52,12 @@ import io.airlift.json.JsonCodecFactory;
 import io.airlift.json.ObjectMapperProvider;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
+import io.trino.block.BlockJsonSerde;
+import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.HandleResolver;
-import io.trino.plugin.base.TypeDeserializer;
+import io.trino.metadata.InternalBlockEncodingSerde;
+import io.trino.spi.block.Block;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.Connector;
@@ -65,29 +68,37 @@ import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.Constraint;
+import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.LimitApplicationResult;
+import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.transaction.IsolationLevel;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.BufferingSplitSource;
 import io.trino.split.ConnectorAwareSplitSource;
 import io.trino.split.SplitSource;
 import io.trino.type.InternalTypeManager;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 public class TrinoConnectorScanNode extends FileQueryScanNode {
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorScanNode.class);
     private static final int minScheduleSplitBatchSize = 10;
     private TrinoConnectorSource source = null;
     private ObjectMapperProvider objectMapperProvider;
 
-    // private static List<Predicate> predicates;
+    private ConnectorMetadata connectorMetadata;
+    private Constraint constraint;
 
     public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv);
@@ -102,11 +113,31 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                             table.getName()));
         }
 
-        source = new TrinoConnectorSource(desc, table);
-
         computeColumnsFilter();
         initBackendPolicy();
+        source = new TrinoConnectorSource(desc, table);
         initSchemaParams();
+        convertPredicate();
+    }
+
+    protected void convertPredicate() throws UserException {
+        if (conjuncts.isEmpty()) {
+            constraint = Constraint.alwaysTrue();
+        }
+        TupleDomain<ColumnHandle> summary = TupleDomain.all();
+        TrinoConnectorPredicateConverter trinoConnectorPredicateConverter = new TrinoConnectorPredicateConverter(
+                source.getTargetTable().getColumnHandleMap(),
+                source.getTargetTable().getColumnMetadataMap());
+        try {
+            for (int i = 0; i < conjuncts.size(); ++i) {
+                summary = summary.intersect(
+                        trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(conjuncts.get(i)));
+            }
+        } catch (AnalysisException e) {
+            LOG.warn("Can not convert Expr to trino tuple domain, exception: {}", e.getMessage());
+            summary = TupleDomain.all();
+        }
+        constraint = new Constraint(summary);
     }
 
     @Override
@@ -117,29 +148,77 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                 IsolationLevel.READ_UNCOMMITTED, true, true);
         source.setConnectorTransactionHandle(connectorTransactionHandle);
         ConnectorSession connectorSession = source.getTrinoSession().toConnectorSession(source.getCatalogHandle());
-        ConnectorMetadata connectorMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle);
 
+        connectorMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle);
         // 2. Begin query
         connectorMetadata.beginQuery(connectorSession);
+        applyPushDown(connectorSession);
 
         // 3. get splitSource
-        SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(), connectorTransactionHandle,
-                source.getTrinoConnectorExtTableHandle(),
-                DynamicFilter.EMPTY,
-                Constraint.alwaysTrue());
-        // 4. get trino.Splits and convert it to doris.Splits
         List<Split> splits = Lists.newArrayList();
-        while (!splitSource.isFinished()) {
-            for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+        try (SplitSource splitSource = getTrinoSplitSource(connector, source.getTrinoSession(),
+                connectorTransactionHandle, source.getTrinoConnectorTableHandle(), DynamicFilter.EMPTY)) {
+            // 4. get trino.Splits and convert it to doris.Splits
+            while (!splitSource.isFinished()) {
+                for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
+                    splits.add(new TrinoConnectorSplit(split.getConnectorSplit(), source.getConnectorName()));
+                }
             }
         }
         return splits;
     }
 
+    private void applyPushDown(ConnectorSession connectorSession) {
+        // push down predicate/filter
+        Optional<ConstraintApplicationResult<ConnectorTableHandle>> filterResult
+                = connectorMetadata.applyFilter(connectorSession, source.getTrinoConnectorTableHandle(), constraint);
+        if (filterResult.isPresent()) {
+            source.setTrinoConnectorTableHandle(filterResult.get().getHandle());
+        }
+
+        // push down limit
+        if (hasLimit()) {
+            long limit = getLimit();
+            Optional<LimitApplicationResult<ConnectorTableHandle>> limitResult
+                    = connectorMetadata.applyLimit(connectorSession, source.getTrinoConnectorTableHandle(), limit);
+            if (limitResult.isPresent()) {
+                source.setTrinoConnectorTableHandle(limitResult.get().getHandle());
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("The TrinoConnectorTableHandle is " + source.getTrinoConnectorTableHandle()
+                    + " after pushing down.");
+        }
+
+        // TODO(ftw): push down projection
+        // Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
+        // Map<String, ColumnHandle> assignments = Maps.newHashMap();
+        // if (source.getTargetTable().getName().equals("customer")) {
+        //     assignments.put("c_custkey", columnHandleMap.get("c_custkey"));
+        //     assignments.put("c_mktsegment", columnHandleMap.get("c_mktsegment"));
+        // } else if (source.getTargetTable().getName().equals("orders")) {
+        //     assignments.put("o_orderkey", columnHandleMap.get("o_orderkey"));
+        //     assignments.put("o_custkey", columnHandleMap.get("o_custkey"));
+        //     assignments.put("o_orderdate", columnHandleMap.get("o_orderdate"));
+        //     assignments.put("o_shippriority", columnHandleMap.get("o_shippriority"));
+        // } else if (source.getTargetTable().getName().equals("lineitem")) {
+        //     assignments.put("l_orderkey", columnHandleMap.get("l_orderkey"));
+        //     assignments.put("l_extendedprice", columnHandleMap.get("l_extendedprice"));
+        //     assignments.put("l_discount", columnHandleMap.get("l_discount"));
+        //     assignments.put("l_shipdate", columnHandleMap.get("l_shipdate"));
+        // }
+        // Optional<ProjectionApplicationResult<ConnectorTableHandle>> projectionResult
+        //         = connectorMetadata.applyProjection(connectorSession, source.getTrinoConnectorTableHandle(),
+        //         Lists.newArrayList(), assignments);
+        // if (projectionResult.isPresent()) {
+        //     source.setTrinoConnectorTableHandle(projectionResult.get().getHandle());
+        // }
+    }
+
     private SplitSource getTrinoSplitSource(Connector connector, Session session,
             ConnectorTransactionHandle connectorTransactionHandle, ConnectorTableHandle table,
-            DynamicFilter dynamicFilter, Constraint constraint) {
+            DynamicFilter dynamicFilter) {
         ConnectorSplitManager splitManager = connector.getSplitManager();
 
         if (!SystemSessionProperties.isAllowPushdownIntoConnectors(session)) {
@@ -147,7 +226,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
 
         ConnectorSession connectorSession = session.toConnectorSession(source.getCatalogHandle());
-        // TODO(ftw): here can not use table.getTransactionHandle
+        // Constraint is not used by Hive/BigQuery Connector
         ConnectorSplitSource connectorSplitSource = splitManager.getSplits(connectorTransactionHandle, connectorSession,
                 table, dynamicFilter, constraint);
 
@@ -183,8 +262,8 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         fileDesc.setDbName(source.getTargetTable().getDbName());
         fileDesc.setTrinoConnectorOptions(source.getCatalog().getTrinoConnectorProperties());
         fileDesc.setTableName(source.getTargetTable().getName());
-        fileDesc.setTrinoConnectorTableHandle(
-                encodeObjectToString(source.getTargetTable().getConnectorTableHandle(), objectMapperProvider));
+        fileDesc.setTrinoConnectorTableHandle(encodeObjectToString(
+                source.getTrinoConnectorTableHandle(), objectMapperProvider));
 
         Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
         Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
@@ -220,7 +299,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     private ObjectMapperProvider createObjectMapperProvider() {
         // mock ObjectMapperProvider
-        TypeManager typeManager = new InternalTypeManager(TrinoConnectorPluginLoader.getTypeRegistry());
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
         Set<Module> modules = new HashSet<Module>();
         HandleResolver handleResolver = TrinoConnectorPluginLoader.getHandleResolver();
@@ -233,9 +311,15 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         // modules.add(HandleJsonModule.tableExecuteHandleModule(handleResolver));
         // modules.add(HandleJsonModule.indexHandleModule(handleResolver));
         // modules.add(HandleJsonModule.partitioningHandleModule(handleResolver));
+        // modules.add(HandleJsonModule.tableFunctionHandleModule(handleResolver));
         objectMapperProvider.setModules(modules);
-        objectMapperProvider.setJsonDeserializers(
-                ImmutableMap.of(io.trino.spi.type.Type.class, new TypeDeserializer(typeManager)));
+
+        // set json deserializers
+        TypeManager typeManager = new InternalTypeManager(TrinoConnectorPluginLoader.getTypeRegistry());
+        InternalBlockEncodingSerde blockEncodingSerde = new InternalBlockEncodingSerde(new BlockEncodingManager(),
+                typeManager);
+        objectMapperProvider.setJsonSerializers(ImmutableMap.of(Block.class,
+                new BlockJsonSerde.Serializer(blockEncodingSerde)));
         return objectMapperProvider;
     }
 

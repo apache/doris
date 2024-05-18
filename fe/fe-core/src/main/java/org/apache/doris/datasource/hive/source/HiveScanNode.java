@@ -63,8 +63,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,6 +96,11 @@ public class HiveScanNode extends FileQueryScanNode {
     // will only be set in Nereids, for lagency planner, it should be null
     @Setter
     private SelectedPartitions selectedPartitions = null;
+
+    private boolean partitionInit = false;
+    private List<HivePartition> prunedPartitions;
+    private Iterator<HivePartition> prunedPartitionsIter;
+    private int numSplitsPerPartition = NUM_SPLITS_PER_PARTITION;
 
     /**
      * * External file scan node for Query Hive table
@@ -195,14 +202,21 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected List<Split> getSplits() throws UserException {
+    public List<Split> getSplits() throws UserException {
         long start = System.currentTimeMillis();
         try {
+            if (!partitionInit) {
+                prunedPartitions = getPartitions();
+                partitionInit = true;
+            }
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, getPartitions(), allFiles, bindBrokerName);
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName);
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
+            }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
                         allFiles.size(), hmsTable.getDbName(), hmsTable.getName(),
@@ -217,6 +231,59 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
+    @Override
+    public List<Split> getNextBatch(int maxBatchSize) throws UserException {
+        try {
+            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+            String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+            List<Split> allFiles = Lists.newArrayList();
+            int numPartitions = 0;
+            while (allFiles.size() < maxBatchSize && prunedPartitionsIter.hasNext()) {
+                List<HivePartition> partitions = new ArrayList<>(NUM_PARTITIONS_PER_LOOP);
+                for (int i = 0; i < NUM_PARTITIONS_PER_LOOP && prunedPartitionsIter.hasNext(); ++i) {
+                    partitions.add(prunedPartitionsIter.next());
+                    numPartitions++;
+                }
+                getFileSplitByPartitions(cache, partitions, allFiles, bindBrokerName);
+            }
+            if (allFiles.size() / numPartitions > numSplitsPerPartition) {
+                numSplitsPerPartition = allFiles.size() / numPartitions;
+            }
+            return allFiles;
+        } catch (Throwable t) {
+            LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
+            throw new UserException(
+                    "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
+                    t);
+        }
+    }
+
+    @Override
+    public boolean hasNext() {
+        return prunedPartitionsIter.hasNext();
+    }
+
+    @Override
+    public boolean isBatchMode() {
+        if (!partitionInit) {
+            try {
+                prunedPartitions = getPartitions();
+            } catch (Exception e) {
+                return false;
+            }
+            prunedPartitionsIter = prunedPartitions.iterator();
+            partitionInit = true;
+        }
+        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
+    }
+
+    @Override
+    public int numApproximateSplits() {
+        return numSplitsPerPartition * prunedPartitions.size();
+    }
+
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
                                           List<Split> allFiles, String bindBrokerName) throws IOException {
         List<FileCacheValue> fileCaches;
@@ -224,9 +291,6 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
         } else {
             fileCaches = cache.getFilesByPartitionsWithCache(partitions, bindBrokerName);
-        }
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);

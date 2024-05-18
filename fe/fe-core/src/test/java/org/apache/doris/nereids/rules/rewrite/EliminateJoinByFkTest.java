@@ -54,6 +54,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test

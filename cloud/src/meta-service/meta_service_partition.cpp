@@ -377,7 +377,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to check index existence";
+        msg = fmt::format("failed to check index existence, err={}", err);
         return;
     }
 
@@ -470,7 +470,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
                 }
                 if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                     code = cast_as<ErrCategory::READ>(err);
-                    msg = "failed to check partition existence";
+                    msg = fmt::format("failed to check partition existence, err={}", err);
                     return;
                 }
             }

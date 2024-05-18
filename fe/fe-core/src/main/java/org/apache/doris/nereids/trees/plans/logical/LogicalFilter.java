@@ -164,7 +164,12 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeUniform(Builder fdBuilder) {
-        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        for (Expression e : getConjuncts()) {
+            Set<Slot> uniformSlots = ExpressionUtils.extractUniformSlot(e);
+            for (Slot slot : uniformSlots) {
+                fdBuilder.addUniformSlot(slot);
+            }
+        }
         fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 

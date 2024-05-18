@@ -68,6 +68,11 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     }
 
     @Override
+    public LogicalTVFRelation withRelationId(RelationId relationId) {
+        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty());
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
