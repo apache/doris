@@ -105,7 +105,7 @@ public:
 
     void set_ready_to_execute(Status reason);
 
-    [[nodiscard]] bool is_cancelled() const { return _exec_status.ok(); }
+    [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
     void cancel_all_pipeline_context(const Status& reason);
     Status cancel_pipeline_context(const int fragment_id, const Status& reason);
