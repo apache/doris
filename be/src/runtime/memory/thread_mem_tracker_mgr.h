@@ -30,12 +30,15 @@
 
 #include "common/config.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
+
+constexpr size_t SYNC_PROC_RESERVED_INTERVAL = (1ULL << 25); // 32M
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
@@ -69,14 +72,14 @@ public:
 
     void start_count_scope_mem() {
         CHECK(init());
-        _scope_mem = 0;
+        _scope_mem = _reserved_mem; // consume in advance
         _count_scope_mem = true;
     }
 
     int64_t stop_count_scope_mem() {
         flush_untracked_mem();
         _count_scope_mem = false;
-        return _scope_mem;
+        return _scope_mem - _reserved_mem;
     }
 
     // Note that, If call the memory allocation operation in Memory Hook,
@@ -85,6 +88,9 @@ public:
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
+
+    bool try_reserve(int64_t size, bool force_tracker_overcommit);
+    void release_reserved();
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
 
@@ -123,7 +129,9 @@ private:
     bool _init = false;
     // Cache untracked mem.
     int64_t _untracked_mem = 0;
-    int64_t old_untracked_mem = 0;
+    int64_t _old_untracked_mem = 0;
+
+    int64_t _reserved_mem = 0;
 
     bool _count_scope_mem = false;
     int64_t _scope_mem = 0;
@@ -164,16 +172,35 @@ inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
     }
     _consumer_tracker_stack.push_back(tracker);
     tracker->release(_untracked_mem);
+    tracker->consume(_reserved_mem); // consume in advance
     return true;
 }
 
 inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     DCHECK(!_consumer_tracker_stack.empty());
     _consumer_tracker_stack.back()->consume(_untracked_mem);
+    _consumer_tracker_stack.back()->release(_reserved_mem);
     _consumer_tracker_stack.pop_back();
 }
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
+    if (_reserved_mem != 0) {
+        if (_reserved_mem >= size) {
+            _reserved_mem -= size;
+            _untracked_mem += size;
+            if (_untracked_mem >= SYNC_PROC_RESERVED_INTERVAL) {
+                doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_untracked_mem);
+                _untracked_mem = 0;
+            }
+            return;
+        } else {
+            size -= _reserved_mem;
+            doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_reserved_mem +
+                                                                     _untracked_mem);
+            _reserved_mem = 0;
+            _untracked_mem = 0;
+        }
+    }
     _untracked_mem += size;
     if (!_init && !ExecEnv::ready()) {
         return;
@@ -209,14 +236,58 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = true;
     DCHECK(_limiter_tracker_raw);
 
-    old_untracked_mem = _untracked_mem;
-    if (_count_scope_mem) _scope_mem += _untracked_mem;
-    _limiter_tracker_raw->consume(old_untracked_mem);
-    for (auto tracker : _consumer_tracker_stack) {
-        tracker->consume(old_untracked_mem);
+    _old_untracked_mem = _untracked_mem;
+    if (_count_scope_mem) {
+        _scope_mem += _untracked_mem;
     }
-    _untracked_mem -= old_untracked_mem;
+    _limiter_tracker_raw->consume(_old_untracked_mem);
+    for (auto* tracker : _consumer_tracker_stack) {
+        tracker->consume(_old_untracked_mem);
+    }
+    _untracked_mem -= _old_untracked_mem;
     _stop_consume = false;
+}
+
+inline bool ThreadMemTrackerMgr::try_reserve(int64_t size, bool force_tracker_overcommit) {
+    DCHECK(_limiter_tracker_raw);
+    DCHECK(size >= 0);
+    CHECK(init());
+    flush_untracked_mem();
+    DCHECK(_reserved_mem == 0);
+    if (_reserved_mem != 0) { // not expected
+        release_reserved();
+    }
+    if (!_limiter_tracker_raw->try_consume(size, force_tracker_overcommit)) {
+        return false;
+    }
+    if (!doris::GlobalMemoryArbitrator::try_reserve_proc_mem(size)) {
+        _limiter_tracker_raw->release(size);
+        return false;
+    }
+    if (_count_scope_mem) {
+        _scope_mem += size;
+    }
+    for (auto* tracker : _consumer_tracker_stack) {
+        tracker->consume(size);
+    }
+    _reserved_mem = size;
+    DCHECK(_untracked_mem == 0);
+    return true;
+}
+
+inline void ThreadMemTrackerMgr::release_reserved() {
+    flush_untracked_mem();
+    if (_reserved_mem > 0) {
+        doris::GlobalMemoryArbitrator::release_proc_reserved_mem(_reserved_mem);
+        _limiter_tracker_raw->consume(-_reserved_mem);
+        if (_count_scope_mem) {
+            _scope_mem -= _reserved_mem;
+        }
+        for (auto* tracker : _consumer_tracker_stack) {
+            tracker->consume(-_reserved_mem);
+        }
+        _reserved_mem = 0;
+    }
 }
 
 } // namespace doris

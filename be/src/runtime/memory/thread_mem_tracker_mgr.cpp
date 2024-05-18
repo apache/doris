@@ -53,6 +53,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
     CHECK(init());
+    release_reserved();
     flush_untracked_mem();
     _limiter_tracker = old_mem_tracker;
     _limiter_tracker_raw = old_mem_tracker.get();

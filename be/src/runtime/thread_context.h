@@ -59,6 +59,9 @@
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
+#define DEFER_RELEASE_RESERVED() \
+    Defer VARNAME_LINENUM(defer) {[&]() { doris::thread_context()->release_reserved_memory(); }};
+
 #define ORPHAN_TRACKER_CHECK()                                                  \
     DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
            doris::thread_context()->thread_mem_tracker()->label() != "Orphan")  \
@@ -77,6 +80,7 @@
     auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmt) = doris::ScopedInitThreadContext()
+#define DEFER_RELEASE_RESERVED() (void)0
 #define ORPHAN_TRACKER_CHECK() (void)0
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
@@ -204,6 +208,24 @@ public:
                 << doris::memory_orphan_check_msg;
 #endif
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
+    }
+
+    bool try_reserve_memory(const int64_t size, bool force_tracker_overcommit) const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        return thread_mem_tracker_mgr->try_reserve(size, force_tracker_overcommit);
+    }
+
+    void release_reserved_memory() const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        thread_mem_tracker_mgr->release_reserved();
     }
 
     int thread_local_handle_count = 0;

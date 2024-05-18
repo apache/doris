@@ -43,7 +43,7 @@ namespace doris {
 
 class RuntimeProfile;
 
-constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
+constexpr size_t MEM_TRACKER_GROUP_NUM = 1000;
 
 struct TrackerLimiterGroup {
     // Note! in order to enable ExecEnv::mem_tracker_limiter_pool support resize,
@@ -129,14 +129,29 @@ public:
         __builtin_unreachable();
     }
 
-    static bool sys_mem_exceed_limit_check(int64_t bytes);
-
     void set_consumption() { LOG(FATAL) << "MemTrackerLimiter set_consumption not supported"; }
     Type type() const { return _type; }
     int64_t group_num() const { return _group_num; }
     bool has_limit() const { return _limit >= 0; }
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
+
+    bool try_consume(int64_t bytes, bool force_tracker_overcommit = true) {
+        if (UNLIKELY(bytes == 0)) {
+            return true;
+        }
+        bool st = true;
+        if (is_overcommit_tracker() && config::enable_query_memory_overcommit) {
+            st = _consumption->try_add(bytes, _limit);
+        } else {
+            _consumption->add(bytes);
+        }
+        if (st && _query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
+        }
+        return st;
+    }
 
     Status check_limit(int64_t bytes = 0);
     bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
@@ -222,9 +237,6 @@ public:
         return querytid;
     }
 
-    static std::string process_mem_log_str();
-    static std::string process_limit_exceeded_errmsg_str();
-    static std::string process_soft_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
 
