@@ -1709,6 +1709,14 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+    fuzzy_field_and_value["write_buffer_size"] =
+            ((distribution(*generator) % 2) == 0) ? "1024" : "209715200";
+    fuzzy_field_and_value["write_buffer_size_for_agg"] =
+            ((distribution(*generator) % 2) == 0) ? "1024" : "419430400";
+    fuzzy_field_and_value["enable_vertical_compaction"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_compaction_checksum"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {
