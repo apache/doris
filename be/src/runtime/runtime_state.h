@@ -216,7 +216,7 @@ public:
         } else {
             LOG(WARNING) << "Task is already cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", original cancel msg: " << _exec_status
+                         << ", original cancel msg: " << _exec_status.status()
                          << ", new cancel msg: " << reason;
         }
     }
