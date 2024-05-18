@@ -136,7 +136,7 @@ public:
     int64_t limit() const { return _limit; }
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
-    bool try_consume(int64_t bytes, bool force_tracker_overcommit = true) {
+    bool try_consume(int64_t bytes, bool force_tracker_overcommit = true) const {
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
