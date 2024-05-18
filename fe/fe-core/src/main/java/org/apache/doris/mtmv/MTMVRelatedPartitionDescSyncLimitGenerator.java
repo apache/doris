@@ -43,16 +43,16 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult) throws AnalysisException {
-        Map<Long, PartitionItem> partitionItems = lastResult.getItems();
+        Map<String, PartitionItem> partitionItems = lastResult.getItems();
         MTMVPartitionSyncConfig config = generateMTMVPartitionSyncConfigByProperties(mvProperties);
         if (config.getSyncLimit() <= 0) {
             return;
         }
         long nowTruncSubSec = getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
         Optional<String> dateFormat = config.getDateFormat();
-        Map<Long, PartitionItem> res = Maps.newHashMap();
+        Map<String, PartitionItem> res = Maps.newHashMap();
         int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        for (Entry<Long, PartitionItem> entry : partitionItems.entrySet()) {
+        for (Entry<String, PartitionItem> entry : partitionItems.entrySet()) {
             if (entry.getValue().isGreaterThanSpecifiedTime(relatedColPos, dateFormat, nowTruncSubSec)) {
                 res.put(entry.getKey(), entry.getValue());
             }

@@ -38,6 +38,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"CURRENT_USED_MEMORY_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
+        {"QUERY_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaBackendActiveTasksScanner::SchemaBackendActiveTasksScanner()

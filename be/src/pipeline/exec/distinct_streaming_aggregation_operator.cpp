@@ -170,11 +170,9 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 
 Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    if (!init_agg_hash_method(
-                _agg_data.get(), probe_exprs,
-                Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase)) {
-        return Status::InternalError("init agg hash method failed");
-    }
+    RETURN_IF_ERROR(init_agg_hash_method(
+            _agg_data.get(), probe_exprs,
+            Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
 
