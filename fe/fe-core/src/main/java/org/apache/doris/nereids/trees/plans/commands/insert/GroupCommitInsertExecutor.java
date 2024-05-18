@@ -77,8 +77,8 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     public GroupCommitInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-                                     Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
+                                     Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
         this.planner = planner;
     }
 

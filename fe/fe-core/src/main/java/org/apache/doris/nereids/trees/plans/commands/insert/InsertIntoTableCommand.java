@@ -161,11 +161,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
+                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
-                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx);
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
+                            emptyInsert);
                     return insertExecutor;
                 }
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel()
