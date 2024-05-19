@@ -42,7 +42,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     fmt::memory_buffer buffer;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(profile);
-        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->get_name());
+        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->debug_string());
     }
     profile->add_info_string("RuntimeFilters: ", to_string(buffer));
 }
