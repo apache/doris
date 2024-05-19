@@ -412,7 +412,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
 
         auto st = cnt_val->filter->merge_from(holder.getHandle()->get());
-        DCHECK(st) << st.msg();
         if (!st) {
             // prevent error ignored
             DCHECK(false) << st.msg();
