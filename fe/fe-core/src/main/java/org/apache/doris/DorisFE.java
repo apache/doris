@@ -83,9 +83,9 @@ public class DorisFE {
         if (Version.DORIS_FE_META_VERSION > 0
                 && FeMetaVersion.VERSION_CURRENT != Version.DORIS_FE_META_VERSION) {
             System.err.println("This release's fe meta version should be "
-                + Version.DORIS_FE_META_VERSION
-                + " but it is " + FeMetaVersion.VERSION_CURRENT
-                + ". It should not change, or FE could not rollback in this version");
+                    + Version.DORIS_FE_META_VERSION
+                    + " but it is " + FeMetaVersion.VERSION_CURRENT
+                    + ". It should not change, or FE could not rollback in this version");
             return;
         }
         StartupOptions options = new StartupOptions();
