@@ -61,7 +61,6 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
-    std::function<Status(Status)> update_fn;
     std::function<void(const Status&)> cancel_fn;
 };
 
