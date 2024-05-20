@@ -193,6 +193,12 @@ Status AggSharedState::reset_hash_table() {
                     }
                 });
 
+                if (hash_table.has_null_key_data()) {
+                    auto st = _destroy_agg_status(
+                            hash_table.template get_null_key_data<vectorized::AggregateDataPtr>());
+                    RETURN_IF_ERROR(st);
+                }
+
                 aggregate_data_container.reset(new vectorized::AggregateDataContainer(
                         sizeof(typename HashTableType::key_type),
                         ((total_size_of_aggregate_states + align_aggregate_states - 1) /
