@@ -485,13 +485,13 @@ void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
 void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->release(size);
-    if (_local_channel_dependency) {
+    if (_local_channel_dependency && (!_recvr->exceeds_limit(0))) {
         _local_channel_dependency->set_ready();
     }
 }
 
-bool VDataStreamRecvr::exceeds_limit(int batch_size) {
-    return _mem_tracker->consumption() + batch_size > config::exchg_node_buffer_size_bytes;
+bool VDataStreamRecvr::exceeds_limit(size_t block_byte_size) {
+    return _mem_tracker->consumption() + block_byte_size > config::exchg_node_buffer_size_bytes;
 }
 
 void VDataStreamRecvr::close() {
