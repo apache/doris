@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -390,6 +391,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+            topic("adjust preagg status",
+                    topDown(new AdjustPreAggStatus())
             ),
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
