@@ -28,6 +28,9 @@ suite("test_scan_range", "query,p0") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`, `k2`)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+           "replication_allocation" = "tag.location.default: 1"
+        );
     """
 
     sql "insert into ${tableName} values(1,1)"
