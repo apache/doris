@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
@@ -77,6 +78,16 @@ public class DorisFE {
     private static FileLock processFileLock;
 
     public static void main(String[] args) {
+        // Every doris version should have a final meta version, it should not change
+        // between small releases. Add a check here to avoid mistake.
+        if (Version.DORIS_FE_META_VERSION > 0
+                && FeMetaVersion.VERSION_CURRENT != Version.DORIS_FE_META_VERSION) {
+            System.err.println("This release's fe meta version should be "
+                    + Version.DORIS_FE_META_VERSION
+                    + " but it is " + FeMetaVersion.VERSION_CURRENT
+                    + ". It should not change, or FE could not rollback in this version");
+            return;
+        }
         StartupOptions options = new StartupOptions();
         options.enableHttpServer = true;
         options.enableQeService = true;

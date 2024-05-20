@@ -575,7 +575,7 @@ public:
     }
 
     // will copy a new status object to avoid concurrency
-    Status status() {
+    Status status() const {
         std::lock_guard l(mutex_);
         return error_st_;
     }
@@ -583,7 +583,9 @@ public:
 private:
     std::atomic_int16_t error_code_ = 0;
     Status error_st_;
-    std::mutex mutex_;
+    // mutex's lock is not a const method, but we will use this mutex in
+    // some const method, so that it should be mutable.
+    mutable std::mutex mutex_;
 
     AtomicStatus(const AtomicStatus&) = delete;
     void operator=(const AtomicStatus&) = delete;

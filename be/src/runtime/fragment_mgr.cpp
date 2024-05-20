@@ -78,6 +78,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
@@ -211,14 +212,14 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
-    Status exec_status = req.update_fn(req.status);
+    Status exec_status = req.status;
     Status coord_status;
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
                                     &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        static_cast<void>(req.update_fn(Status::InternalError(
+        static_cast<void>(req.cancel_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
@@ -438,7 +439,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                static_cast<void>(req.update_fn(rpc_status));
                 req.cancel_fn(rpc_status);
                 return;
             }
@@ -455,7 +455,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
                  print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
-        static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(rpc_status);
     }
 }
@@ -589,7 +588,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute(false);
+    search->second->set_ready_to_execute(Status::OK());
     return Status::OK();
 }
 
@@ -856,6 +855,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+
+    DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
+                    { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
