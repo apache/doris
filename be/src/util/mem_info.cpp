@@ -457,7 +457,7 @@ void MemInfo::refresh_proc_meminfo() {
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
         mem_available = _mem_info_bytes["MemAvailable"];
     }
-    status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
+    auto status = CGroupUtil::find_cgroup_mem_usage(&cgroup_mem_usage);
     if (status.ok() && cgroup_mem_usage > 0 && cgroup_mem_limit > 0) {
         if (mem_available < 0) {
             mem_available = cgroup_mem_limit - cgroup_mem_usage;
