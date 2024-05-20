@@ -17,61 +17,61 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <memory>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-#include "common/status.h"
-#include "exec/olap_common.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/jni_connector.h"
-
-namespace doris {
-class RuntimeProfile;
-class RuntimeState;
-class SlotDescriptor;
-namespace vectorized {
-class Block;
-} // namespace vectorized
-struct TypeDescriptor;
-} // namespace doris
+#include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
-
-/**
- * The demo usage of JniReader, showing how to read data from java scanner.
- * The java side is also a mock reader that provide values for each type.
- * This class will only be retained during the functional testing phase to verify that
- * the communication and data exchange with the jvm are correct.
- */
-class PaimonJniReader : public GenericReader {
-    ENABLE_FACTORY_CREATOR(PaimonJniReader);
-
+class PaimonReader : public TableFormatReader {
 public:
-    static const std::string PAIMON_OPTION_PREFIX;
-    PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                    RuntimeProfile* profile, const TFileRangeDesc& range);
+    PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
+                 const TFileScanRangeParams& params);
+    ~PaimonReader() override = default;
 
-    ~PaimonJniReader() override = default;
+    Status init_row_filters(const TFileRangeDesc& range) final;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
-
-    Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+protected:
+    struct PaimonProfile {
+        RuntimeProfile::Counter* num_delete_rows;
+        RuntimeProfile::Counter* delete_files_read_time;
+    };
+    std::vector<int64_t> _delete_rows;
+    RuntimeProfile* _profile;
+    PaimonProfile _paimon_profile;
+    virtual void set_delete_rows() = 0;
 
 private:
-    const std::vector<SlotDescriptor*>& _file_slot_descs;
-    RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    std::unique_ptr<JniConnector> _jni_connector;
+    const TFileScanRangeParams& _params;
 };
 
+class PaimonOrcReader final : public PaimonReader {
+public:
+    ENABLE_FACTORY_CREATOR(PaimonOrcReader);
+    PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
+                    const TFileScanRangeParams& params)
+            : PaimonReader(std::move(file_format_reader), profile, params) {};
+    ~PaimonOrcReader() final = default;
+
+    void set_delete_rows() override {
+        (reinterpret_cast<OrcReader*>(_file_format_reader.get()))
+                ->set_position_delete_rowids(&_delete_rows);
+    }
+};
+
+class PaimonParquetReader final : public PaimonReader {
+public:
+    ENABLE_FACTORY_CREATOR(PaimonParquetReader);
+    PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
+                        const TFileScanRangeParams& params)
+            : PaimonReader(std::move(file_format_reader), profile, params) {};
+    ~PaimonParquetReader() final = default;
+
+    void set_delete_rows() override {
+        (reinterpret_cast<ParquetReader*>(_file_format_reader.get()))
+                ->set_delete_rows(&_delete_rows);
+    }
+};
 } // namespace doris::vectorized
