@@ -24,6 +24,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -307,20 +308,28 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     SegmentCacheHandle handle;
     BetaRowsetSharedPtr rowset_ptr = std::dynamic_pointer_cast<BetaRowset>(rowset);
 
-    // load segments first
-    res = SegmentLoader::instance()->load_segments(rowset_ptr, &handle, true, true);
-    ASSERT_TRUE(res.ok());
-    EXPECT_EQ(1, rowset->num_segments());
-    EXPECT_EQ(1, handle.get_segments().size());
-    EXPECT_TRUE(handle.is_inited());
-    segment_v2::SegmentSharedPtr segment_ptr = handle.get_segments()[0];
+    std::mutex lock;
+    {
+        // Use lock to make sure only this segment can be loaded by SegmentLoader during this test.
+        // SegmeentLoader is singleton. Without this lock, multiple segments will be loaded. Result will be wrong.
+        std::lock_guard<std::mutex> l(lock);
+        // load segments first
+        int64_t start_size = SegmentLoader::instance()->cache_mem_usage();
+        res = SegmentLoader::instance()->load_segments(rowset_ptr, &handle, true, true);
+        ASSERT_TRUE(res.ok());
+        EXPECT_EQ(1, rowset->num_segments());
+        EXPECT_EQ(1, handle.get_segments().size());
+        EXPECT_TRUE(handle.is_inited());
+        segment_v2::SegmentSharedPtr segment_ptr = handle.get_segments()[0];
 
-    // load index and bf second
-    res = segment_ptr->load_pk_index_and_bf();
-    ASSERT_TRUE(res.ok());
+        // load index and bf second
+        res = segment_ptr->load_pk_index_and_bf();
+        ASSERT_TRUE(res.ok());
 
-    // check cache mem usage equals to segment mem usage
-    EXPECT_EQ(SegmentLoader::instance()->cache_mem_usage(), segment_ptr->meta_mem_usage());
+        // check cache mem usage equals to segment mem usage
+        EXPECT_EQ(SegmentLoader::instance()->cache_mem_usage() - start_size,
+                  segment_ptr->meta_mem_usage());
+    }
 
     res = ((BetaRowset*)rowset.get())->load_segments(&segments);
     ASSERT_TRUE(res.ok());
