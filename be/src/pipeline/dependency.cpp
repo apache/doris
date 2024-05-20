@@ -119,6 +119,27 @@ void RuntimeFilterTimer::call_ready() {
     _parent->set_ready();
 }
 
+// should check rf timeout in two case:
+// 1. the rf is ready just remove the wait queue
+// 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
+bool RuntimeFilterTimer::should_be_check_timeout() {
+    if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
+        bool all_ready = true;
+        for (auto& dep : _local_runtime_filter_dependencies) {
+            if (!dep->ready()) {
+                all_ready = false;
+                break;
+            }
+        }
+        if (all_ready) {
+            _local_runtime_filter_dependencies.clear();
+            _registration_time = MonotonicMillis();
+        }
+        return all_ready;
+    }
+    return true;
+}
+
 void RuntimeFilterTimerQueue::start() {
     while (!_stop) {
         std::unique_lock<std::mutex> lk(cv_m);
@@ -135,14 +156,18 @@ void RuntimeFilterTimerQueue::start() {
             for (auto& it : _que) {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
-                } else if (it->_parent->is_blocked_by(nullptr)) {
-                    // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
-                    int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                    if (ms_since_registration > it->wait_time_ms()) {
-                        it->call_timeout();
-                    } else {
-                        new_que.push_back(std::move(it));
+                } else if (it->should_be_check_timeout()) {
+                    if (it->_parent->is_blocked_by(nullptr)) {
+                        // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
                     }
+                } else {
+                    new_que.push_back(std::move(it));
                 }
             }
             new_que.swap(_que);
