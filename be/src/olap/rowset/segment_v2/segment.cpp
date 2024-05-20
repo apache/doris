@@ -284,11 +284,13 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 
 Status Segment::_load_pk_bloom_filter() {
 #ifdef BE_TEST
-    // for BE UT "segment_cache_test"
-    return _load_pk_bf_once.call([this] {
-        _meta_mem_usage += 100;
-        return Status::OK();
-    });
+    if (_pk_index_meta == nullptr) {
+        // for BE UT "segment_cache_test"
+        return _load_pk_bf_once.call([this] {
+            _meta_mem_usage += 100;
+            return Status::OK();
+        });
+    }
 #endif
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
