@@ -105,6 +105,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new TrinoConnectorSource(desc);
+        convertPredicate();
     }
 
     protected void convertPredicate() throws UserException {
