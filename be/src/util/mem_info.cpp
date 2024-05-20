@@ -59,6 +59,8 @@ bvar::PassiveStatus<int64_t> g_sys_mem_avail(
 
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
+int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+int64_t MemInfo::_s_cgroup_mem_limit_refresh_wait_times = 0;
 std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
@@ -399,10 +401,23 @@ void MemInfo::refresh_proc_meminfo() {
     int64_t physical_mem = -1;
     int64_t cgroup_mem_limit = -1;
     physical_mem = _mem_info_bytes["MemTotal"];
-    Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
-    if (status.ok() && cgroup_mem_limit > 0) {
+    if (_s_cgroup_mem_limit_refresh_wait_times >= 0) {
+        Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
+        if (status.ok() && cgroup_mem_limit > 0) {
+            _s_cgroup_mem_limit = cgroup_mem_limit;
+            _s_cgroup_mem_limit_refresh_wait_times =
+                    -1000; // wait 10s, 1000 * 100ms, avoid too frequently.
+        } else {
+            _s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+            _s_cgroup_mem_limit_refresh_wait_times =
+                    -6000; // find cgroup failed, wait 60s, 6000 * 100ms.
+        }
+    } else {
+        _s_cgroup_mem_limit_refresh_wait_times++;
+    }
+    if (_s_cgroup_mem_limit > 0) {
         // In theory, always cgroup_mem_limit < physical_mem
-        physical_mem = std::min(physical_mem, cgroup_mem_limit);
+        physical_mem = std::min(physical_mem, _s_cgroup_mem_limit);
     }
 
     if (physical_mem <= 0) {
