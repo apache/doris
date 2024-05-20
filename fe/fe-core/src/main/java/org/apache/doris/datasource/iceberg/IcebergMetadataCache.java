@@ -59,7 +59,7 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -67,11 +67,14 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        if (catalog == null) {
+            throw new UserException("The specified catalog does not exist:" + params.getCatalog());
+        }
         IcebergMetadataCacheKey key =
                 IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
         return snapshotListCache.get(key);

@@ -19,12 +19,16 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -64,8 +68,29 @@ public interface LogicalPlan extends Plan {
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
+
+        List<Set<Slot>> uniqueSlots = fdBuilder.getAllUnique();
+        Set<Slot> uniformSlots = fdBuilder.getAllUniform();
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slot dependents unique slot
+            for (Set<Slot> uniqueSlot : uniqueSlots) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all unique slot
+            for (Slot uniformSlot : uniformSlots) {
+                fdBuilder.addDeps(o, ImmutableSet.of(uniformSlot));
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
+            fdBuilder.addDepsByEqualSet(validEqualSet);
+            fdBuilder.addUniformByEqualSet(validEqualSet);
+            fdBuilder.addUniqueByEqualSet(validEqualSet);
+        }
         return fdBuilder.build();
     }
 
@@ -76,4 +101,6 @@ public interface LogicalPlan extends Plan {
     void computeUniform(FunctionalDependencies.Builder fdBuilder);
 
     void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+
+    void computeFd(FunctionalDependencies.Builder fdBuilder);
 }

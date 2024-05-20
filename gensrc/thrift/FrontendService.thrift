@@ -409,6 +409,8 @@ struct TQueryStatistics {
     7: optional i64 workload_group_id
     8: optional i64 shuffle_send_bytes
     9: optional i64 shuffle_send_rows
+    10: optional i64 scan_bytes_from_local_storage
+    11: optional i64 scan_bytes_from_remote_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -1480,6 +1482,15 @@ struct TSyncQueryColumns {
     2: optional list<TQueryColumn> midPriorityColumns;
 }
 
+struct TFetchSplitBatchRequest {
+    1: optional i64 split_source_id
+    2: optional i32 max_num_splits
+}
+
+struct TFetchSplitBatchResult {
+    1: optional list<Planner.TScanRangeLocations> splits
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1571,4 +1582,6 @@ service FrontendService {
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
     Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
+
+    TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
 }

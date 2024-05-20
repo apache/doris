@@ -1360,4 +1360,29 @@ suite("aggregate_with_roll_up") {
     order_qt_query31_0_after "${query31_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
 
+    // should rewrite fail, because the part of query is join but mv is aggregate
+    def mv32_0 = """
+            select 
+              o_orderdate, 
+              count(*) 
+            from 
+              orders 
+            group by 
+              o_orderdate;
+    """
+    def query32_0 = """
+            select 
+              o_orderdate, 
+              count(*) 
+            from 
+              orders 
+            group by 
+              o_orderdate, 
+              o_shippriority;
+    """
+    order_qt_query32_0_before "${query32_0}"
+    check_mv_rewrite_fail(db, mv32_0, query32_0, "mv32_0")
+    order_qt_query32_0_after "${query32_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_0"""
+
 }

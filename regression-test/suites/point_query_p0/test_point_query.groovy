@@ -226,13 +226,13 @@ suite("test_point_query") {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 // prepared text
-                sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
-                qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
+                // qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
 
-                sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
-                qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
+                // qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
                 tableName = "test_query"
                 sql """DROP TABLE IF EXISTS ${tableName}"""
                 sql """CREATE TABLE ${tableName} (

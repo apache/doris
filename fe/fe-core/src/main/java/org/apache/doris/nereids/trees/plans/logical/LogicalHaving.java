@@ -125,7 +125,12 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeUniform(Builder fdBuilder) {
-        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        for (Expression e : getConjuncts()) {
+            Set<Slot> uniformSlots = ExpressionUtils.extractUniformSlot(e);
+            for (Slot slot : uniformSlots) {
+                fdBuilder.addUniformSlot(slot);
+            }
+        }
         fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 
@@ -146,6 +151,11 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
             equalSlot.ifPresent(slotSlotPair -> fdBuilder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
         }
+    }
+
+    @Override
+    public void computeFd(Builder fdBuilder) {
+        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
     }
 
     @Override

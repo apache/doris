@@ -22,7 +22,6 @@
 #include <cstdint>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/common/sort/partition_sorter.h"
 
 namespace doris::pipeline {
@@ -57,7 +56,7 @@ private:
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
-    void _init_hash_method();
+    Status _init_hash_method();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {

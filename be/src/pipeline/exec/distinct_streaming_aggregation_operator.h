@@ -23,7 +23,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
@@ -52,7 +52,7 @@ private:
     friend class StatefulOperatorX;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
                                                  vectorized::Block* out_block);
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
                                               const size_t num_rows);
@@ -65,7 +65,6 @@ private:
         _cache_block = block->clone_empty();
     }
 
-    bool _opened = false;
     std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;

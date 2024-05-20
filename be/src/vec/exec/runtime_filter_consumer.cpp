@@ -17,7 +17,7 @@
 
 #include "vec/exec/runtime_filter_consumer.h"
 
-#include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "pipeline/pipeline_task.h"
 
 namespace doris::vectorized {
 
@@ -42,7 +42,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     fmt::memory_buffer buffer;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(profile);
-        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->get_name());
+        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->debug_string());
     }
     profile->add_info_string("RuntimeFilters: ", to_string(buffer));
 }
@@ -84,7 +84,7 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
-                id, node_id, name, _state->get_query_ctx(), runtime_filter);
+                id, node_id, name, runtime_filter);
         _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
         auto filter_timer = std::make_shared<pipeline::RuntimeFilterTimer>(
                 runtime_filter->registration_time(), runtime_filter->wait_time_ms(),

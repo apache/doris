@@ -44,7 +44,8 @@ class Block;
 
 class QueryStatisticsCtx {
 public:
-    QueryStatisticsCtx(TNetworkAddress fe_addr) : _fe_addr(fe_addr) {
+    QueryStatisticsCtx(TNetworkAddress fe_addr, TQueryType::type query_type)
+            : _fe_addr(fe_addr), _query_type(query_type) {
         this->_is_query_finished = false;
         this->_wg_id = -1;
         this->_query_start_time = MonotonicMillis();
@@ -56,7 +57,8 @@ public:
 public:
     std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
     bool _is_query_finished;
-    TNetworkAddress _fe_addr;
+    const TNetworkAddress _fe_addr;
+    const TQueryType::type _query_type;
     int64_t _query_finish_time;
     int64_t _wg_id;
     int64_t _query_start_time;
@@ -71,16 +73,18 @@ public:
             const TUniqueId& q_id,
             const std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
                     fragment_id_to_profile,
-            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+            bool is_done);
 
     static TReportExecStatusParams create_report_exec_status_params_non_pipeline(
             const TUniqueId& q_id,
             const std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>&
                     instance_id_to_profile,
-            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile);
+            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+            bool is_done);
 
     void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
-                                   TNetworkAddress fe_addr);
+                                   TNetworkAddress fe_addr, TQueryType::type query_type);
 
     void report_runtime_query_statistics();
 

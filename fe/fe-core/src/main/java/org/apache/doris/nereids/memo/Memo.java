@@ -30,12 +30,14 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -52,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,8 +75,11 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final Set<Long> needRefreshTableIdSet = new HashSet<>();
     private final AtomicLong refreshVersion = new AtomicLong(1);
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
+            new LinkedHashMap<>();
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
+            new LinkedHashMap<>();
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -127,9 +133,49 @@ public class Memo {
         return refreshVersion.get();
     }
 
+    /**
+     * Record materialization check result for performance
+     */
+    public void recordMaterializationCheckResult(Class<? extends AbstractMaterializedViewRule> target,
+            Long checkedMaterializationId, boolean isSuccess) {
+        if (isSuccess) {
+            Set<Long> checkedSet = materializationCheckSuccessMap.get(target);
+            if (checkedSet == null) {
+                checkedSet = new HashSet<>();
+                materializationCheckSuccessMap.put(target, checkedSet);
+            }
+            checkedSet.add(checkedMaterializationId);
+        } else {
+            Set<Long> checkResultSet = materializationCheckFailMap.get(target);
+            if (checkResultSet == null) {
+                checkResultSet = new HashSet<>();
+                materializationCheckFailMap.put(target, checkResultSet);
+            }
+            checkResultSet.add(checkedMaterializationId);
+        }
+    }
+
+    /**
+     * Get the info for materialization context is checked
+     *
+     * @return if true, check successfully, if false check fail, if null not checked
+     */
+    public Boolean materializationHasChecked(Class<? extends AbstractMaterializedViewRule> target,
+            long materializationId) {
+        Set<Long> checkSuccessSet = materializationCheckSuccessMap.get(target);
+        if (checkSuccessSet != null && checkSuccessSet.contains(materializationId)) {
+            return true;
+        }
+        Set<Long> checkFailSet = materializationCheckFailMap.get(target);
+        if (checkFailSet != null && checkFailSet.contains(materializationId)) {
+            return false;
+        }
+        return null;
+    }
+
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
-        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
+        if (plan instanceof LogicalProject) {
             LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
             if (targetGroup != root) {
                 if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
@@ -416,7 +462,9 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         // TODO Support sync materialized view in the future
-        if (plan instanceof LogicalPlan && plan instanceof CatalogRelation
+        if (connectContext != null
+                && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
+                && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
             refreshVersion.incrementAndGet();

@@ -32,6 +32,7 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -66,8 +67,8 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
                                      const TStorageBackendType::type storage_type,
                                      const TUniqueId fragment_instance_id,
                                      const VExprContextSPtrs& output_vexpr_ctxs,
-                                     BufferControlBlock* sinker, Block* output_block,
-                                     bool output_object_data,
+                                     std::shared_ptr<BufferControlBlock> sinker,
+                                     Block* output_block, bool output_object_data,
                                      const RowDescriptor& output_row_descriptor)
         : AsyncResultWriter(output_vexpr_ctxs),
           _file_opts(file_opts),
@@ -239,7 +240,7 @@ Status VFileResultWriter::_close_file_writer(bool done) {
         // and _current_written_bytes will less than _vfile_writer->written_len()
         COUNTER_UPDATE(_written_data_bytes, _vfile_writer->written_len());
         _vfile_writer.reset(nullptr);
-    } else if (_file_writer_impl) {
+    } else if (_file_writer_impl && _file_writer_impl->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_file_writer_impl->close());
     }
 

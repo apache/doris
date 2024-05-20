@@ -104,7 +104,8 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
         const TUniqueId& query_id,
         const std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
                 fragment_id_to_profile,
-        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profiles) {
+        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profiles,
+        bool is_done) {
     TQueryProfile profile;
     profile.__set_query_id(query_id);
 
@@ -162,6 +163,7 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
     req.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
     // invalid query id to avoid API compatibility during upgrade
     req.__set_query_id(TUniqueId());
+    req.__set_done(is_done);
 
     return req;
 }
@@ -170,7 +172,8 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
         const TUniqueId& query_id,
         const std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>>&
                 instance_id_to_profile,
-        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile) {
+        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& load_channel_profile,
+        bool is_done) {
     TQueryProfile profile;
     std::vector<TUniqueId> fragment_instance_ids;
     std::vector<TRuntimeProfileTree> instance_profiles;
@@ -202,6 +205,7 @@ TReportExecStatusParams RuntimeQueryStatiticsMgr::create_report_exec_status_para
     // invalid query id to avoid API compatibility during upgrade
     res.__set_query_id(TUniqueId());
     res.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
+    res.__set_done(is_done);
     return res;
 }
 
@@ -378,7 +382,7 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_non_pipeline() {
         }
 
         TReportExecStatusParams req = create_report_exec_status_params_non_pipeline(
-                query_id, instance_id_to_profile, load_channel_profiles);
+                query_id, instance_id_to_profile, load_channel_profiles, /*is_done=*/true);
         TReportExecStatusResult res;
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
 
@@ -431,7 +435,7 @@ void RuntimeQueryStatiticsMgr::_report_query_profiles_x() {
         }
 
         TReportExecStatusParams req = create_report_exec_status_params_x(
-                query_id, fragment_profile_map, load_channel_profiles);
+                query_id, fragment_profile_map, load_channel_profiles, /*is_done=*/true);
         TReportExecStatusResult res;
 
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
@@ -457,10 +461,12 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
 
 void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
                                                          std::shared_ptr<QueryStatistics> qs_ptr,
-                                                         TNetworkAddress fe_addr) {
+                                                         TNetworkAddress fe_addr,
+                                                         TQueryType::type query_type) {
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
-        _query_statistics_ctx_map[query_id] = std::make_unique<QueryStatisticsCtx>(fe_addr);
+        _query_statistics_ctx_map[query_id] =
+                std::make_unique<QueryStatisticsCtx>(fe_addr, query_type);
     }
     _query_statistics_ctx_map.at(query_id)->_qs_list.push_back(qs_ptr);
 }
@@ -475,6 +481,9 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         int64_t current_time = MonotonicMillis();
         int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
         for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+            if (qs_ctx_ptr->_query_type == TQueryType::EXTERNAL) {
+                continue;
+            }
             if (fe_qs_map.find(qs_ctx_ptr->_fe_addr) == fe_qs_map.end()) {
                 std::map<std::string, TQueryStatistics> tmp_map;
                 fe_qs_map[qs_ctx_ptr->_fe_addr] = std::move(tmp_map);
@@ -666,6 +675,10 @@ void RuntimeQueryStatiticsMgr::get_active_be_tasks_block(vectorized::Block* bloc
         insert_int_value(8, tqs.current_used_memory_bytes, block);
         insert_int_value(9, tqs.shuffle_send_bytes, block);
         insert_int_value(10, tqs.shuffle_send_rows, block);
+
+        std::stringstream ss;
+        ss << qs_ctx_ptr->_query_type;
+        insert_string_value(11, ss.str(), block);
     }
 }
 

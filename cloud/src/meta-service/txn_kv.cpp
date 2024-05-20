@@ -18,6 +18,8 @@
 #include "txn_kv.h"
 
 #include <bthread/countdown_event.h>
+#include <byteswap.h>
+#include <endian.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
@@ -409,6 +411,19 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     ++num_put_keys_;
     put_bytes_ += key.size() + 8;
     approximate_bytes_ += key.size() * 3 + 8;
+}
+
+bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
+    if (data.size() != sizeof(*val)) {
+        return false;
+    }
+
+    // ATTN: The FDB_MUTATION_TYPE_ADD stores integers in a little-endian representation.
+    std::memcpy(val, data.data(), sizeof(*val));
+#if __BYTE_ORDER == __BIG_ENDIAN
+    *val = bswap_64(*val);
+#endif
+    return true;
 }
 
 void Transaction::remove(std::string_view key) {

@@ -20,19 +20,16 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Planner_types.h>
 #include <pthread.h>
 
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
 #include <ostream>
-#include <typeinfo>
 #include <utility>
 
 #include "cloud/config.h"
@@ -40,8 +37,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "exec/exec_node.h"
-#include "exec/scan_node.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
@@ -91,8 +86,8 @@
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -103,22 +98,10 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/scan/new_es_scan_node.h"
-#include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
-#include "vec/exec/scan/new_odbc_scan_node.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
-#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vexchange_node.h"
-#include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -134,10 +117,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(std::move(report_status_cb)),
-          _create_time(MonotonicNanos()) {
+          _report_status_cb(report_status_cb) {
     _fragment_watcher.start();
-    _start_time = VecDateTimeValue::local_time();
     _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
@@ -147,11 +128,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     _tasks.clear();
-    if (!_task_runtime_states.empty()) {
-        for (auto& runtime_state : _task_runtime_states) {
-            _call_back(runtime_state.get(), &st);
-            runtime_state.reset();
-        }
+    for (auto& runtime_state : _task_runtime_states) {
+        _call_back(runtime_state.get(), &st);
+        runtime_state.reset();
     }
     _pipelines.clear();
     _sink.reset();
@@ -162,32 +141,31 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     _op_id_to_le_state.clear();
 }
 
-bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
+bool PipelineFragmentContext::is_timeout(timespec now) const {
     if (_timeout <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout) {
-        return true;
-    }
-    return false;
+    return _fragment_watcher.elapsed_time_seconds(now) > _timeout;
 }
 
 // Must not add lock in this method. Because it will call query ctx cancel. And
 // QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
 // Method like exchange sink buffer will call query ctx cancel. If we add lock here
 // There maybe dead lock.
-void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
-                                     const std::string& msg) {
+void PipelineFragmentContext::cancel(const Status reason) {
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
-            .tag("reason", reason)
-            .tag("error message", msg);
-    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
-        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
+            .tag("reason", reason.to_string());
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        if (_closed_tasks == _total_tasks) {
+            // All tasks in this PipelineXFragmentContext already closed.
+            return;
+        }
     }
-    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
-    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+    _query_ctx->cancel(reason, _fragment_id);
+    if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
     } else {
         for (auto& id : _fragment_instance_ids) {
@@ -198,7 +176,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // For stream load the fragment's query_id == load id, it is set in FE.
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
     if (stream_load_ctx != nullptr) {
-        stream_load_ctx->pipe->cancel(msg);
+        stream_load_ctx->pipe->cancel(reason.to_string());
     }
 
     // Cancel the result queue manager used by spark doris connector
@@ -206,6 +184,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
+            if (task->is_finished()) {
+                continue;
+            }
             task->clear_blocking_state();
         }
     }
@@ -348,17 +329,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
-    auto& pipeline_id_to_profile = _runtime_state->pipeline_id_to_profile();
-    DCHECK(pipeline_id_to_profile.empty());
-    pipeline_id_to_profile.resize(_pipelines.size());
-    {
-        size_t pip_idx = 0;
-        for (auto& pipeline_profile : pipeline_id_to_profile) {
-            pipeline_profile =
-                    std::make_unique<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
-            pip_idx++;
-        }
-    }
+    auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
     for (size_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];
@@ -421,7 +392,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
-        std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
+        std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                            std::shared_ptr<Dependency>>> {
@@ -457,7 +428,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_unique<PipelineXTask>(
+                auto task = std::make_unique<PipelineTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
                         i);
@@ -486,7 +457,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         // First, set up the parent profile,task runtime state
 
-        auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
+        auto prepare_and_set_parent_profile = [&](PipelineTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
             RETURN_IF_ERROR(
                     task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
@@ -535,7 +506,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
 void PipelineFragmentContext::_init_next_report_time() {
     auto interval_s = config::pipeline_status_report_interval;
-    if (_is_report_success && interval_s > 0 && _query_ctx->timeout_second > interval_s) {
+    if (_is_report_success && interval_s > 0 && _timeout > interval_s) {
         std::vector<string> ins_ids;
         instance_ids(ins_ids);
         VLOG_FILE << "enable period report: instance_id="
@@ -717,36 +688,53 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances),
-                is_shuffled_hash_join ? _total_instances : _num_instances);
+                is_shuffled_hash_join ? _total_instances : _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
-                ignore_data_hash_distribution);
+                ignore_data_hash_distribution,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASSTHROUGH:
-        shared_state->exchanger =
-                PassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = PassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::BROADCAST:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger =
-                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = BroadcastExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
-        shared_state->exchanger =
-                AdaptivePassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        : 0);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
     auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
-                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
-                                                 _runtime_state->get_query_ctx());
+                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
@@ -771,8 +759,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     }
     operator_xs.insert(operator_xs.begin(), source_op);
 
-    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id(),
-                                             _query_ctx.get());
+    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id());
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
@@ -1454,8 +1441,8 @@ Status PipelineFragmentContext::submit() {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());
             if (!st) {
-                std::lock_guard<std::mutex> l(_status_lock);
-                cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+                cancel(Status::InternalError("submit context to executor fail"));
+                std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
             }
@@ -1493,7 +1480,7 @@ void PipelineFragmentContext::close_if_prepare_failed(Status st) {
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st, _fragment_id);
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could
@@ -1505,6 +1492,13 @@ void PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
+    // Print profile content in info log is a tempoeray solution for stream load.
+    // Since stream load does not have someting like coordinator on FE, so
+    // backend can not report profile to FE, ant its profile can not be shown
+    // in the same way with other query. So we print the profile content to info log.
+    // Print profile content in log is harmful for log readability, info log will be
+    // full of profile content, and not just profile of stream load.
+    // We know it, but currently we do not have a cheap and good solution for this.
     if (_runtime_state->enable_profile()) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
@@ -1513,8 +1507,10 @@ void PipelineFragmentContext::_close_fragment_instance() {
         // After add the operation, the print out like that:
         // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
         // We can easily know the exec node execute time without child time consumed.
-        _runtime_state->runtime_profile()->compute_time_in_profile();
-        _runtime_state->runtime_profile()->pretty_print(&ss);
+        for (auto runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+            runtime_profile_ptr->pretty_print(&ss);
+        }
+
         if (_runtime_state->load_channel_profile()) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
@@ -1543,12 +1539,7 @@ void PipelineFragmentContext::close_a_pipeline() {
 }
 
 Status PipelineFragmentContext::send_report(bool done) {
-    Status exec_status = Status::OK();
-    {
-        std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _query_ctx->exec_status();
-    }
-
+    Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
@@ -1581,9 +1572,7 @@ Status PipelineFragmentContext::send_report(bool done) {
                              TUniqueId(),
                              -1,
                              _runtime_state.get(),
-                             [this](Status st) { return update_status(st); },
-                             [this](const PPlanFragmentCancelReason& reason,
-                                    const std::string& msg) { cancel(reason, msg); }};
+                             [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
@@ -1621,7 +1610,7 @@ PipelineFragmentContext::collect_realtime_profile_x() const {
     }
 
     // pipeline_id_to_profile is initialized in prepare stage
-    for (auto& pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
+    for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
         pipeline_profile->to_thrift(profile_ptr.get());
         res.push_back(profile_ptr);

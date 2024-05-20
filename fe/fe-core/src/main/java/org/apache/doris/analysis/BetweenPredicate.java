@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,7 +35,12 @@ import org.apache.logging.log4j.Logger;
 public class BetweenPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(BetweenPredicate.class);
 
-    private final boolean isNotBetween;
+    @SerializedName("inb")
+    private boolean isNotBetween;
+
+    private BetweenPredicate() {
+        // use for serde only
+    }
 
     // First child is the comparison expr which should be in [lowerBound, upperBound].
     public BetweenPredicate(Expr compareExpr, Expr lowerBound, Expr upperBound, boolean isNotBetween) {

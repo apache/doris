@@ -22,6 +22,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -208,9 +210,14 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
         args_in.push_back(block.get_by_position(arg_index).column.get());
 
     auto& result_info = block.get_by_position(result_index);
-    if (result_info.type->is_nullable()) {
-        null_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+    if constexpr (Impl::special_implementation_for_nulls()) {
+        if (result_info.type->is_nullable()) {
+            null_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+        } else {
+            basic_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
+        }
     } else {
+        DCHECK(std::ranges::all_of(args_in, [](const auto& arg) { return !arg->is_nullable(); }));
         basic_execute_impl<Impl>(std::move(args_in), result_info, input_rows_count);
     }
     return Status::OK();
@@ -272,6 +279,7 @@ void register_function_logical(SimpleFunctionFactory& instance) {
     instance.register_function<FunctionAnd>();
     instance.register_function<FunctionOr>();
     instance.register_function<FunctionNot>();
+    instance.register_function<FunctionXor>();
 }
 
 } // namespace doris::vectorized

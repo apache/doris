@@ -38,17 +38,20 @@ class UniqueTest extends TestWithFeService {
         createDatabase("test");
         createTable("create table test.agg (\n"
                 + "id int not null,\n"
+                + "id2 int replace not null,\n"
                 + "name varchar(128) replace not null )\n"
                 + "AGGREGATE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         createTable("create table test.uni (\n"
                 + "id int not null,\n"
+                + "id2 int not null,\n"
                 + "name varchar(128) not null)\n"
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -185,19 +188,19 @@ class UniqueTest extends TestWithFeService {
                 .analyze("select id from agg lateral view explode([1,2,3]) tmp1 as e1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
     }
 
     @Test
     void testJoin() {
         // foj doesn't propagate any
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select * from agg full outer join uni "
+                .analyze("select agg.id from agg full outer join uni "
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutputSet()));
 
         // loj propagate unique when right is unique
         plan = PlanChecker.from(connectContext)
@@ -205,7 +208,7 @@ class UniqueTest extends TestWithFeService {
                         + "on agg.id = uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id, uni.id from agg left outer join uni "
                         + "on agg.id = uni.id")
@@ -220,7 +223,9 @@ class UniqueTest extends TestWithFeService {
                         + "on agg.id = uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutput().get(1)));
+
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id, uni.id from agg right outer join uni "
                         + "on agg.id = uni.id")
@@ -271,28 +276,22 @@ class UniqueTest extends TestWithFeService {
                         + "on agg.id = uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id < uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id = uni.id or agg.name > uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id = uni.id and agg.name > uni.name")
@@ -330,14 +329,14 @@ class UniqueTest extends TestWithFeService {
                 .analyze("select id from agg  group by GROUPING SETS ((id, name), (id))")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies()
+                .isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from agg group by rollup (id, name)")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies()
+                .isUnique(plan.getOutputSet()));
     }
 
     @Test
@@ -382,4 +381,23 @@ class UniqueTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
     }
 
+    @Test
+    void testEqual() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id, id2 from agg where id = id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t1.name, t2.id from "
+                        + "(select id, name from agg group by id, name) t1 "
+                        + "join (select id from uni) t2 "
+                        + "on t1.id = t2.id")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutputSet()));
+    }
 }

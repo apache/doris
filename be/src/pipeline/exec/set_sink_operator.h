@@ -21,7 +21,6 @@
 
 #include "olap/olap_common.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
 
@@ -104,7 +103,8 @@ private:
     Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
                                 vectorized::Block& block, RuntimeState* state);
     Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
-                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
+                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
+                                 size_t& rows);
 
     const int _cur_child_id;
     const int _child_quantity;

@@ -71,12 +71,12 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
-        char buf[column_desc.children[0].len];
+        std::vector<char> buf(column_desc.children[0].len);
         const TypeInfo* type_info = get_scalar_type_info(
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
-        RETURN_IF_ERROR(type_info->from_string(buf, _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(name, buf, inverted_index_query_type,
-                                                           num_rows, roaring, true));
+        RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                name, buf.data(), inverted_index_query_type, num_rows, roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -115,21 +115,6 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
         break;
     case MatchType::MATCH_PHRASE_EDGE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_EQ:
-        ret = InvertedIndexQueryType::EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LT:
-        ret = InvertedIndexQueryType::LESS_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GT:
-        ret = InvertedIndexQueryType::GREATER_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LE:
-        ret = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GE:
-        ret = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
         break;
     default:
         DCHECK(false);

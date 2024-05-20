@@ -35,6 +35,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -68,6 +69,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -96,6 +98,14 @@ public class HudiScanNode extends HiveScanNode {
 
     private boolean incrementalRead = false;
     private IncrementalRelation incrementalRelation;
+
+    private boolean partitionInit = false;
+    private HoodieTimeline timeline;
+    private Option<String> snapshotTimestamp;
+    private String queryInstant;
+    private List<HivePartition> prunedPartitions;
+    private Iterator<HivePartition> prunedPartitionsIter;
+    private int numSplitsPerPartition = NUM_SPLITS_PER_PARTITION;
 
     /**
      * External file scan node for Query Hudi table
@@ -192,6 +202,22 @@ public class HudiScanNode extends HiveScanNode {
             }
         } else {
             incrementalRelation = null;
+        }
+
+        timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+        if (desc.getRef().getTableSnapshot() != null) {
+            queryInstant = desc.getRef().getTableSnapshot().getTime();
+            snapshotTimestamp = Option.of(queryInstant);
+        } else {
+            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+            if (!snapshotInstant.isPresent()) {
+                prunedPartitions = Collections.emptyList();
+                prunedPartitionsIter = prunedPartitions.iterator();
+                partitionInit = true;
+                return;
+            }
+            queryInstant = snapshotInstant.get().getTimestamp();
+            snapshotTimestamp = Option.empty();
         }
     }
 
@@ -300,32 +326,8 @@ public class HudiScanNode extends HiveScanNode {
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
-    @Override
-    public List<Split> getSplits() throws UserException {
-        if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
-            return getIncrementalSplits();
-        }
-
-        HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        String queryInstant;
-        Option<String> snapshotTimestamp;
-        if (desc.getRef().getTableSnapshot() != null) {
-            queryInstant = desc.getRef().getTableSnapshot().getTime();
-            snapshotTimestamp = Option.of(queryInstant);
-        } else {
-            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
-            if (!snapshotInstant.isPresent()) {
-                return Collections.emptyList();
-            }
-            queryInstant = snapshotInstant.get().getTimestamp();
-            snapshotTimestamp = Option.empty();
-        }
-        // Non partition table will get one dummy partition
-        List<HivePartition> partitions = HiveMetaStoreClientHelper.ugiDoAs(
-                HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
+    private void getPartitionSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
-        List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         partitions.forEach(partition -> executor.execute(() -> {
             String globPath;
@@ -354,7 +356,7 @@ public class HudiScanNode extends HiveScanNode {
                     long fileSize = baseFile.getFileSize();
                     // Need add hdfs host to location
                     LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                    Path splitFilePath = locationPath.toScanRangeLocation();
+                    Path splitFilePath = locationPath.toStorageLocation();
                     splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
                             new String[0], partition.getPartitionValues()));
                 });
@@ -370,7 +372,67 @@ public class HudiScanNode extends HiveScanNode {
         } catch (InterruptedException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
+    }
+
+    @Override
+    public List<Split> getSplits() throws UserException {
+        if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
+            return getIncrementalSplits();
+        }
+        if (!partitionInit) {
+            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
+                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
+            partitionInit = true;
+        }
+        List<Split> splits = Collections.synchronizedList(new ArrayList<>());
+        getPartitionSplits(prunedPartitions, splits);
         return splits;
+    }
+
+    @Override
+    public List<Split> getNextBatch(int maxBatchSize) throws UserException {
+        List<Split> splits = Collections.synchronizedList(new ArrayList<>());
+        int numPartitions = 0;
+        while (splits.size() < maxBatchSize && prunedPartitionsIter.hasNext()) {
+            List<HivePartition> partitions = new ArrayList<>(NUM_PARTITIONS_PER_LOOP);
+            for (int i = 0; i < NUM_PARTITIONS_PER_LOOP && prunedPartitionsIter.hasNext(); ++i) {
+                partitions.add(prunedPartitionsIter.next());
+                numPartitions++;
+            }
+            getPartitionSplits(partitions, splits);
+        }
+        if (splits.size() / numPartitions > numSplitsPerPartition) {
+            numSplitsPerPartition = splits.size() / numPartitions;
+        }
+        return splits;
+    }
+
+    @Override
+    public boolean hasNext() {
+        return prunedPartitionsIter.hasNext();
+    }
+
+    @Override
+    public boolean isBatchMode() {
+        if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
+            return false;
+        }
+        if (!partitionInit) {
+            // Non partition table will get one dummy partition
+            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
+                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
+            prunedPartitionsIter = prunedPartitions.iterator();
+            partitionInit = true;
+        }
+        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
+    }
+
+    @Override
+    public int numApproximateSplits() {
+        return numSplitsPerPartition * prunedPartitions.size();
     }
 
     private HudiSplit generateHudiSplit(FileSlice fileSlice, List<String> partitionValues, String queryInstant) {
@@ -404,7 +466,11 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), inputSplitsNum);
+        if (isBatchMode()) {
+            return super.getNodeExplainString(prefix, detailLevel);
+        } else {
+            return super.getNodeExplainString(prefix, detailLevel)
+                    + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), inputSplitsNum);
+        }
     }
 }

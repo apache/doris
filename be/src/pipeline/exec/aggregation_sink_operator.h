@@ -19,8 +19,7 @@
 
 #include <stdint.h>
 
-#include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/exec/operator.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 
@@ -76,7 +75,7 @@ protected:
     Status _execute_without_key(vectorized::Block* block);
     Status _merge_without_key(vectorized::Block* block);
     void _update_memusage_without_key();
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     Status _execute_with_serialized_key(vectorized::Block* block);
     Status _merge_with_serialized_key(vectorized::Block* block);
     void _update_memusage_with_serialized_key();

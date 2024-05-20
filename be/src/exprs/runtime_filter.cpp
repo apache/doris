@@ -41,7 +41,7 @@
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "gutil/strings/substitute.h"
-#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -364,9 +364,11 @@ public:
     }
 
     bool get_build_bf_cardinality() const {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
-        return _context->bloom_filter_func->get_build_bf_cardinality();
+        if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+            _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            return _context->bloom_filter_func->get_build_bf_cardinality();
+        }
+        return false;
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -543,7 +545,8 @@ public:
             break;
         }
         case RuntimeFilterType::BITMAP_FILTER: {
-            // do nothing because we assume bitmap filter join always have full data
+            // use input bitmap directly because we assume bitmap filter join always have full data
+            _context->bitmap_filter_func = wrapper->_context->bitmap_filter_func;
             break;
         }
         default:
@@ -1301,16 +1304,16 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(pipeline::CountedFinishDependency* dependency) {
+void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
     _dependency = dependency;
-    _dependency->add();
+    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        _dependency->sub();
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
     }
 }
 
@@ -1521,15 +1524,21 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
 }
 
+std::string IRuntimeFilter::debug_string() const {
+    return fmt::format(
+            "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
+            "build_bf_cardinality: {}",
+            _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
+            _wrapper->get_build_bf_cardinality());
+}
+
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     auto status = _wrapper->merge(wrapper);
     if (!status) {
-        LOG(WARNING) << "runtime filter merge failed: " << _name
-                     << " ,need_local_merge: " << _need_local_merge
-                     << " ,is_broadcast: " << _is_broadcast_join;
-        DCHECK(false); // rpc response is often ignored, so let it crash directly here
+        return Status::InternalError("runtime filter merge failed: {}, error_msg: {}",
+                                     debug_string(), status.msg());
     }
-    return status;
+    return Status::OK();
 }
 
 template <typename T>

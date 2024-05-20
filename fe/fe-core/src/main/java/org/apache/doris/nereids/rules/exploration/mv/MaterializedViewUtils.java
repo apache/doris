@@ -148,11 +148,10 @@ public class MaterializedViewUtils {
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
-            if (cascadesContext.getMemo().getRefreshVersion() != structInfoMap.getRefreshVersion()
-                    || structInfoMap.getTableMaps().isEmpty()) {
-                structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
-                structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
-            }
+            // Refresh struct info in current level plan from top to bottom
+            structInfoMap.refresh(ownerGroup, cascadesContext.getMemo().getRefreshVersion());
+            structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
+
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
             ImmutableList.Builder<StructInfo> structInfosBuilder = ImmutableList.builder();
             if (!queryTableSets.isEmpty()) {
@@ -163,7 +162,7 @@ public class MaterializedViewUtils {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext.getMemo(),
-                            queryTableSet, queryTableSet, ownerGroup, plan);
+                            queryTableSet, ownerGroup, plan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
@@ -185,12 +184,13 @@ public class MaterializedViewUtils {
         LogicalOlapScan mvScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 materializedView,
-                ImmutableList.of(materializedView.getQualifiedDbName()),
+                materializedView.getFullQualifiers(),
+                ImmutableList.of(),
+                materializedView.getBaseIndexId(),
+                PreAggStatus.on(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
-                ImmutableList.of(),
                 Optional.empty());
-        mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
         List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new LogicalProject<Plan>(mvProjects, mvScan);
@@ -204,9 +204,11 @@ public class MaterializedViewUtils {
             CascadesContext cascadesContext,
             Function<CascadesContext, Plan> planRewriter,
             Plan rewrittenPlan, Plan originPlan) {
-        List<Slot> originOutputs = originPlan.getOutput();
-        if (originOutputs.size() != rewrittenPlan.getOutput().size()) {
+        if (originPlan == null || rewrittenPlan == null) {
             return null;
+        }
+        if (originPlan.getOutputSet().size() != rewrittenPlan.getOutputSet().size()) {
+            return rewrittenPlan;
         }
         // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
         // origin plan slot order

@@ -42,12 +42,10 @@ import java.util.Map;
 import java.util.Set;
 
 public class MTMVTaskTest {
-    private long poneId = 1L;
     private String poneName = "p1";
-    private long ptwoId = 2L;
     private String ptwoName = "p2";
-    private List<Long> allPartitionIds = Lists.newArrayList(poneId, ptwoId);
-    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet());
+    private List<String> allPartitionNames = Lists.newArrayList(poneName, ptwoName);
+    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
 
     @Mocked
     private MTMV mtmv;
@@ -70,9 +68,9 @@ public class MTMVTaskTest {
                 minTimes = 0;
                 result = mtmv;
 
-                mtmv.getPartitionIds();
+                mtmv.getPartitionNames();
                 minTimes = 0;
-                result = allPartitionIds;
+                result = Sets.newHashSet(poneName, ptwoName);
 
                 mtmv.getMvPartitionInfo();
                 minTimes = 0;
@@ -82,12 +80,12 @@ public class MTMVTaskTest {
                 minTimes = 0;
                 result = MTMVPartitionType.FOLLOW_BASE_TABLE;
 
-                mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
-                minTimes = 0;
-                result = poneId;
+                // mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
+                // minTimes = 0;
+                // result = poneId;
 
                 mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
-                        (Map<Long, Set<Long>>) any);
+                        (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = true;
 
@@ -106,16 +104,16 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
-        Assert.assertEquals(allPartitionIds, result);
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(allPartitionNames, result);
     }
 
     @Test
     public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), false);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
-        Assert.assertEquals(Lists.newArrayList(poneId), result);
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test
@@ -129,7 +127,7 @@ public class MTMVTaskTest {
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
         Assert.assertTrue(CollectionUtils.isEmpty(result));
     }
 
@@ -137,8 +135,8 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
-        Assert.assertEquals(allPartitionIds, result);
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(allPartitionNames, result);
     }
 
     @Test
@@ -146,15 +144,15 @@ public class MTMVTaskTest {
         new Expectations() {
             {
                 mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
-                        (Map<Long, Set<Long>>) any);
+                        (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = false;
             }
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
-        Assert.assertEquals(allPartitionIds, result);
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(allPartitionNames, result);
     }
 
     @Test
@@ -162,7 +160,7 @@ public class MTMVTaskTest {
         new Expectations() {
             {
                 mtmvPartitionUtil
-                        .isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any, (Map<Long, Set<Long>>) any);
+                        .isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any, (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = false;
 
@@ -171,14 +169,14 @@ public class MTMVTaskTest {
                 result = RefreshMethod.AUTO;
 
                 mtmvPartitionUtil
-                        .getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableInfo>) any, (Map<Long, Set<Long>>) any);
+                        .getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableInfo>) any, (Map<String, Set<String>>) any);
                 minTimes = 0;
-                result = Lists.newArrayList(ptwoId);
+                result = Lists.newArrayList(ptwoName);
             }
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<Long> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
-        Assert.assertEquals(Lists.newArrayList(ptwoId), result);
+        List<String> result = task.calculateNeedRefreshPartitions(Maps.newHashMap());
+        Assert.assertEquals(Lists.newArrayList(ptwoName), result);
     }
 }

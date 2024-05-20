@@ -24,16 +24,14 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/runtime/partitioner.h"
-#include "vec/sink/vdata_stream_sender.h" // ShuffleChannelIds
 
 namespace doris {
 class RuntimeState;
 
 namespace pipeline {
 
-using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>;
+using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinSinkOperatorX;
 
@@ -71,11 +69,6 @@ protected:
 
     Status _spill_status;
     std::mutex _spill_status_lock;
-
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
 
     std::unique_ptr<PartitionerType> _partitioner;
 

@@ -144,6 +144,11 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     }
 
     @Override
+    public UnboundRelation withRelationId(RelationId relationId) {
+        throw new UnboundException("should not call UnboundRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
     }

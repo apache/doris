@@ -40,6 +40,7 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -458,6 +459,10 @@ public class CreateTableInfo {
                     }
                 }
             }
+
+            for (RollupDefinition rollup : rollups) {
+                rollup.validate();
+            }
         } else {
             // mysql, broker and hive do not need key desc
             if (keysType != null) {
@@ -543,16 +548,21 @@ public class CreateTableInfo {
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
         if (Strings.isNullOrEmpty(engineName)) {
-            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName)) {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+            if (catalog == null) {
+                throw new AnalysisException("Unknown catalog: " + ctlName);
+            }
+
+            if (catalog instanceof InternalCatalog) {
                 engineName = "olap";
-            } else if (ctx.getCurrentCatalog() instanceof HMSExternalCatalog) {
+            } else if (catalog instanceof HMSExternalCatalog) {
                 engineName = "hive";
-            } else if (ctx.getCurrentCatalog() instanceof IcebergExternalCatalog) {
+            } else if (catalog instanceof IcebergExternalCatalog) {
                 engineName = "iceberg";
             } else {
-                // set to olap by default
-                engineName = "olap";
+                throw new AnalysisException("Current catalog does not support create table: " + ctlName);
             }
         }
     }
@@ -777,3 +787,4 @@ public class CreateTableInfo {
         this.isExternal = isExternal;
     }
 }
+

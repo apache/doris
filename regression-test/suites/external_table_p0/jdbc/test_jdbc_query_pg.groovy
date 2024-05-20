@@ -537,9 +537,9 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
         order_qt_sql63 """ SELECT * FROM (SELECT 1 a) x CROSS JOIN (SELECT 2 b) y """
         order_qt_sql65 """ SELECT t.c FROM (SELECT 1) as t1 CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
         order_qt_sql66 """ SELECT t.c FROM (SELECT 1) as a CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
-        order_qt_sql67 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 ORDER BY k8 LIMIT 5) a
+        order_qt_sql67 """ SELECT a.*, b.* FROM (SELECT * FROM $jdbcPg14Table1 ORDER BY k8 LIMIT 5) a
                             JOIN (SELECT * FROM $jdbcPg14Table1 ORDER BY k8 LIMIT 5) b ON 123 = 123
-                            order by a.k8 desc limit 5"""
+                            order by a.k8, b.k8 desc limit 25"""
         order_qt_sql68 """ SELECT id, count(1) as c FROM $dorisExTable1 GROUP BY id
                             HAVING c IN (select k8 from $jdbcPg14Table1 where k8 = 2) """
 

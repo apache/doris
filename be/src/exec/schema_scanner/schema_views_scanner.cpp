@@ -152,23 +152,23 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // name
     {
-        StringRef strs[tables_num];
+        std::vector<StringRef> strs(tables_num);
         for (int i = 0; i < tables_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.name;
             strs[i] = StringRef(src->c_str(), src->size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // definition
     {
-        StringRef strs[tables_num];
+        std::vector<StringRef> strs(tables_num);
         for (int i = 0; i < tables_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.ddl_sql;
             strs[i] = StringRef(src->c_str(), src->length());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }

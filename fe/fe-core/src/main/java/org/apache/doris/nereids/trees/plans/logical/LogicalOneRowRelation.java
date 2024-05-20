@@ -90,6 +90,11 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
+    public LogicalOneRowRelation withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return projects.stream()
                 .map(NamedExpression::toSlot)
@@ -172,5 +177,10 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
                 aliasMap.put(namedExpr.child(0), namedExpr);
             }
         }
+    }
+
+    @Override
+    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+        // don't generate
     }
 }

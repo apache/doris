@@ -21,10 +21,10 @@
 #include <utility>
 
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/union_sink_operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "vec/core/block.h"
@@ -44,8 +44,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 ->data_queue.set_source_dependency(_shared_state->source_deps.front());
     } else {
         _only_const_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY",
-                state->get_query_ctx());
+                _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
@@ -99,12 +98,20 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer set_eos {[&]() {
-        //have executing const expr, queue have no data anymore, and child could be closed
-        *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
-               // here should check `_has_data` first, or when `is_all_finish` is false,
-               // the data queue will have no chance to change the `_flag_queue_idx`.
-               (!_has_data(state) && _child_size > 0 &&
-                local_state._shared_state->data_queue.is_all_finish());
+        // the eos check of union operator is complex, need check all logical if you want modify
+        // could ref this PR: https://github.com/apache/doris/pull/29677
+        // have executing const expr, queue have no data anymore, and child could be closed
+        if (_child_size == 0 && !local_state._need_read_for_const_expr) {
+            *eos = true;
+        } else if (_has_data(state)) {
+            *eos = false;
+        } else if (local_state._shared_state->data_queue.is_all_finish()) {
+            // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+            // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+            *eos = !_has_data(state);
+        } else {
+            *eos = false;
+        }
     }};
 
     SCOPED_TIMER(local_state.exec_time_counter());

@@ -107,6 +107,10 @@ public class AuditEvent {
     // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
+    @AuditField(value = "scanBytesFromLocalStorage")
+    public long scanBytesFromLocalStorage = -1;
+    @AuditField(value = "scanBytesFromRemoteStorage")
+    public long scanBytesFromRemoteStorage = -1;
 
     public long pushToAuditLogQueueTime;
 
@@ -248,6 +252,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromLocalStorage(long scanBytesFromLocalStorage) {
+            auditEvent.scanBytesFromLocalStorage = scanBytesFromLocalStorage;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromRemoteStorage(long scanBytesFromRemoteStorage) {
+            auditEvent.scanBytesFromRemoteStorage = scanBytesFromRemoteStorage;
             return this;
         }
 

@@ -109,13 +109,19 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     }
 
     public LogicalFileScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
+    }
+
+    @Override
+    public LogicalFileScan withRelationId(RelationId relationId) {
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
+                Optional.empty(), conjuncts, selectedPartitions, tableSample);
     }
 
     @Override

@@ -224,6 +224,7 @@ public:
                 break;
             }
             setup_analyzer_lowercase(analyzer);
+            setup_analyzer_use_stopwords(analyzer);
             return Status::OK();
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -233,10 +234,19 @@ public:
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
         auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
-        if (lowercase == "true") {
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
             analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
             analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
         }
     }
 
@@ -363,16 +373,15 @@ public:
                 LOG(ERROR) << "index writer is null in inverted index writer.";
                 return Status::InternalError("index writer is null in inverted index writer");
             }
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // offsets[i+1] is now row element count
-                // [0, 3, 6]
-                // [10,20,30] [20,30,40], [30,40,50]
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
-                for (auto j = start_off; j < end_off; ++j) {
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -395,9 +404,11 @@ public:
                             _parser_type != InvertedIndexParserType::PARSER_NONE) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
-                            _char_string_reader->init(v->get_data(), v->get_size(), false);
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
                             ts = _analyzer->tokenStream(new_field->name(),
-                                                        _char_string_reader.get());
+                                                        char_string_reader.release());
                             new_field->setValue(ts);
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field);
@@ -405,19 +416,22 @@ public:
                         _doc->add(*new_field);
                     }
                 }
+                start_off += array_elem_size;
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
                     _doc->clear();
                     _CLDELETE(ts);
+                } else {
+                    RETURN_IF_ERROR(add_null_document());
                 }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (size_t j = start_off; j < end_off; ++j) {
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -428,6 +442,7 @@ public:
                     _value_key_coder->full_encode_ascending(p, &new_value);
                     _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                 }
+                start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
                 _rid++;
             }

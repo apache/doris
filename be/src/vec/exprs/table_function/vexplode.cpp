@@ -71,20 +71,20 @@ void VExplodeTableFunction::process_close() {
     _array_offset = 0;
 }
 
-void VExplodeTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     size_t pos = _array_offset + _cur_offset;
     if (current_empty() || (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos])) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
         if (_is_nullable) {
             assert_cast<ColumnNullable*>(column.get())
                     ->get_nested_column_ptr()
-                    ->insert_from(*_detail.nested_col, pos);
+                    ->insert_many_from(*_detail.nested_col, pos, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                    ->insert_default();
+                    ->insert_many_defaults(length);
         } else {
-            column->insert_from(*_detail.nested_col, pos);
+            column->insert_many_from(*_detail.nested_col, pos, length);
         }
     }
 }

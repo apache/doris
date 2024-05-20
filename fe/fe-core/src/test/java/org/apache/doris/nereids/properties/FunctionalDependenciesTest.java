@@ -53,6 +53,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -62,16 +63,17 @@ class FunctionalDependenciesTest extends TestWithFeService {
         FunctionalDependencies fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniformAndNotNull(slot1));
         Assertions.assertFalse(fd.isUniformAndNotNull(slot2));
-        fdBuilder.addUniformSlot(ImmutableSet.of(slot2));
+        fdBuilder.addUniformSlot(slot2);
         fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniformAndNotNull(slot2));
+        Assertions.assertTrue(fd.isUniformAndNotNull(ImmutableSet.of(slot1, slot2)));
         ImmutableSet<Slot> slotSet = ImmutableSet.of(slot1, slot2, slot3);
-        fdBuilder.addUniformSlot(slotSet);
+        fdBuilder.addUniformSlot(slot3);
         fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniformAndNotNull(slotSet));
         Assertions.assertFalse(fd.isUniformAndNotNull(ImmutableSet.of(slot1, slot2, slot3, slot4)));
         Assertions.assertTrue(fd.isUniformAndNotNull(ImmutableSet.of(slot1, slot2)));
-        Assertions.assertFalse(fd.isUniformAndNotNull(ImmutableSet.of(slot3, slot2)));
+        Assertions.assertTrue(fd.isUniformAndNotNull(ImmutableSet.of(slot3, slot2)));
     }
 
     @Test
@@ -138,14 +140,14 @@ class FunctionalDependenciesTest extends TestWithFeService {
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUniform(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id, uni.id from agg full outer join uni "
                         + "on agg.id = uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties().getFunctionalDependencies().isUnique(plan.getOutputSet()));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id from agg left outer join uni "
@@ -298,8 +300,10 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .analyze("select name from agg where id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUnique(plan.getOutputSet()));
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutputSet()));
     }
 
     @Test

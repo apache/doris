@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testSubQuery") {
     sql """set enable_nereids_planner=true;"""
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """

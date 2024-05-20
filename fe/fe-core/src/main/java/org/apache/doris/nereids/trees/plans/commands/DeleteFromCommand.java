@@ -224,7 +224,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         // TODO(Now we can not push down non-scala type like array/map/struct to storage layer because of
         //  predict_column in be not support non-scala type, so we just should ban this type in delete predict, when
         //  we delete predict_column in be we should delete this ban)
-        if (!column.getType().isScalarType()) {
+        if (!column.getType().isScalarType()
+                || (column.getType().isOnlyMetricType() && !column.getType().isJsonbType())) {
             throw new AnalysisException(String.format("Can not apply delete condition to column type: "
                     + column.getType()));
         }

@@ -125,5 +125,12 @@ private:
     void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
 };
 
+struct SpillPartitionChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, size_t r) {
+        return ((l >> 16) | (l << 16)) % r;
+    }
+};
+
 } // namespace vectorized
 } // namespace doris
