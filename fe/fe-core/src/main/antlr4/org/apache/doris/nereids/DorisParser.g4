@@ -972,7 +972,7 @@ sampleMethod
     ;
 
 tableSnapshot
-    : FOR VERSION AS OF version=number
+    : FOR VERSION AS OF version=INTEGER_VALUE
     | FOR TIME AS OF time=STRING_LITERAL
     ;
 

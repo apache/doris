@@ -273,15 +273,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
                     hmsTable.setScanParams(unboundRelation.getScanParams());
-                    hmsTable.setTableSnapshotVersion(unboundRelation.getTableSnapshot().orElse(null));
                     return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot());
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                            qualifierWithoutTableName, unboundRelation.getTableSample());
+                            qualifierWithoutTableName, unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot());
                 case SCHEMA:
                     return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case JDBC_EXTERNAL_TABLE:

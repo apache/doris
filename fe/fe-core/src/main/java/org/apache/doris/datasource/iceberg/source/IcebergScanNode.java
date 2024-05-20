@@ -105,8 +105,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange,
-                    ((HMSExternalTable) table).getTableSnapshotVersion());
+            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -285,7 +284,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     public Long getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot == null) {
-            tableSnapshot = source.getTableSnapshot();
+            tableSnapshot = this.tableSnapshot;
         }
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
@@ -464,5 +463,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    public void setTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
     }
 }

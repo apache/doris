@@ -1375,10 +1375,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableSnapshot() != null) {
             if (ctx.tableSnapshot().TIME() != null) {
                 tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().time.getText()));
-                tableSnapshot.setType(TableSnapshot.VersionType.TIME);
             } else {
-                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().number().getText()));
-                tableSnapshot.setType(TableSnapshot.VersionType.VERSION);
+                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().version.getText()));
             }
         }
 
