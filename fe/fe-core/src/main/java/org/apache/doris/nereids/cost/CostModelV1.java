@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -97,8 +99,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
+        OlapTable table = physicalOlapScan.getTable();
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        double rows = statistics.getRowCount();
+        double aggMvBonus = 0.0;
+        if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
+            if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
+                    .getKeysType().equals(KeysType.AGG_KEYS)) {
+                aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
     }
 
     @Override
