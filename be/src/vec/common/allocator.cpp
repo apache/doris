@@ -24,9 +24,12 @@
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <new>
+#include <random>
 #include <thread>
 
 // Allocator is used by too many files. For compilation speed, put dependencies in `.cpp` as much as possible.
+#include "common/compiler_util.h"
+#include "common/status.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -47,6 +50,31 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
     if (doris::thread_context()->skip_memory_check != 0) {
         return;
     }
+
+    if (UNLIKELY(doris::config::mem_alloc_fault_probability > 0.0)) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::bernoulli_distribution fault(doris::config::mem_alloc_fault_probability);
+        if (fault(gen)) {
+            const std::string injection_err_msg = fmt::format(
+                    "[MemAllocInjectFault] Query {} alloc memory failed due to fault "
+                    "injection.",
+                    print_id(doris::thread_context()->task_id()));
+            // Print stack trace for debug.
+            [[maybe_unused]] auto stack_trace_st =
+                    doris::Status::Error<doris::ErrorCode::MEM_ALLOC_FAILED, true>(
+                            injection_err_msg);
+#ifndef ENABLE_STACKTRACE
+            LOG(INFO) << stack_trace_st.to_string();
+#endif
+            if (!doris::enable_thread_catch_bad_alloc) {
+                doris::thread_context()->thread_mem_tracker_mgr->cancel_query(injection_err_msg);
+            } else {
+                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, injection_err_msg);
+            }
+        }
+    }
+
     if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
