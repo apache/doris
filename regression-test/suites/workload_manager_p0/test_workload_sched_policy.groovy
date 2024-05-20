@@ -121,6 +121,8 @@ suite("test_workload_sched_policy") {
     sql """grant ADMIN_PRIV on *.*.* to test_workload_sched_user"""
 
     // 1 create test_set_var_policy
+    sql """drop workload policy if exists test_set_var_policy;"""
+    sql """drop workload policy if exists test_set_var_policy2;"""
     sql "create workload policy test_set_var_policy conditions(username='test_workload_sched_user')" +
             "actions(set_session_variable 'parallel_pipeline_task_num=33');"
     def result1 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {

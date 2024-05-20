@@ -15,5 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_check_wg") {
-    qt_select_wg "select name from information_schema.workload_groups where name in ('upgrade_g1','normal','upgrade_g2');"
+    qt_select_count "select count(1) from information_schema.workload_groups where name in ('upgrade_g1','normal','upgrade_g2')"
+    qt_select_wg "select name from information_schema.workload_groups where name in ('upgrade_g1','normal','upgrade_g2') order by name;"
 }
