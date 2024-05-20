@@ -31,12 +31,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Represent a hive table sink plan node that has not been bound.
+ * Represent an iceberg table sink plan node that has not been bound.
  */
-public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
+public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
 
-    public UnboundHiveTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-                                List<String> partitions, CHILD_TYPE child) {
+    public UnboundIcebergTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+                                   List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
                 Optional.empty(), Optional.empty(), child);
     }
@@ -44,41 +44,41 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundBaseEx
     /**
      * constructor
      */
-    public UnboundHiveTableSink(List<String> nameParts,
-                                List<String> colNames,
-                                List<String> hints,
-                                List<String> partitions,
-                                DMLCommandType dmlCommandType,
-                                Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties,
-                                CHILD_TYPE child) {
+    public UnboundIcebergTableSink(List<String> nameParts,
+                                   List<String> colNames,
+                                   List<String> hints,
+                                   List<String> partitions,
+                                   DMLCommandType dmlCommandType,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   CHILD_TYPE child) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
-    }
-
-    @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundHiveTableSink(this, context);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundHiveTableSink only accepts one child");
-        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+        return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundIcebergTableSink(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
-                                                 Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, logicalProperties, children.get(0));
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }
