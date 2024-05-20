@@ -1932,19 +1932,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
 
-        Set<Expression> usedSlotInRepeat = ImmutableSet.<Expression>builder()
-                .addAll(flattenGroupingSetExprs)
-                .addAll(aggregateFunctionUsedSlots)
-                .build();
+        // keep flattenGroupingSetExprs comes first
+        List<Expr> preRepeatExprs = Stream.concat(flattenGroupingSetExprs.stream(), aggregateFunctionUsedSlots.stream())
+                .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
 
-        List<Expr> preRepeatExprs = usedSlotInRepeat.stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
-                .collect(ImmutableList.toImmutableList());
-
-        List<Slot> outputSlots = repeat.getOutputExpressions()
-                .stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        // outputSlots's order need same with preRepeatExprs
+        List<Slot> outputSlots = Stream.concat(
+                repeat.getOutputExpressions().stream().filter(output -> flattenGroupingSetExprs.contains(output)),
+                repeat.getOutputExpressions().stream().filter(output -> !flattenGroupingSetExprs.contains(output)))
+                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
 
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,
         //       or else the preRepeatExprs can not find the bottom slotRef and throw
