@@ -103,6 +103,7 @@ ExecNode::~ExecNode() = default;
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
+    LOG(ERROR) << "yangsiyu vconjunct: " << tnode.__isset.vconjunct << ", conjuncts: " << tnode.__isset.conjuncts;
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
