@@ -49,6 +49,8 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -546,6 +548,36 @@ public class IcebergUtils {
                         schema.caseInsensitiveFindField(field.name()).fieldId()));
             }
             return tmpSchema;
+        });
+    }
+
+    public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            org.apache.iceberg.Table table = getIcebergTable(catalog, dbName, name);
+            PartitionSpec spec = table.spec();
+            List<PartitionField> fields = spec.fields();
+            for (PartitionField field:fields) {
+                System.out.println(field.name());
+            }
+            Snapshot currentSnapshot = table.currentSnapshot();
+            // 获取所有清单文件并遍历它们
+            List<ManifestFile> manifestFiles = currentSnapshot.allManifests(table.io());
+            for (ManifestFile manifestFile : manifestFiles) {
+                // 这里你需要读取ManifestFile中的DataFile并提取分区值
+                // 注意：这通常涉及到读取ManifestFile的元数据，并可能需要处理ManifestList等更复杂的情况
+                // Iceberg没有直接提供API来从ManifestFile中获取分区值列表，因此你可能需要解析ManifestFile的元数据
+
+                // 伪代码：你需要实现这部分逻辑来提取分区值
+                // List<String> filePartitionValues = extractPartitionValuesFromManifestFile(manifestFile);
+                // partitionValues.addAll(filePartitionValues);
+            }
+            List<String> partitionValues = new ArrayList<>();
+            for (Types.NestedField field : partitionFields) {
+                System.out.println("Partition Field: " + field.name() + " (" + field.type() + ")");
+            }
+            List<String> res = Lists.newArrayList();
+
+            return res;
         });
     }
 

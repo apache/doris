@@ -37,6 +37,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -180,7 +181,7 @@ public class ShowPartitionsStmt extends ShowStmt {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                 catalog.getType()));
         }
