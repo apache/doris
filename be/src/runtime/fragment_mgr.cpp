@@ -266,6 +266,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
 
             if (enable_profile) {
+                DCHECK(req.profile != nullptr);
+                TDetailedReportParams detailed_param;
+                detailed_param.__isset.fragment_instance_id = false;
+                detailed_param.__isset.profile = true;
+                detailed_param.__isset.loadChannelProfile = false;
+                detailed_param.__set_is_fragment_level(true);
+                req.profile->to_thrift(&detailed_param.profile);
+                params.detailed_report.push_back(detailed_param);
                 for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                     TDetailedReportParams detailed_param;
                     detailed_param.__isset.fragment_instance_id = false;
