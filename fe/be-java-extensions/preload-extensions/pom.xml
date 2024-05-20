@@ -88,6 +88,11 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-spark3-common</artifactId>
             <version>${hudi.version}</version>

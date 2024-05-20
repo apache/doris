@@ -83,11 +83,6 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-mapreduce-client-core</artifactId>
-            <version>${hadoop.version}</version>
-        </dependency>
-        <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-bundle</artifactId>
             <version>${aws-java-sdk.version}</version>
