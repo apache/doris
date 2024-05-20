@@ -328,6 +328,8 @@ Status SegmentIterator::init_iterators() {
 }
 
 Status SegmentIterator::_lazy_init() {
+    LOG(ERROR) << "yangsiyu _common_expr_ctxs_push_down: " << _common_expr_ctxs_push_down.size() << ", _remaining_conjunct_roots: " << _remaining_conjunct_roots.size();
+
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     _row_bitmap.addRange(0, _segment->num_rows());
