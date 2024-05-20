@@ -1178,8 +1178,10 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
-                                        _state->batch_size());
+    _block_convertor->init_autoinc_info(
+            _schema->db_id(), _schema->table_id(), _state->batch_size(),
+            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
