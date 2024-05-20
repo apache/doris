@@ -40,8 +40,9 @@ public class TableIdentifier {
         Preconditions.checkArgument(tableIf != null,
                 "Table can not be null in constraint");
         tableId = tableIf.getId();
-        databaseId = tableIf.getDatabase().getId();
-        catalogId = tableIf.getDatabase().getCatalog().getId();
+        databaseId = tableIf.getDatabase() == null ? 0L : tableIf.getDatabase().getId();
+        catalogId = tableIf.getDatabase() == null || tableIf.getDatabase().getCatalog() == null
+                ? 0L : tableIf.getDatabase().getCatalog().getId();
     }
 
     public TableIf toTableIf() {
