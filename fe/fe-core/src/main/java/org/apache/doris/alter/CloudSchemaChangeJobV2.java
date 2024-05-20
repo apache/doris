@@ -210,7 +210,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 tbl.getTimeSeriesCompactionFileCountThreshold(),
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                tbl.getTimeSeriesCompactionLevelThreshold());
+                                tbl.getTimeSeriesCompactionLevelThreshold(),
+                                tbl.disableAutoCompaction());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
