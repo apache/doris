@@ -48,6 +48,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
@@ -140,7 +141,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
 
 Status RowsetBuilder::check_tablet_version_count() {
     if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
