@@ -24,6 +24,7 @@
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -69,6 +70,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -1170,7 +1172,15 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
         response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
     }
 
-    LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
+    RuntimeProfile::Counter get_realtime_timer {TUnit::TIME_NS};
+
+    Defer _print_log([&]() {
+        LOG_INFO("Getting realtime exec status of query {} , cost time {}", print_id(request.id),
+                 PrettyPrinter::print(get_realtime_timer.value(), get_realtime_timer.type()));
+    });
+
+    SCOPED_TIMER(&get_realtime_timer);
+
     std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
             std::make_unique<TReportExecStatusParams>();
     Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
@@ -1186,7 +1196,6 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);
-    return;
 }
 
 } // namespace doris

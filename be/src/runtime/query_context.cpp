@@ -470,7 +470,8 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status_x() const {
         }
 
         exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params_x(
-                this->_query_id, realtime_query_profile, load_channel_profiles, /*is_done=*/false);
+                this->_query_id, std::move(realtime_query_profile),
+                std::move(load_channel_profiles), /*is_done=*/false);
     } else {
         auto msg = fmt::format("Query {} is not pipelineX query", print_id(_query_id));
         LOG_ERROR(msg);
