@@ -64,7 +64,7 @@ suite("test_schema_change") {
         )
     """
 
-    waitBrokerLoadJob = { String label /* param */ ->
+    def waitBrokerLoadJob = { String label /* param */ ->
         // check load state
         int tryTimes = 20
         while (tryTimes-- > 0) {
