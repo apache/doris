@@ -649,11 +649,7 @@ public class Coordinator implements CoordInterface {
                         throw new UserException("could not find query queue");
                     }
                     queueToken = queryQueue.getToken();
-                    if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
-                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
-                        queryQueue.returnToken(queueToken);
-                        throw new UserException(queueToken.getOfferResultDetail());
-                    }
+                    queueToken.get(this.queryOptions.getExecutionTimeout() * 1000);
                 }
             } else {
                 context.setWorkloadGroupName("");
@@ -666,7 +662,7 @@ public class Coordinator implements CoordInterface {
     public void close() {
         if (queryQueue != null && queueToken != null) {
             try {
-                queryQueue.returnToken(queueToken);
+                queryQueue.notifyQueuedQuery(queueToken);
             } catch (Throwable t) {
                 LOG.error("error happens when coordinator close ", t);
             }
@@ -1475,7 +1471,7 @@ public class Coordinator implements CoordInterface {
     public void cancel() {
         cancel(new Status(TStatusCode.CANCELLED, "query is cancelled by user"));
         if (queueToken != null) {
-            queueToken.signalForCancel();
+            queueToken.cancel();
         }
     }
 
