@@ -502,7 +502,6 @@ void PlanFragmentExecutor::send_report(bool done) {
             _fragment_instance_id,
             _backend_num,
             _runtime_state.get(),
-            std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
@@ -550,9 +549,9 @@ void PlanFragmentExecutor::cancel(const Status& reason) {
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
     }
-    _runtime_state->set_is_cancelled(reason.to_string());
+    _runtime_state->cancel(reason);
     // To notify wait_for_start()
-    _query_ctx->set_ready_to_execute(true);
+    _query_ctx->set_ready_to_execute(reason);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
     _exec_env->vstream_mgr()->cancel(_fragment_instance_id, reason);

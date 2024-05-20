@@ -15,10 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.binlog;
+#include "runtime/memory/global_memory_arbitrator.h"
 
-import org.apache.doris.thrift.TBinlog;
+#include <bvar/bvar.h>
 
-public interface BinlogComparator {
-    boolean isExpired(TBinlog binlog);
-}
+namespace doris {
+
+bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
+        "meminfo_vm_rss_sub_allocator_cache",
+        [](void*) { return GlobalMemoryArbitrator::vm_rss_sub_allocator_cache(); }, nullptr);
+bvar::PassiveStatus<int64_t> g_process_memory_usage(
+        "meminfo_process_memory_usage",
+        [](void*) { return GlobalMemoryArbitrator::process_memory_usage(); }, nullptr);
+
+std::atomic<int64_t> GlobalMemoryArbitrator::_s_vm_rss_sub_allocator_cache = -1;
+std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
+
+} // namespace doris
