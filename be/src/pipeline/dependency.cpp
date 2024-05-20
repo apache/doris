@@ -132,6 +132,7 @@ bool RuntimeFilterTimer::should_be_check_timeout() {
             }
         }
         if (all_ready) {
+            _local_runtime_filter_dependencies.clear();
             _registration_time = MonotonicMillis();
         }
         return all_ready;
