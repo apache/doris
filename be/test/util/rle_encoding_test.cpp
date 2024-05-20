@@ -127,6 +127,13 @@ TEST(Rle, SpecificSequences) {
     }
 }
 
+TEST(Rle, ExitLengthLargerThanInt32) {
+    std::vector<uint64_t> values;
+    values.resize(0x40000000, 0);
+
+    ValidateRle(values, 1, nullptr, -1);
+}
+
 // ValidateRle on 'num_vals' values with width 'bit_width'. If 'value' != -1, that value
 // is used, otherwise alternating values are used.
 void TestRleValues(int bit_width, int num_vals, int value = -1) {
