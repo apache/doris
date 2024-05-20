@@ -18,25 +18,16 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 /**
- * For Hive Table
+ * For Base External Table
  */
-public class HiveInsertCommandContext extends BaseExternalTableInsertCommandContext {
-    private String writePath;
-    private String queryId;
+public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
+    protected boolean overwrite = false;
 
-    public String getWritePath() {
-        return writePath;
+    public boolean isOverwrite() {
+        return overwrite;
     }
 
-    public void setWritePath(String writePath) {
-        this.writePath = writePath;
-    }
-
-    public String getQueryId() {
-        return queryId;
-    }
-
-    public void setQueryId(String queryId) {
-        this.queryId = queryId;
+    public void setOverwrite(boolean overwrite) {
+        this.overwrite = overwrite;
     }
 }

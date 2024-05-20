@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -245,6 +246,9 @@ public class Coordinator implements CoordInterface {
 
     // Collect all hivePartitionUpdates obtained from be
     Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
+
+    // Collect all icebergCommitData obtained from be
+    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
 
     // Input parameter
     private long jobId = -1; // job which this task belongs to
@@ -2476,6 +2480,10 @@ public class Coordinator implements CoordInterface {
         this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
     }
 
+    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
+        this.icebergCommitDataFunc = icebergCommitDataFunc;
+    }
+
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (enablePipelineXEngine) {
@@ -2525,6 +2533,9 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                 hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+            }
+            if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
@@ -2590,6 +2601,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2662,6 +2676,9 @@ public class Coordinator implements CoordInterface {
                 }
                 if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
                     hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                }
+                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
+                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
                 }
                 instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
