@@ -1120,10 +1120,10 @@ suite("aggregate_without_roll_up") {
     // mv is union
     def mv23_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1132,15 +1132,15 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query23_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum(o_shippriority),
-            group_concat(l_shipinstruct),
+            group_concat(o_orderpriority),
             avg(l_linenumber),
             max_by(l_shipmode,l_suppkey),
             count(l_orderkey),
@@ -1149,8 +1149,9 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
-            l_suppkey;
+            o_orderpriority,
+            l_suppkey
+            order by o_orderpriority;
     """
     order_qt_query23_0_before "${query23_0}"
     check_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0")
@@ -1161,10 +1162,10 @@ suite("aggregate_without_roll_up") {
     // mv is merge
     def mv23_1 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1173,15 +1174,15 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query23_1 = """
              select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum(o_shippriority),
-            group_concat(l_shipinstruct),
+            group_concat(o_orderpriority),
             avg(l_linenumber),
             max_by(l_shipmode,l_suppkey),
             count(l_orderkey),
@@ -1190,8 +1191,9 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
-            l_suppkey;
+            o_orderpriority,
+            l_suppkey
+            order by o_orderpriority;
     """
     order_qt_query23_1_before "${query23_1}"
     // not supported, this usage is rare
@@ -1205,10 +1207,10 @@ suite("aggregate_without_roll_up") {
     // mv is union, query is union
     def mv24_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1217,15 +1219,15 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query24_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1234,7 +1236,7 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     order_qt_query24_0_before "${query24_0}"
@@ -1246,10 +1248,10 @@ suite("aggregate_without_roll_up") {
     // mv is union, query is merge
     def mv25_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1258,15 +1260,15 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query25_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1275,8 +1277,9 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
-            l_suppkey;
+            o_orderpriority,
+            l_suppkey
+            order by o_orderpriority;
     """
     order_qt_query25_0_before "${query25_0}"
     check_mv_rewrite_success(db, mv25_0, query25_0, "mv25_0")
@@ -1287,10 +1290,10 @@ suite("aggregate_without_roll_up") {
     // mv is merge, query is merge
     def mv26_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1299,15 +1302,15 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query26_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1316,8 +1319,9 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
-            l_suppkey;
+            o_orderpriority,
+            l_suppkey
+            order by o_orderpriority;
     """
     order_qt_query26_0_before "${query26_0}"
     check_mv_rewrite_success(db, mv26_0, query26_0, "mv26_0")
@@ -1328,10 +1332,10 @@ suite("aggregate_without_roll_up") {
     // mv is merge, query is union
     def mv27_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1340,15 +1344,15 @@ suite("aggregate_without_roll_up") {
             left join orders 
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     def query27_0 = """
             select
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1357,7 +1361,7 @@ suite("aggregate_without_roll_up") {
             left join orders
             on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
-            o_orderstatus,
+            o_orderpriority,
             l_suppkey;
     """
     order_qt_query27_0_before "${query27_0}"

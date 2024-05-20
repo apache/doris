@@ -1395,7 +1395,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderstatus)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1413,7 +1413,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum(o_shippriority),
-            group_concat(l_shipinstruct),
+            group_concat(o_orderstatus),
             avg(l_linenumber),
             max_by(l_shipmode,l_suppkey),
             count(l_orderkey),
@@ -1438,7 +1438,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderstatus)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1456,7 +1456,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum(o_shippriority),
-            group_concat(l_shipinstruct),
+            group_concat(o_orderstatus),
             avg(l_linenumber),
             max_by(l_shipmode,l_suppkey),
             count(l_orderkey),
@@ -1466,7 +1466,8 @@ suite("aggregate_with_roll_up") {
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
             o_orderstatus,
-            l_suppkey;
+            l_suppkey
+            order by o_orderstatus;
     """
     order_qt_query33_1_before "${query33_1}"
     check_mv_rewrite_fail(db, mv33_1, query33_1, "mv33_1")
@@ -1483,7 +1484,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderstatus)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1501,7 +1502,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderstatus)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1526,7 +1527,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderstatus)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
@@ -1544,7 +1545,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderstatus)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1554,7 +1555,8 @@ suite("aggregate_with_roll_up") {
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
             o_orderstatus,
-            l_suppkey;
+            l_suppkey
+            order by o_orderstatus;
     """
     order_qt_query35_0_before "${query35_0}"
     check_mv_rewrite_success(db, mv35_0, query35_0, "mv35_0")
@@ -1569,7 +1571,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderstatus)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1587,7 +1589,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderstatus)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1597,7 +1599,8 @@ suite("aggregate_with_roll_up") {
             on l_orderkey = o_orderkey and l_shipdate = o_orderdate
             group by
             o_orderstatus,
-            l_suppkey;
+            l_suppkey
+            order by o_orderstatus;
     """
     order_qt_query36_0_before "${query36_0}"
     check_mv_rewrite_fail(db, mv36_0, query36_0, "mv36_0")
@@ -1612,7 +1615,7 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey,
             sum_merge(sum_state(o_shippriority)),
-            group_concat_merge(group_concat_state(l_shipinstruct)),
+            group_concat_merge(group_concat_state(o_orderstatus)),
             avg_merge(avg_state(l_linenumber)),
             max_by_merge(max_by_state(l_shipmode, l_suppkey)),
             count_merge(count_state(l_orderkey)),
@@ -1630,7 +1633,7 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey,
             sum_union(sum_state(o_shippriority)),
-            group_concat_union(group_concat_state(l_shipinstruct)),
+            group_concat_union(group_concat_state(o_orderstatus)),
             avg_union(avg_state(l_linenumber)),
             max_by_union(max_by_state(l_shipmode, l_suppkey)),
             count_union(count_state(l_orderkey)),
