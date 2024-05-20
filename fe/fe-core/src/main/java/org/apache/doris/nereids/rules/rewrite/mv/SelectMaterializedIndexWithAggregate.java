@@ -211,7 +211,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<LogicalOlapScan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
+                                    scan.withMaterializedIndexSelected(result.indexId));
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext)
                                             .replace(
@@ -259,9 +259,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                                 filter.getExpressions(), project.getExpressions()
                                         ))
                                 );
-                                if (mvPlanWithoutAgg.getSelectedIndexId() == result.indexId) {
-                                    mvPlanWithoutAgg = mvPlanWithoutAgg.withPreAggStatus(result.preAggStatus);
-                                }
                                 SlotContext slotContextWithoutAgg = generateBaseScanExprToMvExpr(mvPlanWithoutAgg);
 
                                 return agg.withChildren(new LogicalProject(
@@ -535,7 +532,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     result.exprRewriteMap.projectExprMap);
                             LogicalProject<Plan> newProject = new LogicalProject<>(
                                     generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
-                                    scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
+                                    scan.withMaterializedIndexSelected(result.indexId));
 
                             return new LogicalProject<>(generateProjectsAlias(agg.getOutputs(), slotContext),
                                     new ReplaceExpressions(slotContext).replace(new LogicalAggregate<>(
@@ -552,16 +549,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     }
 
     private static LogicalOlapScan createLogicalOlapScan(LogicalOlapScan scan, SelectResult result) {
-        LogicalOlapScan mvPlan;
-        if (result.preAggStatus.isOff()) {
-            // we only set preAggStatus and make index unselected to let SelectMaterializedIndexWithoutAggregate
-            // have a chance to run and select proper index
-            mvPlan = scan.withPreAggStatus(result.preAggStatus);
-        } else {
-            mvPlan =
-                    scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
-        }
-        return mvPlan;
+        return scan.withMaterializedIndexSelected(result.indexId);
     }
 
     ///////////////////////////////////////////////////////////////////////////
