@@ -119,6 +119,9 @@ void RuntimeFilterTimer::call_ready() {
     _parent->set_ready();
 }
 
+// should check rf timeout in two case:
+// 1. the rf is ready just remove the wait queue
+// 2. if the rf have local dependency, the rf should start wait when all local dependency is ready
 bool RuntimeFilterTimer::should_be_check_timeout() {
     if (!_parent->ready() && !_local_runtime_filter_dependencies.empty()) {
         bool all_ready = true;

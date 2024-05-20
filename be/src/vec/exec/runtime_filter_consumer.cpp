@@ -100,6 +100,8 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
         }
     }
 
+    // The gloabl runtime filter timer need set local runtime filter dependencies.
+    // start to wait before the local runtime filter ready
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         if (!runtime_filter->has_local_target()) {
