@@ -279,9 +279,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00,k01"
+                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00"
+                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -366,9 +366,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00,k01"
+                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00"
+                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -612,9 +612,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_num_as_string "select * from ${tableName1} order by k00,k01"
+                    qt_sql_num_as_string "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_num_as_string "select * from ${tableName1} order by k00"
+                    qt_sql_num_as_string "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -693,9 +693,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
+                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00"
+                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -815,9 +815,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01"
+                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00"
+                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -893,9 +893,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_strict_mode "select * from ${tableName1} order by k00,k01"
+                    qt_sql_strict_mode "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_strict_mode "select * from ${tableName1} order by k00"
+                    qt_sql_strict_mode "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -974,9 +974,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_max_error_number "select * from ${tableName1} order by k00,k01"
+                    qt_sql_max_error_number "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_max_error_number "select * from ${tableName1} order by k00"
+                    qt_sql_max_error_number "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1056,9 +1056,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
+                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00"
+                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1115,9 +1115,9 @@ suite("test_routine_load","p0") {
 
                 def tableName1 =  "routine_load_" + tableName
                 if (i <= 3) {
-                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01"
+                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
+                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1173,9 +1173,9 @@ suite("test_routine_load","p0") {
                 sleep(10000)
                 def tableName1 =  "routine_load_" + tableName
                 if (i <= 3) {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00,k01"
+                    qt_sql_column_separator "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00"
+                    qt_sql_column_separator "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1252,9 +1252,9 @@ suite("test_routine_load","p0") {
                     count++
                 }
                 if (i <= 3) {
-                    qt_sql_json "select * from ${tableName1} order by k00,k01"
+                    qt_sql_json "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_json "select * from ${tableName1} order by k00"
+                    qt_sql_json "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1373,9 +1373,9 @@ suite("test_routine_load","p0") {
                     count++
                 }
                 if (i <= 3) {
-                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00,k01"
+                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00"
+                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1470,9 +1470,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01"
+                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00"
+                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1553,9 +1553,9 @@ suite("test_routine_load","p0") {
     //                 count++
     //             }
     //             if (i <= 3) {
-    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01"
+    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01,k02"
     //             } else {
-    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00"
+    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01,k02"
     //             }
 
     //             sql "stop routine load for ${jobs[i]}"
@@ -1631,9 +1631,9 @@ suite("test_routine_load","p0") {
                     }
 
                     if (i <= 3) {
-                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
+                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01,k02"
                     } else {
-                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
+                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01,k02"
                     }
 
                     i++
@@ -1710,9 +1710,9 @@ suite("test_routine_load","p0") {
                     }
 
                     if (i <= 3) {
-                        qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
+                        qt_sql_multi_table "select * from ${tableName1} order by k00,k01,k02"
                     } else {
-                        qt_sql_multi_table "select * from ${tableName1} order by k00"
+                        qt_sql_multi_table "select * from ${tableName1} order by k00,k01,k02"
                     }
 
                     i++
@@ -1792,9 +1792,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_show_command "select * from ${tableName1} order by k00,k01"
+                    qt_show_command "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_show_command "select * from ${tableName1} order by k00"
+                    qt_show_command "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"${jobs[i]}\""
@@ -1879,9 +1879,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01"
+                    qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_pause_and_resume_command "select * from ${tableName1} order by k00"
+                    qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1995,9 +1995,9 @@ suite("test_routine_load","p0") {
                 }
 
                 if (i <= 3) {
-                    qt_update_command "select * from ${tableName1} order by k00,k01"
+                    qt_update_command "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_update_command "select * from ${tableName1} order by k00"
+                    qt_update_command "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -2077,9 +2077,9 @@ suite("test_routine_load","p0") {
                 }
                 
                 if (i <= 3) {
-                    qt_sql_preceding_filter "select * from ${tableName1} order by k00,k01"
+                    qt_sql_preceding_filter "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_preceding_filter "select * from ${tableName1} order by k00"
+                    qt_sql_preceding_filter "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -2158,9 +2158,9 @@ suite("test_routine_load","p0") {
                 }
                 
                 if (i <= 3) {
-                    qt_sql_where "select * from ${tableName1} order by k00,k01"
+                    qt_sql_where "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_where "select * from ${tableName1} order by k00"
+                    qt_sql_where "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -2248,9 +2248,9 @@ suite("test_routine_load","p0") {
                 }
                 
                 if (i <= 3) {
-                    qt_sql_delete "select * from ${tableName1} order by k00,k01"
+                    qt_sql_delete "select * from ${tableName1} order by k00,k01,k02"
                 } else {
-                    qt_sql_delete "select * from ${tableName1} order by k00"
+                    qt_sql_delete "select * from ${tableName1} order by k00,k01,k02"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -2320,7 +2320,7 @@ suite("test_routine_load","p0") {
                 sleep(5000)
                 count++
             }
-            qt_sql_squence "select * from routine_load_uniq_tbl_basic_sequence order by k00,k01"
+            qt_sql_squence "select * from routine_load_uniq_tbl_basic_sequence order by k00,k01,k02"
             sql "stop routine load for ${job}"
         } finally {
             sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
