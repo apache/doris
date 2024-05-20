@@ -44,6 +44,7 @@ private:
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
+    DCHECK(_reserved_mem == 0);
     CHECK(init());
     flush_untracked_mem();
     _limiter_tracker = mem_tracker;

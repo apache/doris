@@ -38,7 +38,7 @@
 
 namespace doris {
 
-constexpr size_t SYNC_PROC_RESERVED_INTERVAL = (1ULL << 25); // 32M
+constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
@@ -187,12 +187,13 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
     if (_reserved_mem != 0) {
         if (_reserved_mem >= size) {
             // only need to subtract _reserved_mem, no need to consume MemTracker,
-            // every time _reserved_mem is minus the sum of size >= SYNC_PROC_RESERVED_INTERVAL,
+            // every time _reserved_mem is minus the sum of size >= SYNC_PROC_RESERVED_INTERVAL_BYTES,
             // subtract size from process global reserved memory,
             // because this part of the reserved memory has already been used by BE process.
             _reserved_mem -= size;
+            // store bytes that not synchronized to process reserved memory.
             _untracked_mem += size;
-            if (_untracked_mem >= SYNC_PROC_RESERVED_INTERVAL) {
+            if (_untracked_mem >= SYNC_PROC_RESERVED_INTERVAL_BYTES) {
                 doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
                 _untracked_mem = 0;
             }
@@ -239,7 +240,9 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
 inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
-    if (!init()) return;
+    if (_untracked_mem == 0 || !init()) {
+        return;
+    }
     _stop_consume = true;
     DCHECK(_limiter_tracker_raw);
 
@@ -259,16 +262,16 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     DCHECK(_limiter_tracker_raw);
     DCHECK(size >= 0);
     CHECK(init());
-    flush_untracked_mem();
-    DCHECK(_reserved_mem == 0);
-    if (_reserved_mem != 0) { // not expected
-        release_reserved();
+    // if _reserved_mem not equal to 0, repeat reserve,
+    // _untracked_mem store bytes that not synchronized to process reserved memory.
+    if (_reserved_mem == 0) {
+        flush_untracked_mem();
     }
     if (!_limiter_tracker_raw->try_consume(size)) {
         return false;
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        _limiter_tracker_raw->release(size);
+        _limiter_tracker_raw->release(size); // rollback
         return false;
     }
     if (_count_scope_mem) {
@@ -277,7 +280,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     for (auto* tracker : _consumer_tracker_stack) {
         tracker->consume(size);
     }
-    _reserved_mem = size;
+    _reserved_mem += size;
     DCHECK(_untracked_mem == 0);
     return true;
 }
