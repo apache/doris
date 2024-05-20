@@ -481,6 +481,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 time_series_compaction_time_threshold_seconds = 10;
     optional int64 time_series_compaction_empty_rowsets_threshold = 11;
     optional int64 time_series_compaction_level_threshold = 12;
+    optional bool disable_auto_compaction = 13;
 }
 
 message TabletCompactionJobPB {

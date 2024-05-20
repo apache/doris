@@ -737,6 +737,9 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_time_series_compaction_level_threshold()) {
             tablet_meta.set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold());
+        } else if (tablet_meta_info.has_disable_auto_compaction()) {
+            tablet_meta.mutable_schema()->set_disable_auto_compaction(
+                    tablet_meta_info.disable_auto_compaction());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
