@@ -164,7 +164,7 @@ public class StructInfoMap {
         Plan plan = groupExpression.getPlan();
         BitSet tableMap = new BitSet();
         if (plan instanceof LogicalCatalogRelation) {
-            tableMap.set(cascadesContext.getTableId(((LogicalCatalogRelation) plan).getTable()));
+            tableMap.set(cascadesContext.getStatementContext().getTableId(((LogicalCatalogRelation) plan).getTable()));
         }
         // one row relation / CTE consumer
         return tableMap;

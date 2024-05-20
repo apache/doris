@@ -20,7 +20,6 @@ package org.apache.doris.nereids;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -52,7 +51,6 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -80,7 +78,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -141,9 +138,6 @@ public class CascadesContext implements ScheduleContext {
     // into AggregateFunction with distinct, we can not fold constant in this case
     private int distinctAggLevel;
     private final boolean isEnableExprTrace;
-    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
-    // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, Integer> tableIdMapping = new LinkedHashMap<>();
 
     /**
      * Constructor of OptimizerContext.
@@ -748,17 +742,5 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean isEnableExprTrace() {
         return isEnableExprTrace;
-    }
-
-    /** Get table id with lazy */
-    public int getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        Integer tableId = this.tableIdMapping.get(tableIdentifier);
-        if (tableId != null) {
-            return tableId;
-        }
-        tableId = StatementScopeIdGenerator.newTableId().asInt();
-        this.tableIdMapping.put(tableIdentifier, tableId);
-        return tableId;
     }
 }
