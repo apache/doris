@@ -271,7 +271,7 @@ public:
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
     bool has_inverted_index(int32_t col_unique_id) const;
-    bool has_inverted_index_with_index_id(int32_t index_id) const;
+    bool has_inverted_index_with_index_id(int64_t index_id) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
