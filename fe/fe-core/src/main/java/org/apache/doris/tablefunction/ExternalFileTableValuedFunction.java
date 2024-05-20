@@ -547,7 +547,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 default:
                     break;
             }
-            if (fileStatus.size <= magicNumberBytes) {
+            // fileStatus.size may be -1 in http_stream
+            if (fileStatus.size >= 0 && fileStatus.size <= magicNumberBytes) {
                 return true;
             }
         }
