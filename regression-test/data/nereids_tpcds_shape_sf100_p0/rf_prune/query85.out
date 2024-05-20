@@ -11,15 +11,15 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF8 ws_web_page_sk->[wp_web_page_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))) build RFs:RF8 wr_refunded_addr_sk->[ca_address_sk]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[web_page] apply RFs: RF8
+--------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
+----------------------------PhysicalOlapScan[customer_address] apply RFs: RF8
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))) build RFs:RF7 wr_refunded_addr_sk->[ca_address_sk]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 ws_web_page_sk->[wp_web_page_sk]
 ------------------------------PhysicalProject
---------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
-----------------------------------PhysicalOlapScan[customer_address] apply RFs: RF7
+--------------------------------PhysicalOlapScan[web_page] apply RFs: RF7
 ------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF4 wr_returning_cdemo_sk->[cd_demo_sk];RF5 cd_marital_status->[cd_marital_status];RF6 cd_education_status->[cd_education_status]

@@ -11,16 +11,16 @@ PhysicalResultSink
 ----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=() build RFs:RF8 w_warehouse_sk->[inv_warehouse_sk]
+----------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF6 d_date_sk->[inv_date_sk];RF7 cs_item_sk->[inv_item_sk]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalOlapScan[inventory] apply RFs: RF6 RF7 RF8
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=() build RFs:RF8 w_warehouse_sk->[inv_warehouse_sk]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF6 d_date_sk->[inv_date_sk];RF7 cs_item_sk->[inv_item_sk]
+--------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------PhysicalOlapScan[inventory] apply RFs: RF6 RF7 RF8
+--------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[cs_item_sk]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -55,13 +55,13 @@ PhysicalResultSink
 ----------------------------------------------PhysicalOlapScan[item]
 --------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[promotion]
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[warehouse]
 ------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[warehouse]
+----------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[catalog_returns]
