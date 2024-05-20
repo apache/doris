@@ -1273,7 +1273,7 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
                                                     const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
@@ -1285,7 +1285,7 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 }
 
 const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int32_t index_id, const std::string& suffix_name) const {
+        int64_t index_id, const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED &&
             _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
