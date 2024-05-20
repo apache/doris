@@ -857,9 +857,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
 
-    @VariableMgr.VarAttr(name = "prefix_index_filter_cost_factor")
-    public double prefixIndexFilterCostFactor = 0.001;
-
     @VariableMgr.VarAttr(name = ENABLE_SCAN_RUN_SERIAL,  description = {
             "是否开启ScanNode串行读，以避免limit较小的情况下的读放大，可以提高查询的并发能力",
             "Whether to enable ScanNode serial reading to avoid read amplification in cases of small limits"

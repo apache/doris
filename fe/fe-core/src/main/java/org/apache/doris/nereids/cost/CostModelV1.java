@@ -147,11 +147,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
-        double prefixIndexFilterCostFactor = 0.01;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            prefixIndexFilterCostFactor = ConnectContext.get().getSessionVariable().prefixIndexFilterCostFactor;
-        }
-
+        int prefixIndexMatched = 0;
         if (filter.getGroupExpression().isPresent()) {
             OlapScan olapScan = (OlapScan) filter.getGroupExpression().get().getFirstChildPlan(OlapScan.class);
             if (olapScan != null) {
@@ -159,7 +155,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 long idxId = olapScan.getSelectedIndexId();
                 List<Column> keyColumns = olapScan.getTable().getIndexMetaByIndexId(idxId).getPrefixKeyColumns();
                 Set<Column> predicateColumns = getColumnForRangePredicate(filter.getConjuncts());
-                int prefixIndexMatched = 0;
                 for (Column col : keyColumns) {
                     if (predicateColumns.contains(col)) {
                         prefixIndexMatched++;
@@ -167,14 +162,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                         break;
                     }
                 }
-                if (prefixIndexMatched > 0) {
-                    prefixIndexFilterCostFactor = prefixIndexFilterCostFactor / (1 + prefixIndexMatched);
-                }
             }
         }
 
         return CostV1.ofCpu(context.getSessionVariable(),
-                context.getStatisticsWithCheck().getRowCount() * prefixIndexFilterCostFactor);
+                filter.getConjuncts().size() - prefixIndexMatched);
     }
 
     @Override
