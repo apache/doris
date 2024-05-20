@@ -87,8 +87,7 @@ void _close_task(PipelineTask* task, Status exec_status) {
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                         std::string(status.msg()));
+        task->fragment_context()->cancel(status);
     }
     task->finalize();
     task->set_running(false);
@@ -129,10 +128,6 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
-            // This will enable exception handling logic in allocator.h when memory allocate
-            // failed or system memory is not sufficient.
-            doris::enable_thread_catch_bad_alloc++;
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
             //TODO: use a better enclose to abstracting these
             if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
                 TUniqueId query_id = task->query_context()->query_id();
@@ -166,8 +161,7 @@ void TaskScheduler::_do_work(size_t index) {
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                 std::string(status.to_string_no_stack()));
+            fragment_ctx->cancel(status);
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(task->query_context()->query_id()),
                                         status.to_string());

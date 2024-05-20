@@ -55,12 +55,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
@@ -71,7 +71,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -88,8 +87,6 @@ public class FunctionCallExpr extends Expr {
     public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
             .add("multi_search_all_positions").add("multi_match_any").build();
-
-    private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -257,8 +254,9 @@ public class FunctionCallExpr extends Expr {
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
 
+    @SerializedName("fnn")
     private FunctionName fnName;
-    // private BuiltinAggregateFunction.Operator aggOp;
+    @SerializedName("fnp")
     private FunctionParams fnParams;
 
     private FunctionParams aggFnParams;
@@ -266,8 +264,10 @@ public class FunctionCallExpr extends Expr {
     private List<OrderByElement> orderByElements = Lists.newArrayList();
 
     // check analytic function
+    @SerializedName("iafc")
     private boolean isAnalyticFnCall = false;
     // check table function
+    @SerializedName("itfc")
     private boolean isTableFnCall = false;
 
     // Indicates whether this is a merge aggregation function that should use the
@@ -319,7 +319,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     // only used restore from readFields.
-    private FunctionCallExpr() {
+    protected FunctionCallExpr() {
         super();
     }
 
@@ -561,12 +561,17 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
-        if (orderByElements.size() != o.orderByElements.size()) {
+        if (orderByElements == null ^ o.orderByElements == null) {
             return false;
         }
-        for (int i = 0; i < orderByElements.size(); i++) {
-            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+        if (orderByElements != null) {
+            if (orderByElements.size() != o.orderByElements.size()) {
                 return false;
+            }
+            for (int i = 0; i < orderByElements.size(); i++) {
+                if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                    return false;
+                }
             }
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
@@ -1820,7 +1825,7 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
-        if (fn.getFunctionName().getFunction().equals("timediff")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             ScalarType left = (ScalarType) argTypes[0];
             ScalarType right = (ScalarType) argTypes[1];
@@ -1831,17 +1836,17 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_microsecond")) {
             Type ret = ScalarType.createDatetimeV2Type(6);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_millisecond")) {
             Type ret = ScalarType.createDatetimeV2Type(3);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_second")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_second")) {
             Type ret = ScalarType.createDatetimeV2Type(0);
             fn.setReturnType(ret);
         }
@@ -1868,7 +1873,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("struct_element")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("struct_element")) {
             if (children.size() < 2) {
                 throw new AnalysisException(fnName.getFunction() + " needs two parameters: " + this.toSql());
             }
@@ -1893,7 +1898,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("sha2")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("sha2")) {
             if ((children.size() != 2) || (getChild(1).isConstant() == false)
                     || !(getChild(1) instanceof IntLiteral)) {
                 throw new AnalysisException(
@@ -2051,7 +2056,7 @@ public class FunctionCallExpr extends Expr {
          * SELECT str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
          * Return type is DATETIME
          */
-        if (fn.getFunctionName().getFunction().equals("str_to_date")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("str_to_date")) {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
@@ -2090,7 +2095,7 @@ public class FunctionCallExpr extends Expr {
 
         // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
         // but type is varchar(*), we change it to varchar(N);
-        if (fn.getFunctionName().getFunction().equals("substr")
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("substr")
                 && children.size() == 3
                 && children.get(1) instanceof IntLiteral
                 && children.get(2) instanceof IntLiteral) {
@@ -2372,14 +2377,6 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        fnName.write(out);
-        fnParams.write(out);
-        out.writeBoolean(isAnalyticFnCall);
-        out.writeBoolean(isMergeAggFn);
-    }
-
     public void readFields(DataInput in) throws IOException {
         fnName = FunctionName.read(in);
         fnParams = FunctionParams.read(in);
@@ -2394,16 +2391,6 @@ public class FunctionCallExpr extends Expr {
         FunctionCallExpr func = new FunctionCallExpr();
         func.readFields(in);
         return func;
-    }
-
-    // Used for store load
-    public boolean supportSerializable() {
-        for (Expr child : children) {
-            if (!child.supportSerializable()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override

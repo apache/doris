@@ -101,7 +101,7 @@ statementBase
         (REFRESH refreshMethod? refreshTrigger?)?
         ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
+        (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
@@ -223,6 +223,11 @@ refreshSchedule
 
 refreshMethod
     : COMPLETE | AUTO
+    ;
+
+mvPartition
+    : partitionKey = identifier
+    | partitionExpr = functionCallExpression
     ;
 
 identifierOrStringLiteral
@@ -579,8 +584,8 @@ columnDef
         (aggType=aggTypeDef)?
         ((NOT)? NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL| CURRENT_DATE
-            | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -1168,11 +1173,6 @@ nonReserved
     | MAP
     | MATCH_ALL
     | MATCH_ANY
-    | MATCH_ELEMENT_EQ
-    | MATCH_ELEMENT_GE
-    | MATCH_ELEMENT_GT
-    | MATCH_ELEMENT_LE
-    | MATCH_ELEMENT_LT
     | MATCH_PHRASE
     | MATCH_PHRASE_EDGE
     | MATCH_PHRASE_PREFIX

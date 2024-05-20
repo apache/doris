@@ -2337,7 +2337,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
-        _output_index_result_column(nullptr, 0, block);
+        if (!_enable_common_expr_pushdown || !_remaining_conjunct_roots.empty()) {
+            _output_index_result_column(nullptr, 0, block);
+        }
     } else {
         uint16_t selected_size = _current_batch_rows_read;
         _sel_rowid_idx.resize(selected_size);
@@ -2579,12 +2581,13 @@ void SegmentIterator::_build_index_result_column(const uint16_t* sel_rowid_idx,
     vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
     vec_match_pred.resize(block->rows());
     size_t idx_in_selected = 0;
+    roaring::BulkContext bulk_context;
 
     for (uint32_t i = 0; i < _current_batch_rows_read; i++) {
         auto rowid = _block_rowids[i];
         if (sel_rowid_idx == nullptr ||
             (idx_in_selected < select_size && i == sel_rowid_idx[idx_in_selected])) {
-            if (index_result.contains(rowid)) {
+            if (index_result.containsBulk(bulk_context, rowid)) {
                 vec_match_pred[idx_in_selected] = true;
             } else {
                 vec_match_pred[idx_in_selected] = false;

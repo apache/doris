@@ -114,18 +114,16 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             "4. If you need to "
             "transfer memory tracking value between two trackers, can use transfer_to.";
     if (_consumption->current_value() != 0) {
-        // TODO, expect mem tracker equal to 0 at the task end.
-        if (doris::config::enable_memory_orphan_check && _type == Type::QUERY) {
+        // TODO, expect mem tracker equal to 0 at the load/compaction/etc. task end.
+#ifndef NDEBUG
+        if (_type == Type::QUERY) {
             std::string err_msg =
                     fmt::format("mem tracker label: {}, consumption: {}, peak consumption: {}, {}.",
                                 label(), _consumption->current_value(), _consumption->peak_value(),
                                 mem_tracker_inaccurate_msg);
-#ifdef NDEBUG
-            LOG(INFO) << err_msg;
-#else
-            LOG(INFO) << err_msg << print_address_sanitizers();
-#endif
+            LOG(FATAL) << err_msg << print_address_sanitizers();
         }
+#endif
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
         }
@@ -600,8 +598,8 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                 continue;
             }
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                    cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                    cancel_msg(min_pq.top().first, min_pq.top().second));
+                    cancelled_queryid, Status::MemoryLimitExceeded(cancel_msg(
+                                               min_pq.top().first, min_pq.top().second)));
 
             COUNTER_UPDATE(freed_memory_counter, min_pq.top().first);
             COUNTER_UPDATE(cancel_tasks_counter, 1);
@@ -728,8 +726,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
             }
             int64_t query_mem = query_consumption[max_pq.top().second];
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                    cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                    cancel_msg(query_mem, max_pq.top().second));
+                    cancelled_queryid,
+                    Status::MemoryLimitExceeded(cancel_msg(query_mem, max_pq.top().second)));
 
             usage_strings.push_back(fmt::format("{} memory used {} Bytes, overcommit ratio: {}",
                                                 max_pq.top().second, query_mem,

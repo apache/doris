@@ -95,8 +95,7 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status reason);
 
     // TODO: Support pipeline runtime filter
 
@@ -107,14 +106,6 @@ public:
     void close_a_pipeline();
 
     Status send_report(bool);
-
-    Status update_status(Status status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _query_ctx->exec_status().ok()) {
-            _query_ctx->set_exec_status(status);
-        }
-        return _query_ctx->exec_status();
-    }
 
     void trigger_report_if_necessary();
     void refresh_next_report_time();
@@ -207,8 +198,6 @@ private:
 
     std::atomic_bool _prepared = false;
     bool _submitted = false;
-
-    std::mutex _status_lock;
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;

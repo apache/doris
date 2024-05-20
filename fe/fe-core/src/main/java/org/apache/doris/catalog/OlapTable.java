@@ -100,6 +100,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -1100,6 +1101,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             partition = tempPartitions.getPartition(partitionId);
         }
         return partition;
+    }
+
+    public PartitionItem getPartitionItemOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = nameToPartition.get(partitionName);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionName);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partitionInfo.getItem(partition.getId());
     }
 
     public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
@@ -2773,10 +2785,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         readLock();
         try {
-            return Maps.newHashMap(getPartitionInfo().getIdToItem(false));
+            Map<String, PartitionItem> res = Maps.newHashMap();
+            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+                Partition partition = idToPartition.get(entry.getKey());
+                if (partition != null) {
+                    res.put(partition.getName(), entry.getValue());
+                }
+            }
+            return res;
         } finally {
             readUnlock();
         }
@@ -2788,8 +2807,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long visibleVersion = getPartitionOrAnalysisException(partitionName).getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion);
     }
 

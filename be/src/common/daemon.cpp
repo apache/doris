@@ -289,7 +289,7 @@ void Daemon::memory_gc_thread() {
     }
 }
 
-void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
+void Daemon::memtable_memory_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
@@ -407,9 +407,8 @@ void Daemon::start() {
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "memtable_memory_limiter_tracker_refresh_thread",
-            [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
-            &_threads.emplace_back());
+            "Daemon", "memtable_memory_refresh_thread",
+            [this]() { this->memtable_memory_refresh_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {

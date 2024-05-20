@@ -324,6 +324,20 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }                                                                  \
     } while (false);
 
+#define HANDLE_MULTI_TABLE_ERROR(stmt, err_msg)                            \
+    do {                                                                   \
+        Status _status_ = (stmt);                                          \
+        if (UNLIKELY(!_status_.ok() && !_status_.is<PUBLISH_TIMEOUT>())) { \
+            err_handler(ctx, _status_, err_msg);                           \
+            cb(ctx);                                                       \
+            _status_ = ctx->future.get();                                  \
+            if (!_status_.ok()) {                                          \
+                LOG(ERROR) << "failed to get future, " << ctx->brief();    \
+            }                                                              \
+            return;                                                        \
+        }                                                                  \
+    } while (false);
+
     LOG(INFO) << "begin to execute routine load task: " << ctx->brief();
 
     // create data consumer group
@@ -378,17 +392,27 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
             std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
 
-    // start to consume, this may block a while
-    HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
-
     if (ctx->is_multi_table) {
+        Status st;
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
-        HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
-                     "multi tables task executes plan error");
+        // start to consume, this may block a while
+        st = consumer_grp->start_all(ctx, kafka_pipe);
+        if (!st.ok()) {
+            multi_table_pipe->handle_consume_finished();
+            HANDLE_MULTI_TABLE_ERROR(st, "consuming failed");
+        }
+        st = multi_table_pipe->request_and_exec_plans();
+        if (!st.ok()) {
+            multi_table_pipe->handle_consume_finished();
+            HANDLE_MULTI_TABLE_ERROR(st, "multi tables task executes plan error");
+        }
         // need memory order
         multi_table_pipe->handle_consume_finished();
         HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
+    } else {
+        // start to consume, this may block a while
+        HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
     }
 
     // wait for all consumers finished

@@ -70,9 +70,9 @@ public class ColumnDef {
         // used for column which defaultValue is an expression.
         public DefaultValueExprDef defaultValueExprDef;
 
-        public DefaultValue(boolean isSet, String value) {
+        public DefaultValue(boolean isSet, Object value) {
             this.isSet = isSet;
-            this.value = value;
+            this.value = value == null ? null : value.toString();
             this.defaultValueExprDef = null;
         }
 
@@ -98,6 +98,7 @@ public class ColumnDef {
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
+        public static String HLL_EMPTY = "HLL_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -105,7 +106,7 @@ public class ColumnDef {
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
         public static String ZERO = new String(new byte[] {0});
         // default "value", "0" means empty hll
-        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, HLL_EMPTY);
         // default "value", "0" means empty bitmap
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "[]" means empty array

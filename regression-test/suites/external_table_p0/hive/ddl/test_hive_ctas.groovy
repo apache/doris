@@ -392,6 +392,20 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
                     exception "errCode = 2, detailMessage = insert into cols should be corresponding to the query output"
                 }
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_no_err.ctas_o2  """
+
+                // test ctas with qualified table name
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table1"""
+                sql """use internal.test_ctas_olap"""
+                sql """create table ${catalog_name}.test_no_err.qualified_table1 as SELECT col1,pt1 as col2 FROM ${catalog_name}.test_ctas.part_ctas_src WHERE col1>0;"""
+                order_qt_qualified_table1 """select * from ${catalog_name}.test_no_err.qualified_table1"""
+
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table2"""
+                sql """switch ${catalog_name}"""
+                sql """create table test_no_err.qualified_table2 as SELECT col1,pt1 as col2 FROM ${catalog_name}.test_ctas.part_ctas_src WHERE col1>0;"""
+                order_qt_qualified_table2 """select * from ${catalog_name}.test_no_err.qualified_table2"""
+
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table1"""
+                sql """drop table if exists ${catalog_name}.test_no_err.qualified_table2"""
                 sql """ DROP DATABASE IF EXISTS test_no_err """
 
             } finally {

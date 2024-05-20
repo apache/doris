@@ -433,7 +433,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
-        ColumnType.Type dorisType = column.getColumnTyp();
+        ColumnType.Type dorisType = column.getColumnPrimitiveType();
         if (column.isNullAt(rowIdx)) {
             insertNullColumn(parameterIndex, dorisType);
             return;
@@ -556,5 +556,17 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 return time.toString();
             }
         }
+    }
+
+    protected String defaultByteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex.toUpperCase());
+        }
+        return hexString.toString();
     }
 }

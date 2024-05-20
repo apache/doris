@@ -50,6 +50,7 @@ namespace ErrorCode {
     TStatusError(MEM_LIMIT_EXCEEDED, false);              \
     TStatusError(THRIFT_RPC_ERROR, true);                 \
     TStatusError(TIMEOUT, true);                          \
+    TStatusError(LIMIT_REACH, false);                     \
     TStatusError(TOO_MANY_TASKS, true);                   \
     TStatusError(UNINITIALIZED, false);                   \
     TStatusError(INCOMPLETE, false);                      \
@@ -544,6 +545,52 @@ private:
     }
 };
 
+// There are many thread using status to indicate the cancel state, one thread may update it and
+// the other thread will read it. Status is not thread safe, for example, if one thread is update it
+// and another thread is call to_string method, it may core, because the _err_msg is an unique ptr and
+// it is deconstructed during copy method.
+// And also we could not use lock, because we need get status frequently to check if it is cancelled.
+// The defaule value is ok.
+class AtomicStatus {
+public:
+    AtomicStatus() : error_st_(Status::OK()) {}
+
+    bool ok() const { return error_code_.load() == 0; }
+
+    bool update(const Status& new_status) {
+        // If new status is normal, or the old status is abnormal, then not need update
+        if (new_status.ok() || error_code_.load() != 0) {
+            return false;
+        }
+        int16_t expected_error_code = 0;
+        if (error_code_.compare_exchange_strong(expected_error_code, new_status.code(),
+                                                std::memory_order_acq_rel)) {
+            // lock here for read status, to avoid core during return error_st_
+            std::lock_guard l(mutex_);
+            error_st_ = new_status;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    // will copy a new status object to avoid concurrency
+    Status status() const {
+        std::lock_guard l(mutex_);
+        return error_st_;
+    }
+
+private:
+    std::atomic_int16_t error_code_ = 0;
+    Status error_st_;
+    // mutex's lock is not a const method, but we will use this mutex in
+    // some const method, so that it should be mutable.
+    mutable std::mutex mutex_;
+
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+};
+
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << status.msg();
@@ -562,7 +609,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    return fmt::format("[{}] {}", code_as_string(), msg());
+    return fmt::format("[{}]{}", code_as_string(), msg());
 }
 
 // some generally useful macros

@@ -20,19 +20,16 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Planner_types.h>
 #include <pthread.h>
 
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
 #include <ostream>
-#include <typeinfo>
 #include <utility>
 
 #include "cloud/config.h"
@@ -40,8 +37,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "exec/exec_node.h"
-#include "exec/scan_node.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
@@ -103,22 +98,10 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/scan/new_es_scan_node.h"
-#include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
-#include "vec/exec/scan/new_odbc_scan_node.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
-#include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vexchange_node.h"
-#include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -169,8 +152,11 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 // QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
 // Method like exchange sink buffer will call query ctx cancel. If we add lock here
 // There maybe dead lock.
-void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
-                                     const std::string& msg) {
+void PipelineFragmentContext::cancel(const Status reason) {
+    LOG_INFO("PipelineFragmentContext::cancel")
+            .tag("query_id", print_id(_query_id))
+            .tag("fragment_id", _fragment_id)
+            .tag("reason", reason.to_string());
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
@@ -178,16 +164,8 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             return;
         }
     }
-    LOG_INFO("PipelineFragmentContext::cancel")
-            .tag("query_id", print_id(_query_id))
-            .tag("fragment_id", _fragment_id)
-            .tag("reason", reason)
-            .tag("error message", msg);
-    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
-        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
-    }
-    _query_ctx->cancel(msg, Status::Cancelled(msg), _fragment_id);
-    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+    _query_ctx->cancel(reason, _fragment_id);
+    if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
     } else {
         for (auto& id : _fragment_instance_ids) {
@@ -198,7 +176,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // For stream load the fragment's query_id == load id, it is set in FE.
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
     if (stream_load_ctx != nullptr) {
-        stream_load_ctx->pipe->cancel(msg);
+        stream_load_ctx->pipe->cancel(reason.to_string());
     }
 
     // Cancel the result queue manager used by spark doris connector
@@ -1463,8 +1441,8 @@ Status PipelineFragmentContext::submit() {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());
             if (!st) {
-                std::lock_guard<std::mutex> l(_status_lock);
-                cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+                cancel(Status::InternalError("submit context to executor fail"));
+                std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
             }
@@ -1502,7 +1480,7 @@ void PipelineFragmentContext::close_if_prepare_failed(Status st) {
             close_a_pipeline();
         }
     }
-    _query_ctx->cancel(st.to_string(), st, _fragment_id);
+    _query_ctx->cancel(st, _fragment_id);
 }
 
 // If all pipeline tasks binded to the fragment instance are finished, then we could
@@ -1561,12 +1539,7 @@ void PipelineFragmentContext::close_a_pipeline() {
 }
 
 Status PipelineFragmentContext::send_report(bool done) {
-    Status exec_status = Status::OK();
-    {
-        std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _query_ctx->exec_status();
-    }
-
+    Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
@@ -1599,9 +1572,7 @@ Status PipelineFragmentContext::send_report(bool done) {
                              TUniqueId(),
                              -1,
                              _runtime_state.get(),
-                             [this](Status st) { return update_status(st); },
-                             [this](const PPlanFragmentCancelReason& reason,
-                                    const std::string& msg) { cancel(reason, msg); }};
+                             [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));

@@ -30,6 +30,7 @@ suite("query48") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     def ds = """select sum (ss_quantity)
  from store_sales, store, customer_demographics, customer_address, date_dim

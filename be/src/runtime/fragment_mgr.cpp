@@ -78,6 +78,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
@@ -211,14 +212,14 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
-    Status exec_status = req.update_fn(req.status);
+    Status exec_status = req.status;
     Status coord_status;
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
                                     &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        static_cast<void>(req.update_fn(Status::InternalError(
+        static_cast<void>(req.cancel_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
@@ -438,8 +439,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                static_cast<void>(req.update_fn(rpc_status));
-                req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
+                req.cancel_fn(rpc_status);
                 return;
             }
             coord->reportExecStatus(res, params);
@@ -455,8 +455,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
                  print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
-        static_cast<void>(req.update_fn(rpc_status));
-        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, std::string(rpc_status.msg()));
+        req.cancel_fn(rpc_status);
     }
 }
 
@@ -469,8 +468,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
-        fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                  "fragment_executor execute failed");
+        fragment_executor->cancel(st);
     }
 
     std::shared_ptr<QueryContext> query_ctx = fragment_executor->get_query_ctx();
@@ -590,7 +588,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute(false);
+    search->second->set_ready_to_execute(Status::OK());
     return Status::OK();
 }
 
@@ -645,6 +643,11 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
+                  << ", total fragment num on current host: " << params.fragment_num_on_host
+                  << ", fe process uuid: " << params.query_options.fe_process_uuid
+                  << ", query type: " << params.query_options.query_type;
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
@@ -658,10 +661,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->file_scan_range_params_map = params.file_scan_params;
         }
 
-        LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
-                  << " coord_addr " << query_ctx->coord_addr
-                  << " total fragment num on current host: " << params.fragment_num_on_host
-                  << " fe process uuid: " << params.query_options.fe_process_uuid;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
@@ -792,8 +791,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             g_fragment_executing_count << -1;
             g_fragment_last_active_time.set_value(now);
         }
-        fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                  "push plan fragment to thread pool failed");
+        fragment_executor->cancel(st);
         return Status::InternalError(
                 strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
                                     print_id(params.params.fragment_instance_id), st.to_string(),
@@ -857,6 +855,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+
+    DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
+                    { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
@@ -924,8 +925,7 @@ std::shared_ptr<QueryContext> FragmentMgr::get_query_context(const TUniqueId& qu
     }
 }
 
-void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::string& msg) {
+void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx;
     std::vector<TUniqueId> all_instance_ids;
     {
@@ -943,23 +943,23 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
         all_instance_ids = query_ctx->fragment_instance_ids;
     }
     if (query_ctx->enable_pipeline_x_exec()) {
-        query_ctx->cancel_all_pipeline_context(reason, msg);
+        query_ctx->cancel_all_pipeline_context(reason);
     } else {
         for (auto it : all_instance_ids) {
-            cancel_instance(it, reason, msg);
+            cancel_instance(it, reason);
         }
     }
 
-    query_ctx->cancel(msg, Status::Cancelled(msg));
+    query_ctx->cancel(reason);
     {
         std::lock_guard<std::mutex> state_lock(_lock);
         _query_ctx_map.erase(query_id);
     }
-    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled and removed. Reason: " << msg;
+    LOG(INFO) << "Query " << print_id(query_id)
+              << " is cancelled and removed. Reason: " << reason.to_string();
 }
 
-void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
+void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reason) {
     std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_ctx;
     std::shared_ptr<PlanFragmentExecutor> non_pipeline_ctx;
     {
@@ -987,15 +987,15 @@ void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
     }
 
     if (pipeline_ctx != nullptr) {
-        pipeline_ctx->cancel(reason, msg);
+        pipeline_ctx->cancel(reason);
     } else if (non_pipeline_ctx != nullptr) {
         // calling PlanFragmentExecutor::cancel
-        non_pipeline_ctx->cancel(reason, msg);
+        non_pipeline_ctx->cancel(reason);
     }
 }
 
-void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
-                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
+void FragmentMgr::cancel_fragment(const TUniqueId query_id, int32_t fragment_id,
+                                  const Status reason) {
     std::unique_lock<std::mutex> lock(_lock);
     auto q_ctx_iter = _query_ctx_map.find(query_id);
     if (q_ctx_iter != _query_ctx_map.end()) {
@@ -1003,7 +1003,7 @@ void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id
         std::shared_ptr<QueryContext> q_ctx = q_ctx_iter->second;
         // the lock should only be used to protect the map, not scope query ctx
         lock.unlock();
-        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason, msg),
+        WARN_IF_ERROR(q_ctx->cancel_pipeline_context(fragment_id, reason),
                       "fail to cancel fragment");
     } else {
         LOG(WARNING) << "Could not find the query id:" << print_id(query_id)
@@ -1090,7 +1090,9 @@ void FragmentMgr::cancel_worker() {
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
         for (auto& id : to_cancel) {
-            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
+            cancel_instance(id,
+                            Status::Error<ErrorCode::TIMEOUT>(
+                                    "FragmentMgr cancel worker going to cancel timeout instance "));
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
         }
@@ -1101,8 +1103,7 @@ void FragmentMgr::cancel_worker() {
         }
 
         for (const auto& qid : queries_to_cancel) {
-            cancel_query(qid, PPlanFragmentCancelReason::INTERNAL_ERROR,
-                         std::string("Coordinator dead."));
+            cancel_query(qid, Status::InternalError("Coordinator dead."));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";

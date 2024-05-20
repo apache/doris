@@ -125,8 +125,7 @@ public:
     void close();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    void cancel(const Status& reason);
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -237,8 +236,7 @@ private:
     MonotonicStopWatch _fragment_watcher;
 
     // Record the cancel information when calling the cancel() method, return it to FE
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
+    Status _cancel_reason;
 
     DescriptorTbl* _desc_tbl = nullptr;
 

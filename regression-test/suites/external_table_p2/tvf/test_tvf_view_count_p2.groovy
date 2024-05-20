@@ -30,19 +30,11 @@ suite("test_tvf_view_count_p2", "p2,external,tvf,external_remote,external_remote
             "hadoop.username" = "hadoop",
             "format"="parquet");"""
 
-        def result = sql """explain verbose select count(1) from tvf_view_count;"""
-        def contain0 = false;
-        def contain1 = false;
-        for (String value : result) {
-            if (value.contains("SlotDescriptor{id=0,")) {
-                contain0 = true;
-            }
-            if (value.contains("SlotDescriptor{id=1,")) {
-                contain1 = true;
-            }
+        explain {
+            "select count(1) from tvf_view_count"
+            contains "SlotDescriptor{id=0,"
+            notContains "SlotDescriptor{id=1,"
         }
-        assertTrue(contain0)
-        assertFalse(contain1)
 
         sql """drop database if exists test_tvf_view_count_p2"""
     }

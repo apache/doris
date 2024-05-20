@@ -80,6 +80,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
@@ -89,6 +90,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    static Boolean isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -755,15 +757,80 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
-    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+    static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
-        logger.info("Execute: ${cmd}".toString())
+        staticLogger.info("Execute: ${cmd}".toString())
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    void dispatchTrinoConnectors(ArrayList host_ips)
+    {
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
+        def s3_url = getS3Url()
+        def url = "${s3_url}/regression/trino-connectors.tar.gz"
+        dispatchTrinoConnectors_impl(host_ips, dir_download, url)
+    }
+
+    /*
+     * download trino connectors, and sends to every fe and be.
+     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
+     * fe and be's config must satisfy regression-conf.groovy's config.
+     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
+     *
+     * this function must be not reentrant.
+     *
+     * If failed, will call assertTrue(false).
+     */
+    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
+        if (isTrinoConnectorDownloaded == true) {
+            staticLogger.info("trino connector downloaded")
+            return
+        }
+
+        Assert.assertTrue(!dir_download.isEmpty())
+        def path_tar = "${dir_download}/trino-connectors.tar.gz"
+        // extract to a tmp direcotry, and then scp to every host_ips, including self.
+        def dir_connector_tmp = "${dir_download}/connectors_tmp"
+        def path_connector_tmp = "${dir_connector_tmp}/connectors"
+        def path_connector = "${dir_download}/connectors"
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = cmd.execute()
+                // if timeout, exception will be thrown
+                proc.waitForOrKill(900 * 1000)
+                staticLogger.info("execute result ${proc.getText()}.")
+                if (mustSuc == true) {
+                    Assert.assertEquals(0, proc.exitValue())
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        executeCommand("mkdir -p ${dir_download}", false)
+        executeCommand("rm -rf ${path_tar}", false)
+        executeCommand("rm -rf ${dir_connector_tmp}", false)
+        executeCommand("mkdir -p ${dir_connector_tmp}", false)
+        executeCommand("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}", true)
+        executeCommand("tar -zxvf ${path_tar} -C ${dir_connector_tmp}", true)
+
+        host_ips = host_ips.unique()
+        for (def ip in host_ips) {
+            staticLogger.info("scp to ${ip}")
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", false)
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
+            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
+        }
+
+        isTrinoConnectorDownloaded = true
+        staticLogger.info("dispatch trino connector to ${dir_download} succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
@@ -1155,10 +1222,9 @@ class Suite implements GroovyInterceptable {
                     return;
                 }
                 def json = parseJson(body)
-                if (json.result.containsKey("enableStorageVault") && json.result.enableStorageVault == "true") {
+                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
                     enableStorageVault = true;
                 }
-                
         }
         return enableStorageVault;
     }

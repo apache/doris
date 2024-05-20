@@ -16,9 +16,11 @@
 // under the License.
 
 suite("redundant_conjuncts") {
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql """
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
+
     sql """
     CREATE TABLE IF NOT EXISTS `redundant_conjuncts` (
       `k1` int(11) NULL COMMENT "",
@@ -30,8 +32,11 @@ suite("redundant_conjuncts") {
       "replication_allocation" = "tag.location.default: 1"
     );
     """
-    
-    qt_redundant_conjuncts """
-    EXPLAIN SELECT /*+SET_VAR(REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=2, parallel_fragment_exec_instance_num = 1, enable_shared_scan = false) */ v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
-    """
+
+    explain {
+        sql("""
+        SELECT /*+SET_VAR(REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=2, parallel_fragment_exec_instance_num = 1, enable_shared_scan = false) */ v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+        """)
+        notContains "AND"
+    }
 }

@@ -212,6 +212,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
+        long rowCount = getCountFromSnapshot();
+        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT) && rowCount > 0) {
+            this.rowCount = rowCount;
+            return new ArrayList<>();
+        }
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
@@ -264,6 +269,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
+        // TODO: Need to delete this as we can handle count pushdown in fe side
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
             // we can create a special empty split and skip the plan process

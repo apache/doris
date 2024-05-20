@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -230,6 +231,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair, queryStructInfo);
+        Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
         Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
@@ -284,6 +286,31 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         // add project to guarantee group by column ref is slot reference,
         // this is necessary because physical createHash will need slotReference later
+        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+            for (Expression expression : queryGroupByExpressions) {
+                if (queryTopPlanGroupBySet.contains(expression)) {
+                    continue;
+                }
+                Expression queryGroupShuttledExpr = ExpressionUtils.shuttleExpressionWithLineage(
+                        expression, queryTopPlan, queryStructInfo.getTableBitSet());
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(true,
+                        mvExprToMvScanExprQueryBased, queryTopPlan, queryStructInfo.getTableBitSet());
+                // group by expression maybe group by a + b, so we need expression rewriter
+                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
+                    // group expr can not rewrite by view
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "View dimensions doesn't not cover the query dimensions in bottom agg ",
+                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                    mvExprToMvScanExprQueryBased, queryGroupShuttledExpr));
+                    return null;
+                }
+                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                finalGroupExpressions.add(groupByExpression);
+            }
+        }
         List<Expression> copiedFinalGroupExpressions = new ArrayList<>(finalGroupExpressions);
         List<NamedExpression> projectsUnderAggregate = copiedFinalGroupExpressions.stream()
                 .map(NamedExpression.class::cast)
@@ -446,7 +473,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         // if query or mv contains more then one top aggregate, should fail
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)

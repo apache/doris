@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
@@ -181,8 +182,8 @@ public abstract class BaseAnalysisTask {
             + "SUM(count) AS `row_count`, "
             + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, "
             + "SUM(null_count) AS `null_count`, "
-            + "MIN(min) AS `min`, "
-            + "MAX(max) AS `max`, "
+            + "MIN(${min}) AS `min`, "
+            + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
             + "NOW() AS `update_time` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
@@ -376,7 +377,10 @@ public abstract class BaseAnalysisTask {
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
         }
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+        params = buildSqlParams();
+        params.put("min", castToNumeric("min"));
+        params.put("max", castToNumeric("max"));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
     }
 
@@ -386,6 +390,15 @@ public abstract class BaseAnalysisTask {
 
     protected Map<String, String> buildSqlParams() {
         return Maps.newHashMap();
+    }
+
+    protected String castToNumeric(String colName) {
+        Type type = col.getType();
+        if (type.isNumericType()) {
+            return "CAST(" + colName + " AS " + type.toSql() + ")";
+        } else {
+            return colName;
+        }
     }
 
     protected void runQuery(String sql) {
