@@ -139,7 +139,7 @@ fi
 
 eval set -- "${OPTS}"
 
-PARALLEL="$(($(nproc) / 4 + 4))"
+PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
