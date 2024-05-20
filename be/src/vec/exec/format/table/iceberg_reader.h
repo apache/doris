@@ -84,13 +84,6 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status set_fill_columns(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final;
-
-    bool fill_all_columns() const final;
-
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) final;
 
