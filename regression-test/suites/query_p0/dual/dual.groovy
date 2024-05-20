@@ -70,7 +70,7 @@ suite('dual') {
     // Test error handling when table does not exist
     test {
         sql "select 1 from `dual`"
-        exception "Table [dual] does not exist in database [regression_test_query_p0_dual]"
+        exception "Unknown table 'dual'"
     }
 
     // Disable and enable Nereids planner to check behavior differences
