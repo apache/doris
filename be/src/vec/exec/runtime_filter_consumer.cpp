@@ -62,20 +62,6 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
     return Status::OK();
 }
 
-bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
-    if (!*_blocked_by_rf) {
-        return true;
-    }
-    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        if (!runtime_filter->is_ready_or_timeout()) {
-            return false;
-        }
-    }
-    *_blocked_by_rf = false;
-    return true;
-}
-
 void RuntimeFilterConsumer::init_runtime_filter_dependency(
         std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
                 runtime_filter_dependencies,
