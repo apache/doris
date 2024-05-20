@@ -252,7 +252,6 @@ public:
     RuntimeFilterState current_state() const {
         return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
     }
-    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
