@@ -182,17 +182,15 @@ QueryContext::~QueryContext() {
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
-void QueryContext::set_ready_to_execute(bool is_cancelled) {
+void QueryContext::set_ready_to_execute(Status reason) {
     set_execution_dependency_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        if (!_is_cancelled) {
-            _is_cancelled = is_cancelled;
-        }
+        _exec_status.update(reason);
         _ready_to_execute = true;
     }
-    if (query_mem_tracker && is_cancelled) {
-        query_mem_tracker->set_is_query_cancelled(is_cancelled);
+    if (query_mem_tracker && !reason.ok()) {
+        query_mem_tracker->set_is_query_cancelled(!reason.ok());
     }
     _start_cond.notify_all();
 }
@@ -211,16 +209,11 @@ void QueryContext::set_execution_dependency_ready() {
 }
 
 void QueryContext::cancel(Status new_status, int fragment_id) {
-    // we must get this wrong status once query ctx's `_is_cancelled` = true.
-    set_exec_status(new_status);
-    // Just for CAS need a left value
-    bool false_cancel = false;
-    if (!_is_cancelled.compare_exchange_strong(false_cancel, true)) {
+    if (!_exec_status.update(new_status)) {
         return;
     }
-    DCHECK(!false_cancel && _is_cancelled);
 
-    set_ready_to_execute(true);
+    set_ready_to_execute(new_status);
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
