@@ -78,6 +78,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
@@ -858,6 +859,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+
+    DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
+                    { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
