@@ -55,6 +55,9 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
     });
+    if (*result_column_id < 0) {
+        return Status::InternalError("result_column_id error set {}", *result_column_id);
+    }
     return st;
 }
 
