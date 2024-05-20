@@ -249,7 +249,7 @@ private:
     // meta for various column indexes (null if the index is absent)
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
-    mutable std::mutex _load_index_lock;
+    mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
