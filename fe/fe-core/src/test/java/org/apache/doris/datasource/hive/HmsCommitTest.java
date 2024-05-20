@@ -178,7 +178,6 @@ public class HmsCommitTest {
         assertNumRows(3, table);
 
         genQueryID();
-        System.out.println(DebugUtil.printId(connectContext.queryId()));
         List<THivePartitionUpdate> pus2 = new ArrayList<>();
         pus2.add(createRandomAppend(null));
         pus2.add(createRandomAppend(null));

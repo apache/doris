@@ -72,6 +72,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2168,6 +2169,8 @@ public class DatabaseTransactionMgr {
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
         }
+        Map<Long, Triple<Long, Long, Partition>> partitionMap = new HashMap<>();
+        Map<Long, Triple<Long, Long, OlapTable>> tableMap = new HashMap<>();
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -2251,17 +2254,37 @@ public class DatabaseTransactionMgr {
                         && version > Partition.PARTITION_INIT_VERSION) {
                     newPartitionLoadedTableIds.add(tableId);
                 }
-                partition.updateVisibleVersionAndTime(version, versionTime);
-                partitionVisibleVersions.put(partition.getId(), version);
-                LOG.debug("set partition={}, visible version={}", partition.getId(), version);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("transaction state {} set partition {}'s version to [{}]",
-                            transactionState, partition.getId(), version);
-                }
+                partitionMap.compute(partitionId, (k, v) -> {
+                    if (v == null || version > v.getLeft()) {
+                        return Triple.of(version, versionTime, partition);
+                    }
+                    return v;
+                });
             }
-            long tableVersion = tableCommitInfo.getVersion();
-            long tableVersionTime = tableCommitInfo.getVersionTime();
-            table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
+
+            tableMap.compute(tableId, (k, v) -> {
+                if (v == null || tableCommitInfo.getVersion() > v.getLeft()) {
+                    return Triple.of(tableCommitInfo.getVersion(), tableCommitInfo.getVersionTime(), table);
+                }
+                return v;
+            });
+        }
+        for (Entry<Long, Triple<Long, Long, Partition>> entry : partitionMap.entrySet()) {
+            long version = entry.getValue().getLeft();
+            long versionTime = entry.getValue().getMiddle();
+            Partition partition = entry.getValue().getRight();
+            partition.updateVisibleVersionAndTime(version, versionTime);
+            partitionVisibleVersions.put(partition.getId(), version);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction state {} set partition {}'s visible version to [{}]",
+                        transactionState, partition.getId(), version);
+            }
+        }
+        for (Entry<Long, Triple<Long, Long, OlapTable>> entry : tableMap.entrySet()) {
+            long version = entry.getValue().getLeft();
+            long versionTime = entry.getValue().getMiddle();
+            OlapTable table = entry.getValue().getRight();
+            table.updateVisibleVersionAndTime(version, versionTime);
         }
         analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
         analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(), db.getId());

@@ -1441,8 +1441,8 @@ Status PipelineFragmentContext::submit() {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());
             if (!st) {
-                std::lock_guard<std::mutex> l(_status_lock);
                 cancel(Status::InternalError("submit context to executor fail"));
+                std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
             }
@@ -1539,12 +1539,7 @@ void PipelineFragmentContext::close_a_pipeline() {
 }
 
 Status PipelineFragmentContext::send_report(bool done) {
-    Status exec_status = Status::OK();
-    {
-        std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _query_ctx->exec_status();
-    }
-
+    Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
@@ -1577,7 +1572,6 @@ Status PipelineFragmentContext::send_report(bool done) {
                              TUniqueId(),
                              -1,
                              _runtime_state.get(),
-                             [this](Status st) { return update_status(st); },
                              [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(

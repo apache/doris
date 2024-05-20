@@ -88,7 +88,7 @@ std::string Dependency::debug_string(int indentation_level) {
 std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block task = {}, ready={}, _always_ready={}, count={}",
+                   "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
     return fmt::to_string(debug_string_buffer);
@@ -183,6 +183,12 @@ Status AggSharedState::reset_hash_table() {
                                 mapped = nullptr;
                             }
                         });
+
+                        if (hash_table.has_null_key_data()) {
+                            auto st = _destroy_agg_status(hash_table.template get_null_key_data<
+                                                          vectorized::AggregateDataPtr>());
+                            RETURN_IF_ERROR(st);
+                        }
 
                         aggregate_data_container.reset(new vectorized::AggregateDataContainer(
                                 sizeof(typename HashTableType::key_type),

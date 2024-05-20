@@ -156,7 +156,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
                         { memtable_flush_running_count_limit = 0; });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
             if (_state->is_cancelled()) {
-                return Status::Cancelled(_state->cancel_reason());
+                return _state->cancel_reason();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
