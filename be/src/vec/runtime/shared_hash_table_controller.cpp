@@ -34,8 +34,6 @@ void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
-    _dependencies.insert({node_id, {}});
-    _finish_dependencies.insert({node_id, {}});
 }
 
 bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,

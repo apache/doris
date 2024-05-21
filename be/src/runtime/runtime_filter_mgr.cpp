@@ -212,11 +212,10 @@ Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
     return Status::OK();
 }
 
-void RuntimeFilterMgr::set_runtime_filter_params(
-        const TRuntimeFilterParams& runtime_filter_params) {
+void RuntimeFilterMgr::set_runtime_filter_params(const TNetworkAddress& merge_addr) {
     std::lock_guard l(_lock);
     if (!_has_merge_addr) {
-        _merge_addr = runtime_filter_params.runtime_filter_merge_addr;
+        _merge_addr = merge_addr;
         _has_merge_addr = true;
     }
 }

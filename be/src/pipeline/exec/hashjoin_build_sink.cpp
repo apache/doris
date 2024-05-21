@@ -57,8 +57,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             _should_build_hash_table = info.task_idx == 0;
             if (_should_build_hash_table) {
                 profile()->add_info_string("ShareHashTableEnabled", "true");
-                CHECK(p._shared_hashtable_controller->should_build_hash_table(
-                        state->fragment_instance_id(), p.node_id()));
+                p._shared_hashtable_controller->set_builder_and_consumers(
+                        state->fragment_instance_id(), p.node_id());
             }
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
