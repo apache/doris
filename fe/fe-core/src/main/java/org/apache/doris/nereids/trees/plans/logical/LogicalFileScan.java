@@ -42,10 +42,8 @@ import java.util.Set;
 /**
  * Logical file scan for external catalog.
  */
-public class LogicalFileScan extends LogicalCatalogRelation {
+public class LogicalFileScan extends LogicalExternalRelation {
 
-    // TODO remove this conjuncts when old planner is removed
-    private final Set<Expression> conjuncts;
     private final SelectedPartitions selectedPartitions;
     private final Optional<TableSample> tableSample;
 
@@ -55,9 +53,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             Set<Expression> conjuncts, SelectedPartitions selectedPartitions, Optional<TableSample> tableSample) {
-        super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier,
-                groupExpression, logicalProperties);
-        this.conjuncts = conjuncts;
+        super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, conjuncts, groupExpression, logicalProperties);
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
     }
@@ -66,10 +62,6 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                            Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 Sets.newHashSet(), SelectedPartitions.NOT_PRUNED, tableSample);
-    }
-
-    public Set<Expression> getConjuncts() {
-        return conjuncts;
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -108,6 +100,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                 groupExpression, logicalProperties, conjuncts, selectedPartitions, tableSample);
     }
 
+    @Override
     public LogicalFileScan withConjuncts(Set<Expression> conjuncts) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
@@ -131,8 +124,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
 
     @Override
     public boolean equals(Object o) {
-        return super.equals(o) && Objects.equals(conjuncts, ((LogicalFileScan) o).conjuncts)
-                && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
+        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
     }
 
     /**
