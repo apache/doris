@@ -621,6 +621,13 @@ inline std::string Status::to_string_no_stack() const {
         }                               \
     } while (false)
 
+#define PROPAGATE_FALSE(stmt)                     \
+    do {                                          \
+        if (UNLIKELY(!static_cast<bool>(stmt))) { \
+            return false;                         \
+        }                                         \
+    } while (false)
+
 #define THROW_IF_ERROR(stmt)            \
     do {                                \
         Status _status_ = (stmt);       \
