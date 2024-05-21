@@ -212,7 +212,7 @@ suite("test_routine_load","p0") {
 
     }  
 
-    send_batch_parallelism
+    // send_batch_parallelism
     def i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
