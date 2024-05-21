@@ -67,6 +67,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     DorisCallOnce<Status> call1;
     EXPECT_EQ(call1.has_called(), false);
     bool exception_occured = false;
+    bool runtime_occured = false;
     try {
         Status st = call1.call([&]() -> Status {
             throw std::exception();
@@ -77,13 +78,38 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
         exception_occured = true;
     }
     EXPECT_EQ(exception_occured, true);
+    EXPECT_EQ(call1.has_called(), true);
+
+    // call again, should throw the same exception.
+    exception_occured = false;
+    runtime_occured = false;
+    try {
+        Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
+    } catch (...) {
+        // Exception has to throw to the call method
+        exception_occured = true;
+    }
+    EXPECT_EQ(exception_occured, true);
+    EXPECT_EQ(call1.has_called(), true);
+
+    // If call get result, should catch exception.
+    exception_occured = false;
+    runtime_occured = false;
+    try {
+        Status st = call1.stored_result();
+    } catch (...) {
+        // Exception has to throw to the call method
+        exception_occured = true;
+    }
+    EXPECT_EQ(exception_occured, true);
 
     // Test the exception should actually the same one throwed by the callback method.
+    DorisCallOnce<Status> call2;
     exception_occured = false;
-    bool runtime_occured = false;
+    runtime_occured = false;
     try {
         try {
-            Status st = call1.call([&]() -> Status {
+            Status st = call2.call([&]() -> Status {
                 throw std::runtime_error("runtime error happens");
                 return Status::InternalError("");
             });
@@ -100,11 +126,12 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     EXPECT_EQ(exception_occured, false);
 
     // Test the exception should actually the same one throwed by the callback method.
+    DorisCallOnce<Status> call3;
     exception_occured = false;
     runtime_occured = false;
     try {
         try {
-            Status st = call1.call([&]() -> Status {
+            Status st = call3.call([&]() -> Status {
                 throw std::exception();
                 return Status::InternalError("");
             });
@@ -120,14 +147,6 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     }
     EXPECT_EQ(runtime_occured, false);
     EXPECT_EQ(exception_occured, true);
-
-    EXPECT_EQ(call1.has_called(), false);
-    EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
-
-    Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
-    EXPECT_EQ(call1.has_called(), true);
-    // The error code should not changed
-    EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 }
 
 } // namespace doris

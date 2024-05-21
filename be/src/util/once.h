@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <stdexcept>
 
 #include "common/exception.h"
 #include "olap/olap_common.h"
@@ -65,22 +66,36 @@ public:
     //     return _status;
     // }
 
-    // If the underlying `once_flag` has yet to be invoked, invokes the provided
-    // lambda and stores its return value. Otherwise, returns the stored Status.
-    // If exception occurs in the function, the call flag is not set, user could call
-    // it again. like std::call_once.
+    // If exception occurs in the function, the call flag is set, if user call
+    // it again, the same exception will be thrown.
+    // It is different from std::call_once. This is because if a method is called once
+    // some internal state is changed, it maybe not called again although exception
+    // occurred.
     template <typename Fn>
     ReturnType call(Fn fn) {
+        // Avoid lock to improve performance
         if (has_called()) {
+            if (_eptr) {
+                std::rethrow_exception(_eptr);
+            }
             return _status;
         }
         std::lock_guard l(_flag_lock);
-        // After lock, should check again. Another thread may call
-        // at the same time during first time check has called.
+        // should check again because maybe another thread call successfully.
         if (has_called()) {
+            if (_eptr) {
+                std::rethrow_exception(_eptr);
+            }
             return _status;
         }
-        _status = fn();
+        try {
+            _status = fn();
+        } catch (...) {
+            // Save the exception for next call.
+            _eptr = std::current_exception();
+            _has_called.store(true, std::memory_order_release);
+            std::rethrow_exception(_eptr);
+        }
         _has_called.store(true, std::memory_order_release);
         return _status;
     }
@@ -94,12 +109,19 @@ public:
     }
 
     // Return the stored result. The result is only meaningful when `has_called() == true`.
-    ReturnType stored_result() const { return _status; }
+    ReturnType stored_result() const {
+        std::lock_guard l(_flag_lock);
+        if (_eptr) {
+            std::rethrow_exception(_eptr);
+        }
+        return _status;
+    }
 
 private:
     std::atomic<bool> _has_called;
     // std::once_flag _once_flag;
     std::mutex _flag_lock;
+    std::exception_ptr _eptr;
     ReturnType _status;
 };
 
