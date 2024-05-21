@@ -672,68 +672,76 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
     RETURN_IF_ERROR(std::visit(
-            [&](auto&& agg_method) -> Status {
-                auto& hash_tbl = *agg_method.hash_table;
-                /// If too much memory is used during the pre-aggregation stage,
-                /// it is better to output the data directly without performing further aggregation.
-                // do not try to do agg, just init and serialize directly return the out_block
-                if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                             !_should_expand_preagg_hash_tables())) {
-                    SCOPED_TIMER(_streaming_agg_timer);
-                    ret_flag = true;
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto& agg_method) -> Status {
+                        auto& hash_tbl = *agg_method.hash_table;
+                        /// If too much memory is used during the pre-aggregation stage,
+                        /// it is better to output the data directly without performing further aggregation.
+                        // do not try to do agg, just init and serialize directly return the out_block
+                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
+                                                     !_should_expand_preagg_hash_tables())) {
+                            SCOPED_TIMER(_streaming_agg_timer);
+                            ret_flag = true;
 
-                    // will serialize value data to string column.
-                    // non-nullable column(id in `_make_nullable_keys`)
-                    // will be converted to nullable.
-                    bool mem_reuse = p._make_nullable_keys.empty() && out_block->mem_reuse();
+                            // will serialize value data to string column.
+                            // non-nullable column(id in `_make_nullable_keys`)
+                            // will be converted to nullable.
+                            bool mem_reuse =
+                                    p._make_nullable_keys.empty() && out_block->mem_reuse();
 
-                    std::vector<vectorized::DataTypePtr> data_types;
-                    vectorized::MutableColumns value_columns;
-                    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-                        auto data_type =
-                                _aggregate_evaluators[i]->function()->get_serialized_type();
-                        if (mem_reuse) {
-                            value_columns.emplace_back(
-                                    std::move(*out_block->get_by_position(i + key_size).column)
-                                            .mutate());
-                        } else {
-                            // slot type of value it should always be string type
-                            value_columns.emplace_back(_aggregate_evaluators[i]
-                                                               ->function()
-                                                               ->create_serialize_column());
-                        }
-                        data_types.emplace_back(data_type);
-                    }
+                            std::vector<vectorized::DataTypePtr> data_types;
+                            vectorized::MutableColumns value_columns;
+                            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                auto data_type =
+                                        _aggregate_evaluators[i]->function()->get_serialized_type();
+                                if (mem_reuse) {
+                                    value_columns.emplace_back(
+                                            std::move(*out_block->get_by_position(i + key_size)
+                                                               .column)
+                                                    .mutate());
+                                } else {
+                                    // slot type of value it should always be string type
+                                    value_columns.emplace_back(_aggregate_evaluators[i]
+                                                                       ->function()
+                                                                       ->create_serialize_column());
+                                }
+                                data_types.emplace_back(data_type);
+                            }
 
-                    for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
-                        SCOPED_TIMER(_serialize_data_timer);
-                        RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                                in_block, value_columns[i], rows, _agg_arena_pool.get()));
-                    }
+                            for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
+                                SCOPED_TIMER(_serialize_data_timer);
+                                RETURN_IF_ERROR(
+                                        _aggregate_evaluators[i]->streaming_agg_serialize_to_column(
+                                                in_block, value_columns[i], rows,
+                                                _agg_arena_pool.get()));
+                            }
 
-                    if (!mem_reuse) {
-                        vectorized::ColumnsWithTypeAndName columns_with_schema;
-                        for (int i = 0; i < key_size; ++i) {
-                            columns_with_schema.emplace_back(
-                                    key_columns[i]->clone_resized(rows),
-                                    _probe_expr_ctxs[i]->root()->data_type(),
-                                    _probe_expr_ctxs[i]->root()->expr_name());
+                            if (!mem_reuse) {
+                                vectorized::ColumnsWithTypeAndName columns_with_schema;
+                                for (int i = 0; i < key_size; ++i) {
+                                    columns_with_schema.emplace_back(
+                                            key_columns[i]->clone_resized(rows),
+                                            _probe_expr_ctxs[i]->root()->data_type(),
+                                            _probe_expr_ctxs[i]->root()->expr_name());
+                                }
+                                for (int i = 0; i < value_columns.size(); ++i) {
+                                    columns_with_schema.emplace_back(std::move(value_columns[i]),
+                                                                     data_types[i], "");
+                                }
+                                out_block->swap(vectorized::Block(columns_with_schema));
+                            } else {
+                                for (int i = 0; i < key_size; ++i) {
+                                    std::move(*out_block->get_by_position(i).column)
+                                            .mutate()
+                                            ->insert_range_from(*key_columns[i], 0, rows);
+                                }
+                            }
                         }
-                        for (int i = 0; i < value_columns.size(); ++i) {
-                            columns_with_schema.emplace_back(std::move(value_columns[i]),
-                                                             data_types[i], "");
-                        }
-                        out_block->swap(vectorized::Block(columns_with_schema));
-                    } else {
-                        for (int i = 0; i < key_size; ++i) {
-                            std::move(*out_block->get_by_position(i).column)
-                                    .mutate()
-                                    ->insert_range_from(*key_columns[i], 0, rows);
-                        }
-                    }
-                }
-                return Status::OK();
-            },
+                        return Status::OK();
+                    }},
             _agg_data->method_variant));
 
     if (!ret_flag) {
