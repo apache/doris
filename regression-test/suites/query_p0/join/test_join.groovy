@@ -1272,6 +1272,7 @@ suite("test_join", "query,p0") {
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
+    sql "SET disable_join_reorder=false"
 
     sql "drop table if exists `t0`"
     sql "drop table if exists `t1`"

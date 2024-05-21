@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 @DependsRules({
         MergeProjectPostProcessor.class
 })
-public class ColumnPruningPostProcessor extends PlanPostProcessor {
+public class RemoveUselessProjectPostProcessor extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project = (PhysicalProject<? extends Plan>) super.visit(project, ctx);

@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Pull up SemiJoin through Agg.
@@ -44,7 +44,7 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
                         return null;
                     }
                     Plan newJoin = join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());
-                    return new LogicalProject<>(new ArrayList<>(agg.getOutput()), newJoin);
+                    return new LogicalProject<>(ImmutableList.copyOf(agg.getOutput()), newJoin);
                 })
                 .toRule(RuleType.TRANSPOSE_LOGICAL_AGG_SEMI_JOIN_PROJECT);
     }

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
 
 /**
  * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
@@ -39,6 +39,6 @@ public class AddProjectForJoin extends DefaultPlanRewriter<Void> implements Cust
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
-        return new LogicalProject<>(new ArrayList<>(join.getOutput()), join);
+        return new LogicalProject<>(ImmutableList.copyOf(join.getOutput()), join);
     }
 }
