@@ -53,6 +53,7 @@ class EliminateLimitTest implements MemoPatternMatchSupported {
                 .limit(1, 1).build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), limit)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
                 .matches(logicalTopN());
     }
