@@ -68,7 +68,7 @@ public:
         roaring::Roaring roaring_bitmap;
         try {
             roaring_bitmap = roaring::Roaring::readSafe(buf, length);
-        } catch (std::runtime_error) {
+        } catch (std::runtime_error&) {
             return ResultError(Status::RuntimeError(
                     "DeletionVector deserialize error: failed to deserialize roaring bitmap"));
         }
