@@ -59,9 +59,8 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
      */
     public BaseExternalTableInsertExecutor(ConnectContext ctx, ExternalTable table,
                                            String labelName, NereidsPlanner planner,
-                                           Optional<InsertCommandContext> insertCtx,
-                                           boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+                                           Optional<InsertCommandContext> insertCtx) {
+        super(ctx, table, labelName, planner, insertCtx);
         catalogName = table.getCatalog().getName();
         transactionManager = table.getCatalog().getTransactionManager();
 

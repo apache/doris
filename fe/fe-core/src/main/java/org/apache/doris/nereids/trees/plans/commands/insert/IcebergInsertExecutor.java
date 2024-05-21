@@ -40,9 +40,8 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
      */
     public IcebergInsertExecutor(ConnectContext ctx, IcebergExternalTable table,
                                  String labelName, NereidsPlanner planner,
-                                 Optional<InsertCommandContext> insertCtx,
-                                 boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+                                 Optional<InsertCommandContext> insertCtx) {
+        super(ctx, table, labelName, planner, insertCtx);
     }
 
     @Override
