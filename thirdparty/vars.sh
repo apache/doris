@@ -238,11 +238,24 @@ FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
 FLATBUFFERS_SOURCE=flatbuffers-2.0.0
 FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
 
+# c-ares
+CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
+CARES_NAME="c-ares-1.19.1.tar.gz"
+CARES_SOURCE=c-ares-1.19.1
+CARES_MD5SUM="dafc5825a92dc907e144570e4e75a908"
+
+# grpc
+# grpc v1.55 and above require protobuf >= 22
+GRPC_DOWNLOAD="https://github.com/grpc/grpc/archive/refs/tags/v1.54.3.tar.gz"
+GRPC_NAME="grpc-v1.54.3.tar.gz"
+GRPC_SOURCE=grpc-1.54.3
+GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
+
 # arrow
-ARROW_DOWNLOAD="https://archive.apache.org/dist/arrow/arrow-7.0.0/apache-arrow-7.0.0.tar.gz"
-ARROW_NAME="apache-arrow-7.0.0.tar.gz"
-ARROW_SOURCE="apache-arrow-7.0.0"
-ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-13.0.0.tar.gz"
+ARROW_NAME="apache-arrow-13.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-13.0.0"
+ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.1.tar.gz"
@@ -287,10 +300,10 @@ ORC_SOURCE=orc-1.7.2
 ORC_MD5SUM="6cab37935eacdec7d078d327746a8578"
 
 # jemalloc for arrow
-JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
-JEMALLOC_ARROW_NAME="jemalloc-5.2.1.tar.bz2"
-JEMALLOC_ARROW_SOURCE="jemalloc-5.2.1"
-JEMALLOC_ARROW_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
+JEMALLOC_ARROW_NAME="jemalloc-5.3.0.tar.bz2"
+JEMALLOC_ARROW_SOURCE="jemalloc-5.3.0"
+JEMALLOC_ARROW_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # jemalloc for doris
 JEMALLOC_DORIS_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
@@ -399,10 +412,10 @@ BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
-XSIMD_NAME=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz
-XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
-XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/9.0.1.tar.gz"
+XSIMD_NAME="xsimd-9.0.1.tar.gz"
+XSIMD_SOURCE=xsimd-9.0.1
+XSIMD_MD5SUM="59f38fe3364acd7ed137771258812d6c"
 
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
@@ -505,6 +518,8 @@ export TP_ARCHIVES=(
     'CYRUS_SASL'
     'LIBRDKAFKA'
     'FLATBUFFERS'
+    'CARES'
+    'GRPC'
     'ARROW'
     'BROTLI'
     'ZSTD'

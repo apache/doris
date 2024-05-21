@@ -170,6 +170,13 @@ Now there will be 2 set of libhdfs, one is without kerberos, the other is with k
 
 ## v20211215
 
+## v20240521
+- Modified: arrow 7.0.0 -> 13.0.0
+- Modified: jemalloc for arrow 5.2.1 -> 5.3.0
+- Modified: xsimd 7.0.0 -> 13.0.0
+- Added: c-ares -> 1.19.1
+- Added: grpc -> 1.54.3
+
 ### Changes
 
 - Added: cyrus-sasl

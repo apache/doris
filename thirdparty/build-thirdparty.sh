@@ -958,6 +958,8 @@ build_arrow() {
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
     export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${XSIMD_NAME}"
     export ARROW_ORC_URL="${TP_SOURCE_DIR}/${ORC_NAME}"
+    export ARROW_GRPC_URL="${TP_SOURCE_DIR}/${GRPC_NAME}"
+    export ARROW_PROTOBUF_URL="${TP_SOURCE_DIR}/${PROTOBUF_NAME}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
@@ -973,22 +975,38 @@ build_arrow() {
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
+        -DARROW_WITH_GRPC=ON \
+        -DgRPC_SOURCE=SYSTEM \
+        -DgRPC_ROOT="${TP_INSTALL_DIR}" \
+        -DARROW_WITH_PROTOBUF=ON \
+        -DProtobuf_SOURCE=SYSTEM \
+        -DProtobuf_LIB="${TP_INSTALL_DIR}/lib/libprotoc.a" -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DARROW_FLIGHT=ON \
+        -DARROW_FLIGHT_SQL=ON \
         -DBoost_USE_STATIC_RUNTIME=ON \
         -DARROW_GFLAGS_USE_SHARED=OFF \
         -Dgflags_ROOT="${TP_INSTALL_DIR}" \
         -DGLOG_ROOT="${TP_INSTALL_DIR}" \
         -DRE2_ROOT="${TP_INSTALL_DIR}" \
+        -DZLIB_SOURCE=SYSTEM \
         -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DRapidJSON_SOURCE=SYSTEM \
         -DRapidJSON_ROOT="${TP_INSTALL_DIR}" \
         -DORC_ROOT="${TP_INSTALL_DIR}" \
+        -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
+        -DARROW_LZ4_USE_SHARED=OFF \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
+        -DARROW_ZSTD_USE_SHARED=OFF \
         -DZSTD_LIB="${TP_INSTALL_DIR}/lib/libzstd.a" -DZSTD_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -Dzstd_SOURCE=SYSTEM \
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
+        -Djemalloc_SOURCE=BUNDLED \
+        -DARROW_THRIFT_USE_SHARED=OFF \
+        -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1662,6 +1680,56 @@ build_libdeflate() {
     "${BUILD_SYSTEM}" install
 }
 
+# c-ares
+build_cares() {
+    check_if_source_exist "${CARES_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CARES_SOURCE}"
+
+    mkdir -p build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=Release \
+        -DCARES_STATIC=ON \
+        -DCARES_SHARED=OFF \
+        -DCARES_STATIC_PIC=ON \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    make
+    make install
+}
+
+# grpc
+build_grpc() {
+    check_if_source_exist "${GRPC_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
+
+    mkdir -p cmake/build
+    cd cmake/build
+
+    cmake -DgRPC_INSTALL=ON \
+        -DgRPC_BUILD_TESTS=OFF \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DgRPC_CARES_PROVIDER=package \
+        -Dc-ares_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_ABSL_PROVIDER=package \
+        -Dabsl_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_PROTOBUF_PROVIDER=package \
+        -DProtobuf_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_RE2_PROVIDER=package \
+        -Dre2_DIR:STRING="${TP_INSTALL_DIR}" \
+        -DgRPC_SSL_PROVIDER=package \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_ZLIB_PROVIDER=package \
+        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        ../..
+
+    make -j "${PARALLEL}"
+    make install
+
+    # for grpc > v1.55, cmake 2.22 does not support find_dependency, delete this line after cmake version upgrade.
+    # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1673,9 +1741,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         lzo2
         zstd
         boost # must before thrift
-        protobuf
         gflags
         gtest
+        protobuf # after gtest
         glog
         rapidjson
         snappy
@@ -1693,6 +1761,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         librdkafka
         flatbuffers
         orc
+        cares
+        grpc # after cares, protobuf
         arrow
         abseil
         s2

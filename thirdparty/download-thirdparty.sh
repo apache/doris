@@ -323,10 +323,10 @@ fi
 echo "Finished patching ${OPENTELEMETRY_SOURCE}"
 
 # arrow patch is used to get the raw orc reader for filter prune.
-if [[ "${ARROW_SOURCE}" == "apache-arrow-7.0.0" ]]; then
+if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-7.0.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
