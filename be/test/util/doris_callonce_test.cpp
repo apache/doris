@@ -87,7 +87,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
                 throw std::runtime_error("runtime error happens");
                 return Status::InternalError("");
             });
-        } catch (const std::runtime_error& error1) {
+        } catch (const std::runtime_error&) {
             // Exception has to throw to the call method
             runtime_occured = true;
         }
@@ -108,7 +108,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
                 throw std::exception("runtime error happens");
                 return Status::InternalError("");
             });
-        } catch (const std::runtime_error& error1) {
+        } catch (const std::runtime_error&) {
             // Exception has to throw to the call method, but not runtime error
             // so that this code will not hit
             runtime_occured = true;
