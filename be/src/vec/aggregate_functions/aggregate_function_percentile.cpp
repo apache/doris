@@ -32,10 +32,6 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
     if (which.idx != TypeIndex::Float64) {
         return nullptr;
     }
-    if (argument_types.size() == 1) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxMerge<is_nullable>>(
-                remove_nullable(argument_types), result_is_nullable);
-    }
     if (argument_types.size() == 2) {
         return creator_without_type::create<
                 AggregateFunctionPercentileApproxTwoParams<is_nullable>>(

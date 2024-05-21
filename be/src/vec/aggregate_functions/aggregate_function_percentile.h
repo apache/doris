@@ -189,19 +189,6 @@ public:
     }
 };
 
-// only for merge
-template <bool is_nullable>
-class AggregateFunctionPercentileApproxMerge : public AggregateFunctionPercentileApprox {
-public:
-    AggregateFunctionPercentileApproxMerge(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        LOG(FATAL) << "AggregateFunctionPercentileApproxMerge do not support add()";
-        __builtin_unreachable();
-    }
-};
-
 template <bool is_nullable>
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
 public:
