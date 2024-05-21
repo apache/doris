@@ -482,8 +482,6 @@ public:
             return Status::OK();
         }
 
-        Status close() { return Status::OK(); }
-
     private:
         brpc::StreamId _stream;
         brpc::Controller _cntl;

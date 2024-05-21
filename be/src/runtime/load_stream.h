@@ -76,36 +76,6 @@ private:
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
 
-class IndexStream {
-public:
-    IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
-                std::shared_ptr<OlapTableSchemaParam> schema, LoadStreamMgr* load_stream_mgr,
-                RuntimeProfile* profile);
-
-    Status append_data(const PStreamHeader& header, butil::IOBuf* data);
-
-    Status close(const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
-
-private:
-    Status _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                               int64_t partition_id);
-
-private:
-    int64_t _id;
-    std::unordered_map<int64_t /*tabletid*/, TabletStreamSharedPtr> _tablet_streams_map;
-    bthread::Mutex _lock;
-    PUniqueId _load_id;
-    int64_t _txn_id;
-    std::shared_ptr<OlapTableSchemaParam> _schema;
-    std::unordered_map<int64_t, int64_t> _tablet_partitions;
-    RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _append_data_timer = nullptr;
-    RuntimeProfile::Counter* _close_wait_timer = nullptr;
-    LoadStreamMgr* _load_stream_mgr = nullptr;
-};
-using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
-
 using StreamId = brpc::StreamId;
 class LoadStream : public brpc::StreamInputHandler {
 public:
@@ -118,9 +88,6 @@ public:
         std::lock_guard lock_guard(_lock);
         _open_streams[src_id]++;
     }
-
-    Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;
@@ -150,9 +117,18 @@ private:
 
     Status _write_stream(StreamId stream, butil::IOBuf& buf);
 
+    Status _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
+                               int64_t index_id, int64_t partition_id);
+
+    // return is_last
+    bool _mark_close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit);
+
+    Status _do_close(std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+
 private:
     PUniqueId _load_id;
-    std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
+    std::unordered_set<int64_t> _indexes;
+    std::unordered_map<int64_t, TabletStreamSharedPtr> _tablet_streams_map;
     int32_t _total_streams = 0;
     int32_t _close_load_cnt = 0;
     std::atomic<int32_t> _close_rpc_cnt = 0;
