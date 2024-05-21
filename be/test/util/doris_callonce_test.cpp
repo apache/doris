@@ -66,11 +66,18 @@ TEST_F(DorisCallOnceTest, TestErrorHappens) {
 TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     DorisCallOnce<Status> call1;
     EXPECT_EQ(call1.has_called(), false);
+    bool exception_occured = false;
+    try {
+        call1.call([&]() -> Status {
+            throw std::exception();
+            return Status::InternalError("");
+        });
+    } catch (...) {
+        // Exception has to throw to the call method
+        exception_occured = true;
+    }
 
-    call1.call([&]() -> Status {
-        throw std::exception();
-        return Status::InternalError("");
-    });
+    EXPECT_EQ(exception_occured, true);
     EXPECT_EQ(call1.has_called(), false);
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
 
