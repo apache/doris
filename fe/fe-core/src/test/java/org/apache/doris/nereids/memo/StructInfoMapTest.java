@@ -202,7 +202,7 @@ class StructInfoMapTest extends SqlTestBase {
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {
-            bitSet.set(c1.getStatementContext().getTableId(relation.getTable()));
+            bitSet.set(c1.getStatementContext().getTableId(relation.getTable()).asInt());
         }
         Assertions.assertEquals(bitSet, mvMap);
         dropMvByNereids("drop materialized view mv1");

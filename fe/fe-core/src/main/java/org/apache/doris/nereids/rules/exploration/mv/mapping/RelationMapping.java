@@ -63,22 +63,22 @@ public class RelationMapping extends Mapping {
      */
     public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets) {
         // Construct tmp map, key is the table qualifier, value is the corresponding catalog relations
-        HashMultimap<Long, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
+        HashMultimap<TableIdentifier, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
         for (CatalogRelation relation : sources) {
-            sourceTableRelationIdMap.put(getTableQualifier(relation.getTable()),
+            sourceTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        HashMultimap<Long, MappedRelation> targetTableRelationIdMap = HashMultimap.create();
+        HashMultimap<TableIdentifier, MappedRelation> targetTableRelationIdMap = HashMultimap.create();
         for (CatalogRelation relation : targets) {
-            targetTableRelationIdMap.put(getTableQualifier(relation.getTable()),
+            targetTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        Set<Long> sourceTableKeySet = sourceTableRelationIdMap.keySet();
+        Set<TableIdentifier> sourceTableKeySet = sourceTableRelationIdMap.keySet();
         List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
-        for (Long sourceTableId : sourceTableKeySet) {
-            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableId);
-            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(sourceTableId);
+        for (TableIdentifier tableIdentifier : sourceTableKeySet) {
+            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(tableIdentifier);
+            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(tableIdentifier);
             if (targetMappedRelations.isEmpty()) {
                 continue;
             }
@@ -142,8 +142,8 @@ public class RelationMapping extends Mapping {
         return RelationMapping.of(mappingBuilder.build());
     }
 
-    private static Long getTableQualifier(TableIf tableIf) {
-        return (long) new TableIdentifier(tableIf).hashCode();
+    private static TableIdentifier getTableIdentifier(TableIf tableIf) {
+        return new TableIdentifier(tableIf);
     }
 
     @Override

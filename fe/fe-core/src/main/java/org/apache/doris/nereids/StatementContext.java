@@ -148,7 +148,7 @@ public class StatementContext implements Closeable {
             = new TreeMap<>(new Pair.PairComparator<>());
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, Integer> tableIdMapping = new LinkedHashMap<>();
+    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -510,13 +510,13 @@ public class StatementContext implements Closeable {
     }
 
     /** Get table id with lazy */
-    public int getTableId(TableIf tableIf) {
+    public TableId getTableId(TableIf tableIf) {
         TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        Integer tableId = this.tableIdMapping.get(tableIdentifier);
+        TableId tableId = this.tableIdMapping.get(tableIdentifier);
         if (tableId != null) {
             return tableId;
         }
-        tableId = StatementScopeIdGenerator.newTableId().asInt();
+        tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
     }

@@ -315,7 +315,7 @@ public class StructInfo {
         // Get mapped table id in relation and set
         BitSet tableBitSet = new BitSet();
         for (CatalogRelation relation : relationList) {
-            tableBitSet.set(cascadesContext.getStatementContext().getTableId(relation.getTable()));
+            tableBitSet.set(cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt());
         }
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
@@ -402,7 +402,6 @@ public class StructInfo {
     }
 
     public BitSet getTableBitSet() {
-
         return tableBitSet;
     }
 
