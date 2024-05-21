@@ -17,11 +17,11 @@ import org.junit.Assert
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_remote_tvf") {
+suite("test_local_tvf_compression", "p0,tvf") {
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/external_table_p2/tvf/compress"
+    def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/compress"
 
     def outFilePath="/compress"
 
@@ -134,6 +134,16 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "format" = "csv",
         "column_separator" = ",",
         "compress_type" ="${compress_type}block") where c2="abcd" order by c3 limit 22 ;            
+    """
+
+    // test empty snapppy file
+    qt_snappy_empty """ 
+        select * from local(
+        "file_path" = "${outFilePath}/test_empty_snappy.${compress_type}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "compress_type" ="${compress_type}block");            
     """
 
     // test error case
