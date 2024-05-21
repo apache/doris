@@ -377,6 +377,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
+    public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
+
+    public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -1209,6 +1213,24 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
+            description = {"控制 parquet reader 是否启用 min-max 值过滤。默认为 true。",
+                    "Controls whether to filter by min-max values in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetFilterByMinMax = true;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_FILTER_BY_MIN_MAX,
+            description = {"控制 orc reader 是否启用 min-max 值过滤。默认为 true。",
+                    "Controls whether to filter by min-max values in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
@@ -2154,6 +2176,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public boolean isEnableParquetFilterByMinMax() {
+        return enableParquetFilterByMinMax;
+    }
+
+    public void setEnableParquetFilterByMinMax(boolean enableParquetFilterByMinMax) {
+        this.enableParquetFilterByMinMax = enableParquetFilterByMinMax;
+    }
+
+    public boolean isEnableOrcFilterByMinMax() {
+        return enableOrcFilterByMinMax;
+    }
+
+    public void setEnableOrcFilterByMinMax(boolean enableOrcFilterByMinMax) {
+        this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2593,6 +2630,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
+        tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
 

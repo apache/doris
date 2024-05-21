@@ -18,11 +18,16 @@
 suite("test_hive_basic_type", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        for (boolean enable_filter_by_min_max : [true, false]) {
         String catalog_name = "test_hive_basic_type"
         String ex_db_name = "`default`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hms_port = context.config.otherConfigs.get("hms_port")
         String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+
+        sql """set enable_parquet_filter_by_min_max = ${enable_filter_by_min_max};"""
+
+        sql """set enable_orc_filter_by_min_max = ${enable_filter_by_min_max};"""
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -144,6 +149,7 @@ suite("test_hive_basic_type", "p0,external,hive,external_docker,external_docker_
 			}
 		}
         //sql """drop catalog if exists ${catalog_name} """
+	}
     }
 }
 
