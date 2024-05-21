@@ -17,24 +17,22 @@
 
 #pragma once
 
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 
+// IWYU pragma: no_include <stdlib.h>
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <iomanip>
-#include <limits>
 #include <memory>
 #include <ostream>
 #include <random>
 #include <sstream>
-#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -60,15 +58,11 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
 
 #ifndef USE_LIBCPP
