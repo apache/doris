@@ -238,13 +238,13 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
                                                     Arena* mem_pool, int32_t col_id,
                                                     int row_num) const {
     auto& nullable_col = assert_cast<const ColumnNullable&>(column);
-    if (nullable_col.is_null_at(row_num)) {
-        // do not insert to jsonb
-        return;
-    }
     result.writeKey(col_id);
-    nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
-                                          col_id, row_num);
+    if (nullable_col.is_null_at(row_num)) {
+        result.writeNull();
+    } else {
+        nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
+                                              col_id, row_num);
+    }
 }
 
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
