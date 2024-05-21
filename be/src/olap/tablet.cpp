@@ -2785,7 +2785,7 @@ Status Tablet::_load_rowset_segments(const RowsetSharedPtr& rowset,
     return Status::OK();
 }
 
-void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_block) {
+Status Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_block) {
     vectorized::MutableBlock mutable_input_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
     vectorized::MutableBlock mutable_output_block =
@@ -2816,8 +2816,8 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
     }
-    mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
-                                  row_pos_vec.data() + in_block.rows());
+    return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
+                                         row_pos_vec.data() + in_block.rows());
 }
 
 Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
@@ -3001,7 +3001,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
                 read_plan_ori, read_plan_update, rsid_to_rowset, &block));
-        sort_block(block, ordered_block);
+        RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
     }
     LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
