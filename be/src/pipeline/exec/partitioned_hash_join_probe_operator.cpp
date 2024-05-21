@@ -186,7 +186,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
             if (!spilling_stream) {
                 RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, spilling_stream, print_id(state->query_id()), "hash_probe",
-                        _parent->id(), std::numeric_limits<int32_t>::max(),
+                        _parent->node_id(), std::numeric_limits<int32_t>::max(),
                         std::numeric_limits<size_t>::max(), _runtime_profile.get()));
                 RETURN_IF_ERROR(spilling_stream->prepare_spill());
                 spilling_stream->set_write_counters(

@@ -243,12 +243,13 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
         Defer defer {[&]() {
             if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
                 if (!_shared_state->sink_status.ok()) {
-                    LOG(WARNING) << "query " << print_id(query_id) << " sort node " << _parent->id()
+                    LOG(WARNING) << "query " << print_id(query_id) << " sort node "
+                                 << _parent->node_id()
                                  << " revoke memory error: " << _shared_state->sink_status;
                 }
                 _shared_state->close();
             } else {
-                VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->id()
+                VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                            << " revoke memory finish";
             }
 
