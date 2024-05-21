@@ -139,7 +139,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
-    public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
@@ -432,6 +431,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
+
+    public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
+
+    public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
@@ -860,9 +863,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     public boolean enableSqlCache = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
-    public boolean enablePartitionCache = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
@@ -1488,6 +1488,24 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean enableOrcLazyMat = true;
 
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
+            description = {"控制 parquet reader 是否启用 min-max 值过滤。默认为 true。",
+                    "Controls whether to filter by min-max values in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetFilterByMinMax = true;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_FILTER_BY_MIN_MAX,
+            description = {"控制 orc reader 是否启用 min-max 值过滤。默认为 true。",
+                    "Controls whether to filter by min-max values in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcFilterByMinMax = true;
+
     @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
             description = {"收集外表统计信息行数时选取的采样分区数，默认-1表示全部分区",
@@ -2055,6 +2073,33 @@ public class SessionVariable implements Serializable, Writable {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge;
     }
 
+    public String printDebugModeVariables() {
+        List<String> res = Lists.newArrayList();
+        for (Field field : SessionVariable.class.getDeclaredFields()) {
+            VarAttr attr = field.getAnnotation(VarAttr.class);
+            if (attr == null) {
+                continue;
+            }
+            boolean shouldPrint = false;
+            for (String debugVariable : DEBUG_VARIABLES) {
+                if (attr.name().equalsIgnoreCase(debugVariable)) {
+                    shouldPrint = true;
+                    break;
+                }
+            }
+            if (shouldPrint) {
+                field.setAccessible(true);
+                try {
+                    Object val = field.get(this);
+                    res.add(attr.name() + "=" + val.toString());
+                } catch (IllegalAccessException e) {
+                    LOG.warn("failed to get debug mode session variable {}", attr.name(), e);
+                }
+            }
+        }
+        return Joiner.on(",").join(res);
+    }
+
     public void setEnableNereidsTrace(boolean enableNereidsTrace) {
         this.enableNereidsTrace = enableNereidsTrace;
     }
@@ -2481,14 +2526,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSqlCache = enableSqlCache;
     }
 
-    public boolean isEnablePartitionCache() {
-        return enablePartitionCache;
-    }
-
-    public void setEnablePartitionCache(boolean enablePartitionCache) {
-        this.enablePartitionCache = enablePartitionCache;
-    }
-
     public int getPartitionedHashJoinRowsThreshold() {
         return partitionedHashJoinRowsThreshold;
     }
@@ -2741,6 +2778,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
         this.enableOrcLazyMat = enableOrcLazyMat;
+    }
+
+    public boolean isEnableParquetFilterByMinMax() {
+        return enableParquetFilterByMinMax;
+    }
+
+    public void setEnableParquetFilterByMinMax(boolean enableParquetFilterByMinMax) {
+        this.enableParquetFilterByMinMax = enableParquetFilterByMinMax;
+    }
+
+    public boolean isEnableOrcFilterByMinMax() {
+        return enableOrcFilterByMinMax;
+    }
+
+    public void setEnableOrcFilterByMinMax(boolean enableOrcFilterByMinMax) {
+        this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
     }
 
     public String getSqlDialect() {
@@ -3281,6 +3334,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
+        tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
 
         tResult.setEnableDeleteSubPredicateV2(enableDeleteSubPredicateV2);
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);

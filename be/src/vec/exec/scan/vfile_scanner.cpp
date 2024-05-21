@@ -62,6 +62,7 @@
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
+#include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
@@ -851,6 +852,19 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                std::vector<std::string> place_holder;
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonParquetReader> paimon_reader =
+                        PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                           *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
@@ -902,6 +916,16 @@ Status VFileScanner::_get_next_reader() {
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(iceberg_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                init_status = orc_reader->init_reader(
+                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                std::unique_ptr<PaimonOrcReader> paimon_reader =
+                        PaimonOrcReader::create_unique(std::move(orc_reader), _profile, *_params);
+                RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
+                _cur_reader = std::move(paimon_reader);
             } else {
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
@@ -965,8 +989,7 @@ Status VFileScanner::_get_next_reader() {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (!init_status.ok()) {
-            return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.to_string());
+            return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
 
         _name_to_col_type.clear();
