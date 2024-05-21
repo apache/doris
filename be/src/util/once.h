@@ -96,10 +96,14 @@ public:
             _has_called.store(true, std::memory_order_release);
             std::rethrow_exception(_eptr);
         }
+        // This memory order make sure both status and eptr is set
+        // and will be seen in another thread.
         _has_called.store(true, std::memory_order_release);
         return _status;
     }
 
+    // Has to pay attention to memory order
+    // see https://en.cppreference.com/w/cpp/atomic/memory_order
     // Return whether `call` has been invoked or not.
     bool has_called() const {
         // std::memory_order_acquire here and std::memory_order_release in
