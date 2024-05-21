@@ -199,13 +199,13 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
         profile()->add_info_string("Spilled", "true");
     }
 
-    VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << Base::_parent->id()
-               << " revoke_memory"
+    VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node "
+               << Base::_parent->node_id() << " revoke_memory"
                << ", eos: " << _eos;
     RETURN_IF_ERROR(Base::_shared_state->sink_status);
 
     auto status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            state, _spilling_stream, print_id(state->query_id()), "sort", _parent->id(),
+            state, _spilling_stream, print_id(state->query_id()), "sort", _parent->node_id(),
             _shared_state->spill_block_batch_row_count,
             SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
     RETURN_IF_ERROR(status);

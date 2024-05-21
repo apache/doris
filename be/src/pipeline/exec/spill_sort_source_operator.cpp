@@ -122,7 +122,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         vectorized::SpillStreamSPtr tmp_stream;
         while (!state->is_cancelled()) {
             int max_stream_count = _calc_spill_blocks_to_merge();
-            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->id()
+            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                        << " merge spill streams, streams count: "
                        << _shared_state->sorted_streams.size()
                        << ", curren merge max stream count: " << max_stream_count;
@@ -141,7 +141,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
             {
                 _status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                        state, tmp_stream, print_id(state->query_id()), "sort", _parent->id(),
+                        state, tmp_stream, print_id(state->query_id()), "sort", _parent->node_id(),
                         _shared_state->spill_block_batch_row_count,
                         SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
                 RETURN_IF_ERROR(_status);

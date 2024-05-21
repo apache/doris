@@ -615,7 +615,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     }
     RETURN_IF_ERROR(_inner_sink_operator->sink(local_state._runtime_state.get(), &block, true));
     VLOG_DEBUG << "query: " << print_id(state->query_id())
-               << ", internal build operator finished, node id: " << id()
+               << ", internal build operator finished, node id: " << node_id()
                << ", task id: " << state->task_id()
                << ", partition: " << local_state._partition_cursor;
     return Status::OK();
@@ -726,7 +726,7 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
 
 Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash probe node: " << id()
+    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
                << ", task: " << state->task_id();
 
     RETURN_IF_ERROR(local_state.spill_probe_blocks(state));
