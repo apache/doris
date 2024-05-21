@@ -1168,6 +1168,7 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     if (!request.__isset.id) {
         LOG_WARNING("Invalidate argument, id is empty");
         response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+        return;
     }
 
     LOG_INFO("Getting realtime exec status of query {}", print_id(request.id));
