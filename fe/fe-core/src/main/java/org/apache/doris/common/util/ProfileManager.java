@@ -329,8 +329,9 @@ public class ProfileManager {
     }
 
     private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id) {
+        // For query, id is queryId, for load, id is LoadLoadingTaskId
         class QueryIdAndAddress {
-            public TUniqueId queryId;
+            public TUniqueId id;
             public TNetworkAddress beAddress;
         }
 
@@ -344,15 +345,21 @@ public class ProfileManager {
             if (coor != null) {
                 for (TNetworkAddress addr : coor.getInvolvedBackends()) {
                     QueryIdAndAddress tmp = new QueryIdAndAddress();
-                    tmp.queryId = queryId;
+                    tmp.id = queryId;
                     tmp.beAddress = addr;
                     involvedBackends.add(tmp);
                 }
             }
         } else {
-            Long loadJobId = Long.parseLong(id);
+            Long loadJobId = (long) -1;
+            try {
+                loadJobId = Long.parseLong(id);
+            } catch(Exception e) {
+                return futures;
+            }
+            
             LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);
-            if (loadJob == null || loadJob.getLoadTaskIds() == null) {
+            if (loadJob.getLoadTaskIds() == null) {
                 return futures;
             }
 
@@ -362,7 +369,7 @@ public class ProfileManager {
                     if (coor.getInvolvedBackends() != null) {
                         for (TNetworkAddress beAddress : coor.getInvolvedBackends()) {
                             QueryIdAndAddress tmp = new QueryIdAndAddress();
-                            tmp.queryId = taskId;
+                            tmp.id = taskId;
                             tmp.beAddress = beAddress;
                             involvedBackends.add(tmp);
                         }
@@ -375,7 +382,7 @@ public class ProfileManager {
 
         for (QueryIdAndAddress idAndAddress : involvedBackends) {
             Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                return getRealtimeQueryProfile(idAndAddress.queryId, idAndAddress.beAddress);
+                return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
             };
             Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);

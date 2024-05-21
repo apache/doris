@@ -389,6 +389,7 @@ public class Coordinator implements CoordInterface {
         // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
         this.enablePipelineEngine = Config.enable_pipeline_load;
         this.enablePipelineXEngine = Config.enable_pipeline_load;
+        // make sure Coordinator can update profile correctlly
         if (this.enablePipelineXEngine) {
             this.executionProfile.setPipelineX();
         }
