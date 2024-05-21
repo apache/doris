@@ -93,6 +93,7 @@ public class AutoBucketUtils {
         if (bucketsNum < bucketsNumByPartitionSize && bucketsNum < beNum) {
             bucketsNum = beNum;
         }
+        bucketsNum = Math.min(bucketsNum, Config.autobucket_max_buckets);
         logger.debug("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
         return bucketsNum;
     }
