@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -141,7 +142,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        return CostV1.ofCpu(context.getSessionVariable(), 1);
+        long exprCount = physicalProject.getProjects().stream().filter(proj -> !(proj instanceof Slot)).count();
+        return CostV1.ofCpu(context.getSessionVariable(), exprCount);
     }
 
     @Override
