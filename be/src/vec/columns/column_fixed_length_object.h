@@ -25,6 +25,7 @@
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/memcmp_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 
@@ -103,18 +104,21 @@ public:
         _item_count = 0;
     }
 
-    [[noreturn]] Field operator[](size_t n) const override {
-        LOG(FATAL) << "operator[] not supported";
-        __builtin_unreachable();
+    Field operator[](size_t n) const override {
+        return {_data.data() + n * _item_size, _item_size};
     }
 
-    void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
+    void get(size_t n, Field& res) const override {
+        res.assign_string(_data.data() + n * _item_size, _item_size);
+    }
 
     StringRef get_data_at(size_t n) const override {
         return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
     }
 
-    void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
+    void insert(const Field& x) override {
+        insert_data(vectorized::get<const String&>(x).data(), _item_size);
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
@@ -142,9 +146,7 @@ public:
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
                                                  << _item_size << " " << src_col._item_size;
-        size_t old_size = size();
-        resize(old_size + 1);
-        memcpy(&_data[old_size * _item_size], &src_col._data[n * _item_size], _item_size);
+        insert_data((const char*)(&src_col._data[n * _item_size]), _item_size);
     }
 
     void insert_data(const char* pos, size_t length) override {
@@ -159,17 +161,18 @@ public:
         memset(&_data[old_size * _item_size], 0, _item_size);
     }
 
-    void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported"; }
+    void pop_back(size_t n) override { resize(_item_count - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
-        LOG(FATAL) << "serialize_value_into_arena not supported";
-        __builtin_unreachable();
+        char* pos = arena.alloc_continue(_item_size, begin);
+        memcpy(pos, &_data[n * _item_size], _item_size);
+        return {pos, _item_size};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not supported";
-        __builtin_unreachable();
+        insert_data(pos, _item_size);
+        return pos + _item_size;
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -187,9 +190,21 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
-        LOG(FATAL) << "permute not supported";
-        __builtin_unreachable();
+    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+        if (limit == 0) {
+            limit = size();
+        } else {
+            limit = std::min(size(), limit);
+        }
+
+        auto res = ColumnFixedLengthObject::create(_item_size);
+        res->resize(limit);
+        for (size_t i = 0; i < limit; ++i) {
+            memcpy_small_allow_read_write_overflow15(res->_data.data() + i * _item_size,
+                                                     _data.data() + perm[i] * _item_size,
+                                                     _item_size);
+        }
+        return res;
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,

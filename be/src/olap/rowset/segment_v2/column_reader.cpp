@@ -880,7 +880,7 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
         size_t n = 1;
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
         DCHECK(offset_col->size() == 1);
-        *offset = assert_cast<const vectorized::ColumnInt64*>(offset_col.get())->get_element(0);
+        *offset = assert_cast<const vectorized::ColumnUInt64*>(offset_col.get())->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
