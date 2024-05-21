@@ -1329,113 +1329,120 @@ public class Env {
     }
 
     private void transferToMaster() {
-        // stop replayer
-        if (replayer != null) {
-            replayer.exit();
-            try {
-                replayer.join();
-            } catch (InterruptedException e) {
-                LOG.warn("got exception when stopping the replayer thread", e);
+        try {
+            // stop replayer
+            if (replayer != null) {
+                replayer.exit();
+                try {
+                    replayer.join();
+                } catch (InterruptedException e) {
+                    LOG.warn("got exception when stopping the replayer thread", e);
+                }
+                replayer = null;
             }
-            replayer = null;
-        }
 
-        // set this after replay thread stopped. to avoid replay thread modify them.
-        isReady.set(false);
-        canRead.set(false);
+            // set this after replay thread stopped. to avoid replay thread modify them.
+            isReady.set(false);
+            canRead.set(false);
 
-        editLog.open();
+            editLog.open();
 
-        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-            if (!haProtocol.fencing()) {
-                LOG.error("fencing failed. will exit.");
-                System.exit(-1);
+            if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+                if (!haProtocol.fencing()) {
+                    LOG.error("fencing failed. will exit.");
+                    System.exit(-1);
+                }
             }
-        }
 
-        long replayStartTime = System.currentTimeMillis();
-        // replay journals. -1 means replay all the journals larger than current journal id.
-        replayJournal(-1);
-        long replayEndTime = System.currentTimeMillis();
-        LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+            long replayStartTime = System.currentTimeMillis();
+            // replay journals. -1 means replay all the journals larger than current journal id.
+            replayJournal(-1);
+            long replayEndTime = System.currentTimeMillis();
+            LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
 
-        checkCurrentNodeExist();
+            checkCurrentNodeExist();
 
-        checkBeExecVersion();
+            checkBeExecVersion();
 
-        editLog.rollEditLog();
+            editLog.rollEditLog();
 
-        // Log meta_version
-        long journalVersion = MetaContext.get().getMetaVersion();
-        if (journalVersion < FeConstants.meta_version) {
-            editLog.logMetaVersion(FeConstants.meta_version);
-            MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        }
-
-        // Log the first frontend
-        if (isFirstTimeStartUp) {
-            // if isFirstTimeStartUp is true, frontends must contains this Node.
-            Frontend self = frontends.get(nodeName);
-            Preconditions.checkNotNull(self);
-            // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
-            editLog.logAddFirstFrontend(self);
-
-            initLowerCaseTableNames();
-            // Set initial root password if master FE first time launch.
-            auth.setInitialRootPassword(Config.initial_root_password);
-        } else {
-            if (journalVersion <= FeMetaVersion.VERSION_114) {
-                // if journal version is less than 114, which means it is upgraded from version before 2.0.
-                // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query remain unchanged
-                // when switch to pipeline engine, otherwise it may impact the load of entire cluster
-                // because the default parallelism of pipeline engine is higher than previous version.
-                // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
-                int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
-                VariableMgr.setGlobalPipelineTask(newVal);
-                LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
-                        + "to parallel_fragment_exec_instance_num: {}", newVal);
-                // similar reason as above, need to upgrade enable_nereids_planner to true
-                VariableMgr.enableNereidsPlanner();
-                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
+            // Log meta_version
+            long journalVersion = MetaContext.get().getMetaVersion();
+            if (journalVersion < FeConstants.meta_version) {
+                editLog.logMetaVersion(FeConstants.meta_version);
+                MetaContext.get().setMetaVersion(FeConstants.meta_version);
             }
-        }
 
-        getPolicyMgr().createDefaultStoragePolicy();
+            // Log the first frontend
+            if (isFirstTimeStartUp) {
+                // if isFirstTimeStartUp is true, frontends must contains this Node.
+                Frontend self = frontends.get(nodeName);
+                Preconditions.checkNotNull(self);
+                // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
+                editLog.logAddFirstFrontend(self);
 
-        // MUST set master ip before starting checkpoint thread.
-        // because checkpoint thread need this info to select non-master FE to push image
+                initLowerCaseTableNames();
+                // Set initial root password if master FE first time launch.
+                auth.setInitialRootPassword(Config.initial_root_password);
+            } else {
+                if (journalVersion <= FeMetaVersion.VERSION_114) {
+                    // if journal version is less than 114, which means it is upgraded from version before 2.0.
+                    // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query remain unchanged
+                    // when switch to pipeline engine, otherwise it may impact the load of entire cluster
+                    // because the default parallelism of pipeline engine is higher than previous version.
+                    // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
+                    int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
+                    VariableMgr.setGlobalPipelineTask(newVal);
+                    LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
+                            + "to parallel_fragment_exec_instance_num: {}", newVal);
+                    // similar reason as above, need to upgrade enable_nereids_planner to true
+                    VariableMgr.enableNereidsPlanner();
+                    LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
+                }
+            }
 
-        this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
-                Config.http_port,
-                Config.rpc_port);
-        editLog.logMasterInfo(masterInfo);
-        LOG.info("logMasterInfo:{}", masterInfo);
+            getPolicyMgr().createDefaultStoragePolicy();
 
-        this.workloadGroupMgr.init();
+            // MUST set master ip before starting checkpoint thread.
+            // because checkpoint thread need this info to select non-master FE to push image
 
-        // for master, the 'isReady' is set behind.
-        // but we are sure that all metadata is replayed if we get here.
-        // so no need to check 'isReady' flag in this method
-        postProcessAfterMetadataReplayed(false);
+            this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
+                    Config.http_port,
+                    Config.rpc_port);
+            editLog.logMasterInfo(masterInfo);
+            LOG.info("logMasterInfo:{}", masterInfo);
 
-        // start all daemon threads that only running on MASTER FE
-        startMasterOnlyDaemonThreads();
-        // start other daemon threads that should running on all FE
-        startNonMasterDaemonThreads();
+            this.workloadGroupMgr.init();
 
-        MetricRepo.init();
+            // for master, the 'isReady' is set behind.
+            // but we are sure that all metadata is replayed if we get here.
+            // so no need to check 'isReady' flag in this method
+            postProcessAfterMetadataReplayed(false);
 
-        canRead.set(true);
-        isReady.set(true);
-        checkLowerCaseTableNames();
+            // start all daemon threads that only running on MASTER FE
+            startMasterOnlyDaemonThreads();
+            // start other daemon threads that should running on all FE
+            startNonMasterDaemonThreads();
 
-        String msg = "master finished to replay journal, can write now.";
-        Util.stdoutWithTime(msg);
-        LOG.info(msg);
-        // for master, there are some new thread pools need to register metric
-        ThreadPoolManager.registerAllThreadPoolMetric();
-        if (analysisManager != null) {
-            analysisManager.getStatisticsCache().preHeat();
+            MetricRepo.init();
+
+            canRead.set(true);
+            isReady.set(true);
+            checkLowerCaseTableNames();
+
+            String msg = "master finished to replay journal, can write now.";
+            Util.stdoutWithTime(msg);
+            LOG.info(msg);
+            // for master, there are some new thread pools need to register metric
+            ThreadPoolManager.registerAllThreadPoolMetric();
+            if (analysisManager != null) {
+                analysisManager.getStatisticsCache().preHeat();
+            }
+        } catch (Throwable e) {
+            // When failed to transfer to master, we need to exit the process.
+            // Otherwise, the process will be in an unknown state.
+            LOG.error("failed to transfer to master.", e);
+            System.exit(-1);
         }
     }
 
@@ -1557,37 +1564,44 @@ public class Env {
     private void transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
-        if (feType == FrontendNodeType.OBSERVER || feType == FrontendNodeType.FOLLOWER) {
-            Preconditions.checkState(newType == FrontendNodeType.UNKNOWN);
-            LOG.warn("{} to UNKNOWN, still offer read service", feType.name());
-            // not set canRead here, leave canRead as what is was.
-            // if meta out of date, canRead will be set to false in replayer thread.
-            metaReplayState.setTransferToUnknown();
-            return;
+        try {
+            if (feType == FrontendNodeType.OBSERVER || feType == FrontendNodeType.FOLLOWER) {
+                Preconditions.checkState(newType == FrontendNodeType.UNKNOWN);
+                LOG.warn("{} to UNKNOWN, still offer read service", feType.name());
+                // not set canRead here, leave canRead as what is was.
+                // if meta out of date, canRead will be set to false in replayer thread.
+                metaReplayState.setTransferToUnknown();
+                return;
+            }
+
+            // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
+
+            if (replayer == null) {
+                createReplayer();
+                replayer.start();
+            }
+
+            // 'isReady' will be set to true in 'setCanRead()' method
+            postProcessAfterMetadataReplayed(true);
+
+            checkLowerCaseTableNames();
+
+            startNonMasterDaemonThreads();
+
+            MetricRepo.init();
+
+            if (analysisManager != null) {
+                analysisManager.getStatisticsCache().preHeat();
+            }
+
+            // stop mtmv scheduler
+            mtmvJobManager.stop();
+        } catch (Throwable e) {
+            // When failed to transfer to non-master, we need to exit the process.
+            // Otherwise, the process will be in an unknown state.
+            LOG.error("failed to transfer to non-master.", e);
+            System.exit(-1);
         }
-
-        // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
-
-        if (replayer == null) {
-            createReplayer();
-            replayer.start();
-        }
-
-        // 'isReady' will be set to true in 'setCanRead()' method
-        postProcessAfterMetadataReplayed(true);
-
-        checkLowerCaseTableNames();
-
-        startNonMasterDaemonThreads();
-
-        MetricRepo.init();
-
-        if (analysisManager != null) {
-            analysisManager.getStatisticsCache().preHeat();
-        }
-
-        // stop mtmv scheduler
-        mtmvJobManager.stop();
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -2876,15 +2890,15 @@ public class Env {
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-                                  long specificVersion) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+            long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, false);
     }
 
     public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-                                  long specificVersion) {
+            List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+            long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
                 hidePassword, false, specificVersion, false, true);
     }
@@ -2895,10 +2909,10 @@ public class Env {
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
-                                  List<String> addPartitionStmt, List<String> createRollupStmt,
-                                  boolean separatePartition,
-                                  boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl, boolean getDdlForSync) {
+            List<String> addPartitionStmt, List<String> createRollupStmt,
+            boolean separatePartition,
+            boolean hidePassword, boolean getDdlForLike, long specificVersion,
+            boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3198,25 +3212,25 @@ public class Env {
 
             // time series compaction goal size
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+                        .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
             }
 
             // time series compaction file count threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+                        .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
             }
 
             // time series compaction time threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+                        .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
@@ -3228,17 +3242,17 @@ public class Env {
 
             // time series compaction empty rowsets threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+                        .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
             }
 
             // time series compaction level threshold
             if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                    .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
+                        .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
             }
 
@@ -3473,12 +3487,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
+            Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-                                Long recycleTime) throws MetaNotFoundException {
+            Long recycleTime) throws MetaNotFoundException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -3918,7 +3932,7 @@ public class Env {
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
-                                                boolean isKeysRequired) throws DdlException {
+            boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
         boolean hasValueColumn = false;
         for (Column column : columns) {
@@ -4042,7 +4056,7 @@ public class Env {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN
-                       || stmt.getAlterType() == AlterType.INDEX) {
+                || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
@@ -4143,14 +4157,14 @@ public class Env {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String assignedGroup, boolean isReplay,
-                                    GroupId assignedGroupId)
+            GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(assignedGroup)) {
             String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
-            //When the new name is the same as the old name, we return it to prevent npe
+            // When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
                 String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
                 if (oldFullGroupName.equals(fullAssignedGroupName)) {
@@ -4367,8 +4381,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
-                              boolean isReplay) throws DdlException {
+            String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+            boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4715,7 +4729,7 @@ public class Env {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
-                                                   ModifyDistributionClause modifyDistributionClause)
+            ModifyDistributionClause modifyDistributionClause)
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
@@ -5094,7 +5108,7 @@ public class Env {
                 executor.execute();
                 if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
                     throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
-                        fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
+                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
             }
         }
