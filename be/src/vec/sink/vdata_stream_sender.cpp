@@ -858,7 +858,7 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
             if (!rows->empty()) {
                 SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const auto* begin = rows->data();
-                _mutable_block->add_rows(block, begin, begin + rows->size());
+                RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
             }
         } else if (!block->empty()) {
             SCOPED_TIMER(_parent->merge_block_timer());
