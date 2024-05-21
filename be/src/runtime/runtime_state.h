@@ -140,6 +140,13 @@ public:
     bool enable_common_expr_pushdown() const {
         LOG(ERROR) << "yangsiyu 3: " << _query_options.__isset.enable_common_expr_pushdown << ", "
                    << _query_options.enable_common_expr_pushdown;
+
+        if (!_query_options.enable_common_expr_pushdown) {
+            std::ostringstream stream;
+            _query_options.printTo(stream);
+            LOG(ERROR) << "yangsiyu print: " << stream.str();
+        }
+
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;
     }
