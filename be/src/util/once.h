@@ -98,7 +98,7 @@ public:
 
 private:
     std::atomic<bool> _has_called;
-    std::once_flag _once_flag;
+    // std::once_flag _once_flag;
     std::mutex _flag_lock;
     ReturnType _status;
 };
