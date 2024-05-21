@@ -384,6 +384,10 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.executionProfile = new ExecutionProfile(queryId, fragments);
+        // Need to be same with LoadLoadingTask
+        // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
+        this.enablePipelineEngine = Config.enable_pipeline_load;
+        this.enablePipelineXEngine = Config.enable_pipeline_load;
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
