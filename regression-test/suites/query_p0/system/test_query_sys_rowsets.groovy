@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 suite("test_query_sys_rowsets", "query,p0") {
     def dbName1 = "test_query_sys_rowsets"
 
@@ -38,6 +41,9 @@ suite("test_query_sys_rowsets", "query,p0") {
         );
     """
 
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    def now = sdf.format(new Date()).toString();
+    
     List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
     order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (1,0,"abc");  """ 
@@ -45,5 +51,6 @@ suite("test_query_sys_rowsets", "query,p0") {
     sql """ insert into  ${rowsets_table_name} values (2,1,"hello world");  """ 
     sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
     order_qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
-
+    sql """ insert into  ${rowsets_table_name} values (4,0,"abcd");  """ 
+    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]} and NEWEST_WRITE_TIMESTAMP>='${now}' order by START_VERSION,END_VERSION; """ 
 }
