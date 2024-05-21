@@ -52,14 +52,36 @@ class DorisCallOnce {
 public:
     DorisCallOnce() : _has_called(false) {}
 
+    // this method is not exception safe, it will core when exception occurs in
+    // callback method. I have tested the code https://en.cppreference.com/w/cpp/thread/call_once.
     // If the underlying `once_flag` has yet to be invoked, invokes the provided
     // lambda and stores its return value. Otherwise, returns the stored Status.
+    // template <typename Fn>
+    // ReturnType call(Fn fn) {
+    //     std::call_once(_once_flag, [this, fn] {
+    //         _status = fn();
+    //         _has_called.store(true, std::memory_order_release);
+    //     });
+    //     return _status;
+    // }
+
+    // If the underlying `once_flag` has yet to be invoked, invokes the provided
+    // lambda and stores its return value. Otherwise, returns the stored Status.
+    // If exception occurs in the function, the call flag is not set, user could call
+    // it again. like std::call_once.
     template <typename Fn>
     ReturnType call(Fn fn) {
-        std::call_once(_once_flag, [this, fn] {
-            _status = fn();
-            _has_called.store(true, std::memory_order_release);
-        });
+        if (has_called()) {
+            return _status;
+        }
+        std::lock_guard l(_flag_lock);
+        // After lock, should check again. Another thread may call
+        // at the same time during first time check has called.
+        if (has_called()) {
+            return _status;
+        }
+        _status = fn();
+        _has_called.store(true, std::memory_order_release);
         return _status;
     }
 
@@ -77,6 +99,7 @@ public:
 private:
     std::atomic<bool> _has_called;
     std::once_flag _once_flag;
+    std::mutex _flag_lock;
     ReturnType _status;
 };
 
