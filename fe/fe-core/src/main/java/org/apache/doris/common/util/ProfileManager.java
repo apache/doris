@@ -332,7 +332,7 @@ public class ProfileManager {
         class QueryIdAndAddress {
             public TUniqueId queryId;
             public TNetworkAddress beAddress;
-        };
+        }
 
         List<Future<TGetRealtimeExecStatusResponse>> futures = Lists.newArrayList();
         TUniqueId queryId = Util.parseTUniqueIdFromString(id);
@@ -386,7 +386,7 @@ public class ProfileManager {
 
     public String getProfile(String id) {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id);
-        
+
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
