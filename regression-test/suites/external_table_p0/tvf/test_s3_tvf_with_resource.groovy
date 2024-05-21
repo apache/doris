@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf", "p0") {
+suite("test_s3_tvf_with_resource", "p0") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
@@ -27,8 +27,9 @@ suite("test_s3_tvf", "p0") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
 
-    def export_table_name = "test_s3_tvf_export_test"
+    def export_table_name = "test_s3_tvf_with_resource_export_test"
     def outFilePath = "${bucket}/est_s3_tvf/export_test/exp_"
+    def resource_name = "test_s3_tvf_resource"
 
 
     def create_table = {table_name ->
@@ -41,6 +42,22 @@ suite("test_s3_tvf", "p0") {
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
+    }
+
+    def create_s3_resource = {
+        sql """ DROP RESOURCE '${resource_name}' """
+        sql """
+            CREATE RESOURCE "${resource_name}"
+            PROPERTIES
+            (
+                "type" = "s3",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.access_key"= "${ak}",
+                "s3.secret_key" = "${sk}",
+                "s3.bucket" = "${bucket}"
+            );
+            """
     }
 
     def outfile_to_S3 = {
@@ -63,6 +80,9 @@ suite("test_s3_tvf", "p0") {
     // create table to export data
     create_table(export_table_name)
 
+    // create s3 resource
+    create_s3_resource()
+
     // insert data
     sql """ insert into ${export_table_name} values (1, 'doris1', 18); """
     sql """ insert into ${export_table_name} values (2, 'doris2', 19); """
@@ -80,10 +100,9 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
                             "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
                             "format" = "orc",
-                            "region" = "${region}"
+                            "use_path_style" = "true",
+                            "resource" = "${resource_name}"
                         );
                         """
     } finally {
@@ -94,11 +113,8 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_2 """ SELECT * FROM S3 (
                             "uri" = "http://${outfile_url.substring(5)}0.orc",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
-                            "s3.endpoint" = "${s3_endpoint}",
                             "format" = "orc",
-                            "region" = "${region}"
+                            "resource" = "${resource_name}"
                         );
                         """
     } finally {
@@ -108,11 +124,9 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
                             "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
                             "format" = "orc",
                             "use_path_style" = "true",
-                            "region" = "${region}"
+                            "resource" = "${resource_name}"
                         );
                         """
     } finally {
@@ -121,10 +135,8 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_4 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "region" = "${region}"
+                            "resource" = "${resource_name}"
                         ) order by c1,c2,c3;
                         """
     } finally {
@@ -133,11 +145,9 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_5 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "region" = "${region}",
-                            "csv_schema"="k1:int;k2:string;k3:double"
+                            "csv_schema"="k1:int;k2:string;k3:double",
+                            "resource" = "${resource_name}"
                         ) order by k1,k2,k3;
                         """
     } finally {
@@ -146,11 +156,9 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_6 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "region" = "${region}",
-                            "csv_schema"="k1:int;k2:string;k3:double"
+                            "csv_schema"="k1:int;k2:string;k3:double",
+                            "resource" = "${resource_name}"
                         )  where k3 > 1.5  order by k3,k2,k1;
                         """
     } finally {
@@ -159,11 +167,9 @@ suite("test_s3_tvf", "p0") {
     try {
         order_qt_select_7 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
                             "format" = "hive_text",
-                            "region" = "${region}",
-                            "csv_schema"="k1:int;k2:string;k3:double"
+                            "csv_schema"="k1:int;k2:string;k3:double",
+                            "resource" = "${resource_name}"
                         )  where k1 > 100  order by k3,k2,k1;
                         """
     } finally {

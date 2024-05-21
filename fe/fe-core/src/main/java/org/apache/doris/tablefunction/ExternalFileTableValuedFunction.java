@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -174,9 +175,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     //The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (properties.containsKey("resource")) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
+            if (resource == null) {
+                throw new AnalysisException("Can not find resource: " + properties.containsKey("resource"));
+            }
+            mergedProperties = resource.getCopiedProperties();
+        }
+        mergedProperties.putAll(properties);
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        copiedProps.putAll(properties);
+        copiedProps.putAll(mergedProperties);
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
