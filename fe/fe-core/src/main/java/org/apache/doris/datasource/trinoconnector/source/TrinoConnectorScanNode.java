@@ -150,6 +150,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                 }
             }
         }
+
+        // 4. Clear query
+        // It is necessary for hive connector
+        connectorMetadata.cleanupQuery(connectorSession);
         return splits;
     }
 
