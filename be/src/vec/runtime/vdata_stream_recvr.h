@@ -110,17 +110,12 @@ public:
     // Careful: stream sender will call this function for a local receiver,
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
-    bool exceeds_limit(int batch_size) {
-        return _blocks_memory_usage_current_value + batch_size >
-               config::exchg_node_buffer_size_bytes;
-    }
-
+    bool exceeds_limit(size_t block_byte_size);
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
 private:
-    void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -154,7 +149,7 @@ private:
     ObjectPool _sender_queue_pool;
     RuntimeProfile* _profile = nullptr;
 
-    RuntimeProfile::Counter* _bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _remote_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _local_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _deserialize_row_batch_timer = nullptr;
     RuntimeProfile::Counter* _first_batch_wait_total_timer = nullptr;
@@ -163,8 +158,6 @@ private:
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
-    std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // Number of rows received
@@ -224,7 +217,9 @@ public:
         _source_dependency = dependency;
     }
 
-    void update_blocks_memory_usage(int64_t size);
+    void add_blocks_memory_usage(int64_t size);
+
+    void sub_blocks_memory_usage(int64_t size);
 
 protected:
     friend class pipeline::ExchangeLocalState;
