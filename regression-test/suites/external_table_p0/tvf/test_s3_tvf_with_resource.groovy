@@ -45,7 +45,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     def create_s3_resource = {
-        sql """ DROP RESOURCE '${resource_name}' """
+        sql """ DROP RESOURCE IF EXISTS '${resource_name}' """
         sql """
             CREATE RESOURCE "${resource_name}"
             PROPERTIES
