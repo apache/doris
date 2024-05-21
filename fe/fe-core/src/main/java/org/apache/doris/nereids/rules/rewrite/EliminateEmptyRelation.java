@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -51,17 +52,11 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
         return ImmutableList.of(
             // join->empty
             logicalJoin(any(), any())
-                // .when(this::hasEmptyRelationChild)
-                // .when(this::canReplaceJoinByEmptyRelation)
-                .then(join -> {
-                            if (hasEmptyRelationChild(join) && canReplaceJoinByEmptyRelation(join)
-                                    || bothChildrenEmpty(join)) {
-                                return new LogicalEmptyRelation(
-                                        ConnectContext.get().getStatementContext().getNextRelationId(),
-                                        join.getOutput());
-                            }
-                            return null;
-                        }
+                .when(join -> hasEmptyRelationChild(join) && canReplaceJoinByEmptyRelation(join)
+                        || bothChildrenEmpty(join))
+                .then(join -> new LogicalEmptyRelation(
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            join.getOutput())
                 )
                 .toRule(RuleType.ELIMINATE_JOIN_ON_EMPTYRELATION),
             logicalFilter(logicalEmptyRelation())
@@ -77,11 +72,11 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                 ).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // proj->empty
             logicalProject(logicalEmptyRelation())
-                    .then(project ->
-                            new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
-                                    project.getOutputs()
-                            ))
-                    .toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
+                    .thenApply(ctx -> {
+                        LogicalProject<? extends Plan> project = ctx.root;
+                        return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
+                                project.getOutputs());
+                    }).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // after BuildAggForUnion rule, union may have more than 2 children.
             logicalUnion(multi()).then(union -> {
                 if (union.children().isEmpty()) {
@@ -156,6 +151,10 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                             intersect.getOutput());
                 }
             }).toRule(RuleType.ELIMINATE_INTERSECTION_ON_EMPTYRELATION),
+            // limit -> empty
+            logicalLimit(logicalEmptyRelation())
+                    .then(UnaryNode::child)
+                    .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
             // set except
             logicalExcept(multi()).then(except -> {
                 Plan first = except.child(0);
