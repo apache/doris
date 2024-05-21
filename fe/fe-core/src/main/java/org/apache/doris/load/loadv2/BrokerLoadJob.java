@@ -238,6 +238,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
                     false);
+            jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
@@ -391,7 +392,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
             builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - createTimestamp));
         }
-        builder.taskState("FINISHED");
+        builder.taskState(isFinished ? "FINISHED" : "RUNNING");
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);

@@ -252,6 +252,7 @@ public class ExecutionProfile {
     public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
         if (isPipelineXProfile) {
             if (!profile.isSetFragmentIdToProfile()) {
+                LOG.warn("FragmentIdToProfile is not set");
                 return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
             }
 
@@ -266,6 +267,7 @@ public class ExecutionProfile {
                     RuntimeProfile profileNode = new RuntimeProfile(name);
                     taskProfile.add(profileNode);
                     if (!pipelineProfile.isSetProfile()) {
+                        LOG.warn("Profile is not set");
                         return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
                     }
 
@@ -278,10 +280,12 @@ public class ExecutionProfile {
             }
         } else {
             if (!profile.isSetInstanceProfiles() || !profile.isSetFragmentInstanceIds()) {
+                LOG.warn("InstanceIdToProfile is not set");
                 return new Status(TStatusCode.INVALID_ARGUMENT, "InstanceIdToProfile is not set");
             }
 
             if (profile.fragment_instance_ids.size() != profile.instance_profiles.size()) {
+                LOG.warn("InstanceIdToProfile size is not equal");
                 return new Status(TStatusCode.INVALID_ARGUMENT, "InstanceIdToProfile size is not equal");
             }
 
@@ -289,6 +293,7 @@ public class ExecutionProfile {
                 TUniqueId instanceId = profile.getFragmentInstanceIds().get(idx);
                 TRuntimeProfileTree instanceProfile = profile.getInstanceProfiles().get(idx);
                 if (instanceProfile == null) {
+                    LOG.warn("Profile is not set");
                     return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
                 }
 
