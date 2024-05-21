@@ -1249,6 +1249,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 
     std::shared_ptr<PlanFragmentExecutor> fragment_executor;
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
+    QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
     if (is_pipeline) {
@@ -1262,6 +1263,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 
         DCHECK(pip_context != nullptr);
         runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+        query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                pip_context->get_query_ctx()->query_mem_tracker};
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1274,8 +1277,11 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         DCHECK(fragment_executor != nullptr);
         runtime_filter_mgr =
                 fragment_executor->runtime_state()->get_query_ctx()->runtime_filter_mgr();
+        query_thread_context = {fragment_executor->get_query_ctx()->query_id(),
+                                fragment_executor->get_query_ctx()->query_mem_tracker};
     }
 
+    SCOPED_ATTACH_TASK(query_thread_context);
     return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
@@ -1519,7 +1525,10 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     {
         std::lock_guard<std::mutex> lock(_lock);
-        query_context = _query_ctx_map[query_id];
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter != _query_ctx_map.end()) {
+            query_context = iter->second;
+        }
     }
 
     if (query_context == nullptr) {

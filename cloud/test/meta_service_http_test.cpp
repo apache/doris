@@ -596,6 +596,8 @@ TEST(MetaServiceHttpTest, InstanceTestWithVersion) {
 }
 
 TEST(MetaServiceHttpTest, AlterClusterTest) {
+    config::enable_cluster_name_check = true;
+
     HttpContext ctx;
     {
         CreateInstanceRequest req;
@@ -683,6 +685,16 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 400);
         ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
     }
 
     // case: request has invalid argument
