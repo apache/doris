@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -69,7 +70,7 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             }
             return p.child()
                     .withChildrenAndConstExprsList(ImmutableList.of(), ImmutableList.of(), newConstExprs.build())
-                    .withNewOutputs(p.getOutputs());
+                    .withNewOutputs(new ArrayList<>(p.getOutput()));
         }).toRule(RuleType.PUSH_PROJECT_INTO_UNION);
     }
 }
