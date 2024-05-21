@@ -39,7 +39,7 @@ inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     // Truncate the higher-order bits. This is necessary to
     // support signed values.
     // LOG(WARNING) << fmt::format("Put value's corresponding binary represent {}, {}, {}",
-    //                             std::bitset<64>(v).to_string(), 
+    //                             std::bitset<64>(v).to_string(),
     //                             std::bitset<64>(v & (~0ULL >> (64 - num_bits))).to_string(),
     //                             std::bitset<64>(buffered_values_).to_string());
     v &= ~0ULL >> (64 - num_bits);
