@@ -78,7 +78,7 @@ public abstract class MaterializationContext {
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
     // The mv plan struct info
-    protected StructInfo structInfo;
+    protected final StructInfo structInfo;
     // Group id set that are rewritten unsuccessfully by this mv for reducing rewrite times
     protected final Set<GroupId> matchedFailGroups = new HashSet<>();
     // Group id set that are rewritten successfully by this mv for reducing rewrite times
@@ -120,6 +120,7 @@ public abstract class MaterializationContext {
             LOG.warn(String.format("construct mv struct info fail, materialization name is %s, mv plan is %s",
                     getMaterializationQualifier(), getMvPlan().treeString()), exception);
             this.available = false;
+            this.structInfo = null;
             return;
         }
         this.structInfo = viewStructInfos.get(0);
