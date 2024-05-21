@@ -132,6 +132,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
@@ -535,6 +536,8 @@ public class Env {
 
     private final NereidsSqlCacheManager sqlCacheManager;
 
+    private final SplitSourceManager splitSourceManager;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -772,6 +775,7 @@ public class Env {
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
+        this.splitSourceManager = new SplitSourceManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1712,7 +1716,7 @@ public class Env {
         workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
-
+        splitSourceManager.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -6056,6 +6060,10 @@ public class Env {
 
     public NereidsSqlCacheManager getSqlCacheManager() {
         return sqlCacheManager;
+    }
+
+    public SplitSourceManager getSplitSourceManager() {
+        return splitSourceManager;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
