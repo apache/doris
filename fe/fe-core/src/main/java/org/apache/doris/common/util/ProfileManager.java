@@ -354,10 +354,10 @@ public class ProfileManager {
             Long loadJobId = (long) -1;
             try {
                 loadJobId = Long.parseLong(id);
-            } catch(Exception e) {
+            } catch (Exception e) {
                 return futures;
             }
-            
+
             LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);
             if (loadJob.getLoadTaskIds() == null) {
                 return futures;
