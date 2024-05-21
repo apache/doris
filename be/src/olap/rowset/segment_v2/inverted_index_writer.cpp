@@ -566,15 +566,15 @@ public:
                     null_bitmap_out =
                             std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
                                     InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                                            .data()));
                     data_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
                             InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()
-                                    .c_str()));
+                                    .data()));
                     meta_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
                             InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()
-                                    .c_str()));
+                                    .data()));
                     index_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name().data()));
                     write_null_bitmap(null_bitmap_out.get());
 
                     DBUG_EXECUTE_IF("InvertedIndexWriter._set_bkd_data_out_nullptr",
@@ -597,7 +597,7 @@ public:
                     null_bitmap_out =
                             std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
                                     InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                                            .data()));
                     write_null_bitmap(null_bitmap_out.get());
                     close();
                     DBUG_EXECUTE_IF(

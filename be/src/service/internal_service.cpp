@@ -70,6 +70,7 @@
 #include "io/io_common.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -1665,11 +1666,6 @@ static std::string construct_url(const std::string& host_port, const std::string
                        path);
 }
 
-static std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
-                                       int64_t segment) {
-    return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, segment);
-}
-
 static Status download_file_action(std::string& remote_file_url, std::string& local_file_path,
                                    uint64_t estimate_timeout, uint64_t file_size) {
     auto download_cb = [remote_file_url, estimate_timeout, local_file_path,
@@ -1700,8 +1696,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveRequest* request,
         PTabletWriteSlaveResult* response, google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    RowsetMetaPB rowset_meta_pb = request->rowset_meta();
-    std::string rowset_path = request->rowset_path();
+    const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
+    const std::string& rowset_path = request->rowset_path();
     google::protobuf::Map<int64, int64> segments_size = request->segments_size();
     google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
             request->inverted_indices_size();
@@ -1759,7 +1755,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << ", txn_id=" << rowset_meta->txn_id();
 
         auto tablet_scheme = rowset_meta->tablet_schema();
-        for (auto& segment : segments_size) {
+        for (const auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
             if (estimate_timeout < config::download_low_speed_time) {
@@ -1767,11 +1763,11 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::string remote_file_path =
-                    construct_file_path(rowset_path, remote_rowset_id.to_string(), segment.first);
+                    local_segment_path(rowset_path, remote_rowset_id.to_string(), segment.first);
             std::string remote_file_url =
                     construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            std::string local_file_path = construct_file_path(
+            std::string local_file_path = local_segment_path(
                     tablet->tablet_path(), rowset_meta->rowset_id().to_string(), segment.first);
 
             auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
@@ -1801,21 +1797,23 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     std::string remote_inverted_index_file_url;
                     if (tablet_scheme->get_inverted_index_storage_format() !=
                         InvertedIndexStorageFormatPB::V1) {
-                        remote_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_name(remote_file_path);
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
+                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path));
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_name(local_file_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
+                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path));
                     } else {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                                remote_file_path, index_id, suffix_path);
+                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
+                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path),
+                                index_id, suffix_path);
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                                local_file_path, index_id, suffix_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
+                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path),
+                                index_id, suffix_path);
                     }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);

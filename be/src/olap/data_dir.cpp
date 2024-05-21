@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -964,17 +965,21 @@ void DataDir::perform_remote_rowset_gc() {
             deleted_keys.push_back(std::move(key));
             continue;
         }
-        auto fs = get_filesystem(gc_pb.resource_id());
-        if (!fs) {
+
+        auto storage_resource = get_storage_resource(gc_pb.resource_id());
+        if (!storage_resource) {
             LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
             continue;
         }
-        DCHECK(fs->type() != io::FileSystemType::LOCAL);
+
         std::vector<io::Path> seg_paths;
         seg_paths.reserve(gc_pb.num_segments());
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
-            seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
+            seg_paths.emplace_back(
+                    storage_resource->first.remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
+
+        auto& fs = storage_resource->first.fs;
         LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
                   << ", rowset_id=" << rowset_id;
         auto st = fs->batch_delete(seg_paths);

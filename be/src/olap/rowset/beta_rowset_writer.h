@@ -162,7 +162,7 @@ private:
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
-    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
+    Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;
