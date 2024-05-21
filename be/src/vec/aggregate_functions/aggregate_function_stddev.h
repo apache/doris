@@ -224,8 +224,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -258,8 +258,8 @@ struct StddevSampName : Data {
 
 template <typename T, typename Data>
 struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {

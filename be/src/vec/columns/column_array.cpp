@@ -551,10 +551,6 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
     }
 }
 
-double ColumnArray::get_ratio_of_default_rows(double sample_ratio) const {
-    return get_ratio_of_default_rows_impl<ColumnArray>(sample_ratio);
-}
-
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
     if (typeid_cast<const ColumnUInt8*>(data.get()))
         return filter_number<UInt8>(filt, result_size_hint);

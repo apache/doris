@@ -118,15 +118,6 @@ void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& key
 }
 
 template <typename T>
-UInt64 ColumnDecimal<T>::get64(size_t n) const {
-    if constexpr (sizeof(T) > sizeof(UInt64)) {
-        LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
-    } else {
-        return static_cast<typename T::NativeType>(data[n]);
-    }
-}
-
-template <typename T>
 void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
 }

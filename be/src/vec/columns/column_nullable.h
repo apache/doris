@@ -92,7 +92,6 @@ public:
     PURE bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
-    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -103,8 +102,6 @@ public:
         return is_null_at(n) ? false
                              : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
     }
-    UInt64 get64(size_t n) const override { return nested_column->get64(n); }
-    Float64 get_float64(size_t n) const override { return nested_column->get_float64(n); }
     StringRef get_data_at(size_t n) const override;
 
     /// Will insert null value if pos=nullptr
@@ -276,7 +273,6 @@ public:
     bool is_column_map() const override { return get_nested_column().is_column_map(); }
     bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
     bool is_fixed_and_contiguous() const override { return false; }
-    bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() && null_map->is_exclusive();
@@ -369,7 +365,32 @@ public:
     }
 
     double get_ratio_of_default_rows(double sample_ratio) const override {
-        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
+        if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
+            LOG(FATAL) << "Value of 'sample_ratio' must be in interval (0.0; 1.0], but got: "
+                       << sample_ratio;
+        }
+        static constexpr auto max_number_of_rows_for_full_search = 1000;
+        size_t num_rows = size();
+        size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
+        size_t num_checked_rows = 0;
+        size_t res = 0;
+        if (num_sampled_rows == num_rows || num_rows <= max_number_of_rows_for_full_search) {
+            for (size_t i = 0; i < num_rows; ++i) {
+                res += is_null_at(i);
+            }
+            num_checked_rows = num_rows;
+        } else if (num_sampled_rows != 0) {
+            for (size_t i = 0; i < num_rows; ++i) {
+                if (num_checked_rows * num_rows <= i * num_sampled_rows) {
+                    res += is_null_at(i);
+                    ++num_checked_rows;
+                }
+            }
+        }
+        if (num_checked_rows == 0) {
+            return 0.0;
+        }
+        return static_cast<double>(res) / num_checked_rows;
     }
 
     void convert_dict_codes_if_necessary() override {
@@ -389,10 +410,6 @@ public:
 
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
-    }
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        get_indices_of_non_default_rows_impl<ColumnNullable>(indices, from, limit);
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;

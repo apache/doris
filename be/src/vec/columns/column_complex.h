@@ -127,11 +127,6 @@ public:
         __builtin_unreachable();
     }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
-        __builtin_unreachable();
-    }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
         __builtin_unreachable();
@@ -158,21 +153,6 @@ public:
     void get(size_t n, Field& res) const override {
         assert(n < size());
         res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
-    }
-
-    [[noreturn]] UInt64 get64(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
-    }
-
-    [[noreturn]] Float64 get_float64(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
-    }
-
-    [[noreturn]] UInt64 get_uint(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
-        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {

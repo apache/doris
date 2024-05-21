@@ -40,6 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/exprs/vexpr_context.h"
@@ -381,7 +382,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        bool v = ctn.column->get_bool(0);
+        bool v = assert_cast<const ColumnUInt8*>(ctn.column.get())->get_element(0);
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
     }
@@ -392,7 +393,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = assert_cast<const ColumnInt16*>(ctn.column.get())->get_element(0);
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -403,7 +404,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = assert_cast<const ColumnInt32*>(ctn.column.get())->get_element(0);
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }
@@ -414,7 +415,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = ctn.column->get64(0);
+        auto v = assert_cast<const ColumnInt64*>(ctn.column.get())->get_element(0);
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
     }

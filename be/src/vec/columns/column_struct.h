@@ -93,7 +93,6 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    bool is_default_at(size_t n) const override;
     [[noreturn]] StringRef get_data_at(size_t n) const override {
         LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
         __builtin_unreachable();

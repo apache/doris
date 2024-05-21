@@ -945,13 +945,14 @@ struct CurrentDateTimeImpl {
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column)) {
                 const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = nullable_column->get_nested_column_ptr();
+                const auto& nested_column = assert_cast<const ColumnInt32*>(
+                        nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
                         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                           context->state()->nano_seconds(),
                                           context->state()->timezone_obj(),
-                                          nested_column->get64(i));
+                                          nested_column->get_element(i));
                         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                             reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                         }
@@ -967,11 +968,12 @@ struct CurrentDateTimeImpl {
                 }
                 use_const = false;
             } else {
-                auto& int_column = block.get_by_position(arguments[0]).column;
+                const auto* int_column = assert_cast<const ColumnInt32*>(
+                        block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                       context->state()->nano_seconds(),
-                                      context->state()->timezone_obj(), int_column->get64(i));
+                                      context->state()->timezone_obj(), int_column->get_element(i));
                     if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                         reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                     }
@@ -1075,7 +1077,7 @@ struct CurrentTimeImpl {
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
-        auto col_to = ColumnVector<Float64>::create();
+        auto col_to = ColumnFloat64::create();
         VecDateTimeValue dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());

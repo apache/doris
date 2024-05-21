@@ -74,7 +74,9 @@ public:
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = context->get_constant_col(0)->column_ptr->get64(0);
+                    seed = assert_cast<const ColumnInt64*>(
+                                   context->get_constant_col(0)->column_ptr.get())
+                                   ->get_element(0);
                 }
                 generator->seed(seed);
             } else {

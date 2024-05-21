@@ -57,7 +57,7 @@ public:
     Container& get_data() { return _data; }
 
     void resize(size_t n) override {
-        DCHECK(_item_size > 0) << "_item_size should be greater than 0";
+        DCHECK_GT(_item_size, 0) << "_item_size should be greater than 0";
         _data.resize(n * _item_size);
         _item_count = n;
     }
@@ -89,7 +89,7 @@ public:
         if (_item_size == 0) {
             _item_size = src_vec._item_size;
         }
-        DCHECK(_item_size == src_vec._item_size) << "dst and src should have the same _item_size";
+        DCHECK_EQ(_item_size, src_vec._item_size) << "dst and src should have the same _item_size";
         resize(origin_size + new_size);
 
         for (uint32_t i = 0; i < new_size; ++i) {
@@ -206,12 +206,6 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";
-        __builtin_unreachable();
-    }
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
         __builtin_unreachable();
     }
 

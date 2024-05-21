@@ -1017,7 +1017,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
-        auto array = static_cast<const ColumnArray*>(result_column.get());
+        const auto* array = static_cast<const ColumnArray*>(result_column.get());
         for (size_t i = 0; i < array->size(); ++i) {
             null_map_data.push_back(array->is_default_at(i));
         }

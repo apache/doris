@@ -570,17 +570,7 @@ public:
         return shrinked_column;
     }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<ColumnStr<T>>(indices, from,
-                                                                                 limit);
-    }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<ColumnStr<T>>(sample_ratio);
-    }
 
     ColumnPtr convert_column_if_overflow() override;
 };

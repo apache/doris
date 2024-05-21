@@ -491,11 +491,6 @@ public:
 
     void replace_column_data_default(size_t self_row) override;
 
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        __builtin_unreachable();
-    }
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 

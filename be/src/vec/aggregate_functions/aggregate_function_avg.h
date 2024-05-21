@@ -123,7 +123,7 @@ public:
     using ColVecResult = std::conditional_t<
             IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
-                               ColumnVector<Float64>>>;
+                               ColumnFloat64>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)

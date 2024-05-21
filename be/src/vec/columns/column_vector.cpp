@@ -335,16 +335,6 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 }
 
 template <typename T>
-UInt64 ColumnVector<T>::get64(size_t n) const {
-    return static_cast<UInt64>(data[n]);
-}
-
-template <typename T>
-Float64 ColumnVector<T>::get_float64(size_t n) const {
-    return static_cast<Float64>(data[n]);
-}
-
-template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {

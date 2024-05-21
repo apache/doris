@@ -159,12 +159,6 @@ public:
 
     bool is_fixed_and_contiguous() const override { return true; }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
-        __builtin_unreachable();
-    }
-
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {

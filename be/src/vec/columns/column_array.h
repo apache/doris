@@ -136,7 +136,7 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
-    bool is_default_at(size_t n) const override;
+    bool is_default_at(size_t n) const;
     void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
@@ -252,14 +252,7 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
-    }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override;
 
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

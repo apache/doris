@@ -157,11 +157,6 @@ public:
         __builtin_unreachable();
     }
 
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column dummy";
-        __builtin_unreachable();
-    }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         if (indexes.size() < limit) {
             LOG(FATAL) << "Size of indexes is less than required.";
