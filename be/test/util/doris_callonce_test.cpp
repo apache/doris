@@ -38,12 +38,12 @@ TEST_F(DorisCallOnceTest, TestNormal) {
 
     Status st = call1.call([&]() -> Status { return Status::OK(); });
     EXPECT_EQ(call1.has_called(), true);
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 
     st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 }
 
 // Test that, if the string contents is shorter than the initial capacity
@@ -55,12 +55,12 @@ TEST_F(DorisCallOnceTest, TestErrorHappens) {
 
     Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 
     st = call1.call([&]() -> Status { return Status::OK(); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 }
 
 TEST_F(DorisCallOnceTest, TestExceptionHappens) {
@@ -79,12 +79,12 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
 
     EXPECT_EQ(exception_occured, true);
     EXPECT_EQ(call1.has_called(), false);
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 
     Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
-    EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(call1.stored_result().code(), ErrorCode::INTERNAL_ERROR);
 }
 
 } // namespace doris
