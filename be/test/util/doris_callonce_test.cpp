@@ -105,7 +105,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     try {
         try {
             Status st = call1.call([&]() -> Status {
-                throw std::exception("runtime error happens");
+                throw std::exception();
                 return Status::InternalError("");
             });
         } catch (const std::runtime_error&) {
