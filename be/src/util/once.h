@@ -110,7 +110,10 @@ public:
 
     // Return the stored result. The result is only meaningful when `has_called() == true`.
     ReturnType stored_result() const {
-        std::lock_guard l(_flag_lock);
+        if (!has_called()) {
+            // Could not return status if the method not called.
+            throw std::exception();
+        }
         if (_eptr) {
             std::rethrow_exception(_eptr);
         }
@@ -120,7 +123,7 @@ public:
 private:
     std::atomic<bool> _has_called;
     // std::once_flag _once_flag;
-    mutable std::mutex _flag_lock;
+    std::mutex _flag_lock;
     std::exception_ptr _eptr;
     ReturnType _status;
 };
