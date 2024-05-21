@@ -110,6 +110,19 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/utils/util.hpp"
 
+#if defined(__APPLE__)
+namespace std {
+template <typename T>
+T abs(T arg) {
+    if (arg >= 0) {
+        return arg;
+    } else {
+        return -arg;
+    }
+}
+} // namespace std
+#endif
+
 namespace doris::vectorized {
 
 struct StringOP {
