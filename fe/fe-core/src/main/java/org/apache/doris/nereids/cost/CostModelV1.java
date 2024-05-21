@@ -147,6 +147,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        double filterCostFactor = 0.0001;
+        if (ConnectContext.get() != null) {
+            filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
+        }
         int prefixIndexMatched = 0;
         if (filter.getGroupExpression().isPresent()) {
             OlapScan olapScan = (OlapScan) filter.getGroupExpression().get().getFirstChildPlan(OlapScan.class);
@@ -166,7 +170,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         return CostV1.ofCpu(context.getSessionVariable(),
-                filter.getConjuncts().size() - prefixIndexMatched);
+                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor
+                        * context.getStatisticsWithCheck().getRowCount());
     }
 
     @Override
