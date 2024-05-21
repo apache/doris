@@ -256,7 +256,11 @@ public:
     uint32_t get_compaction_score() const {
         uint32_t score = 0;
         if (!is_segments_overlapping()) {
-            score = 1;
+            if (num_segments() == 0) {
+                score = 0;
+            } else {
+                score = 1;
+            }
         } else {
             score = num_segments();
             CHECK(score > 0);
