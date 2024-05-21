@@ -36,11 +36,11 @@ TEST_F(DorisCallOnceTest, TestNormal) {
     DorisCallOnce<Status> call1;
     EXPECT_EQ(call1.has_called(), false);
 
-    call1.call([&]() -> Status { return Status::OK(); });
+    Status st = call1.call([&]() -> Status { return Status::OK(); });
     EXPECT_EQ(call1.has_called(), true);
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
 
-    call1.call([&]() -> Status { return Status::InternalError(""); });
+    st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
@@ -53,11 +53,11 @@ TEST_F(DorisCallOnceTest, TestErrorHappens) {
     DorisCallOnce<Status> call1;
     EXPECT_EQ(call1.has_called(), false);
 
-    call1.call([&]() -> Status { return Status::InternalError(""); });
+    Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
 
-    call1.call([&]() -> Status { return Status::OK(); });
+    st = call1.call([&]() -> Status { return Status::OK(); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
@@ -68,7 +68,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     EXPECT_EQ(call1.has_called(), false);
     bool exception_occured = false;
     try {
-        call1.call([&]() -> Status {
+        Status st = call1.call([&]() -> Status {
             throw std::exception();
             return Status::InternalError("");
         });
@@ -81,7 +81,7 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
     EXPECT_EQ(call1.has_called(), false);
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::OK);
 
-    call1.call([&]() -> Status { return Status::InternalError(""); });
+    Status st = call1.call([&]() -> Status { return Status::InternalError(""); });
     EXPECT_EQ(call1.has_called(), true);
     // The error code should not changed
     EXPECT_EQ(call1.stored_result().error_code(), ErrorCode::INTERNAL_ERROR);
