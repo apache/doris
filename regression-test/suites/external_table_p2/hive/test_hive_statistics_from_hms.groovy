@@ -55,8 +55,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "\'1992-01-04\'")
-        assertTrue(result[0][8] == "\'1998-12-31\'")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_tax)"""
         assertTrue(result.size() == 1)
@@ -66,8 +66,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "4.800972E7")
         assertTrue(result[0][6] == "8.0")
-        assertTrue(result[0][7] == "0")
-        assertTrue(result[0][8] == "0.08")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_shipmode)"""
         assertTrue(result.size() == 1)
@@ -77,6 +77,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.5717007E7")
         assertTrue(result[0][6] == "4.285300060071169")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_suppkey)"""
         assertTrue(result.size() == 1)
@@ -86,8 +88,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "1")
-        assertTrue(result[0][8] == "7")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_shipdate)"""
         assertTrue(result.size() == 1)
@@ -97,8 +99,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "\'1992-01-02\'")
-        assertTrue(result[0][8] == "\'1998-12-01\'")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_commitdate)"""
         assertTrue(result.size() == 1)
@@ -108,8 +110,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "\'1992-01-31\'")
-        assertTrue(result[0][8] == "\'1998-10-31\'")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_partkey)"""
         assertTrue(result.size() == 1)
@@ -119,8 +121,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "1")
-        assertTrue(result[0][8] == "10000")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_orderkey)"""
         assertTrue(result.size() == 1)
@@ -130,8 +132,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "1")
-        assertTrue(result[0][8] == "6000000")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_quantity)"""
         assertTrue(result.size() == 1)
@@ -141,8 +143,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "4.800972E7")
         assertTrue(result[0][6] == "8.0")
-        assertTrue(result[0][7] == "1")
-        assertTrue(result[0][8] == "50")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_linestatus)"""
         assertTrue(result.size() == 1)
@@ -152,6 +154,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "6001215.0")
         assertTrue(result[0][6] == "1.0")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_comment)"""
         assertTrue(result.size() == 1)
@@ -161,6 +165,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "1.5899739E8")
         assertTrue(result[0][6] == "26.494199924515286")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_extendedprice)"""
         assertTrue(result.size() == 1)
@@ -170,8 +176,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "4.800972E7")
         assertTrue(result[0][6] == "8.0")
-        assertTrue(result[0][7] == "901")
-        assertTrue(result[0][8] == "104949.5")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_linenumber)"""
         assertTrue(result.size() == 1)
@@ -181,8 +187,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "2.400486E7")
         assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "1")
-        assertTrue(result[0][8] == "200000")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_discount)"""
         assertTrue(result.size() == 1)
@@ -192,8 +198,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "4.800972E7")
         assertTrue(result[0][6] == "8.0")
-        assertTrue(result[0][7] == "0")
-        assertTrue(result[0][8] == "0.1")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         result = sql """show column cached stats lineitem (l_shipinstruct)"""
         assertTrue(result.size() == 1)
@@ -203,6 +209,8 @@ suite("test_hive_statistics_from_hms", "p2,external,hive,external_remote,externa
         assertTrue(result[0][4] == "0.0")
         assertTrue(result[0][5] == "7.2006178E7")
         assertTrue(result[0][6] == "11.998599950176756")
+        assertTrue(result[0][7] == "N/A")
+        assertTrue(result[0][8] == "N/A")
 
         for (int i = 0; i < 10; i++) {
             result = sql """show table stats lineitem"""
