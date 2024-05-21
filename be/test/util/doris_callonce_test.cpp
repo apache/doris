@@ -76,8 +76,51 @@ TEST_F(DorisCallOnceTest, TestExceptionHappens) {
         // Exception has to throw to the call method
         exception_occured = true;
     }
-
     EXPECT_EQ(exception_occured, true);
+
+    // Test the exception should actually the same one throwed by the callback method.
+    exception_occured = false;
+    bool runtime_occured = false;
+    try {
+        try {
+            Status st = call1.call([&]() -> Status {
+                throw std::runtime_error("runtime error happens");
+                return Status::InternalError("");
+            });
+        } catch (const std::runtime_error& error1) {
+            // Exception has to throw to the call method
+            runtime_occured = true;
+        }
+    } catch (...) {
+        // Exception has to throw to the call method, the runtime error is captured,
+        // so this code will not hit.
+        exception_occured = true;
+    }
+    EXPECT_EQ(runtime_occured, true);
+    EXPECT_EQ(exception_occured, false);
+
+    // Test the exception should actually the same one throwed by the callback method.
+    exception_occured = false;
+    runtime_occured = false;
+    try {
+        try {
+            Status st = call1.call([&]() -> Status {
+                throw std::exception("runtime error happens");
+                return Status::InternalError("");
+            });
+        } catch (const std::runtime_error& error1) {
+            // Exception has to throw to the call method, but not runtime error
+            // so that this code will not hit
+            runtime_occured = true;
+        }
+    } catch (...) {
+        // Exception has to throw to the call method, the runtime error is not captured,
+        // so this code will  hit.
+        exception_occured = true;
+    }
+    EXPECT_EQ(runtime_occured, false);
+    EXPECT_EQ(exception_occured, true);
+
     EXPECT_EQ(call1.has_called(), false);
     EXPECT_EQ(call1.stored_result().code(), ErrorCode::OK);
 
