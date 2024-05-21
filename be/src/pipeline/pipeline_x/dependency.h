@@ -112,6 +112,7 @@ public:
     BasicSharedState* shared_state() { return _shared_state; }
     void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
+    bool ready() const { return _ready; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_watcher() { _watcher.start(); }
@@ -256,11 +257,19 @@ public:
     int64_t registration_time() const { return _registration_time; }
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
+    void set_local_runtime_filter_dependencies(
+            const std::vector<std::shared_ptr<RuntimeFilterDependency>>& deps) {
+        _local_runtime_filter_dependencies = deps;
+    }
+
+    bool should_be_check_timeout();
+
 private:
     friend struct RuntimeFilterTimerQueue;
     std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
-    const int64_t _registration_time;
+    int64_t _registration_time;
     const int32_t _wait_time_ms;
 };
 
@@ -283,11 +292,9 @@ struct RuntimeFilterTimerQueue {
 
     ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
-
-    void push(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) {
+    void push_filter_timer(std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>>&& filter) {
         std::unique_lock<std::mutex> lc(_que_lock);
-        _que.push_back(filter);
+        _que.insert(_que.end(), filter.begin(), filter.end());
         cv.notify_all();
     }
 
