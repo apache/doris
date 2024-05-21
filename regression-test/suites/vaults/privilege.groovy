@@ -17,7 +17,7 @@
 
 import java.util.stream.Collectors;
 
-suite("test_privilege_vault") {
+suite("test_privilege_vault", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip test_privilege_vault case")
         return
@@ -32,7 +32,7 @@ suite("test_privilege_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS ${vault1}
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
+        "fs.defaultFS"="${getHmsHdfsFs()}",
         "path_prefix" = "test_vault_privilege"
         );
     """
@@ -79,7 +79,7 @@ suite("test_privilege_vault") {
                 CREATE STORAGE VAULT IF NOT EXISTS ${vault2}
                 PROPERTIES (
                 "type"="hdfs",
-                "fs.defaultFS"="${getHdfsFs()}",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
                 "path_prefix" = "test_vault_privilege"
                 );
             """
