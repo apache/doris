@@ -22,7 +22,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
-#include <mutext>
+#include <mutex>
 #include <thread>
 
 #include "common/status.h"
