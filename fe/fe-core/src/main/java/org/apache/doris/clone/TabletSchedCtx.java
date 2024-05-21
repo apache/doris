@@ -1137,7 +1137,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
 
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
-                    reportedTablet.getDataSize(), reportedTablet.getRowCount());
+                    reportedTablet.getRemoteDataSize(), reportedTablet.getRowCount());
             if (replica.getLastFailedVersion() > partition.getCommittedVersion()
                     && reportedTablet.getVersion() >= partition.getCommittedVersion()
                     //&& !(reportedTablet.isSetVersionMiss() && reportedTablet.isVersionMiss()
