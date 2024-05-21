@@ -77,7 +77,9 @@ public:
             }
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
-            _buffer.append(src->data, src->size);
+            // This may need a large memory, should return error if could not allocated
+            // successfully, to avoid BE OOM.
+            RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
             _last_value_size = src->size;
             _size_estimate += src->size;
