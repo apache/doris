@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -203,7 +204,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        return CostV1.ofCpu(context.getSessionVariable(), 1);
+        long exprCount = physicalProject.getProjects().stream().filter(proj -> !(proj instanceof Slot)).count();
+        return CostV1.ofCpu(context.getSessionVariable(), exprCount);
     }
 
     @Override
