@@ -19,14 +19,13 @@
 
 #include <glog/logging.h>
 #include <re2/re2.h>
-#include <stdint.h>
-#include <string.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <iterator>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -167,6 +166,8 @@ constexpr int HOUR_PER_DAY = 24;
 constexpr int64_t SECOND_PER_HOUR = 3600;
 constexpr int64_t SECOND_PER_MINUTE = 60;
 
+inline constexpr int S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
 constexpr size_t const_length(const char* str) {
     return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
 }
@@ -200,7 +201,11 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
-static constexpr uint32_t MIN_YEAR = 0;
+static constexpr uint32_t MAX_MONTH = 12;
+static constexpr uint32_t MAX_HOUR = 23;
+static constexpr uint32_t MAX_MINUTE = 59;
+static constexpr uint32_t MAX_SECOND = 59;
+static constexpr uint32_t MAX_MICROSECOND = 999999;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
@@ -1158,31 +1163,58 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    // should do check
     template <TimeUnit unit>
-    void set_time_unit(uint32_t val) {
+    bool set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
         if constexpr (unit == TimeUnit::YEAR) {
+            if (val > MAX_YEAR) [[unlikely]] {
+                return false;
+            }
             date_v2_value_.year_ = val;
         } else if constexpr (unit == TimeUnit::MONTH) {
+            if (val > MAX_MONTH) [[unlikely]] {
+                return false;
+            }
             date_v2_value_.month_ = val;
         } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(date_v2_value_.month_ <= MAX_MONTH);
+            DCHECK(date_v2_value_.month_ != 0);
+            if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
+                !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
+                return false;
+            }
             date_v2_value_.day_ = val;
         } else if constexpr (unit == TimeUnit::HOUR) {
             if constexpr (is_datetime) {
+                if (val > MAX_HOUR) [[unlikely]] {
+                    return false;
+                }
                 date_v2_value_.hour_ = val;
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
             if constexpr (is_datetime) {
+                if (val > MAX_MINUTE) [[unlikely]] {
+                    return false;
+                }
                 date_v2_value_.minute_ = val;
             }
         } else if constexpr (unit == TimeUnit::SECOND) {
             if constexpr (is_datetime) {
+                if (val > MAX_SECOND) [[unlikely]] {
+                    return false;
+                }
                 date_v2_value_.second_ = val;
             }
-        } else if constexpr (unit == TimeUnit::SECOND_MICROSECOND) {
+        } else if constexpr (unit == TimeUnit::MICROSECOND) {
             if constexpr (is_datetime) {
+                if (val > MAX_MICROSECOND) [[unlikely]] {
+                    return false;
+                }
                 date_v2_value_.microsecond_ = val;
             }
         }
+        return true;
     }
     operator int64_t() const { return to_int64(); }
 
