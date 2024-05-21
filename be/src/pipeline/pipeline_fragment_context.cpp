@@ -221,6 +221,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    auto prepare_start = MonotonicNanos();
     _num_instances = request.local_params.size();
     _total_instances = request.__isset.total_instances ? request.total_instances : _num_instances;
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
@@ -320,6 +321,11 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     _init_next_report_time();
 
+    auto prepare_duration = MonotonicNanos() - prepare_start;
+    if (_is_report_success) {
+        LOG(INFO) << "Query " << print_id(_query_id) << " fragment " << _fragment_id
+                  << " prepare time: " << (prepare_duration / 1000000.0) << "ms";
+    }
     _prepared = true;
     return Status::OK();
 }
