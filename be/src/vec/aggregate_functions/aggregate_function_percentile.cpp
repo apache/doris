@@ -45,6 +45,27 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
     return nullptr;
 }
 
+template <bool is_nullable>
+AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    WhichDataType which(argument_type);
+    if (which.idx != TypeIndex::Float64) {
+        return nullptr;
+    }
+    if (argument_types.size() == 3) {
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxWeightedThreeParams<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
+    }
+    if (argument_types.size() == 4) {
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxWeightedFourParams<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
+    }
+    return nullptr;
+}
+
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile",
                                    creator_with_integer_type::creator<AggregateFunctionPercentile>);
@@ -58,5 +79,9 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
                               create_aggregate_function_percentile_approx<false>, false);
     factory.register_function("percentile_approx",
                               create_aggregate_function_percentile_approx<true>, true);
+    factory.register_function("percentile_approx_weighted",
+                              create_aggregate_function_percentile_approx_weighted<false>, false);
+    factory.register_function("percentile_approx_weighted",
+                              create_aggregate_function_percentile_approx_weighted<true>, true);
 }
 } // namespace doris::vectorized
