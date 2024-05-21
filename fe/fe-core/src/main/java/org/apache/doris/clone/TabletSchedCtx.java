@@ -1019,7 +1019,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
 
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
-                    reportedTablet.getDataSize(), reportedTablet.getRowCount());
+                    reportedTablet.getRemoteDataSize(), reportedTablet.getRowCount());
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
             }
