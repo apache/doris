@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <iterator>
 #include <shared_mutex>
@@ -1405,10 +1406,22 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     }
     case WEEK: {
         int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
+        if (day > 0 && ms_diff < 0) {
+            day--;
+        } else if (day < 0 && ms_diff > 0) {
+            day++;
+        }
         return day / 7;
     }
     case DAY: {
         int day = ts_value2.daynr() - ts_value1.daynr();
+        int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
+        if (day > 0 && ms_diff < 0) {
+            day--;
+        } else if (day < 0 && ms_diff > 0) {
+            day++;
+        }
         return day;
     }
     case HOUR: {
