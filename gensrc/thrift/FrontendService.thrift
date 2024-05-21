@@ -515,6 +515,14 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
+
+struct TTxnLoadInfo {
+    1: optional string label
+    2: optional i64 dbId
+    3: optional i64 txnId
+    4: optional i64 timeoutTimestamp
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -546,6 +554,8 @@ struct TMasterOpRequest {
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
     28: optional map<string, Exprs.TExprNode> user_variables
+    // transaction load
+    29: optional TTxnLoadInfo txnLoadInfo
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -577,6 +587,8 @@ struct TMasterOpResult {
     6: optional i32 statusCode;
     7: optional string errMessage;
     8: optional list<binary> queryResultBufList;
+    // transaction load
+    9: optional TTxnLoadInfo txnLoadInfo;
 }
 
 struct TUpdateExportTaskStatusRequest {
