@@ -610,9 +610,8 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
                 cur_digit = precision - scale;
             } else if (!found_dot && max_digit < (precision - scale)) {
                 *result = StringParser::PARSE_OVERFLOW;
-                value = is_negative
-                                ? vectorized::min_decimal_value<DecimalType>(type_precision)
-                                : vectorized::max_decimal_value<DecimalType>(type_precision);
+                value = is_negative ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
                 return value;
             } else if (found_dot && scale >= type_scale && !has_round) {
                 // make rounding cases
@@ -652,10 +651,10 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
                 if (!is_numeric_ascii(c)) {
                     if (cur_digit > type_precision) {
                         *result = StringParser::PARSE_OVERFLOW;
-                        value = is_negative ? vectorized::min_decimal_value<DecimalType>(
-                                                      type_precision)
-                                            : vectorized::max_decimal_value<DecimalType>(
-                                                      type_precision);
+                        value = is_negative
+                                        ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                        : vectorized::max_decimal_value<DecimalType>(
+                                                  type_precision);
                         return value;
                     }
                     return is_negative ? T(-value) : T(value);
