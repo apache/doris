@@ -49,28 +49,35 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
-import org.apache.iceberg.ManifestFile;
+import com.google.common.collect.Sets;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -512,8 +519,8 @@ public class IcebergUtils {
             case MAP:
                 Types.MapType map = (Types.MapType) type;
                 return new MapType(
-                    icebergTypeToDorisType(map.keyType()),
-                    icebergTypeToDorisType(map.valueType())
+                        icebergTypeToDorisType(map.keyType()),
+                        icebergTypeToDorisType(map.valueType())
                 );
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
@@ -553,34 +560,63 @@ public class IcebergUtils {
 
     public static List<String> getPartitions(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
-            org.apache.iceberg.Table table = getIcebergTable(catalog, dbName, name);
-            PartitionSpec spec = table.spec();
-            List<PartitionField> fields = spec.fields();
-            for (PartitionField field:fields) {
-                System.out.println(field.name());
-            }
-            Snapshot currentSnapshot = table.currentSnapshot();
-            // 获取所有清单文件并遍历它们
-            List<ManifestFile> manifestFiles = currentSnapshot.allManifests(table.io());
-            for (ManifestFile manifestFile : manifestFiles) {
-                // 这里你需要读取ManifestFile中的DataFile并提取分区值
-                // 注意：这通常涉及到读取ManifestFile的元数据，并可能需要处理ManifestList等更复杂的情况
-                // Iceberg没有直接提供API来从ManifestFile中获取分区值列表，因此你可能需要解析ManifestFile的元数据
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+            Set<String> partitionNames = Sets.newHashSet();
 
-                // 伪代码：你需要实现这部分逻辑来提取分区值
-                // List<String> filePartitionValues = extractPartitionValuesFromManifestFile(manifestFile);
-                // partitionValues.addAll(filePartitionValues);
+            if (icebergTable.specs().values().stream().allMatch(PartitionSpec::isUnpartitioned)) {
+                return new ArrayList<>();
             }
-            List<String> partitionValues = new ArrayList<>();
-            for (Types.NestedField field : partitionFields) {
-                System.out.println("Partition Field: " + field.name() + " (" + field.type() + ")");
-            }
-            List<String> res = Lists.newArrayList();
 
-            return res;
+            TableScan tableScan = icebergTable.newScan()
+                    .planWith(org.apache.iceberg.util.ThreadPools.newWorkerPool("zdtest",
+                            2));
+            try (CloseableIterable<FileScanTask> fileScanTaskIterable = tableScan.planFiles();
+                    CloseableIterator<FileScanTask> fileScanTaskIterator = fileScanTaskIterable.iterator()) {
+
+                while (fileScanTaskIterator.hasNext()) {
+                    FileScanTask scanTask = fileScanTaskIterator.next();
+                    StructLike partition = scanTask.file().partition();
+                    String partitionName = convertIcebergPartitionToPartitionName(scanTask.spec(), partition);
+                    partitionNames.add(partitionName);
+                }
+            } catch (IOException e) {
+                LOG.warn(e.getMessage(), e);
+            }
+
+            return new ArrayList<>(partitionNames);
         });
     }
 
+    // return partition name in forms of `col1=value1/col2=value2`
+    // if the partition field is explicitly named, use this name without change
+    // if the partition field is not identity transform, column name is appended by its transform name (e.g. col1_hour)
+    // if all partition fields are no longer active (dropped by partition evolution), return "ICEBERG_DEFAULT_PARTITION"
+    public static String convertIcebergPartitionToPartitionName(PartitionSpec partitionSpec, StructLike partition) {
+        StringBuilder sb = new StringBuilder();
+        for (int index = 0; index < partitionSpec.fields().size(); ++index) {
+            PartitionField partitionField = partitionSpec.fields().get(index);
+            // skip inactive partition field
+            if (partitionField.transform().isVoid()) {
+                continue;
+            }
+            org.apache.iceberg.types.Type type = partitionSpec.partitionType().fieldType(partitionField.name());
+            sb.append(partitionField.name());
+            sb.append("=");
+            String value = partitionField.transform().toHumanString(type, getPartitionValue(partition, index,
+                    partitionSpec.javaClasses()[index]));
+            sb.append(value);
+            sb.append("/");
+        }
+
+        if (sb.length() > 0) {
+            return sb.substring(0, sb.length() - 1);
+        }
+        return "ICEBERG_DEFAULT_PARTITION";
+    }
+
+    public static <T> T getPartitionValue(StructLike partition, int position, Class<?> javaClass) {
+        return partition.get(position, (Class<T>) javaClass);
+    }
 
     /**
      * Estimate iceberg table row count.

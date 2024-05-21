@@ -54,6 +54,10 @@ public class IcebergExternalTable extends ExternalTable {
         return Optional.of(new SchemaCacheValue(IcebergUtils.getSchema(catalog, dbName, name)));
     }
 
+    public List<String> getPartitions() {
+        return IcebergUtils.getPartitions(catalog, dbName, name);
+    }
+
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();

@@ -193,10 +193,14 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -1345,10 +1349,10 @@ public class ShowExecutor {
         } else {
             loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
                     .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                        showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
-                        showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
-                        showStmt.isTableNameAccurateMatch(),
-                        showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
+                            showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
+                            showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
+                            showStmt.isTableNameAccurateMatch(),
+                            showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
         }
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
@@ -1548,8 +1552,8 @@ public class ShowExecutor {
             } else {
                 loadJobInfosByDb = ((CloudLoadManager) loadManager)
                         .getLoadJobInfosByDb(db.getId(),
-                        showWarningsStmt.getLabel(),
-                        true, null, null, null, false, null, false, null, false);
+                                showWarningsStmt.getLabel(),
+                                true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
                 return null;
@@ -1847,6 +1851,8 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
             handleShowMaxComputeTablePartitions(showStmt);
+        } else if (showStmt.getCatalog() instanceof IcebergExternalCatalog) {
+            handleShowIcebergTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
@@ -1920,6 +1926,25 @@ public class ShowExecutor {
                 endIndex = rows.size();
             }
             rows = rows.subList(beginIndex, endIndex);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowIcebergTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) (showStmt.getCatalog());
+        List<List<String>> rows = new ArrayList<>();
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        ExternalDatabase<? extends ExternalTable> db = catalog.getDbOrAnalysisException(dbName);
+        ExternalTable table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        List<String> partitionNames = icebergTable.getPartitions();
+
+        /* Filter add rows */
+        for (String partition : partitionNames) {
+            List<String> list = new ArrayList<>();
+            list.add(partition);
+            rows.add(list);
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -2480,12 +2505,12 @@ public class ShowExecutor {
         if (showStmt.showAllJobs()) {
             int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
+                    ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
         } else {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv())
-                                    .getCacheHotspotMgr()
-                                    .getSingleJobInfo(showStmt.getJobId()));
+                    ((CloudEnv) Env.getCurrentEnv())
+                            .getCacheHotspotMgr()
+                            .getSingleJobInfo(showStmt.getJobId()));
         }
     }
 
@@ -3187,7 +3212,7 @@ public class ShowExecutor {
         ShowStageStmt showStmt = (ShowStageStmt) stmt;
         try {
             List<Cloud.StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                            .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
+                    .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
             if (stages == null) {
                 throw new AnalysisException("get stage err");
             }
