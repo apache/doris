@@ -149,6 +149,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _ctz(ctz),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false),
           _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
@@ -169,6 +171,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _file_system(nullptr),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
     _init_system_properties();
     _init_file_description();
@@ -192,6 +195,7 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+        COUNTER_UPDATE(_orc_profile.filter_block_time, _statistics.filter_block_time);
 
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
@@ -225,6 +229,8 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
+        _orc_profile.filter_block_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
     }
 }
 
@@ -684,7 +690,7 @@ bool static build_search_argument(std::vector<OrcPredicate>& predicates, int ind
 
 bool OrcReader::_init_search_argument(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range->empty()) {
+    if (_enable_filter_by_min_max || colname_to_value_range->empty()) {
         return false;
     }
     std::vector<OrcPredicate> predicates;
@@ -1605,8 +1611,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             return Status::OK();
         }
         _execute_filter_position_delete_rowids(*_filter);
-
-        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, *_filter));
+        {
+            SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, columns_to_filter, *_filter));
+        }
         if (!_not_single_slot_filter_conjuncts.empty()) {
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             RETURN_IF_CATCH_EXCEPTION(
@@ -1733,8 +1742,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 return Status::OK();
             }
             _execute_filter_position_delete_rowids(result_filter);
-            RETURN_IF_CATCH_EXCEPTION(
-                    Block::filter_block_internal(block, columns_to_filter, result_filter));
+            {
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
+                RETURN_IF_CATCH_EXCEPTION(
+                        Block::filter_block_internal(block, columns_to_filter, result_filter));
+            }
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 RETURN_IF_CATCH_EXCEPTION(
@@ -1748,15 +1760,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         } else {
             if (_delete_rows_filter_ptr) {
                 _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter,
                                                                        (*_delete_rows_filter_ptr)));
             } else {
                 std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                 _execute_filter_position_delete_rowids(*filter);
+                SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, (*filter)));
             }
-
             Block::erase_useless_column(block, column_to_keep);
             static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }

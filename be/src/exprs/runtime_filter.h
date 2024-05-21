@@ -209,9 +209,9 @@ public:
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
               _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)),
+              _profile(
+                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                     _filter_id, to_string(_runtime_filter_type)))),
               _need_local_merge(need_local_merge) {}
 
     ~IRuntimeFilter() = default;
@@ -244,6 +244,8 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
+    bool has_local_target() const { return _has_local_target; }
+
     bool is_ready() const {
         return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
                (_enable_pipeline_exec &&
@@ -252,7 +254,6 @@ public:
     RuntimeFilterState current_state() const {
         return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
     }
-    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
@@ -309,7 +310,7 @@ public:
 
     void init_profile(RuntimeProfile* parent_profile);
 
-    std::string& get_name() { return _name; }
+    std::string debug_string() const;
 
     void update_runtime_filter_type_to_profile();
 
@@ -440,7 +441,6 @@ protected:
     std::atomic<bool> _profile_init = false;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
-    std::string _name;
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;

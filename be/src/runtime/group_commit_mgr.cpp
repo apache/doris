@@ -57,7 +57,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         }
     }
     if (UNLIKELY(runtime_state->is_cancelled())) {
-        return Status::Cancelled<false>(runtime_state->cancel_reason());
+        return runtime_state->cancel_reason();
     }
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
@@ -134,7 +134,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
     }
     if (runtime_state->is_cancelled()) {
-        auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
+        auto st = runtime_state->cancel_reason();
         _cancel_without_lock(st);
         return st;
     }

@@ -294,6 +294,9 @@ struct TQueryOptions {
   108: optional i64 local_exchange_free_blocks_limit;
 
   109: optional bool enable_force_spill = false;
+
+  110: optional bool enable_parquet_filter_by_min_max = true
+  111: optional bool enable_orc_filter_by_min_max = true
   
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
@@ -698,13 +701,6 @@ struct TExportStatusResult {
     3: optional list<string> files
 }
 
-struct TTopnFilterDesc {
-  1: required i32 source_node_id
-  2: required bool is_asc
-  3: required bool null_first
-  4: required Exprs.TExpr src_expr
-}
-
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
   2: optional bool build_hash_table_for_broadcast_join = false;
@@ -714,7 +710,7 @@ struct TPipelineInstanceParams {
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
   8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
-  9: optional list<TTopnFilterDesc> topn_filter_descs
+  9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
 
 // ExecPlanFragment

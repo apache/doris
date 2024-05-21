@@ -411,7 +411,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
 
-        RETURN_IF_ERROR(cnt_val->filter->merge_from(holder.getHandle()->get()));
+        auto st = cnt_val->filter->merge_from(holder.getHandle()->get());
+        if (!st) {
+            // prevent error ignored
+            DCHECK(false) << st.msg();
+            return st;
+        }
+
         cnt_val->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cnt_val->arrive_id.size();
         // TODO: avoid log when we had acquired a lock

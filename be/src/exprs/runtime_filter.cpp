@@ -364,9 +364,11 @@ public:
     }
 
     bool get_build_bf_cardinality() const {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
-        return _context->bloom_filter_func->get_build_bf_cardinality();
+        if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+            _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            return _context->bloom_filter_func->get_build_bf_cardinality();
+        }
+        return false;
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -1227,44 +1229,6 @@ bool IRuntimeFilter::wait_infinitely() const {
            (_wrapper != nullptr && _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER);
 }
 
-bool IRuntimeFilter::is_ready_or_timeout() {
-    DCHECK(is_consumer());
-    auto cur_state = _rf_state_atomic.load(std::memory_order_acquire);
-    int64_t ms_since_registration = MonotonicMillis() - registration_time_;
-    if (!_enable_pipeline_exec) {
-        _rf_state = RuntimeFilterState::TIME_OUT;
-        return true;
-    } else if (is_ready()) {
-        if (cur_state == RuntimeFilterState::NOT_READY) {
-            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
-        }
-        return true;
-    } else {
-        if (cur_state == RuntimeFilterState::NOT_READY) {
-            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
-        }
-        if (is_ready()) {
-            return true;
-        }
-        bool timeout = wait_infinitely() ? false : _rf_wait_time_ms <= ms_since_registration;
-        auto expected = RuntimeFilterState::NOT_READY;
-        if (timeout) {
-            if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::TIME_OUT,
-                                                          std::memory_order_acq_rel)) {
-                DCHECK(expected == RuntimeFilterState::READY ||
-                       expected == RuntimeFilterState::TIME_OUT);
-                return true;
-            }
-            return true;
-        }
-        if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::NOT_READY,
-                                                      std::memory_order_acq_rel)) {
-            return true;
-        }
-        return false;
-    }
-}
-
 PrimitiveType IRuntimeFilter::column_type() const {
     return _wrapper->column_type();
 }
@@ -1522,15 +1486,21 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
 }
 
+std::string IRuntimeFilter::debug_string() const {
+    return fmt::format(
+            "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
+            "build_bf_cardinality: {}",
+            _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
+            _wrapper->get_build_bf_cardinality());
+}
+
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     auto status = _wrapper->merge(wrapper);
     if (!status) {
-        LOG(WARNING) << "runtime filter merge failed: " << _name
-                     << " ,need_local_merge: " << _need_local_merge
-                     << " ,is_broadcast: " << _is_broadcast_join;
-        DCHECK(false); // rpc response is often ignored, so let it crash directly here
+        return Status::InternalError("runtime filter merge failed: {}, error_msg: {}",
+                                     debug_string(), status.msg());
     }
-    return status;
+    return Status::OK();
 }
 
 template <typename T>

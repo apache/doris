@@ -346,8 +346,8 @@ public:
     }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,
+    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
     const TabletIndex* get_inverted_index(const TabletColumn& col) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,

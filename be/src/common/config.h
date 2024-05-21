@@ -1344,6 +1344,9 @@ DECLARE_mInt64(hdfs_jni_write_max_retry_time);
 DECLARE_Int64(min_nonblock_close_thread_num);
 // The max thread num for NonBlockCloseThreadPool
 DECLARE_Int64(max_nonblock_close_thread_num);
+// The possibility that mem allocator throws an exception during memory allocation
+// This config is for test usage, be careful when changing it.
+DECLARE_mDouble(mem_alloc_fault_probability);
 
 #ifdef BE_TEST
 // test s3

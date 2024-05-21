@@ -63,6 +63,7 @@ github:
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
           - Need_2_Approval
+          - performance (Doris Performance)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
