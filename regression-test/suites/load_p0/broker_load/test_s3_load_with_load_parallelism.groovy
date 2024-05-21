@@ -73,17 +73,12 @@ suite("test_s3_load_with_load_parallelism", "load_p0") {
             )
             WITH S3 (
                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+               "AWS_SECRET_KEY" = "$sk",
+               "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
+               "AWS_REGION" = "ap-beijing"
            )
             ${prop}
             """
-     //   "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-    //   "AWS_ACCESS_KEY" = "AKIDd9RVMzIOI0V7Wlnbr9JG0WrhJk28zc2H",
-    //   "AWS_SECRET_KEY"="4uWxMhqnW3Plz97sPjqlSUXO1RhokRuO",
-    //   "AWS_REGION" = "ap-beijing"
- 
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$attributes.label" order by createtime desc limit 1; """
