@@ -120,11 +120,13 @@ public:
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
+    // Just used for BE UT
     int64_t cache_mem_usage() const { return _cache_mem_usage; }
 
 private:
     SegmentLoader();
     std::unique_ptr<SegmentCache> _segment_cache;
+    // Just used for BE UT
     int64_t _cache_mem_usage = 0;
 };
 
