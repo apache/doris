@@ -215,6 +215,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
+            RuleType.STORAGE_LAYER_WITH_PROJECT_NO_SLOT_REF.build(
+                    logicalProject(
+                            logicalOlapScan()
+                    )
+                    .thenApply(ctx -> {
+                        LogicalProject<LogicalOlapScan> project = ctx.root;
+                        LogicalOlapScan olapScan = project.child();
+                        return pushDownCountWithoutSlotRef(project, olapScan, ctx.cascadesContext);
+                    })
+            ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
                 logicalAggregate(
                     logicalProject(
@@ -304,6 +314,45 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .thenApplyMulti(ctx -> fourPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             )
         );
+    }
+
+    /*
+     *  select 66 from baseall_dup; could use pushAggOp=COUNT to not scan real data.
+     */
+    private LogicalProject<? extends Plan> pushDownCountWithoutSlotRef(
+            LogicalProject<? extends Plan> project,
+            LogicalOlapScan logicalScan,
+            CascadesContext cascadesContext) {
+        final LogicalProject<? extends Plan> canNotPush = project;
+        if (!enablePushDownNoGroupAgg()) {
+            return canNotPush;
+        }
+        if (logicalScan != null) {
+            KeysType keysType = logicalScan.getTable().getKeysType();
+            if (keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+        }
+        List<Expression> projectExpr = project.getProjects()
+                .stream()
+                .map(p -> p instanceof Alias ? p.child(0) : p)
+                .collect(ImmutableList.toImmutableList());
+        boolean noSlotRef = projectExpr.stream().allMatch(expr -> {
+            if (expr instanceof SlotReference) {
+                return false;
+            }
+            return true;
+        });
+        if (!noSlotRef) {
+            return canNotPush;
+        }
+        PhysicalOlapScan physicalOlapScan
+                = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                .build()
+                .transform(logicalScan, cascadesContext)
+                .get(0);
+        return project.withChildren(ImmutableList.of(new PhysicalStorageLayerAggregate(
+                physicalOlapScan, PushDownAggOp.COUNT)));
     }
 
     private boolean enablePushDownMinMaxOnUnique() {
