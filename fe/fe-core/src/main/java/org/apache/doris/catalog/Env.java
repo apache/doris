@@ -1387,8 +1387,9 @@ public class Env {
             } else {
                 if (journalVersion <= FeMetaVersion.VERSION_114) {
                     // if journal version is less than 114, which means it is upgraded from version before 2.0.
-                    // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query remain unchanged
-                    // when switch to pipeline engine, otherwise it may impact the load of entire cluster
+                    // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query
+                    // remain unchanged when switch to pipeline engine,
+                    // otherwise it may impact the load of entire cluster
                     // because the default parallelism of pipeline engine is higher than previous version.
                     // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
                     int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
