@@ -1519,7 +1519,10 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     {
         std::lock_guard<std::mutex> lock(_lock);
-        query_context = _query_ctx_map[query_id];
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter != _query_ctx_map.end()) {
+            query_context = iter->second;
+        }
     }
 
     if (query_context == nullptr) {
