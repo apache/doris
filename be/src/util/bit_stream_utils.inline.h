@@ -21,12 +21,14 @@
 #pragma once
 
 #include <algorithm>
+#include <bitset>
 
 #include "glog/logging.h"
 #include "util/alignment.h"
 #include "util/bit_packing.inline.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_util.h"
+#include "util/debug_util.h"
 
 using doris::BitUtil;
 
@@ -36,6 +38,10 @@ inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     DCHECK_LE(num_bits, 64);
     // Truncate the higher-order bits. This is necessary to
     // support signed values.
+    // LOG(WARNING) << fmt::format("Put value's corresponding binary represent {}, {}, {}",
+    //                             std::bitset<64>(v).to_string(), 
+    //                             std::bitset<64>(v & (~0ULL >> (64 - num_bits))).to_string(),
+    //                             std::bitset<64>(buffered_values_).to_string());
     v &= ~0ULL >> (64 - num_bits);
 
     buffered_values_ |= v << bit_offset_;
@@ -86,10 +92,12 @@ void BitWriter::PutAligned(T val, int num_bytes) {
     memcpy(ptr, &val, num_bytes);
 }
 
-inline void BitWriter::PutVlqInt(int32_t v) {
+inline void BitWriter::PutVlqInt(uint32_t v) {
+    [[maybe_unused]] int num_bytes = 0;
     while ((v & 0xFFFFFF80) != 0L) {
         PutAligned<uint8_t>((v & 0x7F) | 0x80, 1);
         v >>= 7;
+        DCHECK_LE(++num_bytes, MAX_VLQ_BYTE_LEN);
     }
     PutAligned<uint8_t>(v & 0x7F, 1);
 }

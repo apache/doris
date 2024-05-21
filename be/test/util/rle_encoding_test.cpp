@@ -82,6 +82,7 @@ void ValidateRle(const std::vector<T>& values, int bit_width, uint8_t* expected_
 }
 
 TEST(Rle, SpecificSequences) {
+    // google::SetStderrLogging(google::GLOG_WARNING);
     const int kTestLen = 1024;
     uint8_t expected_buffer[kTestLen];
     std::vector<uint64_t> values;
@@ -101,10 +102,12 @@ TEST(Rle, SpecificSequences) {
     expected_buffer[2] = (50 << 1);
     expected_buffer[3] = 1;
     for (int width = 1; width <= 8; ++width) {
+        // LOG(WARNING) << fmt::format("Validate width {}", width);
         ValidateRle(values, width, expected_buffer, 4);
     }
 
     for (int width = 9; width <= kMaxWidth; ++width) {
+        // LOG(WARNING) << fmt::format("Validate width {}, but expected_encoding is null", width);
         ValidateRle(values, width, nullptr, 2 * (1 + BitUtil::Ceil(width, 8)));
     }
 
@@ -120,14 +123,17 @@ TEST(Rle, SpecificSequences) {
     // Values for the last 4 0 and 1's
     expected_buffer[1 + 100 / 8] = BOOST_BINARY(0 0 0 0 1 0 1 0); // 0x0a
 
+    // LOG(WARNING) << fmt::format("Validate 0 1 alternating");
     // num_groups and expected_buffer only valid for bit width = 1
     ValidateRle(values, 1, expected_buffer, 1 + num_groups);
     for (int width = 2; width <= kMaxWidth; ++width) {
+        // LOG(WARNING) << fmt::format("Validate width {}, but expected_encoding is null", width);
         ValidateRle(values, width, nullptr, 1 + BitUtil::Ceil(width * 100, 8));
     }
 }
 
-TEST(Rle, ExitLengthLargerThanInt32) {
+// It might take near 300 seconds to pass this test or it would be one endless loop if it fails
+TEST(Rle, ExitLengthLargerThenInt32) {
     std::vector<uint64_t> values;
     values.resize(0x40000000, 0);
 
