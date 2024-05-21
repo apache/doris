@@ -625,7 +625,7 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     }
 
     cur_pipe->_name.push_back('-');
-    cur_pipe->_name.append(std::to_string(op->id()));
+    cur_pipe->_name.append(std::to_string(op->node_id()));
     cur_pipe->_name.append(op->get_name());
 
     // rely on that tnodes is preorder of the plan
