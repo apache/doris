@@ -120,7 +120,7 @@ public:
 private:
     std::atomic<bool> _has_called;
     // std::once_flag _once_flag;
-    std::mutex _flag_lock;
+    mutable std::mutex _flag_lock;
     std::exception_ptr _eptr;
     ReturnType _status;
 };
