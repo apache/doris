@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remote_tvf") {
+suite("test_s3_tvf_compression", "p0") {
     
     String ak = getS3AK()
     String sk = getS3SK()
