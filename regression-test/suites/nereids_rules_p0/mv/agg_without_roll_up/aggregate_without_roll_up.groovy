@@ -1125,7 +1125,7 @@ suite("aggregate_without_roll_up") {
             sum_union(sum_state(o_shippriority)),
             group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
-            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            max_by_union(max_by_state(O_COMMENT,o_totalprice)),
             count_union(count_state(l_orderkey)),
             multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1142,7 +1142,7 @@ suite("aggregate_without_roll_up") {
             sum(o_shippriority),
             group_concat(o_orderpriority),
             avg(l_linenumber),
-            max_by(l_shipmode,l_suppkey),
+            max_by(O_COMMENT,o_totalprice),
             count(l_orderkey),
             multi_distinct_count(l_shipmode)
             from lineitem
@@ -1167,7 +1167,7 @@ suite("aggregate_without_roll_up") {
             sum_merge(sum_state(o_shippriority)),
             group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
-            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            max_by_merge(max_by_state(O_COMMENT,o_totalprice)),
             count_merge(count_state(l_orderkey)),
             multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1184,7 +1184,7 @@ suite("aggregate_without_roll_up") {
             sum(o_shippriority),
             group_concat(o_orderpriority),
             avg(l_linenumber),
-            max_by(l_shipmode,l_suppkey),
+            max_by(O_COMMENT,o_totalprice),
             count(l_orderkey),
             multi_distinct_count(l_shipmode)
             from lineitem
@@ -1212,7 +1212,7 @@ suite("aggregate_without_roll_up") {
             sum_union(sum_state(o_shippriority)),
             group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
-            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            max_by_union(max_by_state(O_COMMENT,o_totalprice)),
             count_union(count_state(l_orderkey)),
             multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1229,7 +1229,7 @@ suite("aggregate_without_roll_up") {
             sum_union(sum_state(o_shippriority)),
             group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
-            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            max_by_union(max_by_state(O_COMMENT,o_totalprice)),
             count_union(count_state(l_orderkey)),
             multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1253,7 +1253,7 @@ suite("aggregate_without_roll_up") {
             sum_union(sum_state(o_shippriority)),
             group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
-            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            max_by_union(max_by_state(O_COMMENT,o_totalprice)),
             count_union(count_state(l_orderkey)),
             multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1270,7 +1270,7 @@ suite("aggregate_without_roll_up") {
             sum_merge(sum_state(o_shippriority)),
             group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
-            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            max_by_merge(max_by_state(O_COMMENT,o_totalprice)),
             count_merge(count_state(l_orderkey)),
             multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1295,7 +1295,7 @@ suite("aggregate_without_roll_up") {
             sum_merge(sum_state(o_shippriority)),
             group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
-            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            max_by_merge(max_by_state(O_COMMENT,o_totalprice)),
             count_merge(count_state(l_orderkey)),
             multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1312,7 +1312,7 @@ suite("aggregate_without_roll_up") {
             sum_merge(sum_state(o_shippriority)),
             group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
-            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            max_by_merge(max_by_state(O_COMMENT,o_totalprice)),
             count_merge(count_state(l_orderkey)),
             multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1337,7 +1337,7 @@ suite("aggregate_without_roll_up") {
             sum_merge(sum_state(o_shippriority)),
             group_concat_merge(group_concat_state(o_orderpriority)),
             avg_merge(avg_state(l_linenumber)),
-            max_by_merge(max_by_state(l_shipmode, l_suppkey)),
+            max_by_merge(max_by_state(O_COMMENT,o_totalprice)),
             count_merge(count_state(l_orderkey)),
             multi_distinct_count_merge(multi_distinct_count_state(l_shipmode))
             from lineitem
@@ -1354,7 +1354,7 @@ suite("aggregate_without_roll_up") {
             sum_union(sum_state(o_shippriority)),
             group_concat_union(group_concat_state(o_orderpriority)),
             avg_union(avg_state(l_linenumber)),
-            max_by_union(max_by_state(l_shipmode, l_suppkey)),
+            max_by_union(max_by_state(O_COMMENT,o_totalprice)),
             count_union(count_state(l_orderkey)),
             multi_distinct_count_union(multi_distinct_count_state(l_shipmode))
             from lineitem
