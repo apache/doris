@@ -62,36 +62,41 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
     return Status::OK();
 }
 
-bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
-    if (!*_blocked_by_rf) {
-        return true;
-    }
-    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        if (!runtime_filter->is_ready_or_timeout()) {
-            return false;
-        }
-    }
-    *_blocked_by_rf = false;
-    return true;
-}
-
 void RuntimeFilterConsumer::init_runtime_filter_dependency(
         std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
                 runtime_filter_dependencies,
         const int id, const int node_id, const std::string& name) {
     runtime_filter_dependencies.resize(_runtime_filter_descs.size());
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
+            _runtime_filter_descs.size());
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>
+            local_runtime_filter_dependencies;
+
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
                 id, node_id, name, runtime_filter);
         _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
-        auto filter_timer = std::make_shared<pipeline::RuntimeFilterTimer>(
+        runtime_filter_timers[i] = std::make_shared<pipeline::RuntimeFilterTimer>(
                 runtime_filter->registration_time(), runtime_filter->wait_time_ms(),
                 runtime_filter_dependencies[i]);
-        runtime_filter->set_filter_timer(filter_timer);
-        ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(filter_timer);
+        runtime_filter->set_filter_timer(runtime_filter_timers[i]);
+        if (runtime_filter->has_local_target()) {
+            local_runtime_filter_dependencies.emplace_back(runtime_filter_dependencies[i]);
+        }
     }
+
+    // The gloabl runtime filter timer need set local runtime filter dependencies.
+    // start to wait before the local runtime filter ready
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        if (!runtime_filter->has_local_target()) {
+            runtime_filter_timers[i]->set_local_runtime_filter_dependencies(
+                    local_runtime_filter_dependencies);
+        }
+    }
+    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
+            std::move(runtime_filter_timers));
 }
 
 Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {

@@ -244,6 +244,8 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
+    bool has_local_target() const { return _has_local_target; }
+
     bool is_ready() const {
         return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
                (_enable_pipeline_exec &&
@@ -252,7 +254,6 @@ public:
     RuntimeFilterState current_state() const {
         return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
     }
-    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }

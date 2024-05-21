@@ -411,10 +411,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
             }
             return le_state_map;
         };
-        auto get_task_runtime_state = [&](int task_id) -> RuntimeState* {
-            DCHECK(_task_runtime_states[task_id]);
-            return _task_runtime_states[task_id].get();
-        };
+
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
             if (pipeline->need_to_create_task()) {
@@ -428,10 +425,10 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_unique<PipelineTask>(
-                        pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
-                        pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
-                        i);
+                auto task = std::make_unique<PipelineTask>(pipeline, cur_task_id,
+                                                           task_runtime_state.get(), this,
+                                                           pipeline_id_to_profile[pip_idx].get(),
+                                                           get_local_exchange_state(pipeline), i);
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
