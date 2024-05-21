@@ -169,7 +169,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                        tbl.getTimeSeriesCompactionLevelThreshold());
+                        tbl.getTimeSeriesCompactionLevelThreshold(),
+                        tbl.disableAutoCompaction());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -215,7 +216,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-            Long timeSeriesCompactionLevelThreshold) throws DdlException {
+            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -328,6 +329,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.addIndex(index.toPb(schemaColumns));
             }
         }
+        schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
+
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
         // rowset
