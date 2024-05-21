@@ -90,6 +90,7 @@ protected:
     }
 
     bool _storage_no_merge() override {
+        LOG(ERROR) << "yangsiyu 4: " << _olap_scan_node.keyType;
         return (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
                 (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
                  _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
