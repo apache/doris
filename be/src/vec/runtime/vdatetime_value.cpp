@@ -3064,7 +3064,8 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         if (date_v2_value_.day_ > S_DAYS_IN_MONTH[this->month()]) {
             date_v2_value_.day_ = S_DAYS_IN_MONTH[this->month()];
             if (this->month() == 2 && doris::is_leap(this->year())) {
-                PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
+                PROPAGATE_FALSE(
+                        this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
             }
         }
     }
